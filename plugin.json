@@ -1,0 +1,5 @@
+{
+  "name": "Watchdog",
+  "version": "1.0.0",
+  "dependencies": ["LibNodeGraph", "LibNodeGraphStd"]
+}
