@@ -25,6 +25,12 @@ local Events = {
 -- GameKey.F8, GameKey.P, GameKey.SPACE, ...). Change this one string to rebind.
 local TOGGLE_KEY = "F8"
 
+if Plugin.HasPermission(PluginPermissions.httpAccess) then
+    log("Watchdog: plugin has HTTP access")
+else
+    log("Watchdog: plugin does NOT have HTTP access")
+end
+
 --- Registry + node types ----------------------------------------------------------------
 
 local registry = LibNodeGraph.NewRegistry()

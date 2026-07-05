@@ -1,5 +1,10 @@
 {
   "name": "Watchdog",
-  "version": "1.0.0",
-  "dependencies": ["LibNodeGraph", "LibNodeGraphStd"]
+  "version": "0.1.0",
+  "dependencies": ["LibNodeGraph", "LibNodeGraphStd"],
+  "optionalPermissions": ["httpAccess"],
+  "urls": {
+    "elevenlabs": "https://elevenlabs.io/",
+    "github": "https://github.com/"
+  }
 }
