@@ -62,9 +62,7 @@ Theme.COL_VIEWPORT_BG = col(26, 26, 30, 1.0)
 Theme.COL_GRID        = col(40, 40, 47, 1.0)
 Theme.COL_GRID_MAJOR  = col(52, 52, 60, 1.0)
 
-Theme.COL_WINDOW_HEADER = col(38, 38, 46, 1.0)
 Theme.COL_WINDOW_BORDER = col(12, 12, 15, 1.0)
-Theme.COL_WINDOW_TITLE  = col(220, 222, 230, 1.0)
 
 -- Palette popup + its toolbar launcher.
 Theme.COL_PALETTE_BG        = col(32, 32, 38, 0.98)
@@ -73,9 +71,6 @@ Theme.COL_PALETTE_HEADER_BG = col(48, 48, 58, 1.0)
 Theme.COL_PALETTE_HEADER_TX = col(150, 190, 230, 1.0)  -- category label
 Theme.COL_PALETTE_HOVER     = col(60, 70, 90, 1.0)      -- row under the cursor
 Theme.COL_PALETTE_TEXT      = col(220, 222, 230, 1.0)
-Theme.COL_TOOLBAR_BTN       = col(58, 58, 70, 1.0)
-Theme.COL_TOOLBAR_PLUS      = col(220, 222, 230, 1.0)
-Theme.COL_TOOLBAR_CLOSE     = col(220, 222, 230, 1.0)
 
 Theme.COL_NODE_BODY   = col(43, 43, 48, 0.96)
 Theme.COL_NODE_BORDER = col(15, 15, 18, 1.0)
