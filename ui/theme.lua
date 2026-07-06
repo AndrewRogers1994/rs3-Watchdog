@@ -46,6 +46,16 @@ Theme.WINDOW_H        = 560
 Theme.WINDOW_HEADER_H = 28
 Theme.WINDOW_TITLE    = "Watchdog — Node Graph"
 
+--- Palette (screen-space popup) + toolbar -----------------------------------------------
+
+Theme.PALETTE_W     = 220   -- popup width (clamped to the Viewport if narrower)
+Theme.PALETTE_ROW_H = 20    -- uniform row height (headers and items share it)
+Theme.PALETTE_PAD   = 6      -- inner padding above/below the row list
+
+-- Two clicks pairing into a double-click that opens the Palette on empty space.
+Theme.DOUBLECLICK_TICKS = 12  -- Logic ticks (~0.02s each) allowed between the two clicks
+Theme.DOUBLECLICK_DIST  = 6   -- max screen-px drift between the two clicks
+
 --- Colors --------------------------------------------------------------------------
 
 Theme.COL_VIEWPORT_BG = col(26, 26, 30, 1.0)
@@ -55,6 +65,17 @@ Theme.COL_GRID_MAJOR  = col(52, 52, 60, 1.0)
 Theme.COL_WINDOW_HEADER = col(38, 38, 46, 1.0)
 Theme.COL_WINDOW_BORDER = col(12, 12, 15, 1.0)
 Theme.COL_WINDOW_TITLE  = col(220, 222, 230, 1.0)
+
+-- Palette popup + its toolbar launcher.
+Theme.COL_PALETTE_BG        = col(32, 32, 38, 0.98)
+Theme.COL_PALETTE_BORDER    = col(12, 12, 15, 1.0)
+Theme.COL_PALETTE_HEADER_BG = col(48, 48, 58, 1.0)
+Theme.COL_PALETTE_HEADER_TX = col(150, 190, 230, 1.0)  -- category label
+Theme.COL_PALETTE_HOVER     = col(60, 70, 90, 1.0)      -- row under the cursor
+Theme.COL_PALETTE_TEXT      = col(220, 222, 230, 1.0)
+Theme.COL_TOOLBAR_BTN       = col(58, 58, 70, 1.0)
+Theme.COL_TOOLBAR_PLUS      = col(220, 222, 230, 1.0)
+Theme.COL_TOOLBAR_CLOSE     = col(220, 222, 230, 1.0)
 
 Theme.COL_NODE_BODY   = col(43, 43, 48, 0.96)
 Theme.COL_NODE_BORDER = col(15, 15, 18, 1.0)

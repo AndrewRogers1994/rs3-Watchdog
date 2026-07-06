@@ -13,10 +13,11 @@
 -- receives clicks outside it. Dragging the Window header moves the rect (and pans content
 -- with it); a keybind (wired in main) toggles visibility.
 
-local Theme = require("ui/theme")
-local View  = require("ui/view")
-local Node  = require("ui/node")
-local Wire  = require("ui/wire")
+local Theme   = require("ui/theme")
+local View    = require("ui/view")
+local Node    = require("ui/node")
+local Wire    = require("ui/wire")
+local Palette = require("ui/palette")
 
 local Editor = {}
 Editor.__index = Editor
@@ -35,6 +36,13 @@ function Editor.new(graph, registry, layout)
         mode = "idle",             -- idle | pan | dragnode | wire | dragwindow
         selected = nil,
         visible = true,
+        palette = Palette.new(),   -- the Node-creation popup (modal while open)
+        tick = 0,                  -- Logic-tick counter, for double-click timing
+        lastClickTick = -1000,     -- tick of the previous press (double-click pairing)
+        lastClickX = 0,
+        lastClickY = 0,
+        plusRect = nil,            -- toolbar "+" hit rect, recomputed each drawChrome
+        closeRect = nil,           -- toolbar "x" hit rect, recomputed each drawChrome
         window = {                 -- screen-space rect the editor occupies
             x = Theme.WINDOW_X, y = Theme.WINDOW_Y,
             w = Theme.WINDOW_W, h = Theme.WINDOW_H,
@@ -178,12 +186,43 @@ function Editor:beginPress()
     if self.pressed or not self.visible then return end
     local mx, my = mousePos()
     if mx == nil then return end
-    self.pressed = true
     self.mouse.x, self.mouse.y = mx, my
 
-    -- Grow the Capture Layer to full-screen for the duration of this gesture, so the
-    -- release (and continued tracking) still reaches us if the cursor leaves the Window.
-    -- Restored to Window size in endPress.
+    -- The Palette is modal: while it's open, a click either picks a Node Type or dismisses
+    -- it — never a drag gesture, so this is handled before pressed/expandCapture.
+    if self.palette.open then
+        self:handlePaletteClick(mx, my)
+        return
+    end
+
+    -- The toolbar "x" hides the Window (also not a drag). Checked before the header test
+    -- below, since the button lives inside the header strip.
+    if self:hitCloseButton(mx, my) then
+        self:SetVisible(false)
+        self.lastClickTick = -1000
+        return
+    end
+
+    -- The toolbar "+" opens the unfiltered Palette (also not a drag). Checked before the
+    -- header test below, since the button lives inside the header strip.
+    if self:hitPlusButton(mx, my) then
+        local r = self.plusRect
+        self:openPaletteUnfiltered(r.x, r.y + r.h)
+        self.lastClickTick = -1000
+        return
+    end
+
+    -- Pair this press with the previous one for double-click detection (recorded for every
+    -- press; only acted on when the second click lands on empty space, below).
+    local dbl = (self.tick - self.lastClickTick) <= Theme.DOUBLECLICK_TICKS
+        and math.abs(mx - self.lastClickX) <= Theme.DOUBLECLICK_DIST
+        and math.abs(my - self.lastClickY) <= Theme.DOUBLECLICK_DIST
+    self.lastClickTick, self.lastClickX, self.lastClickY = self.tick, mx, my
+
+    -- From here it's a real drag gesture. Grow the Capture Layer to full-screen for its
+    -- duration, so the release (and continued tracking) still reaches us if the cursor
+    -- leaves the Window. Restored to Window size in endPress.
+    self.pressed = true
     self:expandCapture()
 
     -- Pressing the Window header drags the whole Window.
@@ -213,6 +252,14 @@ function Editor:beginPress()
         return
     end
 
+    -- Empty space: a double-click opens the Palette; a single click starts a pan.
+    if dbl then
+        self.pressed = false          -- not a drag after all
+        self:positionCapture()
+        self.lastClickTick = -1000    -- consume so a 3rd click isn't a fresh double
+        self:openPaletteUnfiltered(mx, my)
+        return
+    end
     self.selected = nil
     self.mode = "pan"
 end
@@ -241,6 +288,7 @@ end
 
 -- Per-tick drag application (driven by Event.Logic poll in main).
 function Editor:update()
+    self.tick = self.tick + 1   -- advances even without a cursor, for double-click timing
     local mx, my = mousePos()
     if mx == nil then return end
 
@@ -284,13 +332,39 @@ function Editor:endPress()
     self:positionCapture()  -- shrink the Capture Layer back to the Window
 end
 
+-- Commits one output->input link, honoring the engine rules the UI enforces: a Data input
+-- takes a single Connection (the engine hard-asserts on a second) so the existing one is
+-- replaced first, and Connect itself is guarded because it can still reject a cycle — a bad
+-- link must never crash the frame. Shared by Wire drops and Palette auto-connect.
+function Editor:linkPins(outNode, outPin, inNode, inPin, isData)
+    if isData then
+        local existing = self:connectionInto(inNode, inPin)
+        if existing ~= nil then self.graph:Disconnect(existing.id) end
+    end
+    local ok, err = pcall(function()
+        self.graph:Connect(outNode, outPin, inNode, inPin)
+    end)
+    if not ok and log ~= nil then
+        log("Watchdog: connect rejected — " .. tostring(err))
+    end
+    return ok
+end
+
 -- Resolves the pending Wire against whatever pin is under the cursor and connects if
--- legal. A miss (or illegal drop) simply discards — and if the gesture began by grabbing
--- a Connection off an input, that Connection stays removed (drop-on-empty = delete).
+-- legal. A miss inside the Viewport opens the Palette filtered to Node Types that can
+-- accept this Wire (drag-to-create); a miss outside, or an illegal drop, simply discards —
+-- and if the gesture began by grabbing a Connection off an input, that Connection stays
+-- removed (drop-on-empty = delete).
 function Editor:commitWire()
     local mx, my = self.mouse.x, self.mouse.y
     local target = self:pinAt(mx, my)
-    if target == nil then return end
+    if target == nil then
+        local vx, vy, vw, vh = self:viewportRect()
+        if mx >= vx and mx <= vx + vw and my >= vy and my <= vy + vh then
+            self:openPaletteFiltered(mx, my, self.wire)
+        end
+        return
+    end
 
     local a, b = self.wire, target
     local outEnd, inEnd
@@ -309,18 +383,94 @@ function Editor:commitWire()
         return
     end
 
-    -- Data inputs take a single Connection (engine hard-asserts on a second): replace.
-    if inEnd.entry.kind == "data" then
-        local existing = self:connectionInto(inEnd.nodeId, inEnd.entry.name)
-        if existing ~= nil then self.graph:Disconnect(existing.id) end
-    end
+    self:linkPins(outEnd.nodeId, outEnd.entry.name, inEnd.nodeId, inEnd.entry.name,
+        inEnd.entry.kind == "data")
+end
 
-    -- Connect can still reject (a cycle); guard so a bad drop never crashes the frame.
-    local ok, err = pcall(function()
-        self.graph:Connect(outEnd.nodeId, outEnd.entry.name, inEnd.nodeId, inEnd.entry.name)
-    end)
-    if not ok and log ~= nil then
-        log("Watchdog: connect rejected — " .. tostring(err))
+--- Palette (Node creation) --------------------------------------------------------------
+
+-- The toolbar "+" hit-test (uses the rect drawn last frame; nil before the first draw).
+function Editor:hitPlusButton(sx, sy)
+    local r = self.plusRect
+    if r == nil then return false end
+    return sx >= r.x and sx <= r.x + r.w and sy >= r.y and sy <= r.y + r.h
+end
+
+-- The toolbar "x" hit-test (uses the rect drawn last frame; nil before the first draw).
+function Editor:hitCloseButton(sx, sy)
+    local r = self.closeRect
+    if r == nil then return false end
+    return sx >= r.x and sx <= r.x + r.w and sy >= r.y and sy <= r.y + r.h
+end
+
+-- Opens the Palette listing every Node Type; the new Node lands where it was opened.
+function Editor:openPaletteUnfiltered(sx, sy)
+    local gx, gy = self.view:ToGraph(sx, sy)
+    self.palette:Open(self.registry, nil,
+        { screenX = sx, screenY = sy, anchorGX = gx, anchorGY = gy, connect = nil })
+    self.mode = "idle"
+    self.selected = nil
+end
+
+-- Opens the Palette filtered to Node Types with a Pin that could receive `source` (the
+-- dragged Wire's Pin): matching kind, opposite direction, and (for Data) a compatible
+-- Type Tag. The first such Pin per type is recorded as the auto-connect target.
+function Editor:openPaletteFiltered(sx, sy, source)
+    local gx, gy = self.view:ToGraph(sx, sy)
+    local want = source.entry
+    local wantDir = (want.direction == "out") and "in" or "out"
+    local filter = function(def)
+        for _, pinName in ipairs(def.pinOrder) do
+            local p = def.pins[pinName]
+            if p.kind == want.kind and p.direction == wantDir then
+                if p.kind ~= "data" or dataCompatible(p.dataType, want.dataType) then
+                    return pinName
+                end
+            end
+        end
+        return nil
+    end
+    self.palette:Open(self.registry, filter, {
+        screenX = sx, screenY = sy, anchorGX = gx, anchorGY = gy,
+        connect = { nodeId = source.nodeId, entry = source.entry },
+    })
+end
+
+-- Routes a click while the Palette is open: pick an item, or dismiss on an outside click.
+function Editor:handlePaletteClick(mx, my)
+    local row = self.palette:RowAt(mx, my)
+    if row ~= nil then
+        self:placeFromPalette(row)
+    elseif not self.palette:Contains(mx, my) then
+        self.palette:Close()
+    end
+    -- A click on a header row or inner padding is ignored, keeping the Palette open.
+end
+
+-- Creates the chosen Node Type at the Palette's anchor and, in drag-to-create mode,
+-- auto-connects the source Pin to the recorded target Pin.
+function Editor:placeFromPalette(row)
+    local anchorGX, anchorGY = self.palette.anchorGX, self.palette.anchorGY
+    local connect = self.palette.connect
+    local targetPin = row.targetPin
+    self.palette:Close()
+
+    local ok, newId = pcall(function() return self.graph:AddNode(row.typeKey) end)
+    if not ok or newId == nil then
+        if log ~= nil then log("Watchdog: AddNode failed — " .. tostring(newId)) end
+        return
+    end
+    self.layout[newId] = { x = anchorGX, y = anchorGY }
+    self:bringToFront(newId)
+    self.selected = newId
+
+    if connect ~= nil and targetPin ~= nil then
+        local src = connect.entry
+        if src.direction == "out" then
+            self:linkPins(connect.nodeId, src.name, newId, targetPin, src.kind == "data")
+        else
+            self:linkPins(newId, targetPin, connect.nodeId, src.name, src.kind == "data")
+        end
     end
 end
 
@@ -330,6 +480,11 @@ function Editor:onScroll(...)
         if type(v) == "number" then delta = v break end
     end
     if delta == nil or delta == 0 then return end
+    -- While the Palette is open the wheel scrolls its list instead of zooming the View.
+    if self.palette.open then
+        self.palette:Scroll(delta)
+        return
+    end
     local mx, my = mousePos()
     if mx == nil then mx, my = self.mouse.x, self.mouse.y end
     local factor = delta > 0 and (1 / 1.1) or 1.1
@@ -380,6 +535,35 @@ function Editor:drawChrome()
         self.canvas:AddText(win.x + 10, win.y + 6, Theme.WINDOW_TITLE, font,
             Theme.Vec4(Theme.COL_WINDOW_TITLE))
     end
+
+    -- Toolbar "x" at the header's right edge — hides the Window.
+    local bs = Theme.WINDOW_HEADER_H - 10
+    local xbx = win.x + win.w - bs - 6
+    local xby = win.y + 5
+    self.closeRect = { x = xbx, y = xby, w = bs, h = bs }
+    self.canvas:AddRectangle(xbx, xby, bs, bs, Theme.Vec4(Theme.COL_TOOLBAR_BTN))
+    self.canvas:AddOutline(xbx, xby, bs, bs, 1, Theme.Vec4(Theme.COL_WINDOW_BORDER))
+    do
+        local cx, cy = xbx + bs * 0.5, xby + bs * 0.5
+        local arm = bs * 0.24
+        local closeCol = Theme.Vec4(Theme.COL_TOOLBAR_CLOSE)
+        -- Two diagonal bars forming an "x", each a thin rotated rectangle drawn as a
+        -- sequence of short segments (AddLine gives us the rotation for free).
+        self.canvas:AddLine(cx - arm, cy - arm, cx + arm, cy + arm, 2, closeCol)
+        self.canvas:AddLine(cx - arm, cy + arm, cx + arm, cy - arm, 2, closeCol)
+    end
+
+    -- Toolbar "+" immediately to the left of "x" — opens the unfiltered Palette.
+    local bx = xbx - bs - 6
+    local by = win.y + 5
+    self.plusRect = { x = bx, y = by, w = bs, h = bs }
+    self.canvas:AddRectangle(bx, by, bs, bs, Theme.Vec4(Theme.COL_TOOLBAR_BTN))
+    self.canvas:AddOutline(bx, by, bs, bs, 1, Theme.Vec4(Theme.COL_WINDOW_BORDER))
+    local cx, cy = bx + bs * 0.5, by + bs * 0.5
+    local arm = bs * 0.28
+    local plusCol = Theme.Vec4(Theme.COL_TOOLBAR_PLUS)
+    self.canvas:AddRectangle(cx - arm, cy - 1.5, arm * 2, 3, plusCol)
+    self.canvas:AddRectangle(cx - 1.5, cy - arm, 3, arm * 2, plusCol)
 end
 
 function Editor:drawConnections()
@@ -431,6 +615,11 @@ function Editor:draw()
 
     self:drawPendingWire()
     self:drawChrome()
+
+    -- The Palette draws last, on top of the chrome, clamped inside the Viewport.
+    if self.palette.open then
+        self.palette:Draw(self.canvas, vx, vy, vw, vh, self.mouse.x, self.mouse.y)
+    end
 end
 
 --- Visibility ----------------------------------------------------------------------------
@@ -476,11 +665,13 @@ end
 function Editor:SetVisible(v)
     self.visible = v and true or false
     if not self.visible then
-        -- Abandon any in-progress gesture so we don't resume mid-drag when reshown.
+        -- Abandon any in-progress gesture (and dismiss the Palette) so nothing resumes
+        -- mid-interaction when reshown.
         self.pressed = false
         self.mode = "idle"
         self.wire = nil
         self.dragNodeId = nil
+        self.palette:Close()
     end
     if self.canvas ~= nil then
         pcall(function() self.canvas.hidden = not self.visible end)

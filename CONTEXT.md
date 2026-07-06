@@ -72,4 +72,19 @@ _Avoid_: Line, edge, link (for the model — that stays "Connection")
 The Editor's mapping from an engine Type Tag (opaque string, e.g. "bool", "coord") to a
 draw color for Data Pin Glyphs and their Wires. Owned by the Editor, since the engine is
 deliberately tag-agnostic; Execution Pins/Wires use a fixed neutral color outside this map.
-_Avoid_: Pin color, tag color (in prose), palette
+_Avoid_: Pin color, tag color (in prose); "palette" (that word names the Palette below)
+
+**Palette**:
+The plugin-drawn popup for creating Nodes: a scrollable list of the Registry's Node Types
+grouped by Category, drawn on the Editor's Canvas and hit-tested manually like everything
+else. Deliberately NOT the native RuneScape MiniMenu, which cannot be extended (ADR-0003).
+Modal while open. Opened filtered (Drag-to-Create) or unfiltered (double-click empty
+Viewport / the toolbar +). Named after Unreal Blueprints' palette.
+_Avoid_: Catalog, menu, context menu, MiniMenu, node browser
+
+**Drag-to-Create**:
+Creating a Node by dragging a Wire off a Pin and releasing it on empty Viewport: opens the
+Palette filtered to Node Types with a Pin that can receive the Wire, and auto-connects the
+chosen Node's matching Pin. The typed, one-gesture creation path (as opposed to the
+unfiltered double-click / toolbar-+ path).
+_Avoid_: Pull-to-create, drag-off, quick-connect
