@@ -12,19 +12,17 @@ end
 local Editor = require("ui/graph")
 local Store  = require("store")
 
-if LibPluginPanel ~= nil then
-    LibPluginPanel.Unregister("watchdog")
-    LibPluginPanel.Register({
+if LibPluginMenu ~= nil then
+    LibPluginMenu.Unregister("watchdog")
+    LibPluginMenu.Register({
         id = "watchdog",
         name = "Watchdog",
-        -- icon = 0x1F6A8,  -- 🚨
         icon = "W",
         -- icon = id.Sprite.AIF_COINS_ICON,
         onClick = function()
             pcall(function() Watchdog.editor:Toggle() end)
         end
     })
-    LibPluginPanel.Test(Plugin)
 end
 
 -- Names used to Subscribe/Unsubscribe each event we hook. Events are sandboxed per-plugin
@@ -53,6 +51,7 @@ local registry = LibNodeGraph.NewRegistry()
 LibNodeGraphStd.Register(registry)
 require("nodes/triggers/chat").Register(registry)
 require("nodes/actions/log").Register(registry)
+require("nodes/actions/sound").Register(registry)
 
 --- Graph: restore the saved one, or seed a demo on first run -----------------------------
 -- Persistence backend lives in store.lua (multi-graph, keyed by name). We only ever show
@@ -65,7 +64,7 @@ require("nodes/actions/log").Register(registry)
 local function seedDemo()
     local graph = LibNodeGraph.NewGraph(registry)
 
-    local chatNode = graph:AddNode("trigger.chat", { contains = "hello" })
+    local chatNode = graph:AddNode("trigger.chat", { contains = "Hello" })
     local logNode  = graph:AddNode("action.log")
     local addNode  = graph:AddNode("std.add", { a = 2, b = 3 })
     local mulNode  = graph:AddNode("std.multiply", { a = 4, b = 5 })

@@ -1,7 +1,7 @@
 {
   "name": "Watchdog",
   "version": "0.1.0",
-  "dependencies": ["LibNodeGraph", "LibNodeGraphStd", "LibPluginPanel"],
+  "dependencies": ["LibNodeGraph", "LibNodeGraphStd", "LibPluginMenu"],
   "optionalPermissions": ["httpAccess"],
   "urls": {
     "elevenlabs": "https://elevenlabs.io/",

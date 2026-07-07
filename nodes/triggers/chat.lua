@@ -18,7 +18,8 @@ function Chat.Register(registry)
             if type(message) ~= "string" then
                 return
             end
-            log(formatStr("Got chat message: {}|{}", ctx.payload.chatType, message))
+            local type = ChatType.FromID(ctx.payload.chatType)
+            log(formatStr("Got chat message: {}|{}", type, message))
             local needle = ctx:In("contains")
             if needle ~= nil and needle ~= "" and not string.find(message, needle) then
                 return
