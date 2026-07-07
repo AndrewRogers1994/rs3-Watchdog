@@ -23,6 +23,8 @@ Theme.PIN_MARGIN_X     = 10    -- inset of a pin glyph's center from the node ed
 Theme.PIN_GLYPH        = 12    -- pin glyph bounding size (square/triangle extent)
 Theme.PIN_LABEL_GAP    = 8     -- gap between a pin glyph and its label
 Theme.PIN_HIT_PAD      = 4     -- extra hit-test padding around a pin glyph
+Theme.CLOSE_SIZE       = 14    -- delete-button glyph bounding size, in the header
+Theme.CLOSE_MARGIN     = 14    -- inset of the close glyph's center from the node's right edge
 Theme.BORDER_THICKNESS = 2
 Theme.WIRE_THICKNESS   = 3
 Theme.WIRE_SEGMENTS    = 16    -- straight segments a bezier Wire is tessellated into
@@ -39,8 +41,8 @@ Theme.ZOOM_MAX = 2.0
 
 --- Window (screen-space) ----------------------------------------------------------------
 
-Theme.WINDOW_X        = 220
-Theme.WINDOW_Y        = 140
+Theme.WINDOW_X        = 420
+Theme.WINDOW_Y        = 340
 Theme.WINDOW_W        = 900
 Theme.WINDOW_H        = 560
 Theme.WINDOW_HEADER_H = 28
@@ -77,6 +79,11 @@ Theme.COL_NODE_BORDER = col(15, 15, 18, 1.0)
 Theme.COL_NODE_SEL    = col(240, 160, 32, 1.0)  -- selected/hovered node border
 Theme.COL_TITLE       = col(240, 240, 244, 1.0)
 Theme.COL_PIN_LABEL   = col(198, 200, 208, 1.0)
+
+-- Header delete button: muted by default, reddening when the cursor is over it.
+Theme.COL_CLOSE       = col(210, 210, 216, 1.0)
+Theme.COL_CLOSE_HOT   = col(255, 120, 120, 1.0)
+Theme.COL_CLOSE_BG    = col(150, 40, 40, 0.85)  -- hover backing behind the glyph
 
 -- Execution pins and wires use one fixed neutral color (they carry no Type Tag).
 Theme.COL_EXEC        = col(242, 242, 242, 1.0)

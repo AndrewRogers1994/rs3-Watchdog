@@ -10,6 +10,22 @@ if Watchdog ~= nil and Watchdog.Stop ~= nil then
 end
 
 local Editor = require("ui/graph")
+local Store  = require("store")
+
+if LibPluginPanel ~= nil then
+    LibPluginPanel.Unregister("watchdog")
+    LibPluginPanel.Register({
+        id = "watchdog",
+        name = "Watchdog",
+        -- icon = 0x1F6A8,  -- 🚨
+        icon = "W",
+        -- icon = id.Sprite.AIF_COINS_ICON,
+        onClick = function()
+            pcall(function() Watchdog.editor:Toggle() end)
+        end
+    })
+    LibPluginPanel.Test(Plugin)
+end
 
 -- Names used to Subscribe/Unsubscribe each event we hook. Events are sandboxed per-plugin
 -- by the client, so these don't need a plugin-specific prefix — just enough to be unique
@@ -38,42 +54,72 @@ LibNodeGraphStd.Register(registry)
 require("nodes/triggers/chat").Register(registry)
 require("nodes/actions/log").Register(registry)
 
---- Demo graph + Layout ------------------------------------------------------------------
--- A small, deliberately varied graph so the Editor has real content: an event flow
--- (Chat Trigger -> Log, exec + data) and a pure data chain (Add -> Multiply).
+--- Graph: restore the saved one, or seed a demo on first run -----------------------------
+-- Persistence backend lives in store.lua (multi-graph, keyed by name). We only ever show
+-- one graph today — the current one — but the store already saves many by name so the
+-- future "new graph / switch graph" UI is purely additive.
 
-local graph = LibNodeGraph.NewGraph(registry)
+-- The demo graph, built only when there's nothing saved yet: a small, deliberately varied
+-- graph so the Editor has real content — an event flow (Chat Trigger -> Log, exec + data)
+-- and a pure data chain (Add -> Multiply).
+local function seedDemo()
+    local graph = LibNodeGraph.NewGraph(registry)
 
-local chatNode = graph:AddNode("trigger.chat", { contains = "hello" })
-local logNode  = graph:AddNode("action.log")
-local addNode  = graph:AddNode("std.add", { a = 2, b = 3 })
-local mulNode  = graph:AddNode("std.multiply", { a = 4, b = 5 })
+    local chatNode = graph:AddNode("trigger.chat", { contains = "hello" })
+    local logNode  = graph:AddNode("action.log")
+    local addNode  = graph:AddNode("std.add", { a = 2, b = 3 })
+    local mulNode  = graph:AddNode("std.multiply", { a = 4, b = 5 })
 
--- Guard each connect so one bad edge can't stop the plugin from loading.
-local function tryConnect(fromN, fromP, toN, toP)
-    local ok, err = pcall(function() graph:Connect(fromN, fromP, toN, toP) end)
-    if not ok and log ~= nil then
-        log("Watchdog: demo connect failed — " .. tostring(err))
+    -- Guard each connect so one bad edge can't stop the plugin from loading.
+    local function tryConnect(fromN, fromP, toN, toP)
+        local ok, err = pcall(function() graph:Connect(fromN, fromP, toN, toP) end)
+        if not ok and log ~= nil then
+            log("Watchdog: demo connect failed — " .. tostring(err))
+        end
+    end
+
+    tryConnect(chatNode, "out", logNode, "in")
+    tryConnect(chatNode, "message", logNode, "message")
+    tryConnect(addNode, "result", mulNode, "a")
+
+    local layout = {
+        [chatNode] = { x = 80,  y = 90 },
+        [logNode]  = { x = 460, y = 110 },
+        [addNode]  = { x = 80,  y = 360 },
+        [mulNode]  = { x = 460, y = 380 },
+    }
+
+    return graph, layout
+end
+
+local document = Store.Load()
+
+-- Try the saved current graph; fall back to the demo if there's nothing to restore or the
+-- restore fails (corrupt save, a node type no longer registered, ...).
+local graph, layout, view
+do
+    local ok, g, l, v = pcall(function() return Store.Restore(document, registry) end)
+    if ok and g ~= nil then
+        graph, layout, view = g, l, v
+    else
+        if not ok and log ~= nil then
+            log("Watchdog: restore failed, seeding demo — " .. tostring(g))
+        end
+        graph, layout = seedDemo()
+        Store.UpsertCurrent(document, "default", graph, layout, nil)
+        Store.Save(document)
     end
 end
 
-tryConnect(chatNode, "out", logNode, "in")
-tryConnect(chatNode, "message", logNode, "message")
-tryConnect(addNode, "result", mulNode, "a")
+-- The name of the graph we're editing; every save writes back under this name.
+local currentName = document.current or "default"
 
-local layout = {
-    [chatNode] = { x = 80,  y = 90 },
-    [logNode]  = { x = 460, y = 110 },
-    [addNode]  = { x = 80,  y = 360 },
-    [mulNode]  = { x = 460, y = 380 },
-}
-
-local editor = Editor.new(graph, registry, layout)
+local editor = Editor.new(graph, registry, layout, view)
 
 --- Client root parent (interface may not be loaded yet; retried on the Logic loop) ------
 
 local function getRootParent()
-    local candidates = { "TOPLEVEL_V2__ROOT", "TOPLEVEL__ROOT", "TOPLEVEL_V2__GAME_AREA" }
+    local candidates = { "TOPLEVEL_V2__GAME_AREA" }
     for _, key in ipairs(candidates) do
         local componentID = id.Component[key]
         if componentID ~= nil then
@@ -91,6 +137,27 @@ end
 
 local state = { mounted = false }
 
+-- Debounced autosave, but only while the editor Window is open — that's the only time the
+-- graph can be edited, so during normal play we stay off persistentdb entirely instead of
+-- re-encoding every couple of seconds. (The saved document is pure graph structure +
+-- controls + Layout/View; runtime node state is never serialized, so a closed editor has
+-- nothing new to save anyway.) While open, rather than thread a "dirty" flag through every
+-- interaction we periodically re-encode and persist only when the encoding actually changed
+-- -- graphs are tiny, so this diff is cheap. ~2s cadence at the ~0.02s Logic tick. On the
+-- open -> closed transition we flush once so edits made right before closing aren't lost.
+local SAVE_INTERVAL_TICKS = 100
+local saveState = { tick = 0, wasOpen = false, lastEncoded = Store.Encode(document) }
+
+local function persistNow()
+    Store.UpsertCurrent(document, currentName, editor.graph, editor:GetLayout(), editor:GetView())
+    local encoded = Store.Encode(document)
+    if encoded ~= nil and encoded ~= saveState.lastEncoded then
+        if Store.Save(document) then
+            saveState.lastEncoded = encoded
+        end
+    end
+end
+
 local function onLogic()
     if not state.mounted then
         local parent = getRootParent()
@@ -105,6 +172,20 @@ local function onLogic()
         return
     end
     pcall(function() editor:update() end)
+
+    -- Persist only during an editing session (Window open); flush once when it closes.
+    local isOpen = editor:IsVisible()
+    if isOpen then
+        saveState.tick = saveState.tick + 1
+        if saveState.tick >= SAVE_INTERVAL_TICKS then
+            saveState.tick = 0
+            pcall(persistNow)
+        end
+    elseif saveState.wasOpen then
+        saveState.tick = 0
+        pcall(persistNow)
+    end
+    saveState.wasOpen = isOpen
 end
 
 local function onDraw()
@@ -118,6 +199,9 @@ end
 local api = {}
 
 function api.Stop()
+    -- Flush the latest edits before tearing down, so a reload (which calls the previous
+    -- instance's Stop first) doesn't lose work done since the last autosave tick.
+    pcall(persistNow)
     pcall(function() Event.Logic.Unsubscribe(Events.Logic) end)
     pcall(function() Event.Draw.Unsubscribe(Events.Draw) end)
     pcall(function() Event.ChatMessage.Unsubscribe(Events.ChatMessage) end)
@@ -128,6 +212,7 @@ end
 
 api.editor = editor
 api.graph = graph
+api.document = document  -- the persisted multi-graph document, exposed for inspection
 
 Event.Logic.Subscribe(Events.Logic, onLogic)
 Event.Draw.Subscribe(Events.Draw, onDraw)
@@ -142,9 +227,14 @@ Event.KeyDown.Subscribe(Events.KeyDown, function(keyEvent)
     end
 end)
 
--- Live firing of the Chat Trigger.
+-- Live firing of the Chat Triggers. The restored graph may hold any number of them (and
+-- the node ids are no longer known statically), so fire every Chat Trigger node.
 Event.ChatMessage.Subscribe(Events.ChatMessage, function(chatMessageEvent)
-    pcall(function() graph:Fire(chatNode, chatMessageEvent) end)
+    for _, node in ipairs(graph:GetNodes()) do
+        if node.typeKey == "trigger.chat" then
+            pcall(function() graph:Fire(node.id, chatMessageEvent) end)
+        end
+    end
 end)
 
 Watchdog = api

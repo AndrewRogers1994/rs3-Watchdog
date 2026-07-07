@@ -33,9 +33,19 @@ _Avoid_: World space, model space, canvas space
 
 **Layout**:
 The UI-owned mapping from a Node's id to its Graph-space position. The engine deliberately
-stores no positions, so the Editor owns Layout. Prototype-transient (in memory); not yet
-persisted.
+stores no positions, so the Editor owns Layout. Persisted alongside the graph (see Store) as
+part of a saved graph, keyed by node id — which round-trips only because the engine now
+preserves node ids across serialize/deserialize.
 _Avoid_: Positions (as a concept name), coordinates, placement, arrangement
+
+**Store**:
+Watchdog's persistence backend (`store.lua`): saves and restores graphs via `PersistentDB`.
+LibNodeGraph never persists (it owns only tables/strings, ADR-0007); the Store is the
+consumer half. It bundles the engine's serialized structure with the UI-only Layout and View
+into one document and writes it as a single JSON string. Multi-graph from the start — the
+document holds an array of named graph entries plus a `current` pointer — even though the
+Editor shows only the current one and there is no new/switch-graph UI yet.
+_Avoid_: Database, save system, persistence layer (in prose), serializer (that's the engine's)
 
 **Capture Layer**:
 A single full-screen, visually-empty interactive component sitting over the Canvas whose

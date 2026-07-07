@@ -30,8 +30,9 @@ local Editor = {}
 Editor.__index = Editor
 
 -- graph, registry: the live LibNodeGraph objects. layout: optional { [id] = {x,y} }.
-function Editor.new(graph, registry, layout)
-    return setmetatable({
+-- view: optional restored { panX, panY, zoom }; when given, Mount skips its default framing.
+function Editor.new(graph, registry, layout, view)
+    local self = setmetatable({
         graph = graph,
         registry = registry,
         view = View.new(),
@@ -42,7 +43,7 @@ function Editor.new(graph, registry, layout)
         pressed = false,
         mode = "idle",             -- idle | pan | dragnode | wire | dragwindow
         selected = nil,
-        visible = true,
+        visible = false,           -- starts closed; opened via F8 / the panel button
         palette = Palette.new(),   -- the Node-creation popup (modal while open)
         tick = 0,                  -- Logic-tick counter, for double-click timing
         lastClickTick = -1000,     -- tick of the previous press (double-click pairing)
@@ -59,6 +60,33 @@ function Editor.new(graph, registry, layout)
         plusButton = nil,          -- real Button, top-right of the GroupBox
         closeButton = nil,         -- real Button, top-right of the GroupBox
     }, Editor)
+
+    -- A restored View overrides the default framing Mount would otherwise apply.
+    if view ~= nil then
+        self.view.panX = view.panX or self.view.panX
+        self.view.panY = view.panY or self.view.panY
+        self.view.zoom = view.zoom or self.view.zoom
+        self._viewProvided = true
+    end
+
+    return self
+end
+
+-- Current View as a plain, persistable table (see store.lua). Read live, so it reflects
+-- whatever the user last panned/zoomed to.
+function Editor:GetView()
+    return { panX = self.view.panX, panY = self.view.panY, zoom = self.view.zoom }
+end
+
+-- The live Layout map (nodeId -> {x,y}); mutated in place as nodes are dragged/created.
+function Editor:GetLayout()
+    return self.layout
+end
+
+-- Whether the editor Window is currently open. Editing only happens while it's shown, so
+-- the host uses this to persist only during an editing session (see main.lua's autosave).
+function Editor:IsVisible()
+    return self.visible
 end
 
 -- The content region: x, y, w, h, in GroupBox-local space. Covers the WHOLE box, including
@@ -72,16 +100,23 @@ function Editor:viewportRect()
     return 0, 0, win.w, win.h
 end
 
--- Whether a local-space point is inside the Window's header strip.
+-- Whether a local-space point is inside the Window's header strip. `local` space is the
+-- Canvas draw frame (see toLocal), whose Y=0 is the TOP of the content area; the header sits
+-- just above it, so in local space it spans Y [-WINDOW_HEADER_H, 0].
 function Editor:inHeader(sx, sy)
     local win = self.window
-    return sx >= 0 and sx <= win.w and sy >= 0 and sy <= Theme.WINDOW_HEADER_H
+    return sx >= 0 and sx <= win.w and sy >= -Theme.WINDOW_HEADER_H and sy <= 0
 end
 
--- Converts an absolute screen point (e.g. from Mouse.GetPosition()) into the GroupBox's
--- local frame, which is what every draw call and hit-test in this file works in.
+-- Converts an absolute screen point (e.g. from Mouse.GetPosition()) into the Canvas's
+-- draw frame, which is what every draw call and hit-test in this file works in. The Canvas
+-- is a child of the GroupBox and starts BELOW the GroupBox's reserved header strip, so a
+-- screen point's content-local Y is offset down by the header height — subtract it here so
+-- `local` space lines up with where the Canvas actually paints (otherwise nodes, wires, and
+-- popups all read one header-height too low). Ties to the same WINDOW_HEADER_H used for
+-- SetHeaderLayout so the two can't drift.
 function Editor:toLocal(sx, sy)
-    return sx - self.window.x, sy - self.window.y
+    return sx - self.window.x, sy - self.window.y - Theme.WINDOW_HEADER_H
 end
 
 --- Small helpers ------------------------------------------------------------------------
@@ -203,11 +238,40 @@ function Editor:nodeAt(sx, sy)
     return nil
 end
 
+-- Topmost node whose header delete button is under a screen point: nodeId or nil.
+function Editor:closeAt(sx, sy)
+    for i = #self.nodeOrder, 1, -1 do
+        local id = self.nodeOrder[i]
+        local geom = self.geoms[id]
+        if geom ~= nil and Node.HitClose(geom, self.view, sx, sy) then
+            return id
+        end
+    end
+    return nil
+end
+
 function Editor:connectionInto(nodeId, pinName)
     for _, c in ipairs(self.graph:GetConnections()) do
         if c.toNode == nodeId and c.toPin == pinName then return c end
     end
     return nil
+end
+
+-- Removes a node from the Graph (the engine cascades its Connections) and drops the UI-only
+-- state that referenced it: its Layout entry, cached geometry, z-order slot, and selection.
+-- buildGeoms would prune the geom/order next frame anyway, but clearing them here keeps any
+-- later hit-tests within this same press consistent.
+function Editor:deleteNode(nodeId)
+    self.graph:RemoveNode(nodeId)
+    self.layout[nodeId] = nil
+    self.geoms[nodeId] = nil
+    if self.selected == nodeId then self.selected = nil end
+    for i, id in ipairs(self.nodeOrder) do
+        if id == nodeId then
+            table.remove(self.nodeOrder, i)
+            break
+        end
+    end
 end
 
 --- Interaction ---------------------------------------------------------------------------
@@ -252,7 +316,20 @@ function Editor:beginPress()
     if self:inHeader(lx, ly) then
         self.selected = nil
         self.mode = "dragwindow"
-        self.dragWinDX, self.dragWinDY = lx, ly  -- grab offset, local == the click's own offset
+        -- Grab offset in true Window-frame space (matches the absolute mouse coords the
+        -- dragwindow branch subtracts it from) — NOT the header-adjusted local coords.
+        self.dragWinDX, self.dragWinDY = mx - self.window.x, my - self.window.y
+        return
+    end
+
+    -- A node's header delete button takes priority over its body/pins beneath it. Deleting
+    -- isn't a drag, so unwind the gesture setup (pressed/capture) the way the double-click
+    -- branch does before returning.
+    local hitClose = self:closeAt(lx, ly)
+    if hitClose ~= nil then
+        self.pressed = false
+        self:positionCapture()
+        self:deleteNode(hitClose)
         return
     end
 
@@ -591,7 +668,8 @@ function Editor:draw()
         local geom = self.geoms[id]
         if geom ~= nil and self:geomVisible(geom, vx, vy, vw, vh) then
             Node.Draw(self.canvas, self.view, geom, self:meta(id, geom.typeKey),
-                { selected = (id == self.selected) })
+                { selected = (id == self.selected),
+                  mouseX = self.mouse.x, mouseY = self.mouse.y })
         end
     end
 
@@ -737,9 +815,12 @@ function Editor:Mount(parent)
     -- a Button falls straight through to the Capture behind.
     pcall(function() self.groupBox:MoveToFront() end)
 
-    -- Position content inside the Window on first mount (local space now).
-    self.view.panX = 30
-    self.view.panY = Theme.WINDOW_HEADER_H + 30
+    -- Position content inside the Window on first mount (local space now) — unless a
+    -- persisted View was restored (see Editor.new), in which case honor the saved pan/zoom.
+    if not self._viewProvided then
+        self.view.panX = 30
+        self.view.panY = Theme.WINDOW_HEADER_H + 30
+    end
 
     self:SetVisible(self.visible)
 end
@@ -762,9 +843,8 @@ function Editor:mountGroupBox(parent)
 
     -- headerWidth is a Uint8 (0..255) in the docs even though the Window itself is wider —
     -- clamp rather than pass the raw Window width and risk it wrapping/clamping oddly.
-    log(win.w)
     local ok2, err2 = pcall(function()
-        self.groupBox:SetHeaderLayout(math.min(win.w, 255), 32,
+        self.groupBox:SetHeaderLayout(math.min(win.w, 255), Theme.WINDOW_HEADER_H,
             0, 0, ui.GroupBoxHeaderAlignMode.LEFT)
     end)
     if not ok2 and log ~= nil then log("Watchdog: SetHeaderLayout failed — " .. tostring(err2)) end
@@ -786,12 +866,11 @@ function Editor:mountGroupBox(parent)
     -- self.groupBox.headerBackgroundSprite.sprite = Plugin.resources.images.ToolbarCategoryLogistics
 
 
-    -- Zero the content margin so the child Canvas fills the WHOLE box from its true top-left
-    -- (local 0,0 == the Window's screen origin), instead of being inset below the header into
-    -- the default content region. This is what makes `toLocal` exact — otherwise every
-    -- hit-test is off by the header/margin height and the native header floats above the
-    -- Canvas outline. The Canvas itself still leaves its top WINDOW_HEADER_H px unpainted
-    -- (viewportRect starts there), so the native header draws cleanly over that strip.
+    -- Zero the content margin so child components (the +/x toolbar Buttons) aren't inset by
+    -- the GroupBox's default padding. NOTE: this does NOT move the child Canvas's draw origin
+    -- — the Canvas still starts below the reserved header strip (SetHeaderLayout height). That
+    -- header inset is compensated for in `toLocal`, which is what actually keeps hit-tests
+    -- lined up with what the Canvas paints.
     pcall(function() self.groupBox.contentMargin = ui.Margin.new() end)
     self.groupBox:MoveToFront()
 
@@ -816,6 +895,7 @@ function Editor:mountGroupBox(parent)
         -- Local coordinates (the GroupBox's own frame) — matches the button's own position.
         self:openPaletteUnfiltered(win.w - 2 * bs - 12, 5 + bs)
     end)
+    self.plusButton.cursorConfig.mouseOverCursor = id.Cursor.CURSOR_GOTO
 end
 
 function Editor:Unmount()

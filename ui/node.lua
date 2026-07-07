@@ -29,6 +29,10 @@ function Node.BuildGeometry(pins, x, y, width)
 
     local geom = { x = x, y = y, w = width, h = height, pins = {}, byName = {} }
 
+    -- Delete button center, in the header, Graph-space relative to the node origin. Shared
+    -- by Draw and HitClose so the glyph and its hit-target can't disagree.
+    geom.close = { cx = width - Theme.CLOSE_MARGIN, cy = Theme.HEADER_HEIGHT * 0.5 }
+
     local function place(list, cx)
         for i, pin in ipairs(list) do
             local cy = Theme.HEADER_HEIGHT + Theme.BODY_PAD_TOP
@@ -68,7 +72,8 @@ local function calcTextWidth(fontID, text)
 end
 
 -- Draws the node body, header, title, and pin glyphs/labels through the View.
--- meta = { title, category }; opts = { selected = bool }.
+-- meta = { title, category }; opts = { selected = bool, mouseX, mouseY } — the local-space
+-- cursor (opts.mouseX/Y) lets the header delete button light up when hovered.
 function Node.Draw(canvas, view, geom, meta, opts)
     opts = opts or {}
     local sx, sy = view:ToScreen(geom.x, geom.y)
@@ -92,6 +97,23 @@ function Node.Draw(canvas, view, geom, meta, opts)
                 sy + headerH * 0.5 - view:Scale(8),
                 meta.title, font, Theme.Vec4(Theme.COL_TITLE))
         end
+    end
+
+    -- Header delete button (an X). Only shown when the header is legible (title zoom),
+    -- matching HitClose so an invisible button is never clickable.
+    if showTitle and geom.close ~= nil then
+        local ccx, ccy = view:ToScreen(geom.x + geom.close.cx, geom.y + geom.close.cy)
+        local half = view:Scale(Theme.CLOSE_SIZE) * 0.5
+        local arm  = half * 0.6
+        local hot  = opts.mouseX ~= nil and Node.HitClose(geom, view, opts.mouseX, opts.mouseY)
+        if hot then
+            canvas:AddRectangle(ccx - half, ccy - half, half * 2, half * 2,
+                Theme.Vec4(Theme.COL_CLOSE_BG))
+        end
+        local col = Theme.Vec4(hot and Theme.COL_CLOSE_HOT or Theme.COL_CLOSE)
+        local t = math.max(1, view:Scale(2))
+        canvas:AddLine(ccx - arm, ccy - arm, ccx + arm, ccy + arm, t, col)
+        canvas:AddLine(ccx - arm, ccy + arm, ccx + arm, ccy - arm, t, col)
     end
 
     -- Pins.
@@ -138,6 +160,17 @@ function Node.PinAt(geom, view, sx, sy)
         end
     end
     return nil
+end
+
+-- Whether the screen point is over this node's header delete button. Gated on title zoom
+-- so it matches Draw — the glyph isn't drawn (and mustn't be hittable) when zoomed too far
+-- out to read the header.
+function Node.HitClose(geom, view, sx, sy)
+    if geom.close == nil or view.zoom < Theme.TITLE_MIN_ZOOM then return false end
+    local ccx, ccy = view:ToScreen(geom.x + geom.close.cx, geom.y + geom.close.cy)
+    local half = view:Scale(Theme.CLOSE_SIZE) * 0.5 + Theme.PIN_HIT_PAD
+    return sx >= ccx - half and sx <= ccx + half
+        and sy >= ccy - half and sy <= ccy + half
 end
 
 -- Whether the screen point is over this node's body rect.
