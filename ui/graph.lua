@@ -134,6 +134,23 @@ local function dataCompatible(a, b)
     return a == b or a == "any" or b == "any"
 end
 
+-- Enum choice lookups, by value or by label. Kept as the ONE place both directions of the
+-- ComboField <-> Control value mapping happen — see the id caveat on Editor:openControlEditor's
+-- enum branch for why label, not id, is the only field ComboField lets us trust.
+local function choiceByValue(spec, value)
+    for _, c in ipairs(spec.choices or {}) do
+        if c.value == value then return c end
+    end
+    return nil
+end
+
+local function choiceByLabel(spec, label)
+    for _, c in ipairs(spec.choices or {}) do
+        if c.label == label then return c end
+    end
+    return nil
+end
+
 local function clampv(v, lo, hi)
     if v < lo then return lo end
     if v > hi then return hi end
@@ -724,32 +741,23 @@ function Editor:openControlEditor(nodeId, pinName)
             -- DISCOVERED IN-CLIENT (contradicts the docs' implication that Add's id param is
             -- caller-controlled): the id passed to Add is checked only for uniqueness (a
             -- collision is rejected/no-op'd) — it does NOT control storage order or the id the
-            -- entry actually ends up with for selection purposes. ComboField always sorts its
-            -- entries alphabetically by label and reassigns them sequential IDs 1..N in THAT
-            -- sorted order. E.g. Add("Z", 0) then Add("A", 99) yields A=1, Z=2 — not 99/0. The
-            -- `i` passed below is therefore inert beyond guaranteeing no collision; it exists
-            -- only because Add requires an id argument. This is what made the enum picker look
-            -- "inverted": nothing here ever controlled which id landed on which label.
+            -- entry ends up with. ComboField always sorts its entries alphabetically by label
+            -- and reassigns them sequential IDs 1..N in THAT sorted order: Add("Z", 0) then
+            -- Add("A", 99) ends up A=1, Z=2, not 99/0. The `i` passed below only guarantees no
+            -- collision. Since id is unreliable, the Editor never trusts one: selection is
+            -- read and written entirely by LABEL TEXT (choiceByValue/choiceByLabel above,
+            -- selectedChoice below), which is the one thing ComboField reports accurately.
             for i, choice in ipairs(spec.choices or {}) do
                 field:Add(choice.label, i)
             end
-            local selectedName
-            for _, c in ipairs(spec.choices) do
-                if c.value == current then
-                    selectedName = c.label
-                    break
-                end
-            end
-            -- Found by matching the LABEL TEXT against field.entries, not by looking up
-            -- spec.choices' declared index — because the widget's real id for a given label
-            -- is its alphabetical rank (see the Add note above), which generally differs from
-            -- that label's position in spec.choices. field.entries is walked in the widget's
-            -- own (sorted) order, so `i` here already IS that entry's real assigned id.
+            local currentChoice = choiceByValue(spec, current)
             local sel = 1
-            for i, e in ipairs(field.entries) do
-                if e.text == selectedName then
-                    sel = i
-                    break
+            if currentChoice ~= nil then
+                for i, e in ipairs(field.entries) do
+                    if e.text == currentChoice.label then
+                        sel = i
+                        break
+                    end
                 end
             end
             field:Select(sel, false)
@@ -787,25 +795,14 @@ function Editor:openControlEditor(nodeId, pinName)
     pcall(function() field:SetFocus() end)
 end
 
--- Reads the current value out of the active InputField and writes it to the Control.
--- The choice a ComboField currently shows, read from its authoritative `selectedID` rather
--- than a hook-callback argument whose position we'd have to guess. Returns the choice table
--- or nil.
---
--- CAVEAT (see the Add note in openControlEditor): `selectedID` is the widget's own
--- alphabetical-rank id, NOT the choice's position in spec.choices. Indexing spec.choices[id]
--- directly here is only correct if a spec's `choices` list happens to already be declared in
--- alphabetical-by-label order, so its declared index matches the id the widget will assign
--- that label. `bool`'s choices in controls.lua are declared {true, false} — "false" sorts
--- before "true" alphabetically — so double check this indexing against in-client behavior if
--- a bool (or any enum whose declared order isn't alphabetical) ever appears to commit the
--- wrong value again; the fix would be to look up by matching e.field.selectedLabel against
--- choice.label instead of by id, the same way the pre-select above matches by text.
+-- The choice a ComboField currently shows, read from `selectedLabel` — NOT `selectedID`,
+-- which is just the widget's alphabetical sort rank and carries no information about which
+-- choice it was (see the Add note in openControlEditor). Returns the choice table or nil.
 function Editor:selectedChoice(e)
-    local id
-    pcall(function() id = e.field.selectedID end)
-    if id == nil or id < 0 then return nil end
-    return e.spec.choices and e.spec.choices[id] or nil
+    local label
+    pcall(function() label = e.field.selectedLabel end)
+    if label == nil then return nil end
+    return choiceByLabel(e.spec, label)
 end
 
 function Editor:commitField()

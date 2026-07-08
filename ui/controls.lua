@@ -74,14 +74,10 @@ end
 -- no node-definition changes. coord/any are intentionally absent (composite/unknown).
 Controls.Register("number", { widget = "number" })
 Controls.Register("string", { widget = "text" })
--- NOTE: ui.ComboField assigns each Add()'d entry an id by ALPHABETICAL rank of its label. The
--- id passed to Add is checked only for uniqueness (a collision is rejected) — it does not
--- control storage order or the id the entry ends up with (see ADR-0004's ComboField caveat). The
--- Editor's selectedChoice() indexes this `choices` array directly by that widget-assigned id,
--- so for that lookup to land on the right value, `choices` below would need to be declared in
--- the same alphabetical order the widget sorts to — "false" before "true". It currently is NOT
--- (true is declared first); if a bool control ever appears to commit the wrong value again,
--- check this first.
+-- NOTE: ui.ComboField assigns each Add()'d entry an id by ALPHABETICAL rank of its label, not
+-- by declaration order here or the id passed to Add (see ADR-0004's ComboField caveat). The
+-- Editor never relies on that id — it matches choices by label text instead — so `choices`
+-- below can be declared in whatever order reads best; it need not be alphabetical.
 Controls.Register("bool", {
     widget = "enum",
     choices = {

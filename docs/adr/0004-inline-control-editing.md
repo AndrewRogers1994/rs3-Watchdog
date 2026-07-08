@@ -34,12 +34,14 @@ component appears only for the brief life of an edit. The two components used:
   use is rejected as a collision, but otherwise `ComboField` always sorts its entries
   alphabetically by label and reassigns them sequential ids 1..N in that sorted order —
   `Add("Z", 0)` then `Add("A", 99)` ends up `A=1, Z=2`, ignoring the 0/99 passed in beyond
-  collision-checking. This was the actual root of
-  the enum picker "showing/setting the opposite value" bug: code that assumed `Add`'s id
-  round-trips through `selectedID` was reading a different label than intended. The fix is to
-  key off entry **text**, not id — see `ui/graph.lua`'s `openControlEditor` (pre-select
-  matches `field.entries[i].text`) and `selectedChoice`'s caveat about `spec.choices[id]`
-  indexing.
+  collision-checking. This was the actual root of the enum picker "showing/setting the
+  opposite value" bug: code that assumed `Add`'s id round-trips through `selectedID` was
+  reading a different label than intended. The fix: the Editor never reads `selectedID` and
+  never indexes a Control Spec's `choices` list by id. Every ComboField <-> Control value
+  translation goes through the entry's **label text** instead — `choiceByValue`/`choiceByLabel`
+  in `ui/graph.lua` are the one place that mapping happens, used both to pick which entry to
+  pre-select (`openControlEditor`) and to read back what the user picked (`selectedChoice`,
+  via `selectedLabel`). Because of this, a spec's `choices` list needs no particular order.
 
 (Both hook constants are **absent from the generated `ui.Hook` stub** but present and working
 in-client — the stubs lagged; the docs site is authoritative. Code resolves the hook as
