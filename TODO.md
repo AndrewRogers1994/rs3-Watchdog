@@ -1,0 +1,1 @@
+- consolidate the comparison nodes into one with a dropdown selector for the operation. it's clutter to have 6 different nodes to just change the operation between two numbers.

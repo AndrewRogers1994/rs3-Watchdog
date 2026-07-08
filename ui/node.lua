@@ -4,15 +4,19 @@
 -- Draw and the hit helpers, so what you see and what you click can never disagree.
 -- All stored geometry is Graph-space; the View converts to Screen-space at draw/hit time.
 
-local Theme = require("ui/theme")
+local Theme    = require("ui/theme")
+local Controls = require("ui/controls")
 
 local Node = {}
 
 -- Splits a node's pins into left (inputs) / right (outputs) columns and assigns each a
 -- Graph-space center relative to the node origin. Returns a geometry table consumed by
--- Draw, PinAt and HitBody. `pins` is the list from graph:GetPins(nodeId).
-function Node.BuildGeometry(pins, x, y, width)
+-- Draw, PinAt and HitBody. `pins` is the list from graph:GetPins(nodeId). `opts.connected`
+-- is a set { [pinName] = true } of input pins that already have an incoming Connection —
+-- those get a wire, not a Control box (ADR-0004).
+function Node.BuildGeometry(pins, x, y, width, opts)
     width = width or Theme.NODE_WIDTH
+    local connected = (opts and opts.connected) or {}
 
     local inputs, outputs = {}, {}
     for _, pin in ipairs(pins) do
@@ -27,7 +31,7 @@ function Node.BuildGeometry(pins, x, y, width)
     local height = Theme.HEADER_HEIGHT + Theme.BODY_PAD_TOP
         + rows * Theme.PIN_ROW_HEIGHT + Theme.BODY_PAD_BOTTOM
 
-    local geom = { x = x, y = y, w = width, h = height, pins = {}, byName = {} }
+    local geom = { x = x, y = y, w = width, h = height, pins = {}, byName = {}, controls = {} }
 
     -- Delete button center, in the header, Graph-space relative to the node origin. Shared
     -- by Draw and HitClose so the glyph and its hit-target can't disagree.
@@ -54,6 +58,39 @@ function Node.BuildGeometry(pins, x, y, width)
     place(inputs, Theme.PIN_MARGIN_X)
     place(outputs, width - Theme.PIN_MARGIN_X)
 
+    -- Control value boxes: one per unconnected data-input Pin whose Type Tag has a spec.
+    -- Placed in a "value column" on the pin's own row; if an output shares the row, the box
+    -- stops short (CONTROL_OUT_RESERVE) so it can't collide with the output glyph/label.
+    -- Where an input pin's label text begins (glyph center + half-glyph + gap), Graph-space.
+    local labelStart = Theme.PIN_MARGIN_X + Theme.PIN_GLYPH * 0.5 + Theme.PIN_LABEL_GAP
+    for i, pin in ipairs(inputs) do
+        if pin.kind == "data" and not connected[pin.name] then
+            local spec = Controls.For(pin.dataType)
+            if spec ~= nil then
+                local cy = Theme.HEADER_HEIGHT + Theme.BODY_PAD_TOP
+                    + (i - 0.5) * Theme.PIN_ROW_HEIGHT
+                -- Start the box past the label instead of at a fixed reserve, so it can't
+                -- cover long labels like "contains"/"soundId". Measured with real font metrics
+                -- (Theme.TextWidth) at the zoom-1 label size — geometry is Graph-space at
+                -- zoom 1 — falling back to a per-char estimate when metrics are unavailable.
+                local label = pin.label or pin.name or ""
+                local labelW = Theme.TextWidth(12, label) or (#label * Theme.CONTROL_LABEL_CHAR_W)
+                local left = labelStart + labelW + Theme.CONTROL_LABEL_GAP
+                local rightInset = (outputs[i] ~= nil) and Theme.CONTROL_OUT_RESERVE or Theme.CONTROL_PAD_X
+                local right = width - Theme.PIN_MARGIN_X - rightInset
+                if right < left + Theme.CONTROL_MIN_W then right = left + Theme.CONTROL_MIN_W end
+                geom.controls[#geom.controls + 1] = {
+                    pinName = pin.name,
+                    widget  = spec.widget,
+                    spec    = spec,
+                    default = pin.default,  -- shown/edited when the stored Control is nil
+                    x = left, y = cy - Theme.CONTROL_H * 0.5,
+                    w = right - left, h = Theme.CONTROL_H,
+                }
+            end
+        end
+    end
+
     return geom
 end
 
@@ -62,13 +99,6 @@ function Node.PinCenter(geom, pinName)
     local p = geom.byName[pinName]
     if p == nil then return nil end
     return geom.x + p.cx, geom.y + p.cy
-end
-
-local function calcTextWidth(fontID, text)
-    if Interface == nil or Interface.CalcTextWidth == nil then return nil end
-    local ok, w = pcall(function() return Interface.CalcTextWidth(fontID, text) end)
-    if ok then return w end
-    return nil
 end
 
 -- Draws the node body, header, title, and pin glyphs/labels through the View.
@@ -139,10 +169,47 @@ function Node.Draw(canvas, view, geom, meta, opts)
                 canvas:AddText(pcx + hs + view:Scale(Theme.PIN_LABEL_GAP), ty,
                     pin.label, labelFont, labelCol)
             else
-                -- Right-align output labels against the glyph.
-                local tw = calcTextWidth(labelFont, pin.label) or (#pin.label * view:Scale(7))
+                -- Right-align output labels against the glyph (measured at the drawn size).
+                local tw = Theme.TextWidth(12 * view.zoom, pin.label) or (#pin.label * view:Scale(7))
                 canvas:AddText(pcx - hs - view:Scale(Theme.PIN_LABEL_GAP) - tw, ty,
                     pin.label, labelFont, labelCol)
+            end
+        end
+    end
+
+    -- Control value boxes. Skipped when zoomed too far out to read, and the box currently
+    -- being edited is skipped entirely — the transient InputField/ComboField covers it.
+    if view.zoom >= Theme.CONTROL_MIN_ZOOM then
+        local ctrlFont = Theme.Font(11 * view.zoom)
+        for _, ctrl in ipairs(geom.controls) do
+            if ctrl.pinName ~= opts.editingPin then
+                local bx, by = view:ToScreen(geom.x + ctrl.x, geom.y + ctrl.y)
+                local bw, bh = view:Scale(ctrl.w), view:Scale(ctrl.h)
+                local hot = opts.mouseX ~= nil
+                    and opts.mouseX >= bx and opts.mouseX <= bx + bw
+                    and opts.mouseY >= by and opts.mouseY <= by + bh
+                canvas:AddRectangle(bx, by, bw, bh, Theme.Vec4(Theme.COL_CONTROL_BG))
+                canvas:AddOutline(bx, by, bw, bh, math.max(1, view:Scale(1)),
+                    Theme.Vec4(hot and Theme.COL_CONTROL_HOT or Theme.COL_CONTROL_BORDER))
+
+                if ctrlFont ~= nil then
+                    local text = ctrl.display
+                    local col = Theme.Vec4(Theme.COL_CONTROL_TEXT)
+                    if text == nil or text == "" then
+                        text, col = ctrl.placeholder or "…", Theme.Vec4(Theme.COL_CONTROL_EMPTY)
+                    end
+                    canvas:AddText(bx + view:Scale(Theme.CONTROL_PAD_X), by + bh * 0.5 - view:Scale(6),
+                        text, ctrlFont, col)
+                end
+
+                -- Enum dropdown indicator: a small ▾ drawn as a filled triangle at the right.
+                if ctrl.widget == "enum" then
+                    local cxr = bx + bw - view:Scale(7)
+                    local cyr = by + bh * 0.5
+                    local a = view:Scale(3)
+                    canvas:AddTriangle(cxr - a, cyr - a, cxr + a, cyr - a, cxr, cyr + a,
+                        Theme.Vec4(Theme.COL_CONTROL_CARET))
+                end
             end
         end
     end
@@ -157,6 +224,20 @@ function Node.PinAt(geom, view, sx, sy)
         if sx >= pcx - half and sx <= pcx + half
             and sy >= pcy - half and sy <= pcy + half then
             return pin
+        end
+    end
+    return nil
+end
+
+-- Returns the control entry under the screen point (sx,sy), or nil. Gated on the same zoom
+-- threshold as Draw so an undrawn box is never clickable.
+function Node.ControlAt(geom, view, sx, sy)
+    if view.zoom < Theme.CONTROL_MIN_ZOOM then return nil end
+    for _, ctrl in ipairs(geom.controls) do
+        local bx, by = view:ToScreen(geom.x + ctrl.x, geom.y + ctrl.y)
+        local bw, bh = view:Scale(ctrl.w), view:Scale(ctrl.h)
+        if sx >= bx and sx <= bx + bw and sy >= by and sy <= by + bh then
+            return ctrl
         end
     end
     return nil

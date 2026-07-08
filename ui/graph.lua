@@ -20,11 +20,12 @@
 -- Mount — since child components can't size themselves to the true screen), so the game
 -- still receives clicks outside it. A keybind (wired in main) toggles visibility.
 
-local Theme   = require("ui/theme")
-local View    = require("ui/view")
-local Node    = require("ui/node")
-local Wire    = require("ui/wire")
-local Palette = require("ui/palette")
+local Theme    = require("ui/theme")
+local View     = require("ui/view")
+local Node     = require("ui/node")
+local Wire     = require("ui/wire")
+local Palette  = require("ui/palette")
+local Controls = require("ui/controls")
 
 local Editor = {}
 Editor.__index = Editor
@@ -42,6 +43,7 @@ function Editor.new(graph, registry, layout, view)
         mouse = { x = 0, y = 0 },
         pressed = false,
         mode = "idle",             -- idle | pan | dragnode | wire | dragwindow
+        editing = nil,             -- active inline Control editor: {nodeId,pinName,spec,widget,field}
         selected = nil,
         visible = false,           -- starts closed; opened via F8 / the panel button
         palette = Palette.new(),   -- the Node-creation popup (modal while open)
@@ -138,6 +140,33 @@ local function clampv(v, lo, hi)
     return v
 end
 
+-- Resolves an enum member by name with a string fallback. The client's ui.Hook /
+-- ui.InputFieldFilterMode / etc. carry the member's own name as its value, and some newer
+-- members (ONCONTENTCHANGED, ONSELECTIONCHANGED) are missing from the generated stub but
+-- present in-client — so a plain string works whether or not the enum table has the key.
+local function enumv(tbl, name)
+    if tbl ~= nil and tbl[name] ~= nil then return tbl[name] end
+    return name
+end
+
+-- Whether an ONCONTENTCHANGED `cause` means the user finished (submit / focus loss / esc),
+-- as opposed to a plain keystroke (CONTENT_CHANGE). Compared by value against
+-- ui.InputFieldActionResult, tolerant of the raw string.
+local SUBMIT_CAUSES = {
+    SUBMIT = true, SUBMIT_ON_ESCAPE = true, SUBMIT_ON_FOCUS_LOSS = true,
+}
+local function isSubmitCause(cause)
+    if cause == nil then return false end
+    if type(cause) == "string" and SUBMIT_CAUSES[cause] then return true end
+    local r = ui and ui.InputFieldActionResult
+    if r ~= nil then
+        if cause == r.SUBMIT or cause == r.SUBMIT_ON_ESCAPE or cause == r.SUBMIT_ON_FOCUS_LOSS then
+            return true
+        end
+    end
+    return false
+end
+
 -- Native StyleSheet lookups for the GroupBox/Buttons (mirrors DevTools/menu.lua's
 -- safeButtonStyle/safePanelStyle) — guarded since a stylesheet id can be absent/renamed.
 local function safeButtonStyle()
@@ -151,6 +180,16 @@ local function safePanelStyle()
     if id ~= nil and id.StyleSheet ~= nil and id.StyleSheet.GROUPBOX_CONTENT_PANEL_TITLED ~= nil then
         -- return id.StyleSheet.GROUPBOX_MAIN_MODAL_TITLED
         return id.StyleSheet.GROUPBOX_CONTENT_PANEL_TITLED
+    end
+    return nil
+end
+
+-- Dropdown stylesheet for the transient enum editor. Falls back through DROPDOWN -> BUTTON so
+-- the ComboField still renders a background if the preferred id is missing/renamed.
+local function safeComboStyle()
+    if id ~= nil and id.StyleSheet ~= nil then
+        return id.StyleSheet.COMBO_DEFAULT or id.StyleSheet.DROPDOWN_DEFAULT
+            or id.StyleSheet.BUTTON_DEFAULT
     end
     return nil
 end
@@ -185,13 +224,30 @@ end
 
 -- Rebuilds the per-frame geometry cache and keeps nodeOrder in sync with the Graph.
 function Editor:buildGeoms()
+    -- Input pins that already have an incoming Connection get a wire, not a Control box.
+    local connectedIn = {}
+    for _, c in ipairs(self.graph:GetConnections()) do
+        connectedIn[c.toNode] = connectedIn[c.toNode] or {}
+        connectedIn[c.toNode][c.toPin] = true
+    end
+
     local present = {}
     for _, n in ipairs(self.graph:GetNodes()) do
         present[n.id] = n.typeKey
         local pos = self:posOf(n.id)
         local pins = self.graph:GetPins(n.id) or {}
-        self.geoms[n.id] = Node.BuildGeometry(pins, pos.x, pos.y, Theme.NODE_WIDTH)
-        self.geoms[n.id].typeKey = n.typeKey
+        local geom = Node.BuildGeometry(pins, pos.x, pos.y, Theme.NODE_WIDTH,
+            { connected = connectedIn[n.id] or {} })
+        geom.typeKey = n.typeKey
+        -- Fill each Control box's current value + display string (Node stays graph-only).
+        for _, ctrl in ipairs(geom.controls) do
+            ctrl.value = self.graph:GetControl(n.id, ctrl.pinName)
+            -- A nil stored Control (e.g. a graph saved before this pin had a default) shows
+            -- the pin's default, so the box reflects the value the node would actually run with.
+            if ctrl.value == nil then ctrl.value = ctrl.default end
+            ctrl.display = Controls.Format(ctrl.spec, ctrl.value)
+        end
+        self.geoms[n.id] = geom
     end
     -- Drop geoms/order for nodes that no longer exist; append newly seen ones.
     for id in pairs(self.geoms) do
@@ -233,6 +289,19 @@ function Editor:nodeAt(sx, sy)
         local geom = self.geoms[id]
         if geom ~= nil and Node.HitBody(geom, self.view, sx, sy) then
             return id
+        end
+    end
+    return nil
+end
+
+-- Topmost Control box under a screen point: { nodeId, ctrl } or nil. Front-most node wins.
+function Editor:controlAt(sx, sy)
+    for i = #self.nodeOrder, 1, -1 do
+        local id = self.nodeOrder[i]
+        local geom = self.geoms[id]
+        if geom ~= nil then
+            local ctrl = Node.ControlAt(geom, self.view, sx, sy)
+            if ctrl ~= nil then return { nodeId = id, ctrl = ctrl } end
         end
     end
     return nil
@@ -289,6 +358,11 @@ function Editor:beginPress()
     local lx, ly = self:toLocal(mx, my)
     self.mouse.x, self.mouse.y = lx, ly
 
+    -- Any press that reaches the Capture Layer landed OUTSIDE the transient editor field
+    -- (which captures its own clicks), so it's a click-away: commit and close the editor
+    -- before doing anything else. A press that then lands on another Control reopens below.
+    if self.editing ~= nil then self:closeControlEditor() end
+
     -- The Palette is modal: while it's open, a click either picks a Node Type or dismisses
     -- it — never a drag gesture, so this is handled before pressed/expandCapture.
     if self.palette.open then
@@ -336,6 +410,18 @@ function Editor:beginPress()
     local hitPin = self:pinAt(lx, ly)
     if hitPin ~= nil then
         self:beginWire(hitPin)
+        return
+    end
+
+    -- A Control box opens its inline editor. Not a drag, so unwind the gesture setup the way
+    -- the close-button branch does (the box sits in the value column, clear of the pin glyph).
+    local hitCtrl = self:controlAt(lx, ly)
+    if hitCtrl ~= nil then
+        self.pressed = false
+        self:positionCapture()
+        self.selected = hitCtrl.nodeId
+        self:bringToFront(hitCtrl.nodeId)
+        self:openControlEditor(hitCtrl.nodeId, hitCtrl.ctrl.pinName)
         return
     end
 
@@ -571,11 +657,213 @@ function Editor:onScroll(...)
         self.palette:Scroll(delta)
         return
     end
+    -- A transient editor is pinned to a fixed screen rect; zooming would strand it, so
+    -- commit and close it first.
+    if self.editing ~= nil then self:closeControlEditor() end
     local mx, my = mousePos()
     local lx, ly
     if mx ~= nil then lx, ly = self:toLocal(mx, my) else lx, ly = self.mouse.x, self.mouse.y end
     local factor = delta > 0 and (1 / 1.1) or 1.1
     self.view:ZoomAt(lx, ly, factor, Theme.ZOOM_MIN, Theme.ZOOM_MAX)
+end
+
+--- Inline Control editing ---------------------------------------------------------------
+
+-- The current Control box geometry for (nodeId, pinName) from this frame's cache, or nil.
+function Editor:findControl(nodeId, pinName)
+    local geom = self.geoms[nodeId]
+    if geom == nil then return nil end
+    for _, ctrl in ipairs(geom.controls) do
+        if ctrl.pinName == pinName then return geom, ctrl end
+    end
+    return nil
+end
+
+-- Mounts the transient editor component over a Control box. One at a time; any previous
+-- editor is committed and torn down first. The component is a child of the GroupBox, so it
+-- rides the Window; its position adds WINDOW_HEADER_H because the Canvas content origin sits
+-- that far below the GroupBox top (see toLocal / the coordinate-model note). It's re-fronted
+-- each frame in draw() since canvas:MoveToFront() would otherwise bury it.
+function Editor:openControlEditor(nodeId, pinName)
+    if self.editing ~= nil then self:closeControlEditor() end
+    if self.groupBox == nil or ui == nil then return end
+
+    local geom, ctrl = self:findControl(nodeId, pinName)
+    if ctrl == nil then return end
+
+    local sx, sy = self.view:ToScreen(geom.x + ctrl.x, geom.y + ctrl.y)
+    -- The field's native font is a fixed pixel size (it can't scale with the View), so the
+    -- component is sized in screen pixels: a fixed readable height, width tracking the box
+    -- but never below the min. Centered vertically on the box row so a taller-than-box field
+    -- straddles the row evenly instead of hanging below it.
+    local boxH = self.view:Scale(ctrl.h)
+    local sw = math.max(self.view:Scale(ctrl.w), Theme.CONTROL_EDIT_MIN_W)
+    local sh = Theme.CONTROL_EDIT_H
+    -- A GroupBox child positions in the SAME frame the Canvas draws in (both measured from
+    -- the content-area origin), so the Control box's draw coords are the field's coords
+    -- directly — no header offset. (Verified in-client: adding WINDOW_HEADER_H put the field
+    -- a header-height too low.)
+    local px, py = sx, sy + (boxH - sh) * 0.5
+
+    local spec = ctrl.spec
+    -- Prefill from the stored Control, falling back to the pin's default so an unseeded pin
+    -- opens showing its default rather than an empty box (which would then commit 0/"").
+    local current = self.graph:GetControl(nodeId, pinName)
+    if current == nil then current = ctrl.default end
+    local field
+
+    if spec.widget == "enum" then
+        local ok = pcall(function()
+            field = ui.ComboField.new(self.groupBox)
+            -- Without a stylesheet the field has no background sprite and renders invisibly
+            -- (mirrors MenuInterface's addInput, which styles its InputField the same way).
+            pcall(function() field.stylesheetID = safeComboStyle() end)
+            field.clickthrough = false
+            field:SetPos(px, py)
+            field:SetSize(sw, sh)
+            -- DISCOVERED IN-CLIENT (contradicts the docs' implication that Add's id param is
+            -- caller-controlled): the id passed to Add is checked only for uniqueness (a
+            -- collision is rejected/no-op'd) — it does NOT control storage order or the id the
+            -- entry actually ends up with for selection purposes. ComboField always sorts its
+            -- entries alphabetically by label and reassigns them sequential IDs 1..N in THAT
+            -- sorted order. E.g. Add("Z", 0) then Add("A", 99) yields A=1, Z=2 — not 99/0. The
+            -- `i` passed below is therefore inert beyond guaranteeing no collision; it exists
+            -- only because Add requires an id argument. This is what made the enum picker look
+            -- "inverted": nothing here ever controlled which id landed on which label.
+            for i, choice in ipairs(spec.choices or {}) do
+                field:Add(choice.label, i)
+            end
+            local selectedName
+            for _, c in ipairs(spec.choices) do
+                if c.value == current then
+                    selectedName = c.label
+                    break
+                end
+            end
+            -- Found by matching the LABEL TEXT against field.entries, not by looking up
+            -- spec.choices' declared index — because the widget's real id for a given label
+            -- is its alphabetical rank (see the Add note above), which generally differs from
+            -- that label's position in spec.choices. field.entries is walked in the widget's
+            -- own (sorted) order, so `i` here already IS that entry's real assigned id.
+            local sel = 1
+            for i, e in ipairs(field.entries) do
+                if e.text == selectedName then
+                    sel = i
+                    break
+                end
+            end
+            field:Select(sel, false)
+            field:Subscribe(enumv(ui.Hook, "ONSELECTIONCHANGED"), function()
+                self:onControlSelect()
+            end)
+        end)
+        if not ok or field == nil then return end
+    else
+        local ok = pcall(function()
+            field = ui.InputField.new(self.groupBox)
+            -- Without a stylesheet the field has no background sprite and renders invisibly
+            -- (MenuInterface's working addInput styles its InputField with BUTTON_DEFAULT).
+            pcall(function() field.stylesheetID = safeButtonStyle() end)
+            field.clickthrough = false
+            field:SetPos(px, py)
+            field:SetSize(sw, sh)
+            local filter = (spec.widget == "number") and "NUMERIC" or "NONE"
+            field:Setup(enumv(ui.TextContentVisibilityMode, "VISIBLE"),
+                enumv(ui.InputFieldFilterMode, filter), 128)
+            field.content = (current ~= nil) and tostring(current) or ""
+            field:Subscribe(enumv(ui.Hook, "ONCONTENTCHANGED"), function(_, cause, newContent)
+                self:onControlContent(cause, newContent)
+            end)
+        end)
+        if not ok or field == nil then return end
+    end
+
+    self.editing = { nodeId = nodeId, pinName = pinName, spec = spec,
+        widget = spec.widget, field = field }
+    pcall(function() field:MoveToFront() end)
+    -- No focus API is exposed (no SetFocus/RequestFocus on Component or InputField in the
+    -- docs), so the user clicks the freshly-mounted field once to focus it. Kept as a
+    -- best-effort in case a future client adds one; harmless (pcall'd) when absent.
+    pcall(function() field:SetFocus() end)
+end
+
+-- Reads the current value out of the active InputField and writes it to the Control.
+-- The choice a ComboField currently shows, read from its authoritative `selectedID` rather
+-- than a hook-callback argument whose position we'd have to guess. Returns the choice table
+-- or nil.
+--
+-- CAVEAT (see the Add note in openControlEditor): `selectedID` is the widget's own
+-- alphabetical-rank id, NOT the choice's position in spec.choices. Indexing spec.choices[id]
+-- directly here is only correct if a spec's `choices` list happens to already be declared in
+-- alphabetical-by-label order, so its declared index matches the id the widget will assign
+-- that label. `bool`'s choices in controls.lua are declared {true, false} — "false" sorts
+-- before "true" alphabetically — so double check this indexing against in-client behavior if
+-- a bool (or any enum whose declared order isn't alphabetical) ever appears to commit the
+-- wrong value again; the fix would be to look up by matching e.field.selectedLabel against
+-- choice.label instead of by id, the same way the pre-select above matches by text.
+function Editor:selectedChoice(e)
+    local id
+    pcall(function() id = e.field.selectedID end)
+    if id == nil or id < 0 then return nil end
+    return e.spec.choices and e.spec.choices[id] or nil
+end
+
+function Editor:commitField()
+    local e = self.editing
+    if e == nil then return end
+    -- Enums commit ONLY from the ONSELECTIONCHANGED event (onControlSelect), never on a plain
+    -- close. Committing an enum on close read the dropdown's `selectedID` unconditionally, so
+    -- merely mounting then unmounting the field wrote whatever it happened to show — opening a
+    -- `false` bool would flip it to `true`. Re-picking the already-selected value needs no
+    -- commit (the value is already that), so there is no close case an enum must cover here.
+    if e.widget == "enum" then return end
+    local raw = ""
+    pcall(function() raw = e.field.content or "" end)
+    -- An empty box means "leave the Control alone" — opening then closing a field without
+    -- typing must not overwrite the stored value (or a nil default) with 0/"". A numeric
+    -- field reports contentQuantity == 0 for empty content, which is what nuked soundID.
+    if type(raw) == "string" and raw:match("^%s*$") then return end
+
+    local value
+    if e.widget == "number" then
+        -- Prefer the field's own parsed integer (honors quantity suffixes like 1K/1M).
+        local ok, q = pcall(function() return e.field.contentQuantity end)
+        if ok and q ~= nil then value = q end
+    end
+    if value == nil then
+        value = Controls.Parse(e.spec, raw, self.graph:GetControl(e.nodeId, e.pinName))
+    end
+    pcall(function() self.graph:SetControl(e.nodeId, e.pinName, value) end)
+end
+
+-- ONCONTENTCHANGED: live-write every keystroke; close on a submit/focus-loss cause.
+function Editor:onControlContent(cause, _newContent)
+    if self.editing == nil then return end
+    self:commitField()
+    if isSubmitCause(cause) then self:closeControlEditor() end
+end
+
+-- ONSELECTIONCHANGED: a dropdown pick is a complete edit. This event fires only on an actual
+-- selection change, so it's the ONLY place an enum commits — writing the just-picked value
+-- (read from the authoritative selectedID), then tearing the field down. A plain close
+-- commits nothing (commitField no-ops enums), so opening/closing without a pick can't mutate.
+function Editor:onControlSelect()
+    local e = self.editing
+    if e == nil then return end
+    local choice = self:selectedChoice(e)
+    if choice ~= nil then
+        pcall(function() self.graph:SetControl(e.nodeId, e.pinName, choice.value) end)
+    end
+    self:closeControlEditor()
+end
+
+-- Commits (for text/number) and destroys the transient editor.
+function Editor:closeControlEditor()
+    local e = self.editing
+    if e == nil then return end
+    self:commitField()
+    self.editing = nil
+    if e.field ~= nil then pcall(function() e.field:Destroy() end) end
 end
 
 --- Drawing -------------------------------------------------------------------------------
@@ -656,6 +944,10 @@ function Editor:draw()
     -- they stay visually above the grid.
     if self.plusButton ~= nil then pcall(function() self.plusButton:MoveToFront() end) end
     if self.closeButton ~= nil then pcall(function() self.closeButton:MoveToFront() end) end
+    -- Keep the transient Control editor above the just-fronted Canvas.
+    if self.editing ~= nil and self.editing.field ~= nil then
+        pcall(function() self.editing.field:MoveToFront() end)
+    end
     self.canvas:Clear()
 
     self:buildGeoms()
@@ -667,9 +959,12 @@ function Editor:draw()
     for _, id in ipairs(self.nodeOrder) do
         local geom = self.geoms[id]
         if geom ~= nil and self:geomVisible(geom, vx, vy, vw, vh) then
+            local editingPin = (self.editing ~= nil and self.editing.nodeId == id)
+                and self.editing.pinName or nil
             Node.Draw(self.canvas, self.view, geom, self:meta(id, geom.typeKey),
                 { selected = (id == self.selected),
-                  mouseX = self.mouse.x, mouseY = self.mouse.y })
+                  mouseX = self.mouse.x, mouseY = self.mouse.y,
+                  editingPin = editingPin })
         end
     end
 
@@ -738,13 +1033,14 @@ end
 function Editor:SetVisible(v)
     self.visible = v and true or false
     if not self.visible then
-        -- Abandon any in-progress gesture (and dismiss the Palette) so nothing resumes
-        -- mid-interaction when reshown.
+        -- Abandon any in-progress gesture (and dismiss the Palette / close the inline editor)
+        -- so nothing resumes mid-interaction when reshown.
         self.pressed = false
         self.mode = "idle"
         self.wire = nil
         self.dragNodeId = nil
         self.palette:Close()
+        self:closeControlEditor()
     end
     if self.canvas ~= nil then
         pcall(function() self.canvas.hidden = not self.visible end)
@@ -899,6 +1195,7 @@ function Editor:mountGroupBox(parent)
 end
 
 function Editor:Unmount()
+    self:closeControlEditor()  -- tear down any transient editor before its parent goes away
     if self.capture ~= nil then
         pcall(function() self.capture:Destroy() end)
         self.capture = nil

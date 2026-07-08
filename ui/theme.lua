@@ -25,6 +25,23 @@ Theme.PIN_LABEL_GAP    = 8     -- gap between a pin glyph and its label
 Theme.PIN_HIT_PAD      = 4     -- extra hit-test padding around a pin glyph
 Theme.CLOSE_SIZE       = 14    -- delete-button glyph bounding size, in the header
 Theme.CLOSE_MARGIN     = 14    -- inset of the close glyph's center from the node's right edge
+
+-- Inline Control value box (ADR-0004): drawn on an unconnected data-input Pin's row, edited
+-- via a transient real InputField/ComboField. The box sits in a "value column" to the right
+-- of the pin label; on rows that also carry an output pin it stops short to leave room.
+Theme.CONTROL_H            = 16    -- value box height within a PIN_ROW_HEIGHT row
+Theme.CONTROL_LABEL_CHAR_W = 7     -- approx per-char label width (graph units) for reserving room
+Theme.CONTROL_LABEL_GAP    = 8     -- gap kept between the input label and the value box
+Theme.CONTROL_OUT_RESERVE  = 52    -- space kept for an output pin+label sharing the row
+Theme.CONTROL_PAD_X        = 5     -- inner text inset / right inset when no output shares the row
+Theme.CONTROL_MIN_W        = 12    -- never draw a value box narrower than this (graph-space)
+Theme.CONTROL_MIN_ZOOM     = 0.45  -- below this the box/text is unreadable, so it isn't drawn
+-- The transient editor is a real component with a native, fixed-pixel font that does NOT
+-- scale with the View, so it's sized in screen pixels independent of zoom (height fixed;
+-- width tracks the box but never below the min). Sizing it to view:Scale(box) made the text
+-- unreadable at zoom 1 — the box was 16px tall but the native font needs more.
+Theme.CONTROL_EDIT_MIN_W   = 60    -- min screen width for the transient editor component
+Theme.CONTROL_EDIT_H       = 24    -- fixed screen height for the transient editor component
 Theme.BORDER_THICKNESS = 2
 Theme.WIRE_THICKNESS   = 3
 Theme.WIRE_SEGMENTS    = 16    -- straight segments a bezier Wire is tessellated into
@@ -84,6 +101,14 @@ Theme.COL_PIN_LABEL   = col(198, 200, 208, 1.0)
 Theme.COL_CLOSE       = col(210, 210, 216, 1.0)
 Theme.COL_CLOSE_HOT   = col(255, 120, 120, 1.0)
 Theme.COL_CLOSE_BG    = col(150, 40, 40, 0.85)  -- hover backing behind the glyph
+
+-- Inline Control value box.
+Theme.COL_CONTROL_BG     = col(28, 28, 33, 1.0)
+Theme.COL_CONTROL_BORDER = col(70, 70, 82, 1.0)
+Theme.COL_CONTROL_HOT    = col(240, 160, 32, 1.0)   -- border under the cursor
+Theme.COL_CONTROL_TEXT   = col(225, 227, 233, 1.0)
+Theme.COL_CONTROL_EMPTY  = col(120, 122, 132, 1.0)  -- placeholder when the value is empty
+Theme.COL_CONTROL_CARET  = col(170, 172, 182, 1.0)  -- enum dropdown ▾ indicator
 
 -- Execution pins and wires use one fixed neutral color (they carry no Type Tag).
 Theme.COL_EXEC        = col(242, 242, 242, 1.0)
@@ -169,6 +194,57 @@ function Theme.Font(pt)
 
     fontCache[pt] = font or false  -- cache the miss too, so we don't re-scan every frame
     return font or nil
+end
+
+-- The measurable font OBJECT (a `config.Font` / FontType with :GetStringWidth), as opposed
+-- to Theme.Font's integer id used by canvas:AddText. Same nearest-size search + caching.
+local fontObjCache = {}
+
+local function fontObjByName(name)
+    if config == nil or config.Font == nil then return nil end
+    local ok, f = pcall(function() return config.Font[name] end)
+    if ok and f ~= nil then return f end
+    return nil
+end
+
+local function fontObjAt(sz)
+    return fontObjByName("MUSEO_SANS_" .. sz .. "PT_REGULAR")
+        or fontObjByName("MUSEO_SANS_" .. sz .. "PT")
+end
+
+function Theme.FontObject(pt)
+    pt = math.max(8, math.min(40, math.floor(pt + 0.5)))
+    if fontObjCache[pt] ~= nil then return fontObjCache[pt] or nil end
+    local f = fontObjAt(pt)
+    if f == nil then
+        for offset = 1, 32 do
+            local lo, hi = pt - offset, pt + offset
+            if lo >= 8 then f = fontObjAt(lo) end
+            if f == nil and hi <= 40 then f = fontObjAt(hi) end
+            if f ~= nil then break end
+        end
+    end
+    fontObjCache[pt] = f or false
+    return f or nil
+end
+
+-- Pixel width of `text` drawn at ~`pt`, tags ignored, via the real font metrics — or nil if
+-- fonts/metrics are unavailable (a bare Lua runtime), so callers fall back to an estimate.
+-- Cached per (pt,text) because node geometry is rebuilt every frame.
+local widthCache = {}
+
+function Theme.TextWidth(pt, text)
+    if text == nil or text == "" then return 0 end
+    pt = math.max(8, math.min(40, math.floor(pt + 0.5)))
+    local key = pt .. "\0" .. text
+    local cached = widthCache[key]
+    if cached ~= nil then return cached or nil end
+    local f = Theme.FontObject(pt)
+    if f == nil then widthCache[key] = false; return nil end
+    local ok, w = pcall(function() return f:GetStringWidth(text, true) end)
+    if ok and type(w) == "number" then widthCache[key] = w; return w end
+    widthCache[key] = false
+    return nil
 end
 
 return Theme

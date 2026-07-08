@@ -98,3 +98,26 @@ Palette filtered to Node Types with a Pin that can receive the Wire, and auto-co
 chosen Node's matching Pin. The typed, one-gesture creation path (as opposed to the
 unfiltered double-click / toolbar-+ path).
 _Avoid_: Pull-to-create, drag-off, quick-connect
+
+**Control Box**:
+The small value box the Editor draws on an unconnected data-input Pin's row, showing that
+Pin's Control (the engine's stored value for the Pin). It is Canvas-drawn like everything
+else and scales with zoom; connecting the Pin replaces it with a Wire (ADR-0004). Clicking
+it opens the Control Editor.
+_Avoid_: Field, input box, widget (that's the mounted Editor), textbox
+
+**Control Editor**:
+The single transient real component (`ui.InputField` for text/number, `ui.ComboField` for
+an enum) mounted over a Control Box while the user edits it, committing through
+`Graph:SetControl` and torn down on commit. The one place the editor uses a real interactive
+component rather than a Canvas drawable — deliberately short-lived so its inability to
+scale/clip with the View doesn't matter (ADR-0004).
+_Avoid_: Inline editor, popup, input widget (in prose)
+
+**Control Spec**:
+The Watchdog-owned mapping (`ui/controls.lua`) from an engine Type Tag to how its Control is
+rendered and edited: a widget kind (`number` / `text` / `enum`) plus, for an enum, its
+choices. Parallel to Type Color, and for the same reason — the engine is deliberately
+tag-agnostic, so presentation lives here (ADR-0004). Tags with no spec (coord, any) get no
+Control Editor.
+_Avoid_: Type metadata, schema, control config
