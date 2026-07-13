@@ -1,1 +1,69 @@
 - consolidate the comparison nodes into one with a dropdown selector for the operation. it's clutter to have 6 different nodes to just change the operation between two numbers.
+
+## Node port backlog (mirroring runelite-watchdog)
+
+Target: mirror the trigger/notification list from https://github.com/adamk33n3r/runelite-watchdog
+(`TriggerType.java` / `NotificationType.java`). Their "notifications" = our "actions".
+
+### Triggers
+- [x] Game Message — `trigger.chat`
+  - `Event.ChatMessage` → payload `chatMessage` (String), `chatType` (ChatType), `timestamp`. Filter `chatType` to the game/engine types (GENERAL=0, ENGINE=4, SPAM=109, broadcasts, etc.).
+- [x] Player Chat Message — `trigger.chat` (same node, chat-type-aware)
+  - `Event.ChatMessage` (same event) → filter `chatType` to player-typed lines: PUBLIC=2, FRIEND_CHAT=9, CLANCHANNEL_*, GROUP_*, PRIVATE_INCOMING/OUTGOING, and their QUICKCHAT variants.
+- [ ] Overhead Text
+  - NO EVENT. The API has no overhead-text event and `PlayerEntity`/`NPCEntity` expose no overhead/chat-text field (only uid, displayName, position, coordGrid, facing). Not achievable with the current API — needs a Jagex-side event.
+- [ ] Stat Changed — boosts/drains
+  - `Event.SkillTransmit` → `skill` (SkillType), `oldXP`, `newXP`, `oldGameplayLevel`, `newGameplayLevel`. Boost/drain = `newGameplayLevel != oldGameplayLevel` (temporary level move). Also `Event.RunEnergyTransmit` (`old/newRunEnergy`) and `Event.RunWeightTransmit` (`old/newRunWeight`) if we expand beyond skills.
+- [ ] XP Drop
+  - `Event.SkillTransmit` (same event) → an XP drop is `newXP > oldXP`; delta = `newXP - oldXP`, skill = `skill`. Note: fires per-skill on any XP change.
+- [ ] Sound Fired — when a sound effect plays
+  - NO EVENT. The `audio` module is output-only (`audio.Play`, `SoundInstance:Start/Stop/...`); there is no hook for game-played sounds. Not achievable with the current API.
+- [ ] Spawned Object — object/player/npc spawn or despawn
+  - `Event.NPCEntityAdded` / `Event.NPCEntityRemoved` (`npcEntity`), `Event.PlayerEntityAdded` / `Event.PlayerEntityRemoved` (`playerEntity`), `Event.ObjStackEntityAdded` / `Event.ObjStackEntityRemoved` / `Event.ObjStackEntityChanged` (`objStackEntity`, `objType`, `count`/`old+newCount`). One node likely fans out over all three entity kinds + add/remove.
+- [ ] Inventory — full, empty, or contains certain items
+  - NO DIRECT API. No inventory/container-contents read and no inventory-change event exist (`InvType` is config only — id/size/stockCount). Partial signals may be derivable from `Event.VarTransmit` for specific inventory-related varbits (`var`, `oldValue`, `newValue`), but there is no general "what's in my inventory" query. Needs investigation / likely blocked on a Jagex-side container API.
+- [ ] Location — near a set location
+  - NO EVENT, but POLLABLE. No position-change event; poll `Player.GetEntity().coordGrid` (CoordGrid) or `.position` (Vector3) on `Event.Logic` (~50/s) and test distance against the target coord. `Player.IsAvailable()` guards logged-out state.
+
+### Actions
+- [x] Sound Effect — `action.sound`
+  - `audio.Play(builtinResourceID, params?)` with a builtin sound id. Done.
+- [ ] Custom Sound — play a custom sound file
+  - `audio.Play(resource, params?)` where `resource` = `Plugin.resources[filename]` (a `PluginResource`/`PluginAudioResource` for a file dropped in the plugin's `resources/` folder; may need `PluginResource:Load()` first). Same node shape as `action.sound` but resource-backed instead of a builtin id; requires bundling the audio file. `params` (`audio.SoundPlaybackParams`) covers volume/loops/bus.
+- [ ] Text to Speech
+  - VIA ELEVENLABS HTTP + BLOCKED ON FILE WRITE (as in the RuneLite version). No built-in synthesis; instead POST the text to the ElevenLabs API: `HTTPRequest.new(Plugin.urls[...], path)` → `:AddHeader("xi-api-key", ...)` / content-type → `:Post(body, onDone)`, needs the `httpAccess` permission + a manifest base URL. The returned MP3 arrives in `request.data`. Playback is the blocker: `audio.Play` only accepts a builtin id or a disk-backed `PluginAudioResource` (`Plugin.resources[file]`) — there's no in-memory bytes→audio path — so the response must be written to disk (also how the RuneLite version caches it) before it can be played. That needs file-write permission, which isn't available yet (reportedly being worked on). Unblocks once file write lands.
+- [ ] Game Message — chat message out (distinct from `action.log`, which is a debug logger, not a port of this)
+  - NO API. There is no way to inject a NEW chat line. `Event.ChatMessage`'s `chatMessage` is writeable but only mutates an INCOMING message; `ExecuteConsoleCommand` runs console commands, not chat (confirmed vs docs). `action.log` (→ Lua console via `log()`) stays our only text-out; a true in-game chatbox message is blocked.
+- [ ] Overhead — display overhead text
+  - NO API. No overhead-text field/method on `PlayerEntity`/`NPCEntity` and no set-overhead call (same gap as the Overhead Text trigger). Not achievable.
+- [ ] Screen Flash
+  - SELF-DRAWN (no dedicated API). Draw a full-screen colored rect — `ui.Rectangle` mounted on the root interface, or on the editor's Canvas — and fade its alpha over N `Event.Logic`/`Draw` ticks. Colors via `Vector4.new(r,g,b,a)`.
+- [ ] Overlay — overlay notification
+  - SELF-DRAWN. No native "overlay notification" primitive; compose from `ui.GroupBox` + `ui.Text` (+ `ui.Sprite`) or Canvas, positioned in screen space on the root interface. Same toolkit as the Watchdog editor.
+- [ ] Popup — like collection log / league task popup
+  - SELF-DRAWN. No native popup API (confirmed vs docs); emulate the look with a `ui.Sprite` frame + `ui.Text`, animated in/out over ticks.
+- [ ] Screen Marker
+  - SELF-DRAWN. Draw a border/rect at a saved screen-space rect (`ui.Rectangle`, or Canvas `AddLine`); persist the rect in Watchdog's Store. Reuses the DevTools/editor Canvas pattern.
+- [ ] Object Marker
+  - SELF-DRAWN via `ScreenConvert`. Each `Event.Draw`, project a world tile/entity to screen — `entity.position`/`.coordGrid` (from `Player.GetEntity()`, `NPCList`/`ObjStackList`, or a fixed `CoordGrid`) → `ScreenConvert.CoordGridToScreen(coordGrid, heightAboveGround)` (or `Vector3ToScreen`) → draw on Canvas. Exactly the `DevTools/overlay.lua` tile-marker pattern; must re-project every frame since the camera moves.
+- [ ] Counter — increment a counter (may just reuse `LibNodeGraphStd`'s `std.counter` instead of a dedicated node)
+  - INTERNAL, no API. Value via `LibNodeGraphStd` `std.counter`; optional on-screen display is a self-drawn `ui.Text`.
+- [ ] Alert Toggle — toggle an alert's enabled state
+  - INTERNAL, no API. Flip a Watchdog alert/graph's `enabled` flag in Watchdog state.
+- [ ] Dismiss Overlay
+  - INTERNAL, no API. Remove a Watchdog-owned Overlay (from the action above) by id — pure bookkeeping over our own state, not a game-side registry.
+- [ ] Dismiss Screen Marker
+  - INTERNAL, no API. As above, for a Watchdog-owned Screen Marker.
+- [ ] Dismiss Object Marker
+  - INTERNAL, no API. As above, for a Watchdog-owned Object Marker.
+- [ ] Request Focus — request focus on the window
+  - NO API. No programmatic focus-request method; only the read-only `Event.WindowFocusChanged` (confirmed vs docs). Not achievable.
+
+### Not supported (no RS3 plugin API equivalent currently)
+- [ ] Notification Fired (trigger) — cross-plugin notification bus doesn't exist on RS3
+- [ ] Tray Notification (action) — no OS tray access
+- [ ] Dink (action) — RuneLite-specific 3rd-party webhook plugin integration
+- [ ] Shortest Path (action) — RuneLite-specific 3rd-party plugin integration
+- [ ] Plugin Message (action) — inter-plugin messaging; RS3 deps are declared/hard-only, no arbitrary message bus
+- [ ] Plugin Toggle (action) — no RS3 API to toggle another plugin
+- [ ] Notification Event (action) — same cross-plugin event problem as Notification Fired
