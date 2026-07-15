@@ -134,6 +134,17 @@ local function dataCompatible(a, b)
     return a == b or a == "any" or b == "any"
 end
 
+-- An InputField's raw text content / pre-parsed numeric quantity (honors suffixes like
+-- 1K/1M), read defensively since a field can be mid-teardown when these are read. Shared by
+-- commitField and commitAxisField's field-extraction step.
+local function fieldContent(field)
+    local raw = ""
+    pcall(function() raw = field.content or "" end)
+    local quantity
+    pcall(function() quantity = field.contentQuantity end)
+    return raw, quantity
+end
+
 -- Enum choice lookups, by value or by label. Kept as the ONE place both directions of the
 -- ComboField <-> Control value mapping happen — see the id caveat on Editor:openControlEditor's
 -- enum branch for why label, not id, is the only field ComboField lets us trust.
@@ -453,7 +464,7 @@ function Editor:beginPress()
         if hitCtrl.ctrl.kind == "action" then
             self:setCoordgridToCurrentPosition(hitCtrl.nodeId, hitCtrl.ctrl.pinName)
         else
-            self:openControlEditor(hitCtrl.nodeId, hitCtrl.ctrl.pinName, hitCtrl.ctrl.kind, hitCtrl.ctrl.axis)
+            self:openControlEditor(hitCtrl.nodeId, hitCtrl.ctrl)
         end
         return
     end
@@ -703,47 +714,35 @@ end
 --- Composite Control actions ------------------------------------------------------------
 
 -- coordgrid's "set to current position" button (#25): overwrites the whole {x,z,level}
--- Control in one shot from the live player position. Silent no-op when unavailable — same
--- guard shape as DevTools/tile_sets.lua's PlayerTile.
+-- Control in one shot from the live player position. Silent no-op when unavailable. Only
+-- IsAvailable() is guarded — a documented state check, not a client-global existence check
+-- (see pcall-defensive-style: Player is guaranteed present at load).
 function Editor:setCoordgridToCurrentPosition(nodeId, pinName)
-    if Player == nil or not Player.IsAvailable() then return end
+    if not Player.IsAvailable() then return end
     local entity = Player.GetEntity()
-    if entity == nil or entity.coordGrid == nil then return end
-    local cg = entity.coordGrid
     pcall(function()
-        self.graph:SetControl(nodeId, pinName, { x = cg.x, z = cg.z, level = cg.level })
+        self.graph:SetControl(nodeId, pinName,
+            { x = entity.coordGrid.x, z = entity.coordGrid.z, level = entity.coordGrid.level })
     end)
 end
 
 --- Inline Control editing ---------------------------------------------------------------
-
--- The current Control box geometry for (nodeId, pinName [, kind, axis]) from this frame's
--- cache, or nil. kind/axis disambiguate a composite Control's several boxes (#25) that share
--- one pinName; omitted (nil) matches a scalar Control's single box, as before.
-function Editor:findControl(nodeId, pinName, kind, axis)
-    local geom = self.geoms[nodeId]
-    if geom == nil then return nil end
-    for _, ctrl in ipairs(geom.controls) do
-        if ctrl.pinName == pinName and ctrl.kind == kind and ctrl.axis == axis then
-            return geom, ctrl
-        end
-    end
-    return nil
-end
 
 -- Mounts the transient editor component over a Control box. One at a time; any previous
 -- editor is committed and torn down first. The component is a child of the GroupBox, so it
 -- rides the Window; its position adds WINDOW_HEADER_H because the Canvas content origin sits
 -- that far below the GroupBox top (see toLocal / the coordinate-model note). It's re-fronted
 -- each frame in draw() since canvas:MoveToFront() would otherwise bury it.
--- kind/axis (#25): identify which of a composite Control's boxes was clicked (e.g. coordgrid's
--- x/z/level field). nil for a scalar Control's single box.
-function Editor:openControlEditor(nodeId, pinName, kind, axis)
+-- `ctrl` is the clicked Control box from this frame's geometry cache (as returned by
+-- controlAt) — for a composite Control (#25) it's one of several sharing `ctrl.pinName`,
+-- distinguished by `ctrl.kind`/`ctrl.axis` (nil for a scalar Control's single box).
+function Editor:openControlEditor(nodeId, ctrl)
     if self.editing ~= nil then self:closeControlEditor() end
     if self.groupBox == nil or ui == nil then return end
 
-    local geom, ctrl = self:findControl(nodeId, pinName, kind, axis)
-    if ctrl == nil then return end
+    local geom = self.geoms[nodeId]
+    if geom == nil then return end
+    local pinName, kind, axis = ctrl.pinName, ctrl.kind, ctrl.axis
 
     local sx, sy = self.view:ToScreen(geom.x + ctrl.x, geom.y + ctrl.y)
     -- The field's native font is a fixed pixel size (it can't scale with the View), so the
@@ -868,19 +867,14 @@ function Editor:commitField()
         self:commitAxisField()
         return
     end
-    local raw = ""
-    pcall(function() raw = e.field.content or "" end)
+    local raw, quantity = fieldContent(e.field)
     -- An empty box means "leave the Control alone" — opening then closing a field without
     -- typing must not overwrite the stored value (or a nil default) with 0/"". A numeric
     -- field reports contentQuantity == 0 for empty content, which is what nuked soundID.
     if type(raw) == "string" and raw:match("^%s*$") then return end
 
-    local value
-    if e.widget == "number" then
-        -- Prefer the field's own parsed integer (honors quantity suffixes like 1K/1M).
-        local ok, q = pcall(function() return e.field.contentQuantity end)
-        if ok and q ~= nil then value = q end
-    end
+    -- Prefer the field's own parsed integer (honors quantity suffixes like 1K/1M).
+    local value = (e.widget == "number") and quantity or nil
     if value == nil then
         value = Controls.Parse(e.spec, raw, self.graph:GetControl(e.nodeId, e.pinName))
     end
@@ -891,10 +885,7 @@ end
 -- read-modify-write + empty-box guard, then writes the (possibly unchanged) table back.
 function Editor:commitAxisField()
     local e = self.editing
-    local raw = ""
-    pcall(function() raw = e.field.content or "" end)
-    local quantity
-    pcall(function() quantity = e.field.contentQuantity end)
+    local raw, quantity = fieldContent(e.field)
     local current = self.graph:GetControl(e.nodeId, e.pinName)
     local value, changed = Controls.CommitAxis(current, e.axis, raw, quantity)
     if changed then
