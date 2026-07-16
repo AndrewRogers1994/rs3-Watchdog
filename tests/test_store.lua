@@ -161,4 +161,32 @@ function TestStore:testRestoreAllReturnsEveryGraphLiveWithFlag()
     luaunit.assertEquals(#restored[2].graph:GetNodes(), 1)
 end
 
+--- InfoBox Area anchor (#41) --------------------------------------------------------------
+
+function TestStore:testGetInfoBoxAnchorNilOnFreshDocument()
+    local doc = Store.Empty()
+    local x, y = Store.GetInfoBoxAnchor(doc)
+    luaunit.assertNil(x)
+    luaunit.assertNil(y)
+end
+
+function TestStore:testSetInfoBoxAnchorRoundTrips()
+    local doc = Store.Empty()
+    Store.SetInfoBoxAnchor(doc, 12, 34)
+    local x, y = Store.GetInfoBoxAnchor(doc)
+    luaunit.assertEquals(x, 12)
+    luaunit.assertEquals(y, 34)
+end
+
+function TestStore:testInfoBoxAnchorSurvivesSaveAndLoad()
+    local doc = Store.Empty()
+    Store.SetInfoBoxAnchor(doc, 12, 34)
+
+    local reloaded = saveAndReload(doc)
+
+    local x, y = Store.GetInfoBoxAnchor(reloaded)
+    luaunit.assertEquals(x, 12)
+    luaunit.assertEquals(y, 34)
+end
+
 return TestStore
