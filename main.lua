@@ -106,29 +106,61 @@ end
 
 local document = Store.Load()
 
--- Try the saved current graph; fall back to the demo if there's nothing to restore or the
--- restore fails (corrupt save, a node type no longer registered, ...).
-local graph, layout, view
+-- Instantiate *every* saved graph as a live alert (#27): triggers in all enabled alerts fire,
+-- not just the one the editor is viewing. `Store.RestoreAll` returns one live Graph per saved
+-- entry with its persisted `enabled` flag; each is registered with the runtime dispatcher below.
+-- If there's nothing saved (or the whole set is unrestorable), seed the demo as the sole alert.
+local restored = {}
 do
-    local ok, g, l, v = pcall(function() return Store.Restore(document, registry) end)
-    if ok and g ~= nil then
-        graph, layout, view = g, l, v
-    else
-        if not ok and log ~= nil then
-            log("Watchdog: restore failed, seeding demo — " .. tostring(g))
-        end
-        graph, layout = seedDemo()
+    local ok, all = pcall(function() return Store.RestoreAll(document, registry) end)
+    if ok and all ~= nil then
+        restored = all
+    elseif log ~= nil then
+        log("Watchdog: RestoreAll failed, seeding demo — " .. tostring(all))
+    end
+    if #restored == 0 then
+        local graph, layout = seedDemo()
         Store.UpsertCurrent(document, "default", graph, layout, nil)
         Store.Save(document)
+        restored = { { name = "default", graph = graph, layout = layout, view = nil, enabled = true } }
     end
 end
 
--- The name of the graph we're editing; every save writes back under this name.
-local currentName = document.current or "default"
+-- Register each restored graph as a live alert the dispatcher fans out over. The editor edits
+-- one of these same live instances (the current one), so its triggers fire mid-edit like the
+-- rest; the runtime checks `enabled` at fire time so a disabled alert stays live but silent.
+for _, alert in ipairs(restored) do
+    runtime:AddAlert(alert.name, alert.graph, alert.enabled)
+end
 
-runtime:SetGraph(graph)
+-- The name of the graph we're editing; every save writes back under this name. Prefer the saved
+-- `current` pointer, falling back to the first restored alert.
+local currentName = document.current or restored[1].name
 
-local editor = Editor.new(graph, registry, layout, view)
+-- The editor shows the *current* alert — the very same live Graph instance the runtime holds for
+-- it, so edits and trigger firing stay in sync. Fall back to the first alert if `current` is
+-- stale (points at a name that didn't restore).
+local currentAlert
+for _, alert in ipairs(restored) do
+    if alert.name == currentName then currentAlert = alert; break end
+end
+if currentAlert == nil then
+    currentAlert = restored[1]
+    currentName = currentAlert.name
+end
+
+local graph = currentAlert.graph
+local editor = Editor.new(graph, registry, currentAlert.layout, currentAlert.view)
+
+-- Persistence hook for the alert enable/disable API: SetEnabled/Toggle write the flag straight
+-- to the saved document and flush, so an alert toggled off (by the user or an Alert Toggle node,
+-- #35) stays off across reloads. Independent of the editor autosave loop below.
+runtime:SetPersistence({
+    SetEnabled = function(name, enabled)
+        Store.SetEnabled(document, name, enabled)
+        Store.Save(document)
+    end,
+})
 
 --- Client root parent (interface may not be loaded yet; retried on the Logic loop) ------
 
