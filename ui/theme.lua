@@ -76,6 +76,22 @@ Theme.COLOR_POPUP_ROW_H    = 18    -- prev/cur, hex, and each R/G/B/A row share 
 Theme.COLOR_POPUP_ROW_GAP  = 6     -- vertical gap between stacked rows
 Theme.COLOR_POPUP_CHECKER_CELL = 6 -- screen-px checker cell behind the alpha preview
 
+-- Overlay toast (#36): a small draggable notification drawn on the always-on effect overlay
+-- Canvas (effects.lua), NOT the editor's own Canvas — fixed screen-space, not scaled by the
+-- View. Body + a left accent bar (the `color` data pin's dynamic tint) + outline + optional
+-- icon sprite + text, stacked vertically below the shared, draggable anchor.
+Theme.OVERLAY_W            = 240   -- toast width
+Theme.OVERLAY_H            = 48    -- toast height
+Theme.OVERLAY_GAP          = 6     -- vertical gap between stacked toasts
+Theme.OVERLAY_ACCENT_W     = 3     -- left accent bar width
+Theme.OVERLAY_ICON_SIZE    = 28    -- optional icon sprite bounding box
+Theme.OVERLAY_PAD_X        = 8     -- inner left/right padding
+Theme.OVERLAY_TOP_MARGIN   = 24    -- default anchor distance below the top of the screen
+
+Theme.COL_OVERLAY_BG     = col(24, 24, 28, 0.92)
+Theme.COL_OVERLAY_BORDER = col(10, 10, 12, 1.0)
+Theme.COL_OVERLAY_TEXT   = col(230, 230, 236, 1.0)
+
 Theme.BORDER_THICKNESS = 2
 Theme.WIRE_THICKNESS   = 3
 Theme.WIRE_SEGMENTS    = 16    -- straight segments a bezier Wire is tessellated into

@@ -12,6 +12,7 @@ end
 local Editor = require("ui/graph")
 local Store  = require("store")
 local Runtime = require("runtime")
+local OverlayStack = require("overlay")
 
 if LibPluginMenu ~= nil then
     LibPluginMenu.Unregister("watchdog")
@@ -60,11 +61,36 @@ end
 
 local runtime = Runtime.new()
 
+-- Overlay action (#36): one shared, draggable toast stack riding on runtime.effects, keyed
+-- off `runtime.overlay` the same way `runtime.effects` already is, so nodes/actions/overlay.lua
+-- only needs the (registry, runtime) it's already handed. Anchor position persists under its
+-- own persistentdb key, independent of the graph document store.lua owns.
+local OVERLAY_ANCHOR_KEY = "watchdog_overlay_anchor"
+runtime.overlay = OverlayStack.new(runtime.effects, {
+    Load = function()
+        if PersistentDB == nil or LibNodeGraph == nil or LibNodeGraph.Json == nil then return nil end
+        local text
+        pcall(function() text = PersistentDB:GetString(OVERLAY_ANCHOR_KEY) end)
+        if type(text) ~= "string" or text == "" then return nil end
+        local ok, pos = pcall(function() return LibNodeGraph.Json.Default.decode(text) end)
+        if ok then return pos end
+        return nil
+    end,
+    Save = function(pos)
+        if PersistentDB == nil or LibNodeGraph == nil or LibNodeGraph.Json == nil then return end
+        local ok, text = pcall(function() return LibNodeGraph.Json.Default.encode(pos) end)
+        if ok and text ~= nil then
+            pcall(function() PersistentDB:SetString(OVERLAY_ANCHOR_KEY, text) end)
+        end
+    end,
+})
+
 local registry = LibNodeGraph.NewRegistry()
 LibNodeGraphStd.Register(registry)
 require("nodes/triggers/chat").Register(registry, runtime)
 require("nodes/actions/log").Register(registry)
 require("nodes/actions/sound").Register(registry)
+require("nodes/actions/overlay").Register(registry, runtime)
 
 --- Graph: restore the saved one, or seed a demo on first run -----------------------------
 -- Persistence backend lives in store.lua (multi-graph, keyed by name). We only ever show
@@ -211,6 +237,7 @@ local function onLogic()
     -- Advances the effect registry (and polls mouse activity) every tick, independent of
     -- whether the editor Window has mounted yet.
     pcall(function() runtime:Update(LOGIC_TICK_SECONDS) end)
+    pcall(function() runtime.overlay:Update(LOGIC_TICK_SECONDS) end)
 
     if not state.effectsMounted or not state.mounted then
         local parent = getRootParent()
@@ -221,6 +248,7 @@ local function onLogic()
                 -- read back off the registry rather than the pcall's `ok` — mirrors the
                 -- editor:Mount retry-on-failure pattern just below.
                 state.effectsMounted = runtime.effects:IsMounted()
+                pcall(function() runtime.overlay:Mount(parent) end)
             end
             if not state.mounted then
                 local ok, err = pcall(function() editor:Mount(parent) end)
@@ -260,6 +288,7 @@ local function onDraw()
     -- Draws even when the editor Window is closed — the overlay Canvas is always-on.
     if state.effectsMounted then
         pcall(function() runtime.effects:Draw() end)
+        pcall(function() runtime.overlay:Draw(runtime.effects:GetCanvas()) end)
     end
 end
 
@@ -276,6 +305,7 @@ function api.Stop()
     pcall(function() Event.KeyDown.Unsubscribe(Events.KeyDown) end)
     pcall(function() runtime:Stop() end)
     pcall(function() runtime.effects:Unmount() end)
+    pcall(function() runtime.overlay:Unmount() end)
     pcall(function() editor:Unmount() end)
     state.mounted = false
     state.effectsMounted = false

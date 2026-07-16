@@ -27,5 +27,6 @@ require("test_palette")
 require("test_effects")
 require("test_color")
 require("test_color_popup")
+require("test_overlay")
 
 os.exit(luaunit.LuaUnit.run())

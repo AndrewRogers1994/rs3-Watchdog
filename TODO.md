@@ -43,8 +43,8 @@ Target: mirror the trigger/notification list from https://github.com/adamk33n3r/
   - NO API. No overhead-text field/method on `PlayerEntity`/`NPCEntity` and no set-overhead call (same gap as the Overhead Text trigger). Not achievable.
 - [ ] Screen Flash
   - SELF-DRAWN (no dedicated API). Draw a full-screen colored rect — `ui.Rectangle` mounted on the root interface, or on the editor's Canvas — and fade its alpha over N `Event.Logic`/`Draw` ticks. Colors via `Vector4.new(r,g,b,a)`.
-- [ ] Overlay — overlay notification
-  - SELF-DRAWN. No native "overlay notification" primitive; compose from `ui.GroupBox` + `ui.Text` (+ `ui.Sprite`) or Canvas, positioned in screen space on the root interface. Same toolkit as the Watchdog editor.
+- [x] Overlay — overlay notification — `action.overlay` (#36)
+  - SELF-DRAWN via Canvas on the #29 effect overlay (not `ui.GroupBox`). `overlay.lua`'s OverlayStack owns one shared, cap-10-evict-oldest toast stack across every Overlay node, 5s default TTL / sticky-until-dismissed, same-node re-fire stacks, dismiss clears one node's toasts. Anchor drag/persistence math is unit-tested (`tests/test_overlay.lua`); the drag capture mount and `ctx.pin`/`ctx.nodeId` field names are BUILD-VERIFY against the real engine (absent from the sandbox this was built in).
 - [ ] Popup — like collection log / league task popup
   - SELF-DRAWN. No native popup API (confirmed vs docs); emulate the look with a `ui.Sprite` frame + `ui.Text`, animated in/out over ticks.
 - [ ] Screen Marker
