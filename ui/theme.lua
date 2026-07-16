@@ -124,6 +124,7 @@ Theme.COL_PALETTE_HEADER_BG = col(48, 48, 58, 1.0)
 Theme.COL_PALETTE_HEADER_TX = col(150, 190, 230, 1.0)  -- category label
 Theme.COL_PALETTE_HOVER     = col(60, 70, 90, 1.0)      -- row under the cursor
 Theme.COL_PALETTE_TEXT      = col(220, 222, 230, 1.0)
+Theme.COL_PALETTE_TEXT_DIM  = col(130, 132, 140, 1.0)  -- unavailable-node row + its reason
 
 Theme.COL_NODE_BODY   = col(43, 43, 48, 0.96)
 Theme.COL_NODE_BORDER = col(15, 15, 18, 1.0)

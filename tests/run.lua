@@ -21,6 +21,8 @@ require("test_runtime")
 require("test_chat")
 require("test_node")
 require("test_controls")
+require("test_unavailable")
+require("test_palette")
 require("test_color")
 require("test_color_popup")
 
