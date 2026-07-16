@@ -17,16 +17,23 @@
 -- by effect nodes like Screen Flash's dismiss-on (#29). Keyboard activity is tracked the same
 -- way as any trigger binding, through the injectable event source; mouse activity has no
 -- client event to bind (see Mouse docs — position is poll-only) so it's advanced from
--- `Runtime:Update(dt)`, called once per Logic tick alongside the effect registry.
+-- `Runtime:Update(dt)`, called once per Logic tick alongside the effect registry. Like the
+-- event source, the `Mouse` global is injectable (`Runtime.new(eventSource, mouseSource)`) so
+-- this is exercised under the standalone test harness too.
 
 local Effects = require("effects")
+local Util = require("util")
 
 local Runtime = {}
 
-function Runtime.new(eventSource)
+-- `mouseSource` is the injectable stand-in for the client `Mouse` global (defaults to it),
+-- mirroring `eventSource`'s seam: tests pass a fake exposing `IsAvailable()`/`GetPosition()`
+-- instead of relying on the real (test-environment-absent) client global.
+function Runtime.new(eventSource, mouseSource)
     Runtime.__index = Runtime
     local self = setmetatable({
         eventSource = eventSource or Event,
+        mouseSource = mouseSource or Mouse,
         graph = nil,
         -- eventName -> { bindings = { { typeKey, transform, filter }, ... },
         --                subscribed, subscribeName, source }
@@ -64,18 +71,21 @@ function Runtime:Update(dt)
 end
 
 -- Mouse position is poll-only (no move/click event on the client — see core/mouse.lua docs),
--- and the client `Mouse` global doesn't exist under the standalone test harness, so this is a
--- silent no-op there (mirrors the pcall-guarded client-global pattern used elsewhere).
+-- hence advancing this from Update rather than a binding. `mouseSource` defaults to nil (no
+-- client global set up) outside the client, so this is a no-op unless injected.
 function Runtime:_pollMouseActivity()
-    if Mouse == nil or not Mouse.IsAvailable() then
+    local mouse = self.mouseSource
+    if mouse == nil or not mouse.IsAvailable() then
         return
     end
-    local ok, pos = pcall(Mouse.GetPosition)
+    local ok, pos = pcall(mouse.GetPosition)
     if not ok or pos == nil then
         return
     end
     local last = self._lastMousePos
-    if last == nil or pos.x ~= last.x or pos.y ~= last.y then
+    -- The first poll only establishes a baseline — there's nothing to compare yet, so it
+    -- must not itself count as "activity" (a plugin load/reload isn't a mouse movement).
+    if last ~= nil and (pos.x ~= last.x or pos.y ~= last.y) then
         self.mouseActivityTick = self.mouseActivityTick + 1
     end
     self._lastMousePos = { x = pos.x, y = pos.y }
@@ -111,15 +121,10 @@ function Runtime:BindTrigger(typeKey, entries)
     end
 end
 
--- pcalls `fn`, logging (and swallowing) any error under a shared "Watchdog runtime: <context>"
--- prefix. Used for both transform and filter, which fail the same way: don't let one bad
--- node-authored function break dispatch for every other binding.
+-- Used for both transform and filter, which fail the same way: don't let one bad
+-- node-authored function break dispatch for every other binding. See util.lua.
 local function callOrLog(context, fn, ...)
-    local ok, result = pcall(fn, ...)
-    if not ok and log ~= nil then
-        log("Watchdog runtime: " .. context .. " — " .. tostring(result))
-    end
-    return ok, result
+    return Util.CallOrLog("runtime", context, fn, ...)
 end
 
 function Runtime:_ensureSubscribed(eventName, channel)

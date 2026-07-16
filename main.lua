@@ -185,7 +185,10 @@ local function onLogic()
         if parent ~= nil then
             if not state.effectsMounted then
                 pcall(function() runtime.effects:Mount(parent) end)
-                state.effectsMounted = true
+                -- Mount swallows its own errors (logs, leaves canvas nil), so success is
+                -- read back off the registry rather than the pcall's `ok` — mirrors the
+                -- editor:Mount retry-on-failure pattern just below.
+                state.effectsMounted = runtime.effects:IsMounted()
             end
             if not state.mounted then
                 local ok, err = pcall(function() editor:Mount(parent) end)

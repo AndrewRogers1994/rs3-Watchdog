@@ -18,15 +18,12 @@
 -- In both cases, "leaving the live set" (natural expiry via update() returning falsy, or an
 -- explicit Dismiss) fires the handle's onDone. Clear() is a silent teardown wipe — no onDone.
 
--- pcalls `fn`, logging (and swallowing) any error under a shared "Watchdog effects: <context>"
--- prefix, mirroring runtime.lua's callOrLog — a bad node-authored update/draw/onDone can't be
--- allowed to break every other live effect.
+local Util = require("util")
+
+-- A bad node-authored update/draw/onDone can't be allowed to break every other live effect.
+-- See util.lua.
 local function callOrLog(context, fn, ...)
-    local ok, result = pcall(fn, ...)
-    if not ok and log ~= nil then
-        log("Watchdog effects: " .. context .. " — " .. tostring(result))
-    end
-    return ok, result
+    return Util.CallOrLog("effects", context, fn, ...)
 end
 
 local EffectRegistry = {}
@@ -62,6 +59,10 @@ function EffectRegistry:Mount(rootParent)
     elseif log ~= nil then
         log("Watchdog effects: Mount failed — " .. tostring(canvas))
     end
+end
+
+function EffectRegistry:IsMounted()
+    return self.canvas ~= nil
 end
 
 function EffectRegistry:Unmount()
