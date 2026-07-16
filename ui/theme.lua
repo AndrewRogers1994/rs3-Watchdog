@@ -55,6 +55,27 @@ Theme.COORDGRID_FIELD_GAP  = 4     -- horizontal gap between the 3 fields
 Theme.COORDGRID_BAND_H     = Theme.COORDGRID_TOP_GAP + Theme.COORDGRID_FIELD_H
     + Theme.COORDGRID_MID_GAP + Theme.COORDGRID_BUTTON_H + Theme.COORDGRID_BOTTOM_GAP
 
+-- color swatch control (#30): the on-pin chip is a value-column box like a scalar Control
+-- (Theme.CONTROL_H tall), but a fixed, narrower width so it reads as a color chip rather
+-- than a text field. Checker cell is graph-space (scales with zoom like everything else on
+-- the node); the popup's own checker (behind the SV/alpha previews) is screen-space fixed,
+-- since the popup itself doesn't scale with the View (see Theme.COLOR_POPUP_* below).
+Theme.SWATCH_W             = 46
+Theme.SWATCH_CHECKER_CELL  = 4
+
+-- color-picker popup (#30): a Canvas-drawn transient layer opened from the swatch chip,
+-- positioned in the same fixed screen-space as the Palette (not scaled by the View — see
+-- ui/color_popup.lua). Sized to comfortably fit the SV field, hue strip, prev/cur swatches,
+-- hex field, and R/G/B/A rows stacked top-to-bottom.
+Theme.COLOR_POPUP_W        = 220   -- popup width
+Theme.COLOR_POPUP_PAD      = 10    -- inner padding around the body content
+Theme.COLOR_POPUP_HEADER_H = 22    -- title band height
+Theme.COLOR_POPUP_SV_H     = 110   -- saturation/value field height
+Theme.COLOR_POPUP_HUE_H    = 14    -- hue strip height
+Theme.COLOR_POPUP_ROW_H    = 18    -- prev/cur, hex, and each R/G/B/A row share this height
+Theme.COLOR_POPUP_ROW_GAP  = 6     -- vertical gap between stacked rows
+Theme.COLOR_POPUP_CHECKER_CELL = 6 -- screen-px checker cell behind the alpha preview
+
 Theme.BORDER_THICKNESS = 2
 Theme.WIRE_THICKNESS   = 3
 Theme.WIRE_SEGMENTS    = 16    -- straight segments a bezier Wire is tessellated into
@@ -124,6 +145,10 @@ Theme.COL_CONTROL_TEXT   = col(225, 227, 233, 1.0)
 Theme.COL_CONTROL_EMPTY  = col(120, 122, 132, 1.0)  -- placeholder when the value is empty
 Theme.COL_CONTROL_CARET  = col(170, 172, 182, 1.0)  -- enum dropdown ▾ indicator
 Theme.COL_CONTROL_ACTION_BG = col(52, 56, 66, 1.0)  -- composite-control action button (e.g. coordgrid's "set to current position")
+
+-- Checkerboard behind a color swatch/preview, so alpha reads visually (#30).
+Theme.COL_CHECKER_LIGHT = col(150, 150, 150, 1.0)
+Theme.COL_CHECKER_DARK  = col(90, 90, 90, 1.0)
 
 -- Execution pins and wires use one fixed neutral color (they carry no Type Tag).
 Theme.COL_EXEC        = col(242, 242, 242, 1.0)

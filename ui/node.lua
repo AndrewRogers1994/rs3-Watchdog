@@ -6,6 +6,7 @@
 
 local Theme    = require("ui/theme")
 local Controls = require("ui/controls")
+local Color    = require("ui/color")
 
 local Node = {}
 
@@ -127,14 +128,32 @@ function Node.BuildGeometry(pins, x, y, width, opts)
                 local rightInset = (outputs[i] ~= nil) and Theme.CONTROL_OUT_RESERVE or Theme.CONTROL_PAD_X
                 local right = width - Theme.PIN_MARGIN_X - rightInset
                 if right < left + Theme.CONTROL_MIN_W then right = left + Theme.CONTROL_MIN_W end
-                geom.controls[#geom.controls + 1] = {
-                    pinName = pin.name,
-                    widget  = spec.widget,
-                    spec    = spec,
-                    default = pin.default,  -- shown/edited when the stored Control is nil
-                    x = left, y = cy - Theme.CONTROL_H * 0.5,
-                    w = right - left, h = Theme.CONTROL_H,
-                }
+
+                if spec.widget == "swatch" then
+                    -- A fixed-width chip flush against the value column's right edge (#30),
+                    -- not a full-width text box — narrower reads as a color swatch. `kind`
+                    -- discriminates it from a scalar text/enum/number box the same way a
+                    -- composite Control's sub-rects do, even though there's only ever one.
+                    local swW = math.min(Theme.SWATCH_W, right - left)
+                    geom.controls[#geom.controls + 1] = {
+                        pinName = pin.name,
+                        widget  = spec.widget,
+                        spec    = spec,
+                        default = pin.default,
+                        kind = "swatch",
+                        x = right - swW, y = cy - Theme.CONTROL_H * 0.5,
+                        w = swW, h = Theme.CONTROL_H,
+                    }
+                else
+                    geom.controls[#geom.controls + 1] = {
+                        pinName = pin.name,
+                        widget  = spec.widget,
+                        spec    = spec,
+                        default = pin.default,  -- shown/edited when the stored Control is nil
+                        x = left, y = cy - Theme.CONTROL_H * 0.5,
+                        w = right - left, h = Theme.CONTROL_H,
+                    }
+                end
             end
         end
     end
@@ -241,28 +260,46 @@ function Node.Draw(canvas, view, geom, meta, opts)
                 local hot = opts.mouseX ~= nil
                     and opts.mouseX >= bx and opts.mouseX <= bx + bw
                     and opts.mouseY >= by and opts.mouseY <= by + bh
-                local bg = (ctrl.kind == "action") and Theme.COL_CONTROL_ACTION_BG or Theme.COL_CONTROL_BG
-                canvas:AddRectangle(bx, by, bw, bh, Theme.Vec4(bg))
-                canvas:AddOutline(bx, by, bw, bh, math.max(1, view:Scale(1)),
-                    Theme.Vec4(hot and Theme.COL_CONTROL_HOT or Theme.COL_CONTROL_BORDER))
 
-                if ctrlFont ~= nil then
-                    local text = ctrl.display
-                    local col = Theme.Vec4(Theme.COL_CONTROL_TEXT)
-                    if text == nil or text == "" then
-                        text, col = ctrl.placeholder or "…", Theme.Vec4(Theme.COL_CONTROL_EMPTY)
+                if ctrl.kind == "swatch" then
+                    -- Checker-backed so alpha reads visually; no value at all (nil Control
+                    -- AND nil pin default, #30's "never fires until set") draws as a plain
+                    -- empty box instead of implying a color that was never actually chosen.
+                    if ctrl.value == nil then
+                        canvas:AddRectangle(bx, by, bw, bh, Theme.Vec4(Theme.COL_CONTROL_BG))
+                    else
+                        Color.DrawChecker(canvas, bx, by, bw, bh, view:Scale(Theme.SWATCH_CHECKER_CELL),
+                            Theme.Vec4(Theme.COL_CHECKER_LIGHT), Theme.Vec4(Theme.COL_CHECKER_DARK))
+                        local v = ctrl.value
+                        local a = (v.a == nil) and 255 or v.a
+                        canvas:AddRectangle(bx, by, bw, bh, Vector4.new(v.r / 255, v.g / 255, v.b / 255, a / 255))
                     end
-                    canvas:AddText(bx + view:Scale(Theme.CONTROL_PAD_X), by + bh * 0.5 - view:Scale(6),
-                        text, ctrlFont, col)
-                end
+                    canvas:AddOutline(bx, by, bw, bh, math.max(1, view:Scale(1)),
+                        Theme.Vec4(hot and Theme.COL_CONTROL_HOT or Theme.COL_CONTROL_BORDER))
+                else
+                    local bg = (ctrl.kind == "action") and Theme.COL_CONTROL_ACTION_BG or Theme.COL_CONTROL_BG
+                    canvas:AddRectangle(bx, by, bw, bh, Theme.Vec4(bg))
+                    canvas:AddOutline(bx, by, bw, bh, math.max(1, view:Scale(1)),
+                        Theme.Vec4(hot and Theme.COL_CONTROL_HOT or Theme.COL_CONTROL_BORDER))
 
-                -- Enum dropdown indicator: a small ▾ drawn as a filled triangle at the right.
-                if ctrl.widget == "enum" then
-                    local cxr = bx + bw - view:Scale(7)
-                    local cyr = by + bh * 0.5
-                    local a = view:Scale(3)
-                    canvas:AddTriangle(cxr - a, cyr - a, cxr + a, cyr - a, cxr, cyr + a,
-                        Theme.Vec4(Theme.COL_CONTROL_CARET))
+                    if ctrlFont ~= nil then
+                        local text = ctrl.display
+                        local col = Theme.Vec4(Theme.COL_CONTROL_TEXT)
+                        if text == nil or text == "" then
+                            text, col = ctrl.placeholder or "…", Theme.Vec4(Theme.COL_CONTROL_EMPTY)
+                        end
+                        canvas:AddText(bx + view:Scale(Theme.CONTROL_PAD_X), by + bh * 0.5 - view:Scale(6),
+                            text, ctrlFont, col)
+                    end
+
+                    -- Enum dropdown indicator: a small ▾ drawn as a filled triangle at the right.
+                    if ctrl.widget == "enum" then
+                        local cxr = bx + bw - view:Scale(7)
+                        local cyr = by + bh * 0.5
+                        local a = view:Scale(3)
+                        canvas:AddTriangle(cxr - a, cyr - a, cxr + a, cyr - a, cxr, cyr + a,
+                            Theme.Vec4(Theme.COL_CONTROL_CARET))
+                    end
                 end
             end
         end

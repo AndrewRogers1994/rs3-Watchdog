@@ -131,3 +131,55 @@ function TestControlAtHitTest:testBelowMinZoomNothingIsHittable()
         self.geom.y + action.y + action.h * 0.5)
     luaunit.assertNil(Node.ControlAt(self.geom, self.view, sx, sy))
 end
+
+TestSwatchGeometry = {}
+
+function TestSwatchGeometry:setUp()
+    self.pins = { { name = "tint", kind = "data", direction = "in", dataType = "color", label = "tint" } }
+    self.geom = Node.BuildGeometry(self.pins, 0, 0, Theme.NODE_WIDTH)
+    self.view = View.new()
+end
+
+function TestSwatchGeometry:testOneSwatchControlIsProduced()
+    luaunit.assertEquals(#self.geom.controls, 1)
+    local ctrl = self.geom.controls[1]
+    luaunit.assertEquals(ctrl.pinName, "tint")
+    luaunit.assertEquals(ctrl.widget, "swatch")
+    luaunit.assertEquals(ctrl.kind, "swatch")
+end
+
+function TestSwatchGeometry:testChipIsFixedWidthAndStaysWithinTheValueColumn()
+    local ctrl = self.geom.controls[1]
+    luaunit.assertEquals(ctrl.w, Theme.SWATCH_W)
+    luaunit.assertTrue(ctrl.x >= Theme.PIN_MARGIN_X - 1e-9)
+    luaunit.assertTrue(ctrl.x + ctrl.w <= Theme.NODE_WIDTH - Theme.PIN_MARGIN_X + 1e-9)
+end
+
+function TestSwatchGeometry:testChipDoesNotReserveExtraRowHeight()
+    -- Unlike coordgrid's composite band, a swatch is a plain value-column box: no extraH.
+    local numberPins = {
+        { name = "a", kind = "data", direction = "in", dataType = "number", label = "a" },
+        { name = "b", kind = "data", direction = "in", dataType = "number", label = "b" },
+    }
+    local plainGeom = Node.BuildGeometry(numberPins, 0, 0, Theme.NODE_WIDTH)
+    local pins = {
+        { name = "a", kind = "data", direction = "in", dataType = "number", label = "a" },
+        { name = "tint", kind = "data", direction = "in", dataType = "color", label = "tint" },
+    }
+    local geom = Node.BuildGeometry(pins, 0, 0, Theme.NODE_WIDTH)
+    luaunit.assertAlmostEquals(geom.h, plainGeom.h, 1e-9)
+end
+
+function TestSwatchGeometry:testClickingTheChipReturnsTheSwatchControl()
+    local ctrl = self.geom.controls[1]
+    local sx, sy = self.view:ToScreen(self.geom.x + ctrl.x + ctrl.w * 0.5,
+        self.geom.y + ctrl.y + ctrl.h * 0.5)
+    local hit = Node.ControlAt(self.geom, self.view, sx, sy)
+    luaunit.assertNotNil(hit)
+    luaunit.assertEquals(hit.kind, "swatch")
+end
+
+function TestSwatchGeometry:testConnectedPinReservesNoSwatchControl()
+    local geom = Node.BuildGeometry(self.pins, 0, 0, Theme.NODE_WIDTH, { connected = { tint = true } })
+    luaunit.assertEquals(#geom.controls, 0)
+end

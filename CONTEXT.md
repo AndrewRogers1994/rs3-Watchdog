@@ -116,10 +116,11 @@ _Avoid_: Inline editor, popup, input widget (in prose)
 
 **Control Spec**:
 The Watchdog-owned mapping (`ui/controls.lua`) from an engine Type Tag to how its Control is
-rendered and edited: a widget kind (`number` / `text` / `enum` / `composite`) plus, for an
-enum, its choices, or for a composite, its `extraH`/`Layout` (see Control Band). Parallel to
-Type Color, and for the same reason — the engine is deliberately tag-agnostic, so
-presentation lives here (ADR-0004). Tags with no spec (coord, any) get no Control Editor.
+rendered and edited: a widget kind (`number` / `text` / `enum` / `composite` / `swatch`) plus,
+for an enum, its choices, for a composite, its `extraH`/`Layout` (see Control Band), or for a
+swatch, its hex8 `format`/`parse` (see Swatch Chip). Parallel to Type Color, and for the same
+reason — the engine is deliberately tag-agnostic, so presentation lives here (ADR-0004). Tags
+with no spec (coord, any) get no Control Editor.
 _Avoid_: Type metadata, schema, control config
 
 **Control Band**:
@@ -133,3 +134,21 @@ later Pin row down (Node Body layout is a cumulative running offset, not a fixed
 position"). Reserved always; drawn/hit-tested only above `CONTROL_MIN_ZOOM`, same as any
 Control Box.
 _Avoid_: Sub-panel, composite box, field group
+
+**Swatch Chip**:
+A `swatch`-widget Control's on-Pin box (e.g. `color`'s `{r,g,b,a}` table): a checker-backed
+color-filled rect in the same value column a scalar Control Box occupies, discriminated by
+`kind == "swatch"` in `geom.controls` the way a Control Band's sub-rects are discriminated by
+`kind`. Unlike every other Control kind, clicking it does not mount a Control Editor — it
+opens the Color Popup instead.
+_Avoid_: Color box, preview, control box (that's the scalar/composite kind)
+
+**Color Popup**:
+The Canvas-drawn, click-to-open picker for a `swatch` Control (`ui/color_popup.lua`): an
+SV field + hue strip (drag), a hex8 field (the Control Spec's `format`/`parse`, mounted as a
+transient real `ui.InputField` exactly like a Control Editor), and R/G/B/A drag rows. Modal
+like the Palette — drawn on the same editor-chrome Canvas, in the same fixed screen-space,
+clamped inside the Viewport, and dismissed by an outside click / Esc / re-click / its own ✕ —
+but unlike the Palette its SV/hue/channel rows are themselves draggable, not single-shot
+picks. Deliberately transient editor state, not part of any Node's `geom.controls`.
+_Avoid_: Color picker dialog, swatch popup, panel (in prose — that's the Palette's own word)

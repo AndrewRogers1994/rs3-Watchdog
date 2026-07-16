@@ -26,6 +26,7 @@ local Node     = require("ui/node")
 local Wire     = require("ui/wire")
 local Palette  = require("ui/palette")
 local Controls = require("ui/controls")
+local ColorPopup = require("ui/color_popup")
 
 local Editor = {}
 Editor.__index = Editor
@@ -47,6 +48,8 @@ function Editor.new(graph, registry, layout, view)
         selected = nil,
         visible = false,           -- starts closed; opened via F8 / the panel button
         palette = Palette.new(),   -- the Node-creation popup (modal while open)
+        colorPopup = ColorPopup.new(),  -- the color-picker popup (#30, modal while open)
+        colorHexField = nil,       -- transient real InputField over the popup's hex row
         tick = 0,                  -- Logic-tick counter, for double-click timing
         lastClickTick = -1000,     -- tick of the previous press (double-click pairing)
         lastClickX = 0,
@@ -407,6 +410,14 @@ function Editor:beginPress()
         return
     end
 
+    -- The color popup (#30) is modal too, but unlike the Palette some of its parts (the SV
+    -- field, hue strip, R/G/B/A rows) DO drag — handleColorPopupClick sets up pressed/
+    -- expandCapture itself for those, so it's not a plain return-only branch like above.
+    if self.colorPopup.open then
+        self:handleColorPopupClick(lx, ly)
+        return
+    end
+
     -- The toolbar +/x are real Buttons (children of the GroupBox, stacked in front of the
     -- Capture Layer) with their own ONBUTTONPRESSED handlers, so they never reach here.
 
@@ -463,6 +474,8 @@ function Editor:beginPress()
         self:bringToFront(hitCtrl.nodeId)
         if hitCtrl.ctrl.kind == "action" then
             self:setCoordgridToCurrentPosition(hitCtrl.nodeId, hitCtrl.ctrl.pinName)
+        elseif hitCtrl.ctrl.kind == "swatch" then
+            self:openColorPopup(hitCtrl.nodeId, hitCtrl.ctrl)
         else
             self:openControlEditor(hitCtrl.nodeId, hitCtrl.ctrl)
         end
@@ -540,6 +553,10 @@ function Editor:update()
             local gx, gy = self.view:ToGraph(lx, ly)
             local pos = self:posOf(self.dragNodeId)
             pos.x, pos.y = gx - self.dragDX, gy - self.dragDY
+        elseif self.mode == "colordrag" then
+            local lx, ly = self:toLocal(mx, my)
+            self.colorPopup:ApplyDrag(self.colorDragPart, lx, ly)
+            self:commitColorPopupValue()
         end
         -- "wire" needs no state here; the loose end follows self.mouse in Draw.
     end
@@ -559,6 +576,7 @@ function Editor:endPress()
     self.mode = "idle"
     self.wire = nil
     self.dragNodeId = nil
+    self.colorDragPart = nil
     self:positionCapture()  -- shrink the Capture Layer back to the Window
 end
 
@@ -621,6 +639,9 @@ end
 
 -- Opens the Palette listing every Node Type; the new Node lands where it was opened.
 function Editor:openPaletteUnfiltered(sx, sy)
+    -- The toolbar + is a real Button (bypasses beginPress's colorPopup-modal check), so
+    -- mutual exclusion with the color popup has to be enforced here too.
+    self:closeColorPopup()
     local gx, gy = self.view:ToGraph(sx, sy)
     self.palette:Open(self.registry, nil,
         { screenX = sx, screenY = sy, anchorGX = gx, anchorGY = gy, connect = nil })
@@ -702,8 +723,10 @@ function Editor:onScroll(...)
         return
     end
     -- A transient editor is pinned to a fixed screen rect; zooming would strand it, so
-    -- commit and close it first.
+    -- commit and close it first. The color popup is the same kind of fixed-screen-rect
+    -- overlay, so it closes on zoom too.
     if self.editing ~= nil then self:closeControlEditor() end
+    if self.colorPopup.open then self:closeColorPopup() end
     local mx, my = mousePos()
     local lx, ly
     if mx ~= nil then lx, ly = self:toLocal(mx, my) else lx, ly = self.mouse.x, self.mouse.y end
@@ -726,7 +749,155 @@ function Editor:setCoordgridToCurrentPosition(nodeId, pinName)
     end)
 end
 
+--- Color popup (#30) ----------------------------------------------------------------------
+
+-- A press that could start a drag (SV field, hue strip, R/G/B/A rows), keyed by PartAt's
+-- return value. Everything else ("hex", "close", "other", nil-outside) is a single click.
+local COLOR_DRAG_PARTS = { sv = true, hue = true, r = true, g = true, b = true, a = true }
+
+-- Opens the color popup anchored just below the clicked swatch chip. Only ever called with
+-- the popup already closed — while it's open, beginPress's modal check above routes every
+-- click (including a re-click of the same chip, which the popup sees as a click outside its
+-- own rect and closes on — one of #30's dismiss triggers) to handleColorPopupClick instead,
+-- so this never has to reopen over itself. Any node Control editor IS still a real scenario
+-- to guard against — it isn't gated by that same modal check — so it's closed first, same
+-- rule ADR-0004 already applies elsewhere.
+function Editor:openColorPopup(nodeId, ctrl)
+    if self.editing ~= nil then self:closeControlEditor() end
+    local geom = self.geoms[nodeId]
+    if geom == nil then return end
+    local cp = self.colorPopup
+    local sx, sy = self.view:ToScreen(geom.x + ctrl.x, geom.y + ctrl.y + ctrl.h)
+    local current = self.graph:GetControl(nodeId, ctrl.pinName)
+    if current == nil then current = ctrl.default end
+    cp:Open(nodeId, ctrl.pinName, ctrl.spec, current, sx, sy)
+end
+
+-- Tears down the transient hex field (if mounted) and closes the popup. Idempotent, so it's
+-- safe to call defensively from anywhere that needs "make sure the popup isn't open."
+function Editor:closeColorPopup()
+    self:closeColorHexEditor()
+    self.colorPopup:Close()
+end
+
+-- Routes a click while the popup is open (called from beginPress, mirroring
+-- handlePaletteClick): a draggable part starts a real drag gesture (pressed/expandCapture,
+-- same as any other drag — this is the one way the popup differs from the Palette, whose
+-- clicks are all single-shot); the hex box mounts its own transient InputField; the close
+-- glyph or a click outside the panel dismisses; a click on inert padding/the prev-cur chips
+-- does nothing, keeping the popup open.
+function Editor:handleColorPopupClick(lx, ly)
+    local cp = self.colorPopup
+    local part = cp:PartAt(lx, ly)
+    if part == "close" then
+        self:closeColorPopup()
+        return
+    end
+    if part == "hex" then
+        self:openColorHexEditor()
+        return
+    end
+    if COLOR_DRAG_PARTS[part] then
+        if self.colorHexField ~= nil then self:closeColorHexEditor() end
+        self.pressed = true
+        self:expandCapture()
+        self.mode = "colordrag"
+        self.colorDragPart = part
+        cp:ApplyDrag(part, lx, ly)
+        self:commitColorPopupValue()
+        return
+    end
+    if not cp:Contains(lx, ly) then
+        self:closeColorPopup()
+    end
+    -- part == "other" (padding/prev-cur chips) or nil (Draw hasn't run yet): stay open.
+end
+
+-- Writes the popup's current working value back through the same Graph:SetControl path
+-- every other Control uses — live, once per drag tick, mirroring the coordgrid axis fields'
+-- and the plain scalar editor's live-write behavior.
+function Editor:commitColorPopupValue()
+    local cp = self.colorPopup
+    if not cp.open then return end
+    pcall(function() self.graph:SetControl(cp.nodeId, cp.pinName, cp:Value()) end)
+end
+
+-- Mounts a transient InputField over the popup's hex row (ADR-0004's mechanism, reused here
+-- for the one textual field the popup has). Filter is NONE rather than ALPHANUMERIC/NUMERIC
+-- — the color spec's parse hook (Color.ParseHex8, via Controls.Parse below) already strips
+-- non-hex characters on commit, so the field just needs to accept whatever's typed and let
+-- the parse sort it out, same latitude a "text" widget gets in openControlEditor.
+function Editor:openColorHexEditor()
+    self:closeColorHexEditor()
+    if self.groupBox == nil or ui == nil then return end
+    local cp = self.colorPopup
+    local r = cp.rect and cp.rect.hex
+    if r == nil then return end
+
+    -- The popup lives in the same fixed GroupBox-local frame the Canvas draws in (like the
+    -- Palette), so its rect's coords are the field's coords directly — no View scaling, no
+    -- header offset (mirrors openControlEditor's own no-offset finding).
+    local field = self:mountInputField(r.x, r.y, r.w, r.h, "NONE", 8,
+        Controls.Format(cp.spec, cp:Value()),
+        function(_, cause, newContent) self:onColorHexContent(cause, newContent) end)
+    if field == nil then return end
+    self.colorHexField = field
+    pcall(function() field:MoveToFront() end)
+    pcall(function() field:SetFocus() end)
+end
+
+-- ONCONTENTCHANGED: live-parse every keystroke into the popup's working value through the
+-- spec's own parse hook (Controls.Parse -> Color.ParseHex8's guard, so a too-short/
+-- unparsable string is a no-op and a mid-typed hex never nukes the color); close just the
+-- hex field (not the whole popup) on a submit/focus-loss cause.
+function Editor:onColorHexContent(cause, _newContent)
+    if self.colorHexField == nil then return end
+    local raw = ""
+    pcall(function() raw = self.colorHexField.content or "" end)
+    local cp = self.colorPopup
+    cp:SetValue(Controls.Parse(cp.spec, raw, cp:Value()))
+    self:commitColorPopupValue()
+    if isSubmitCause(cause) then self:closeColorHexEditor() end
+end
+
+function Editor:closeColorHexEditor()
+    if self.colorHexField == nil then return end
+    pcall(function() self.colorHexField:Destroy() end)
+    self.colorHexField = nil
+end
+
+-- Esc dismisses the color popup (#30's third dismiss trigger, alongside outside-click and
+-- re-click). Wired from main.lua's existing KeyDown subscription.
+function Editor:onEscape()
+    if self.colorPopup.open then self:closeColorPopup() end
+end
+
 --- Inline Control editing ---------------------------------------------------------------
+
+-- Mounts a transient real ui.InputField as a child of the GroupBox (ADR-0004's mechanism):
+-- styled so it isn't invisible (no stylesheet -> no background sprite, the gotcha ADR-0004
+-- documents), positioned/sized in the caller's coords, filtered, seeded with initial content,
+-- and wired to `onChanged` (an ONCONTENTCHANGED callback of `fn(component, cause, newContent)`).
+-- Shared by the node's own inline Control editor (openControlEditor, below) and the color
+-- popup's hex field (openColorHexEditor, #30) — the two differ only in where the field goes
+-- and what its filter/initial content/commit path are. Returns the field, or nil if mounting
+-- failed (caller decides what "no field" means for it — both bail out entirely).
+function Editor:mountInputField(px, py, sw, sh, filterMode, maxLen, initialContent, onChanged)
+    local field
+    local ok = pcall(function()
+        field = ui.InputField.new(self.groupBox)
+        pcall(function() field.stylesheetID = safeButtonStyle() end)
+        field.clickthrough = false
+        field:SetPos(px, py)
+        field:SetSize(sw, sh)
+        field:Setup(enumv(ui.TextContentVisibilityMode, "VISIBLE"),
+            enumv(ui.InputFieldFilterMode, filterMode), maxLen)
+        field.content = initialContent
+        field:Subscribe(enumv(ui.Hook, "ONCONTENTCHANGED"), onChanged)
+    end)
+    if not ok then return nil end
+    return field
+end
 
 -- Mounts the transient editor component over a Control box. One at a time; any previous
 -- editor is committed and torn down first. The component is a child of the GroupBox, so it
@@ -811,26 +982,14 @@ function Editor:openControlEditor(nodeId, ctrl)
         end)
         if not ok or field == nil then return end
     else
-        local ok = pcall(function()
-            field = ui.InputField.new(self.groupBox)
-            -- Without a stylesheet the field has no background sprite and renders invisibly
-            -- (MenuInterface's working addInput styles its InputField with BUTTON_DEFAULT).
-            pcall(function() field.stylesheetID = safeButtonStyle() end)
-            field.clickthrough = false
-            field:SetPos(px, py)
-            field:SetSize(sw, sh)
-            -- A composite "field" box (#25, e.g. coordgrid's x/z/level) is a numeric field
-            -- exactly like the "number" widget; it just commits into one axis, not the whole
-            -- Control (see commitField's axis branch).
-            local filter = (spec.widget == "number" or kind == "field") and "NUMERIC" or "NONE"
-            field:Setup(enumv(ui.TextContentVisibilityMode, "VISIBLE"),
-                enumv(ui.InputFieldFilterMode, filter), 128)
-            field.content = (current ~= nil) and tostring(current) or ""
-            field:Subscribe(enumv(ui.Hook, "ONCONTENTCHANGED"), function(_, cause, newContent)
-                self:onControlContent(cause, newContent)
-            end)
-        end)
-        if not ok or field == nil then return end
+        -- A composite "field" box (#25, e.g. coordgrid's x/z/level) is a numeric field
+        -- exactly like the "number" widget; it just commits into one axis, not the whole
+        -- Control (see commitField's axis branch).
+        local filter = (spec.widget == "number" or kind == "field") and "NUMERIC" or "NONE"
+        field = self:mountInputField(px, py, sw, sh, filter, 128,
+            (current ~= nil) and tostring(current) or "",
+            function(_, cause, newContent) self:onControlContent(cause, newContent) end)
+        if field == nil then return end
     end
 
     self.editing = { nodeId = nodeId, pinName = pinName, spec = spec,
@@ -1005,6 +1164,9 @@ function Editor:draw()
     if self.editing ~= nil and self.editing.field ~= nil then
         pcall(function() self.editing.field:MoveToFront() end)
     end
+    if self.colorHexField ~= nil then
+        pcall(function() self.colorHexField:MoveToFront() end)
+    end
     self.canvas:Clear()
 
     self:buildGeoms()
@@ -1029,9 +1191,15 @@ function Editor:draw()
     self:drawPendingWire()
     self:drawChrome()
 
-    -- The Palette draws last, on top of the chrome, clamped inside the Viewport.
+    -- The Palette and color popup draw last, on top of the chrome, clamped inside the
+    -- Viewport. The two are mutually exclusive (see openColorPopup/openPaletteUnfiltered),
+    -- so draw order between them doesn't matter in practice.
     if self.palette.open then
         self.palette:Draw(self.canvas, vx, vy, vw, vh, self.mouse.x, self.mouse.y)
+    end
+    if self.colorPopup.open then
+        self.colorPopup:Draw(self.canvas, vx, vy, vw, vh, self.mouse.x, self.mouse.y,
+            { hexEditing = self.colorHexField ~= nil })
     end
 end
 
@@ -1099,6 +1267,7 @@ function Editor:SetVisible(v)
         self.dragNodeId = nil
         self.palette:Close()
         self:closeControlEditor()
+        self:closeColorPopup()
     end
     if self.canvas ~= nil then
         pcall(function() self.canvas.hidden = not self.visible end)
@@ -1254,6 +1423,7 @@ end
 
 function Editor:Unmount()
     self:closeControlEditor()  -- tear down any transient editor before its parent goes away
+    self:closeColorPopup()
     if self.capture ~= nil then
         pcall(function() self.capture:Destroy() end)
         self.capture = nil

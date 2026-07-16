@@ -24,5 +24,7 @@ require("test_controls")
 require("test_unavailable")
 require("test_palette")
 require("test_effects")
+require("test_color")
+require("test_color_popup")
 
 os.exit(luaunit.LuaUnit.run())

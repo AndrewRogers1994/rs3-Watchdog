@@ -18,6 +18,7 @@
 -- tagged with a `kind` the Editor's click dispatcher branches on.
 
 local Theme = require("ui/theme")
+local Color = require("ui/color")
 
 local Controls = {}
 
@@ -141,6 +142,18 @@ Controls.Register("coordgrid", {
         }
         return rects
     end,
+})
+
+-- color (#30): a {r, g, b, a} table Control (0..255 each), edited via a Canvas-drawn popup
+-- (ui/color_popup.lua) opened from a checker-backed swatch chip, not the composite band --
+-- kind == "swatch" is a single value-column box like a scalar Control, just drawn as a color
+-- fill instead of text (see Node.BuildGeometry/Draw's swatch branch). format/parse round-trip
+-- the popup's one textual field, its hex8 box, to/from the stored table; the popup's own
+-- sliders read/write the table directly and never go through these.
+Controls.Register("color", {
+    widget = "swatch",
+    format = function(value) return Color.FormatHex8(value) end,
+    parse  = function(raw, current) return Color.ParseHex8(raw, current) end,
 })
 
 return Controls
