@@ -42,6 +42,17 @@ local function callOrLog(context, fn, ...)
     return Util.CallOrLog("runtime", context, fn, ...)
 end
 
+-- The read-only `nodeHandle` handed to every node-authored hook — a filter's second arg
+-- (`_fireBindingInGraph`) and the preload hook's arg (`_preloadNode`). One builder keeps the
+-- `{ id, typeKey, GetControl(pinName) }` shape identical across both call sites.
+local function makeNodeHandle(graph, node)
+    return {
+        id = node.id,
+        typeKey = node.typeKey,
+        GetControl = function(pinName) return graph:GetControl(node.id, pinName) end,
+    }
+end
+
 -- `mouseSource` is the injectable stand-in for the client `Mouse` global (defaults to it),
 -- mirroring `eventSource`'s seam: tests pass a fake exposing `IsAvailable()`/`GetPosition()`
 -- instead of relying on the real (test-environment-absent) client global.
@@ -158,6 +169,18 @@ function Runtime:SetRegistry(registry)
     self._registry = registry
 end
 
+-- Runs one already-resolved node's `preload(node)` hook, if its registered type declares one.
+-- Shared by PreloadGraph (which holds each node from its own scan) and PreloadNode (which
+-- resolves by id first), so the type lookup and hook call live in one place.
+function Runtime:_preloadNode(graph, node)
+    local nodeType = self._registry:GetNodeType(node.typeKey)
+    if nodeType == nil or nodeType.preload == nil then
+        return
+    end
+    callOrLog("preload error on '" .. tostring(node.typeKey) .. "'",
+        nodeType.preload, makeNodeHandle(graph, node))
+end
+
 -- Runs every node's `preload(node)` node-type hook (if it has one) for one graph. A no-op
 -- until SetRegistry has been called (e.g. AddAlert during early startup, before the registry
 -- exists) or when `graph` is nil.
@@ -166,7 +189,7 @@ function Runtime:PreloadGraph(graph)
         return
     end
     for _, node in ipairs(graph:GetNodes()) do
-        self:PreloadNode(graph, node.id)
+        self:_preloadNode(graph, node)
     end
 end
 
@@ -179,26 +202,12 @@ function Runtime:PreloadNode(graph, nodeId)
     if graph == nil or self._registry == nil then
         return
     end
-    local target
     for _, node in ipairs(graph:GetNodes()) do
         if node.id == nodeId then
-            target = node
-            break
+            self:_preloadNode(graph, node)
+            return
         end
     end
-    if target == nil then
-        return
-    end
-    local nodeType = self._registry:GetNodeType(target.typeKey)
-    if nodeType == nil or nodeType.preload == nil then
-        return
-    end
-    local nodeHandle = {
-        id = nodeId,
-        typeKey = target.typeKey,
-        GetControl = function(pinName) return graph:GetControl(nodeId, pinName) end,
-    }
-    callOrLog("preload error on '" .. tostring(target.typeKey) .. "'", nodeType.preload, nodeHandle)
 end
 
 -- Back-compat convenience (and the single-graph test path): replace the whole alert set with one
@@ -335,11 +344,7 @@ function Runtime:_fireBindingInGraph(binding, payload, graph)
             local nodeId = node.id
             local passes = true
             if binding.filter ~= nil then
-                local nodeHandle = {
-                    id = nodeId,
-                    typeKey = node.typeKey,
-                    GetControl = function(pinName) return graph:GetControl(nodeId, pinName) end,
-                }
+                local nodeHandle = makeNodeHandle(graph, node)
                 local ok, result = callOrLog(
                     "filter error on '" .. binding.typeKey .. "'",
                     binding.filter, payload, nodeHandle)
