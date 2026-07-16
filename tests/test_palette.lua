@@ -128,7 +128,7 @@ function TestPalette:testDrawShowsDimmedReasonOnUnavailableRowsOnly()
     luaunit.assertEquals(byText["Alarm"].color, Theme.Vec4(Theme.COL_PALETTE_TEXT))
 
     -- Unavailable row: display name plus its terse reason, dimmed.
-    local inventoryText = "Inventory — no inventory-read API"
+    local inventoryText = "Inventory - no inventory-read API"
     luaunit.assertNotNil(byText[inventoryText],
         "expected an inline reason drawn for the unavailable Inventory row")
     luaunit.assertEquals(byText[inventoryText].color, Theme.Vec4(Theme.COL_PALETTE_TEXT_DIM))
