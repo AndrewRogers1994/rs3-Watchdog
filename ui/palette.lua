@@ -10,8 +10,14 @@
 -- of rows (Category headers interleaved with item rows); the Editor reads the chosen
 -- item back out and performs the AddNode/Connect itself. Kept clamped inside the Viewport
 -- so every row lands on the Window-sized Capture Layer (no capture resizing needed).
+--
+-- Unfiltered opens also interleave the dimmed, inert rows from nodes/unavailable.lua so a
+-- Node Type that can't be built on the current API is visible (with why) instead of just
+-- silently absent. Filtered/drag-to-create opens never show them — there's nothing there
+-- to auto-connect to.
 
 local Theme = require("ui/theme")
+local Unavailable = require("nodes/unavailable")
 
 local Palette = {}
 Palette.__index = Palette
@@ -60,21 +66,40 @@ function Palette:Open(registry, filterFn, opts)
 
     -- Group the (compatible) Node Types by Category.
     local byCat, cats = {}, {}
+    local function ensureCat(cat)
+        if byCat[cat] == nil then
+            byCat[cat] = {}
+            cats[#cats + 1] = cat
+        end
+    end
     for key, def in pairs(registry.nodeTypes) do
         local targetPin = true
         if filterFn ~= nil then targetPin = filterFn(def) end
         if targetPin then
             local cat = def.category or "other"
-            if byCat[cat] == nil then
-                byCat[cat] = {}
-                cats[#cats + 1] = cat
-            end
+            ensureCat(cat)
             byCat[cat][#byCat[cat] + 1] = {
                 typeKey = key,
                 displayName = def.displayName or key,
                 category = cat,
                 -- Only carried in filtered mode; unfiltered opens leave it nil.
                 targetPin = (filterFn ~= nil) and targetPin or nil,
+            }
+        end
+    end
+
+    -- Unavailable rows (nodes/unavailable.lua) are display-only and only make sense on an
+    -- unfiltered open: a filtered/typed open exists to find a Pin-compatible Node Type,
+    -- which nothing here has.
+    if filterFn == nil then
+        for _, entry in ipairs(Unavailable) do
+            local cat = entry.category or "other"
+            ensureCat(cat)
+            byCat[cat][#byCat[cat] + 1] = {
+                displayName = entry.displayName,
+                category = cat,
+                reason = entry.reason,
+                unavailable = true,
             }
         end
     end
@@ -154,14 +179,22 @@ function Palette:Draw(canvas, vx, vy, vw, vh, mx, my)
                         Theme.Vec4(Theme.COL_PALETTE_HEADER_TX))
                 end
             else
-                local hovered = mx >= px and mx <= px + panelW and my >= ry and my < ry + rowH
+                -- Unavailable rows are inert (RowAt excludes them): no hover highlight, no
+                -- click affordance to suggest otherwise.
+                local hovered = not row.unavailable
+                    and mx >= px and mx <= px + panelW and my >= ry and my < ry + rowH
                 if hovered then
                     canvas:AddRectangle(px + 1, ry, panelW - 2, rowH,
                         Theme.Vec4(Theme.COL_PALETTE_HOVER))
                 end
                 if font ~= nil then
-                    canvas:AddText(px + 14, ry + 3, row.displayName, font,
-                        Theme.Vec4(Theme.COL_PALETTE_TEXT))
+                    local label = row.displayName
+                    local color = Theme.COL_PALETTE_TEXT
+                    if row.unavailable then
+                        label = label .. " — " .. row.reason
+                        color = Theme.COL_PALETTE_TEXT_DIM
+                    end
+                    canvas:AddText(px + 14, ry + 3, label, font, Theme.Vec4(color))
                 end
             end
         end
@@ -171,7 +204,8 @@ function Palette:Draw(canvas, vx, vy, vw, vh, mx, my)
                   pad = pad, rowH = rowH, visibleRows = visibleRows }
 end
 
--- The item row under a screen point, or nil (header rows and empty padding return nil).
+-- The item row under a screen point, or nil (header rows, unavailable rows, and empty
+-- padding all return nil — an unavailable row has nothing to create).
 function Palette:RowAt(sx, sy)
     local r = self.rect
     if not self.open or r == nil then return nil end
@@ -179,7 +213,7 @@ function Palette:RowAt(sx, sy)
     local i = math.floor((sy - (r.y + r.pad)) / r.rowH) + 1
     if i < 1 or i > r.visibleRows then return nil end
     local row = self.rows[self.scroll + i]
-    if row ~= nil and not row.header then return row end
+    if row ~= nil and not row.header and not row.unavailable then return row end
     return nil
 end
 
