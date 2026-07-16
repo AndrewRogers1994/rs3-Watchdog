@@ -11,6 +11,7 @@ end
 
 local Editor = require("ui/graph")
 local Store  = require("store")
+local Runtime = require("runtime")
 
 if LibPluginMenu ~= nil then
     LibPluginMenu.Unregister("watchdog")
@@ -25,13 +26,14 @@ if LibPluginMenu ~= nil then
     })
 end
 
--- Names used to Subscribe/Unsubscribe each event we hook. Events are sandboxed per-plugin
--- by the client, so these don't need a plugin-specific prefix — just enough to be unique
--- within this file and reused between Subscribe and Unsubscribe.
+-- Names used to Subscribe/Unsubscribe each editor-lifecycle event we hook directly (mount
+-- loop, draw loop, the F8 toggle). Every *game* event (chat, stat changes, ...) is owned by
+-- runtime.lua's dispatcher instead — see the registry/runtime setup below. Events are
+-- sandboxed per-plugin by the client, so these don't need a plugin-specific prefix — just
+-- enough to be unique within this file and reused between Subscribe and Unsubscribe.
 local Events = {
     Logic = "logic",
     Draw = "draw",
-    ChatMessage = "chat",
     KeyDown = "key",
 }
 
@@ -45,11 +47,17 @@ else
     log("Watchdog: plugin does NOT have HTTP access")
 end
 
---- Registry + node types ----------------------------------------------------------------
+--- Runtime dispatcher + registry + node types --------------------------------------------
+-- `runtime` owns every game-event Subscribe/Unsubscribe (see runtime.lua); a trigger node
+-- declares its own binding inside its own Register(registry, runtime) call below via
+-- runtime:BindTrigger(...), so adding a new trigger never means editing dispatch code here.
+-- Its live graph is set once we know which graph we're editing (further down).
+
+local runtime = Runtime.new()
 
 local registry = LibNodeGraph.NewRegistry()
 LibNodeGraphStd.Register(registry)
-require("nodes/triggers/chat").Register(registry)
+require("nodes/triggers/chat").Register(registry, runtime)
 require("nodes/actions/log").Register(registry)
 require("nodes/actions/sound").Register(registry)
 
@@ -112,6 +120,8 @@ end
 
 -- The name of the graph we're editing; every save writes back under this name.
 local currentName = document.current or "default"
+
+runtime:SetGraph(graph)
 
 local editor = Editor.new(graph, registry, layout, view)
 
@@ -203,8 +213,8 @@ function api.Stop()
     pcall(persistNow)
     pcall(function() Event.Logic.Unsubscribe(Events.Logic) end)
     pcall(function() Event.Draw.Unsubscribe(Events.Draw) end)
-    pcall(function() Event.ChatMessage.Unsubscribe(Events.ChatMessage) end)
     pcall(function() Event.KeyDown.Unsubscribe(Events.KeyDown) end)
+    pcall(function() runtime:Stop() end)
     pcall(function() editor:Unmount() end)
     state.mounted = false
 end
@@ -223,16 +233,6 @@ Event.KeyDown.Subscribe(Events.KeyDown, function(keyEvent)
     local target = GameKey[TOGGLE_KEY]
     if target ~= nil and keyEvent.gameKey == target then
         pcall(function() editor:Toggle() end)
-    end
-end)
-
--- Live firing of the Chat Triggers. The restored graph may hold any number of them (and
--- the node ids are no longer known statically), so fire every Chat Trigger node.
-Event.ChatMessage.Subscribe(Events.ChatMessage, function(chatMessageEvent)
-    for _, node in ipairs(graph:GetNodes()) do
-        if node.typeKey == "trigger.chat" then
-            pcall(function() graph:Fire(node.id, chatMessageEvent) end)
-        end
     end
 end)
 
