@@ -42,6 +42,19 @@ Theme.CONTROL_MIN_ZOOM     = 0.45  -- below this the box/text is unreadable, so 
 -- unreadable at zoom 1 — the box was 16px tall but the native font needs more.
 Theme.CONTROL_EDIT_MIN_W   = 60    -- min screen width for the transient editor component
 Theme.CONTROL_EDIT_H       = 24    -- fixed screen height for the transient editor component
+
+-- coordgrid composite control (#25): a full-width band below the pin's own row, holding 3
+-- inline x/z/level fields and a "Set to current position" button. Reuses CONTROL_MIN_ZOOM for
+-- its own draw/hit gating; its height is what a pin row's extraH reserves.
+Theme.COORDGRID_TOP_GAP    = 4     -- gap between the pin row and the field row
+Theme.COORDGRID_FIELD_H    = 16    -- x/z/level field height
+Theme.COORDGRID_MID_GAP    = 4     -- gap between the field row and the button row
+Theme.COORDGRID_BUTTON_H   = 16    -- "Set to current position" button height
+Theme.COORDGRID_BOTTOM_GAP = 4     -- gap kept below the button, before the next pin row
+Theme.COORDGRID_FIELD_GAP  = 4     -- horizontal gap between the 3 fields
+Theme.COORDGRID_BAND_H     = Theme.COORDGRID_TOP_GAP + Theme.COORDGRID_FIELD_H
+    + Theme.COORDGRID_MID_GAP + Theme.COORDGRID_BUTTON_H + Theme.COORDGRID_BOTTOM_GAP
+
 Theme.BORDER_THICKNESS = 2
 Theme.WIRE_THICKNESS   = 3
 Theme.WIRE_SEGMENTS    = 16    -- straight segments a bezier Wire is tessellated into
@@ -109,6 +122,7 @@ Theme.COL_CONTROL_HOT    = col(240, 160, 32, 1.0)   -- border under the cursor
 Theme.COL_CONTROL_TEXT   = col(225, 227, 233, 1.0)
 Theme.COL_CONTROL_EMPTY  = col(120, 122, 132, 1.0)  -- placeholder when the value is empty
 Theme.COL_CONTROL_CARET  = col(170, 172, 182, 1.0)  -- enum dropdown ▾ indicator
+Theme.COL_CONTROL_ACTION_BG = col(52, 56, 66, 1.0)  -- composite-control action button (e.g. coordgrid's "set to current position")
 
 -- Execution pins and wires use one fixed neutral color (they carry no Type Tag).
 Theme.COL_EXEC        = col(242, 242, 242, 1.0)

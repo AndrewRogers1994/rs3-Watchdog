@@ -116,8 +116,20 @@ _Avoid_: Inline editor, popup, input widget (in prose)
 
 **Control Spec**:
 The Watchdog-owned mapping (`ui/controls.lua`) from an engine Type Tag to how its Control is
-rendered and edited: a widget kind (`number` / `text` / `enum`) plus, for an enum, its
-choices. Parallel to Type Color, and for the same reason — the engine is deliberately
-tag-agnostic, so presentation lives here (ADR-0004). Tags with no spec (coord, any) get no
-Control Editor.
+rendered and edited: a widget kind (`number` / `text` / `enum` / `composite`) plus, for an
+enum, its choices, or for a composite, its `extraH`/`Layout` (see Control Band). Parallel to
+Type Color, and for the same reason — the engine is deliberately tag-agnostic, so
+presentation lives here (ADR-0004). Tags with no spec (coord, any) get no Control Editor.
 _Avoid_: Type metadata, schema, control config
+
+**Control Band**:
+A `composite`-widget Control's own full-width strip drawn below its Pin's row instead of the
+narrow value-column Control Box scalars get (e.g. `coordgrid`'s x/z/level fields + "set to
+current position" button). Its height is reserved by the Spec's `extraH`, which pushes every
+later Pin row down (Node Body layout is a cumulative running offset, not a fixed
+`PIN_ROW_HEIGHT` stride, for exactly this reason); its contents come from the Spec's
+`Layout`, one or more Control Boxes sharing the Pin's name and discriminated by a `kind`
+("field" for an editable sub-value, "action" for a one-shot button like "set to current
+position"). Reserved always; drawn/hit-tested only above `CONTROL_MIN_ZOOM`, same as any
+Control Box.
+_Avoid_: Sub-panel, composite box, field group

@@ -4,10 +4,20 @@
 -- parallel to Theme.TypeColor. A domain enum is one Controls.Register(tag, spec) call.
 --
 -- A spec is:
---   { widget = "number" | "text" | "enum",
+--   { widget = "number" | "text" | "enum" | "composite",
 --     choices = { { value = <control value>, label = <string> }, ... },  -- enum only
 --     format  = function(value) -> string,   -- optional display override
---     parse   = function(raw, current) -> value }  -- optional text->value override
+--     parse   = function(raw, current) -> value,  -- optional text->value override
+--     extraH  = function(pin) -> number,   -- composite only: extra row height it reserves
+--     Layout  = function(band) -> { { kind, axis?, x, y, w, h }, ... } }  -- composite only
+--
+-- A "composite" widget (e.g. coordgrid) renders as a full-width band below the pin's own row
+-- instead of the single value-column box scalars get (see Node.BuildGeometry's extraH-driven
+-- cumulative row layout). Its Layout function receives the reserved band rect (graph-space,
+-- relative to the node origin: {x, y, w, h}) and returns however many sub-rects it needs, each
+-- tagged with a `kind` the Editor's click dispatcher branches on.
+
+local Theme = require("ui/theme")
 
 local Controls = {}
 
@@ -69,6 +79,24 @@ function Controls.Parse(spec, raw, current)
     return raw
 end
 
+-- Read-modify-write for one axis of a composite table Control (e.g. coordgrid's {x,z,level}).
+-- Same empty-box guard as Parse: an empty/unparsable raw string leaves the WHOLE table
+-- untouched (returns `current` unchanged, `changed = false`) so a mid-edit empty field can't
+-- clobber sibling axes. `quantity` is the widget's own pre-parsed number (e.g. InputField's
+-- contentQuantity, which honors suffixes like 1K/1M) and is preferred over re-parsing `raw`.
+function Controls.CommitAxis(current, axis, raw, quantity)
+    if type(raw) == "string" and raw:match("^%s*$") then return current, false end
+    local value = quantity
+    if value == nil then value = tonumber(raw) end
+    if value == nil then return current, false end
+    local t = {}
+    if type(current) == "table" then
+        for k, v in pairs(current) do t[k] = v end
+    end
+    t[axis] = value
+    return t, true
+end
+
 -- Built-in specs (ADR-0004 decision 3). number/string map to fields; bool is the
 -- demonstrator enum (true/false), so all three widget kinds exercise off existing pins with
 -- no node-definition changes. coord/any are intentionally absent (composite/unknown).
@@ -84,6 +112,35 @@ Controls.Register("bool", {
         { value = true,  label = "true"  },
         { value = false, label = "false" },
     },
+})
+
+-- coordgrid (#25): a {x, z, level} table Control, edited as 3 inline int fields + a
+-- "Set to current position" button, all sharing the pin's Control value. The band always
+-- reserves COORDGRID_BAND_H (Node.BuildGeometry's extraH); it's drawn/hit-tested only above
+-- CONTROL_MIN_ZOOM, same gate as every other Control box.
+Controls.Register("coordgrid", {
+    widget = "composite",
+    extraH = function(_pin) return Theme.COORDGRID_BAND_H end,
+    -- `band` is the reserved rect (graph-space, relative to the node origin): {x, y, w, h}.
+    Layout = function(band)
+        local fieldY = band.y + Theme.COORDGRID_TOP_GAP
+        local buttonY = fieldY + Theme.COORDGRID_FIELD_H + Theme.COORDGRID_MID_GAP
+        local gap = Theme.COORDGRID_FIELD_GAP
+        local fieldW = (band.w - gap * 2) / 3
+        local rects = {}
+        for i, axis in ipairs({ "x", "z", "level" }) do
+            rects[#rects + 1] = {
+                kind = "field", axis = axis,
+                x = band.x + (i - 1) * (fieldW + gap), y = fieldY,
+                w = fieldW, h = Theme.COORDGRID_FIELD_H,
+            }
+        end
+        rects[#rects + 1] = {
+            kind = "action",
+            x = band.x, y = buttonY, w = band.w, h = Theme.COORDGRID_BUTTON_H,
+        }
+        return rects
+    end,
 })
 
 return Controls

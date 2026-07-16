@@ -134,6 +134,17 @@ local function dataCompatible(a, b)
     return a == b or a == "any" or b == "any"
 end
 
+-- An InputField's raw text content / pre-parsed numeric quantity (honors suffixes like
+-- 1K/1M), read defensively since a field can be mid-teardown when these are read. Shared by
+-- commitField and commitAxisField's field-extraction step.
+local function fieldContent(field)
+    local raw = ""
+    pcall(function() raw = field.content or "" end)
+    local quantity
+    pcall(function() quantity = field.contentQuantity end)
+    return raw, quantity
+end
+
 -- Enum choice lookups, by value or by label. Kept as the ONE place both directions of the
 -- ComboField <-> Control value mapping happen — see the id caveat on Editor:openControlEditor's
 -- enum branch for why label, not id, is the only field ComboField lets us trust.
@@ -257,12 +268,21 @@ function Editor:buildGeoms()
             { connected = connectedIn[n.id] or {} })
         geom.typeKey = n.typeKey
         -- Fill each Control box's current value + display string (Node stays graph-only).
+        -- A composite Control (#25, e.g. coordgrid) shares one stored table across several
+        -- boxes: a "field" box shows just its own axis, an "action" box is a fixed label.
         for _, ctrl in ipairs(geom.controls) do
             ctrl.value = self.graph:GetControl(n.id, ctrl.pinName)
             -- A nil stored Control (e.g. a graph saved before this pin had a default) shows
             -- the pin's default, so the box reflects the value the node would actually run with.
             if ctrl.value == nil then ctrl.value = ctrl.default end
-            ctrl.display = Controls.Format(ctrl.spec, ctrl.value)
+            if ctrl.kind == "field" then
+                local axisVal = (type(ctrl.value) == "table") and ctrl.value[ctrl.axis] or nil
+                ctrl.display = (axisVal ~= nil) and tostring(axisVal) or ""
+            elseif ctrl.kind == "action" then
+                ctrl.display = "Set to current position"
+            else
+                ctrl.display = Controls.Format(ctrl.spec, ctrl.value)
+            end
         end
         self.geoms[n.id] = geom
     end
@@ -432,13 +452,20 @@ function Editor:beginPress()
 
     -- A Control box opens its inline editor. Not a drag, so unwind the gesture setup the way
     -- the close-button branch does (the box sits in the value column, clear of the pin glyph).
+    -- A composite Control's "action" box (#25, e.g. coordgrid's "set to current position") is
+    -- not an editable field — the dispatcher branches on `kind` and fires it immediately
+    -- instead of opening the transient InputField.
     local hitCtrl = self:controlAt(lx, ly)
     if hitCtrl ~= nil then
         self.pressed = false
         self:positionCapture()
         self.selected = hitCtrl.nodeId
         self:bringToFront(hitCtrl.nodeId)
-        self:openControlEditor(hitCtrl.nodeId, hitCtrl.ctrl.pinName)
+        if hitCtrl.ctrl.kind == "action" then
+            self:setCoordgridToCurrentPosition(hitCtrl.nodeId, hitCtrl.ctrl.pinName)
+        else
+            self:openControlEditor(hitCtrl.nodeId, hitCtrl.ctrl)
+        end
         return
     end
 
@@ -684,29 +711,38 @@ function Editor:onScroll(...)
     self.view:ZoomAt(lx, ly, factor, Theme.ZOOM_MIN, Theme.ZOOM_MAX)
 end
 
---- Inline Control editing ---------------------------------------------------------------
+--- Composite Control actions ------------------------------------------------------------
 
--- The current Control box geometry for (nodeId, pinName) from this frame's cache, or nil.
-function Editor:findControl(nodeId, pinName)
-    local geom = self.geoms[nodeId]
-    if geom == nil then return nil end
-    for _, ctrl in ipairs(geom.controls) do
-        if ctrl.pinName == pinName then return geom, ctrl end
-    end
-    return nil
+-- coordgrid's "set to current position" button (#25): overwrites the whole {x,z,level}
+-- Control in one shot from the live player position. Silent no-op when unavailable. Only
+-- IsAvailable() is guarded — a documented state check, not a client-global existence check
+-- (see pcall-defensive-style: Player is guaranteed present at load).
+function Editor:setCoordgridToCurrentPosition(nodeId, pinName)
+    if not Player.IsAvailable() then return end
+    local entity = Player.GetEntity()
+    pcall(function()
+        self.graph:SetControl(nodeId, pinName,
+            { x = entity.coordGrid.x, z = entity.coordGrid.z, level = entity.coordGrid.level })
+    end)
 end
+
+--- Inline Control editing ---------------------------------------------------------------
 
 -- Mounts the transient editor component over a Control box. One at a time; any previous
 -- editor is committed and torn down first. The component is a child of the GroupBox, so it
 -- rides the Window; its position adds WINDOW_HEADER_H because the Canvas content origin sits
 -- that far below the GroupBox top (see toLocal / the coordinate-model note). It's re-fronted
 -- each frame in draw() since canvas:MoveToFront() would otherwise bury it.
-function Editor:openControlEditor(nodeId, pinName)
+-- `ctrl` is the clicked Control box from this frame's geometry cache (as returned by
+-- controlAt) — for a composite Control (#25) it's one of several sharing `ctrl.pinName`,
+-- distinguished by `ctrl.kind`/`ctrl.axis` (nil for a scalar Control's single box).
+function Editor:openControlEditor(nodeId, ctrl)
     if self.editing ~= nil then self:closeControlEditor() end
     if self.groupBox == nil or ui == nil then return end
 
-    local geom, ctrl = self:findControl(nodeId, pinName)
-    if ctrl == nil then return end
+    local geom = self.geoms[nodeId]
+    if geom == nil then return end
+    local pinName, kind, axis = ctrl.pinName, ctrl.kind, ctrl.axis
 
     local sx, sy = self.view:ToScreen(geom.x + ctrl.x, geom.y + ctrl.y)
     -- The field's native font is a fixed pixel size (it can't scale with the View), so the
@@ -725,8 +761,16 @@ function Editor:openControlEditor(nodeId, pinName)
     local spec = ctrl.spec
     -- Prefill from the stored Control, falling back to the pin's default so an unseeded pin
     -- opens showing its default rather than an empty box (which would then commit 0/"").
-    local current = self.graph:GetControl(nodeId, pinName)
-    if current == nil then current = ctrl.default end
+    -- A "field" box (#25) prefills from just its own axis of the whole composite table.
+    local current
+    if kind == "field" then
+        local whole = self.graph:GetControl(nodeId, pinName)
+        if whole == nil then whole = ctrl.default end
+        current = (type(whole) == "table") and whole[axis] or nil
+    else
+        current = self.graph:GetControl(nodeId, pinName)
+        if current == nil then current = ctrl.default end
+    end
     local field
 
     if spec.widget == "enum" then
@@ -775,7 +819,10 @@ function Editor:openControlEditor(nodeId, pinName)
             field.clickthrough = false
             field:SetPos(px, py)
             field:SetSize(sw, sh)
-            local filter = (spec.widget == "number") and "NUMERIC" or "NONE"
+            -- A composite "field" box (#25, e.g. coordgrid's x/z/level) is a numeric field
+            -- exactly like the "number" widget; it just commits into one axis, not the whole
+            -- Control (see commitField's axis branch).
+            local filter = (spec.widget == "number" or kind == "field") and "NUMERIC" or "NONE"
             field:Setup(enumv(ui.TextContentVisibilityMode, "VISIBLE"),
                 enumv(ui.InputFieldFilterMode, filter), 128)
             field.content = (current ~= nil) and tostring(current) or ""
@@ -787,7 +834,7 @@ function Editor:openControlEditor(nodeId, pinName)
     end
 
     self.editing = { nodeId = nodeId, pinName = pinName, spec = spec,
-        widget = spec.widget, field = field }
+        widget = spec.widget, field = field, kind = kind, axis = axis }
     pcall(function() field:MoveToFront() end)
     -- No focus API is exposed (no SetFocus/RequestFocus on Component or InputField in the
     -- docs), so the user clicks the freshly-mounted field once to focus it. Kept as a
@@ -814,23 +861,36 @@ function Editor:commitField()
     -- `false` bool would flip it to `true`. Re-picking the already-selected value needs no
     -- commit (the value is already that), so there is no close case an enum must cover here.
     if e.widget == "enum" then return end
-    local raw = ""
-    pcall(function() raw = e.field.content or "" end)
+    -- A composite Control's "field" box (#25) commits into just its own axis, read-modify-
+    -- write against the whole stored table — see Controls.CommitAxis.
+    if e.axis ~= nil then
+        self:commitAxisField()
+        return
+    end
+    local raw, quantity = fieldContent(e.field)
     -- An empty box means "leave the Control alone" — opening then closing a field without
     -- typing must not overwrite the stored value (or a nil default) with 0/"". A numeric
     -- field reports contentQuantity == 0 for empty content, which is what nuked soundID.
     if type(raw) == "string" and raw:match("^%s*$") then return end
 
-    local value
-    if e.widget == "number" then
-        -- Prefer the field's own parsed integer (honors quantity suffixes like 1K/1M).
-        local ok, q = pcall(function() return e.field.contentQuantity end)
-        if ok and q ~= nil then value = q end
-    end
+    -- Prefer the field's own parsed integer (honors quantity suffixes like 1K/1M).
+    local value = (e.widget == "number") and quantity or nil
     if value == nil then
         value = Controls.Parse(e.spec, raw, self.graph:GetControl(e.nodeId, e.pinName))
     end
     pcall(function() self.graph:SetControl(e.nodeId, e.pinName, value) end)
+end
+
+-- Commits a composite Control's single axis (#25) via Controls.CommitAxis's pure
+-- read-modify-write + empty-box guard, then writes the (possibly unchanged) table back.
+function Editor:commitAxisField()
+    local e = self.editing
+    local raw, quantity = fieldContent(e.field)
+    local current = self.graph:GetControl(e.nodeId, e.pinName)
+    local value, changed = Controls.CommitAxis(current, e.axis, raw, quantity)
+    if changed then
+        pcall(function() self.graph:SetControl(e.nodeId, e.pinName, value) end)
+    end
 end
 
 -- ONCONTENTCHANGED: live-write every keystroke; close on a submit/focus-loss cause.
@@ -956,12 +1016,13 @@ function Editor:draw()
     for _, id in ipairs(self.nodeOrder) do
         local geom = self.geoms[id]
         if geom ~= nil and self:geomVisible(geom, vx, vy, vw, vh) then
-            local editingPin = (self.editing ~= nil and self.editing.nodeId == id)
-                and self.editing.pinName or nil
+            local editingHere = self.editing ~= nil and self.editing.nodeId == id
             Node.Draw(self.canvas, self.view, geom, self:meta(id, geom.typeKey),
                 { selected = (id == self.selected),
                   mouseX = self.mouse.x, mouseY = self.mouse.y,
-                  editingPin = editingPin })
+                  editingPin = editingHere and self.editing.pinName or nil,
+                  editingKind = editingHere and self.editing.kind or nil,
+                  editingAxis = editingHere and self.editing.axis or nil })
         end
     end
 

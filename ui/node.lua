@@ -14,6 +14,14 @@ local Node = {}
 -- Draw, PinAt and HitBody. `pins` is the list from graph:GetPins(nodeId). `opts.connected`
 -- is a set { [pinName] = true } of input pins that already have an incoming Connection —
 -- those get a wire, not a Control box (ADR-0004).
+-- The Control Spec for a data-input pin eligible for a Control box: unconnected, kind
+-- "data", and its Type Tag has a spec. Returns nil for anything else (exec pins, connected
+-- inputs, tags with no spec).
+local function controlSpecFor(pin, connected)
+    if pin.kind ~= "data" or connected[pin.name] then return nil end
+    return Controls.For(pin.dataType)
+end
+
 function Node.BuildGeometry(pins, x, y, width, opts)
     width = width or Theme.NODE_WIDTH
     local connected = (opts and opts.connected) or {}
@@ -28,8 +36,31 @@ function Node.BuildGeometry(pins, x, y, width, opts)
     end
 
     local rows = math.max(#inputs, #outputs)
-    local height = Theme.HEADER_HEIGHT + Theme.BODY_PAD_TOP
-        + rows * Theme.PIN_ROW_HEIGHT + Theme.BODY_PAD_BOTTOM
+
+    -- Row tops, cumulative (#25): row i normally advances by a fixed PIN_ROW_HEIGHT, but a
+    -- composite Control on that row's input pin (e.g. coordgrid) reserves extra band height
+    -- below it via spec.extraH(pin), pushing every later row down. Scalar/no-control rows
+    -- have extraH 0, so this collapses to the old fixed-stride math. Both pin columns (inputs
+    -- AND outputs) share this same rowTop table so a row's input and output glyph stay
+    -- vertically aligned even when only the input side grew.
+    local rowTop = {}
+    do
+        local cy = Theme.HEADER_HEIGHT + Theme.BODY_PAD_TOP
+        for i = 1, rows do
+            rowTop[i] = cy
+            local extraH = 0
+            local pin = inputs[i]
+            if pin ~= nil then
+                local spec = controlSpecFor(pin, connected)
+                if spec ~= nil and spec.extraH ~= nil then
+                    extraH = spec.extraH(pin) or 0
+                end
+            end
+            cy = cy + Theme.PIN_ROW_HEIGHT + extraH
+        end
+        rowTop[rows + 1] = cy
+    end
+    local height = rowTop[rows + 1] + Theme.BODY_PAD_BOTTOM
 
     local geom = { x = x, y = y, w = width, h = height, pins = {}, byName = {}, controls = {} }
 
@@ -39,8 +70,7 @@ function Node.BuildGeometry(pins, x, y, width, opts)
 
     local function place(list, cx)
         for i, pin in ipairs(list) do
-            local cy = Theme.HEADER_HEIGHT + Theme.BODY_PAD_TOP
-                + (i - 0.5) * Theme.PIN_ROW_HEIGHT
+            local cy = rowTop[i] + Theme.PIN_ROW_HEIGHT * 0.5
             local entry = {
                 name = pin.name,
                 kind = pin.kind,
@@ -58,21 +88,39 @@ function Node.BuildGeometry(pins, x, y, width, opts)
     place(inputs, Theme.PIN_MARGIN_X)
     place(outputs, width - Theme.PIN_MARGIN_X)
 
-    -- Control value boxes: one per unconnected data-input Pin whose Type Tag has a spec.
-    -- Placed in a "value column" on the pin's own row; if an output shares the row, the box
-    -- stops short (CONTROL_OUT_RESERVE) so it can't collide with the output glyph/label.
-    -- Where an input pin's label text begins (glyph center + half-glyph + gap), Graph-space.
+    -- Control boxes: one group per unconnected data-input Pin whose Type Tag has a spec.
+    -- A scalar spec contributes one box in the "value column" to the right of the pin label
+    -- (stopping short of an output glyph sharing the row via CONTROL_OUT_RESERVE); a composite
+    -- spec (widget == "composite") instead lays out its own sub-rects in the full-width band
+    -- reserved below the row (rowTop[i+1] - extraH .. rowTop[i+1]), via spec.Layout.
     local labelStart = Theme.PIN_MARGIN_X + Theme.PIN_GLYPH * 0.5 + Theme.PIN_LABEL_GAP
     for i, pin in ipairs(inputs) do
-        if pin.kind == "data" and not connected[pin.name] then
-            local spec = Controls.For(pin.dataType)
-            if spec ~= nil then
-                local cy = Theme.HEADER_HEIGHT + Theme.BODY_PAD_TOP
-                    + (i - 0.5) * Theme.PIN_ROW_HEIGHT
+        local spec = controlSpecFor(pin, connected)
+        if spec ~= nil then
+            local cy = rowTop[i] + Theme.PIN_ROW_HEIGHT * 0.5
+
+            if spec.widget == "composite" then
+                local extraH = (spec.extraH ~= nil) and (spec.extraH(pin) or 0) or 0
+                local band = {
+                    x = Theme.PIN_MARGIN_X, y = rowTop[i + 1] - extraH,
+                    w = width - Theme.PIN_MARGIN_X * 2, h = extraH,
+                }
+                local rects = spec.Layout and spec.Layout(band) or {}
+                for _, r in ipairs(rects) do
+                    geom.controls[#geom.controls + 1] = {
+                        pinName = pin.name,
+                        widget  = spec.widget,
+                        spec    = spec,
+                        default = pin.default,
+                        kind = r.kind, axis = r.axis,
+                        x = r.x, y = r.y, w = r.w, h = r.h,
+                    }
+                end
+            else
                 -- Start the box past the label instead of at a fixed reserve, so it can't
-                -- cover long labels like "contains"/"soundId". Measured with real font metrics
-                -- (Theme.TextWidth) at the zoom-1 label size — geometry is Graph-space at
-                -- zoom 1 — falling back to a per-char estimate when metrics are unavailable.
+                -- cover long labels like "contains"/"soundId". Measured with real font
+                -- metrics (Theme.TextWidth) at the zoom-1 label size — geometry is Graph-
+                -- space at zoom 1 — falling back to a per-char estimate when unavailable.
                 local label = pin.label or pin.name or ""
                 local labelW = Theme.TextWidth(12, label) or (#label * Theme.CONTROL_LABEL_CHAR_W)
                 local left = labelStart + labelW + Theme.CONTROL_LABEL_GAP
@@ -178,17 +226,23 @@ function Node.Draw(canvas, view, geom, meta, opts)
     end
 
     -- Control value boxes. Skipped when zoomed too far out to read, and the box currently
-    -- being edited is skipped entirely — the transient InputField/ComboField covers it.
+    -- being edited is skipped entirely — the transient InputField/ComboField covers it. A
+    -- composite Control (#25) contributes several boxes sharing one pinName, so the "is this
+    -- the one being edited" check also matches kind/axis — otherwise opening the editor on
+    -- one coordgrid field would blank out its whole band.
     if view.zoom >= Theme.CONTROL_MIN_ZOOM then
         local ctrlFont = Theme.Font(11 * view.zoom)
         for _, ctrl in ipairs(geom.controls) do
-            if ctrl.pinName ~= opts.editingPin then
+            local isEditingThis = ctrl.pinName == opts.editingPin
+                and ctrl.kind == opts.editingKind and ctrl.axis == opts.editingAxis
+            if not isEditingThis then
                 local bx, by = view:ToScreen(geom.x + ctrl.x, geom.y + ctrl.y)
                 local bw, bh = view:Scale(ctrl.w), view:Scale(ctrl.h)
                 local hot = opts.mouseX ~= nil
                     and opts.mouseX >= bx and opts.mouseX <= bx + bw
                     and opts.mouseY >= by and opts.mouseY <= by + bh
-                canvas:AddRectangle(bx, by, bw, bh, Theme.Vec4(Theme.COL_CONTROL_BG))
+                local bg = (ctrl.kind == "action") and Theme.COL_CONTROL_ACTION_BG or Theme.COL_CONTROL_BG
+                canvas:AddRectangle(bx, by, bw, bh, Theme.Vec4(bg))
                 canvas:AddOutline(bx, by, bw, bh, math.max(1, view:Scale(1)),
                     Theme.Vec4(hot and Theme.COL_CONTROL_HOT or Theme.COL_CONTROL_BORDER))
 

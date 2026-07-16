@@ -1,0 +1,133 @@
+local luaunit = require("luaunit")
+local Theme = require("ui/theme")
+local Node = require("ui/node")
+local View = require("ui/view")
+
+TestCumulativeRowLayout = {}
+
+local function numberPin(name)
+    return { name = name, kind = "data", direction = "in", dataType = "number", default = 0, label = name }
+end
+
+function TestCumulativeRowLayout:testScalarOnlyLayoutMatchesFixedStrideFormula()
+    -- Regression: with no composite Controls in play (extraH == 0 everywhere), the cumulative
+    -- row math must collapse to the old (i - 0.5) * PIN_ROW_HEIGHT formula.
+    local pins = { numberPin("a"), numberPin("b"), numberPin("c") }
+    local geom = Node.BuildGeometry(pins, 0, 0, Theme.NODE_WIDTH)
+
+    for i, name in ipairs({ "a", "b", "c" }) do
+        local expected = Theme.HEADER_HEIGHT + Theme.BODY_PAD_TOP + (i - 0.5) * Theme.PIN_ROW_HEIGHT
+        luaunit.assertAlmostEquals(geom.byName[name].cy, expected, 1e-9)
+    end
+
+    local expectedHeight = Theme.HEADER_HEIGHT + Theme.BODY_PAD_TOP
+        + 3 * Theme.PIN_ROW_HEIGHT + Theme.BODY_PAD_BOTTOM
+    luaunit.assertAlmostEquals(geom.h, expectedHeight, 1e-9)
+end
+
+function TestCumulativeRowLayout:testCompositeControlPushesLaterRowsDown()
+    local pins = {
+        numberPin("a"),
+        { name = "target", kind = "data", direction = "in", dataType = "coordgrid", label = "target" },
+        numberPin("b"),
+    }
+    local plainGeom = Node.BuildGeometry(
+        { numberPin("a"), numberPin("target"), numberPin("b") }, 0, 0, Theme.NODE_WIDTH)
+    local geom = Node.BuildGeometry(pins, 0, 0, Theme.NODE_WIDTH)
+
+    -- Row 1 ("a") is unaffected: nothing above it grew.
+    luaunit.assertAlmostEquals(geom.byName.a.cy, plainGeom.byName.a.cy, 1e-9)
+    -- Row 3 ("b") sits exactly one coordgrid band lower than it would without the composite.
+    luaunit.assertAlmostEquals(geom.byName.b.cy, plainGeom.byName.b.cy + Theme.COORDGRID_BAND_H, 1e-9)
+    -- The node's own height grew by the same reserved band.
+    luaunit.assertAlmostEquals(geom.h, plainGeom.h + Theme.COORDGRID_BAND_H, 1e-9)
+end
+
+function TestCumulativeRowLayout:testConnectedCompositePinReservesNoBand()
+    -- A connected input shows no Control at all (ADR-0004), so it must not reserve extraH.
+    local pins = { { name = "target", kind = "data", direction = "in", dataType = "coordgrid" } }
+    local geom = Node.BuildGeometry(pins, 0, 0, Theme.NODE_WIDTH, { connected = { target = true } })
+    local expected = Theme.HEADER_HEIGHT + Theme.BODY_PAD_TOP + Theme.PIN_ROW_HEIGHT + Theme.BODY_PAD_BOTTOM
+    luaunit.assertAlmostEquals(geom.h, expected, 1e-9)
+    luaunit.assertEquals(#geom.controls, 0)
+end
+
+TestCoordgridGeometry = {}
+
+function TestCoordgridGeometry:setUp()
+    self.pins = { { name = "target", kind = "data", direction = "in", dataType = "coordgrid", label = "target" } }
+    self.geom = Node.BuildGeometry(self.pins, 0, 0, Theme.NODE_WIDTH)
+end
+
+function TestCoordgridGeometry:testFourControlsShareThePinName()
+    luaunit.assertEquals(#self.geom.controls, 4)
+    for _, ctrl in ipairs(self.geom.controls) do
+        luaunit.assertEquals(ctrl.pinName, "target")
+    end
+end
+
+function TestCoordgridGeometry:testKindsAreThreeFieldsAndOneAction()
+    local kinds = {}
+    for _, ctrl in ipairs(self.geom.controls) do
+        kinds[#kinds + 1] = ctrl.kind
+    end
+    table.sort(kinds)
+    luaunit.assertEquals(kinds, { "action", "field", "field", "field" })
+end
+
+function TestCoordgridGeometry:testBandSitsBelowThePinRowAndSpansFullWidth()
+    local pinRow = self.geom.byName.target
+    local rowBottom = pinRow.cy + Theme.PIN_ROW_HEIGHT * 0.5
+    for _, ctrl in ipairs(self.geom.controls) do
+        luaunit.assertTrue(ctrl.y >= rowBottom - 1e-9)
+        luaunit.assertTrue(ctrl.x >= Theme.PIN_MARGIN_X - 1e-9)
+        luaunit.assertTrue(ctrl.x + ctrl.w <= Theme.NODE_WIDTH - Theme.PIN_MARGIN_X + 1e-9)
+    end
+end
+
+TestControlAtHitTest = {}
+
+function TestControlAtHitTest:setUp()
+    local pins = { { name = "target", kind = "data", direction = "in", dataType = "coordgrid", label = "target" } }
+    self.geom = Node.BuildGeometry(pins, 0, 0, Theme.NODE_WIDTH)
+    self.view = View.new()
+end
+
+function TestControlAtHitTest:testClickingAFieldReturnsThatAxis()
+    local field
+    for _, ctrl in ipairs(self.geom.controls) do
+        if ctrl.kind == "field" and ctrl.axis == "z" then field = ctrl end
+    end
+    assert(field ~= nil)
+    local sx, sy = self.view:ToScreen(self.geom.x + field.x + field.w * 0.5,
+        self.geom.y + field.y + field.h * 0.5)
+    local hit = Node.ControlAt(self.geom, self.view, sx, sy)
+    assert(hit ~= nil)
+    luaunit.assertEquals(hit.kind, "field")
+    luaunit.assertEquals(hit.axis, "z")
+end
+
+function TestControlAtHitTest:testClickingTheButtonReturnsAction()
+    local action
+    for _, ctrl in ipairs(self.geom.controls) do
+        if ctrl.kind == "action" then action = ctrl end
+    end
+    assert(action ~= nil)
+    local sx, sy = self.view:ToScreen(self.geom.x + action.x + action.w * 0.5,
+        self.geom.y + action.y + action.h * 0.5)
+    local hit = Node.ControlAt(self.geom, self.view, sx, sy)
+    assert(hit ~= nil)
+    luaunit.assertEquals(hit.kind, "action")
+end
+
+function TestControlAtHitTest:testBelowMinZoomNothingIsHittable()
+    self.view.zoom = Theme.CONTROL_MIN_ZOOM * 0.5
+    local action
+    for _, ctrl in ipairs(self.geom.controls) do
+        if ctrl.kind == "action" then action = ctrl end
+    end
+    assert(action ~= nil)
+    local sx, sy = self.view:ToScreen(self.geom.x + action.x + action.w * 0.5,
+        self.geom.y + action.y + action.h * 0.5)
+    luaunit.assertNil(Node.ControlAt(self.geom, self.view, sx, sy))
+end
