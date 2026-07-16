@@ -45,8 +45,8 @@ Target: mirror the trigger/notification list from https://github.com/adamk33n3r/
   - SELF-DRAWN (no dedicated API). Draw a full-screen colored rect — `ui.Rectangle` mounted on the root interface, or on the editor's Canvas — and fade its alpha over N `Event.Logic`/`Draw` ticks. Colors via `Vector4.new(r,g,b,a)`.
 - [ ] Overlay — overlay notification
   - SELF-DRAWN. No native "overlay notification" primitive; compose from `ui.GroupBox` + `ui.Text` (+ `ui.Sprite`) or Canvas, positioned in screen space on the root interface. Same toolkit as the Watchdog editor.
-- [ ] Popup — like collection log / league task popup
-  - SELF-DRAWN. No native popup API (confirmed vs docs); emulate the look with a `ui.Sprite` frame + `ui.Text`, animated in/out over ticks.
+- [x] Popup — like collection log / league task popup — `action.popup`
+  - SELF-DRAWN. No native popup API (confirmed vs docs); emulated with a Canvas-drawn banner on the always-on overlay Canvas (#29), animated in->hold->out over Logic ticks and auto-expiring (only HOLD is configurable, ~4s default). Queue-only. Single `body` data pin; `title`/`icon`/`theme`/`hold` are node-config (Control-only pins). Two themes behind a dropdown — Parchment (primitive, default) + Leagues (multi-part `RS3_RIBBON_LEAGUES_GOLD_*` sprites) — with a `Popup.RegisterTheme` seam; curated icon dropdown reuses the enum Control. See `nodes/actions/popup.lua`.
 - [ ] Screen Marker
   - SELF-DRAWN. Draw a border/rect at a saved screen-space rect (`ui.Rectangle`, or Canvas `AddLine`); persist the rect in Watchdog's Store. Reuses the DevTools/editor Canvas pattern.
 - [ ] Object Marker

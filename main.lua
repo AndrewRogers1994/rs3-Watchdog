@@ -65,6 +65,7 @@ LibNodeGraphStd.Register(registry)
 require("nodes/triggers/chat").Register(registry, runtime)
 require("nodes/actions/log").Register(registry)
 require("nodes/actions/sound").Register(registry)
+require("nodes/actions/popup").Register(registry, runtime)
 
 --- Graph: restore the saved one, or seed a demo on first run -----------------------------
 -- Persistence backend lives in store.lua (multi-graph, keyed by name). We only ever show
