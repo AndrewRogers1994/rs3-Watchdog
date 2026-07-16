@@ -33,10 +33,13 @@ Editor.__index = Editor
 
 -- graph, registry: the live LibNodeGraph objects. layout: optional { [id] = {x,y} }.
 -- view: optional restored { panX, panY, zoom }; when given, Mount skips its default framing.
-function Editor.new(graph, registry, layout, view)
+-- runtime: optional (see runtime.lua) — only reached for its `screenMarkerCapture` (#39), the
+-- full-screen "Draw on screen" capture overlay a Screen Marker node's `rect` Control arms.
+function Editor.new(graph, registry, layout, view, runtime)
     local self = setmetatable({
         graph = graph,
         registry = registry,
+        runtime = runtime,
         view = View.new(),
         layout = layout or {},     -- nodeId -> {x, y} in Graph-space
         nodeOrder = {},            -- draw/z order, front-most last
@@ -476,6 +479,8 @@ function Editor:beginPress()
             self:setCoordgridToCurrentPosition(hitCtrl.nodeId, hitCtrl.ctrl.pinName)
         elseif hitCtrl.ctrl.kind == "swatch" then
             self:openColorPopup(hitCtrl.nodeId, hitCtrl.ctrl)
+        elseif hitCtrl.ctrl.kind == "capture" then
+            self:armScreenMarkerCapture(hitCtrl.nodeId, hitCtrl.ctrl.pinName)
         else
             self:openControlEditor(hitCtrl.nodeId, hitCtrl.ctrl)
         end
@@ -749,6 +754,23 @@ function Editor:setCoordgridToCurrentPosition(nodeId, pinName)
     end)
 end
 
+--- Screen Marker capture (#39) -----------------------------------------------------------
+
+-- Arms the shared full-screen "Draw on screen" capture overlay (runtime.screenMarkerCapture,
+-- see ui/screen_marker_capture.lua) for this node's `rect` pin. The overlay owns its own
+-- click-capture layer and drag state machine (mounted/driven from main.lua, same as the
+-- InfoBox Area's own drag-as-unit capture) — the Editor's only job is arming it and handing
+-- it a commit callback that writes the finished rect through the normal Graph:SetControl
+-- path, same as every other Control edit. Silent no-op if no runtime was wired in (e.g. a
+-- headless Editor in a future test).
+function Editor:armScreenMarkerCapture(nodeId, pinName)
+    if self.runtime == nil or self.runtime.screenMarkerCapture == nil then return end
+    local graph = self.graph
+    self.runtime.screenMarkerCapture:Arm(nodeId, pinName, function(rect)
+        pcall(function() graph:SetControl(nodeId, pinName, rect) end)
+    end)
+end
+
 --- Color popup (#30) ----------------------------------------------------------------------
 
 -- A press that could start a drag (SV field, hue strip, R/G/B/A rows), keyed by PartAt's
@@ -867,9 +889,13 @@ function Editor:closeColorHexEditor()
 end
 
 -- Esc dismisses the color popup (#30's third dismiss trigger, alongside outside-click and
--- re-click). Wired from main.lua's existing KeyDown subscription.
+-- re-click) and cancels an in-progress Screen Marker capture (#39). Wired from main.lua's
+-- existing KeyDown subscription.
 function Editor:onEscape()
     if self.colorPopup.open then self:closeColorPopup() end
+    if self.runtime ~= nil and self.runtime.screenMarkerCapture ~= nil then
+        self.runtime.screenMarkerCapture:Cancel()
+    end
 end
 
 --- Inline Control editing ---------------------------------------------------------------

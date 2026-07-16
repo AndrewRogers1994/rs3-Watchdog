@@ -150,6 +150,11 @@ Theme.COL_CONTROL_ACTION_BG = col(52, 56, 66, 1.0)  -- composite-control action 
 Theme.COL_CHECKER_LIGHT = col(150, 150, 150, 1.0)
 Theme.COL_CHECKER_DARK  = col(90, 90, 90, 1.0)
 
+-- Screen Marker's "Draw on screen" full-screen capture overlay (#39): a dim wash over the
+-- whole screen while a drag is in progress, and the in-progress selection box drawn on top.
+Theme.COL_SCREEN_MARKER_DIM  = col(0, 0, 0, 0.35)
+Theme.COL_SCREEN_MARKER_DRAG = col(255, 255, 255, 1.0)
+
 -- Execution pins and wires use one fixed neutral color (they carry no Type Tag).
 Theme.COL_EXEC        = col(242, 242, 242, 1.0)
 

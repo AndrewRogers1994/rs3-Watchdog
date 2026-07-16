@@ -31,5 +31,7 @@ require("test_color")
 require("test_color_popup")
 require("test_infobox")
 require("test_infobox_node")
+require("test_screen_marker_capture")
+require("test_screen_marker")
 
 os.exit(luaunit.LuaUnit.run())

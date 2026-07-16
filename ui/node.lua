@@ -144,6 +144,22 @@ function Node.BuildGeometry(pins, x, y, width, opts)
                         x = right - swW, y = cy - Theme.CONTROL_H * 0.5,
                         w = swW, h = Theme.CONTROL_H,
                     }
+                elseif spec.widget == "capture" then
+                    -- Screen Marker's "Draw on screen" button (#39): a full-width value-
+                    -- column box like a scalar field, but `kind` marks it as a click-to-arm
+                    -- action rather than an editable text field (ui/graph.lua's beginPress
+                    -- dispatch branches on it the same way it does for a composite "action"
+                    -- box) — it never opens the transient InputField/ComboField editor.
+                    geom.controls[#geom.controls + 1] = {
+                        pinName = pin.name,
+                        widget  = spec.widget,
+                        spec    = spec,
+                        default = pin.default,
+                        kind = "capture",
+                        placeholder = "Draw on screen",
+                        x = left, y = cy - Theme.CONTROL_H * 0.5,
+                        w = right - left, h = Theme.CONTROL_H,
+                    }
                 else
                     geom.controls[#geom.controls + 1] = {
                         pinName = pin.name,
@@ -277,7 +293,8 @@ function Node.Draw(canvas, view, geom, meta, opts)
                     canvas:AddOutline(bx, by, bw, bh, math.max(1, view:Scale(1)),
                         Theme.Vec4(hot and Theme.COL_CONTROL_HOT or Theme.COL_CONTROL_BORDER))
                 else
-                    local bg = (ctrl.kind == "action") and Theme.COL_CONTROL_ACTION_BG or Theme.COL_CONTROL_BG
+                    local bg = (ctrl.kind == "action" or ctrl.kind == "capture")
+                        and Theme.COL_CONTROL_ACTION_BG or Theme.COL_CONTROL_BG
                     canvas:AddRectangle(bx, by, bw, bh, Theme.Vec4(bg))
                     canvas:AddOutline(bx, by, bw, bh, math.max(1, view:Scale(1)),
                         Theme.Vec4(hot and Theme.COL_CONTROL_HOT or Theme.COL_CONTROL_BORDER))

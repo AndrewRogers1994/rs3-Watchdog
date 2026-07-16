@@ -68,6 +68,7 @@ require("nodes/actions/sound").Register(registry)
 require("nodes/actions/screen_flash").Register(registry, runtime)
 require("nodes/actions/popup").Register(registry, runtime)
 require("nodes/actions/infobox").Register(registry, runtime)
+require("nodes/actions/screen_marker").Register(registry, runtime)
 
 --- Graph: restore the saved one, or seed a demo on first run -----------------------------
 -- Persistence backend lives in store.lua (multi-graph, keyed by name). We only ever show
@@ -153,7 +154,7 @@ if currentAlert == nil then
 end
 
 local graph = currentAlert.graph
-local editor = Editor.new(graph, registry, currentAlert.layout, currentAlert.view)
+local editor = Editor.new(graph, registry, currentAlert.layout, currentAlert.view, runtime)
 
 -- Persistence hook for the alert enable/disable API: SetEnabled/Toggle write the flag straight
 -- to the saved document and flush, so an alert toggled off (by the user or an Alert Toggle node,
@@ -201,9 +202,10 @@ end
 
 -- `mounted` tracks the editor Window; `effectsMounted` tracks the EffectRegistry's own
 -- always-on overlay Canvas (see effects.lua); `infoboxMounted` tracks the InfoBox Area's (#41)
--- own click-capture layer, same reasoning — all three must keep working while the editor
--- Window is closed, so none can be gated on state.mounted.
-local state = { mounted = false, effectsMounted = false, infoboxMounted = false }
+-- own click-capture layer; `screenMarkerMounted` tracks the Screen Marker capture overlay's
+-- (#39) own click-capture layer — all four must keep working while the editor Window is
+-- closed, so none can be gated on state.mounted.
+local state = { mounted = false, effectsMounted = false, infoboxMounted = false, screenMarkerMounted = false }
 
 -- Debounced autosave, but only while the editor Window is open — that's the only time the
 -- graph can be edited, so during normal play we stay off persistentdb entirely instead of
@@ -244,7 +246,18 @@ local function onLogic()
         end
     end
 
-    if not state.effectsMounted or not state.infoboxMounted or not state.mounted then
+    -- The Screen Marker capture overlay's (#39) click-capture layer needs no per-tick
+    -- Reposition the way InfoBox's does (its size only ever changes on Arm/Cancel), but its
+    -- drag does need to follow the cursor every tick same as any other polled interaction.
+    if state.screenMarkerMounted and runtime.screenMarkerCapture:IsDragging() then
+        local mx, my = runtime:GetMousePos()
+        if mx ~= nil then
+            pcall(function() runtime.screenMarkerCapture:UpdateDrag(mx, my) end)
+        end
+    end
+
+    if not state.effectsMounted or not state.infoboxMounted or not state.screenMarkerMounted
+        or not state.mounted then
         local parent = getRootParent()
         if parent ~= nil then
             if not state.effectsMounted then
@@ -257,6 +270,10 @@ local function onLogic()
             if not state.infoboxMounted then
                 pcall(function() runtime.infobox:Mount(parent) end)
                 state.infoboxMounted = runtime.infobox:IsMounted()
+            end
+            if not state.screenMarkerMounted then
+                pcall(function() runtime.screenMarkerCapture:Mount(parent) end)
+                state.screenMarkerMounted = runtime.screenMarkerCapture:IsMounted()
             end
             if not state.mounted then
                 local ok, err = pcall(function() editor:Mount(parent) end)
@@ -303,6 +320,9 @@ local function onDraw()
             local hx, hy = runtime:GetMousePos()
             runtime.infobox:Draw(runtime.effects.canvas, hx, hy)
         end)
+        -- The Screen Marker capture overlay (#39) draws its own dim + in-progress selection
+        -- box on the same overlay Canvas, as its own pass for the same reason.
+        pcall(function() runtime.screenMarkerCapture:Draw(runtime.effects.canvas) end)
     end
 end
 
@@ -320,10 +340,12 @@ function api.Stop()
     pcall(function() runtime:Stop() end)
     pcall(function() runtime.effects:Unmount() end)
     pcall(function() runtime.infobox:Unmount() end)
+    pcall(function() runtime.screenMarkerCapture:Unmount() end)
     pcall(function() editor:Unmount() end)
     state.mounted = false
     state.effectsMounted = false
     state.infoboxMounted = false
+    state.screenMarkerMounted = false
 end
 
 api.editor = editor

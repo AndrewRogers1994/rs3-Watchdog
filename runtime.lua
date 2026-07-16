@@ -30,6 +30,7 @@
 
 local Effects = require("effects")
 local InfoBoxArea = require("ui/infobox")
+local ScreenMarkerCapture = require("ui/screen_marker_capture")
 local Util = require("util")
 
 local Runtime = {}
@@ -64,6 +65,10 @@ function Runtime.new(eventSource, mouseSource)
         -- bounds effects deliberately disclaims — see ui/infobox.lua). Reached by action.infobox
         -- the same way nodes reach `runtime.effects`.
         infobox = InfoBoxArea.new(),
+        -- The shared "Draw on screen" capture overlay (#39) behind action.screen_marker's
+        -- `rect` Control — armed from the Editor (ui/graph.lua), mounted/drawn/driven from
+        -- main.lua the same way runtime.infobox's own click-capture layer is.
+        screenMarkerCapture = ScreenMarkerCapture.new(),
         keyboardActivityTick = 0,
         mouseActivityTick = 0,
         _lastMousePos = nil,

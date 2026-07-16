@@ -47,8 +47,8 @@ Target: mirror the trigger/notification list from https://github.com/adamk33n3r/
   - SELF-DRAWN. No native "overlay notification" primitive; compose from `ui.GroupBox` + `ui.Text` (+ `ui.Sprite`) or Canvas, positioned in screen space on the root interface. Same toolkit as the Watchdog editor.
 - [x] Popup — like collection log / league task popup — `action.popup`
   - SELF-DRAWN. No native popup API (confirmed vs docs); emulated with a Canvas-drawn banner on the always-on overlay Canvas (#29), animated in->hold->out over Logic ticks and auto-expiring (only HOLD is configurable, ~4s default). Queue-only. Single `body` data pin; `title`/`icon`/`theme`/`hold` are node-config (Control-only pins). Two themes behind a dropdown — Parchment (primitive, default) + Leagues (multi-part `RS3_RIBBON_LEAGUES_GOLD_*` sprites) — with a `Popup.RegisterTheme` seam; curated icon dropdown reuses the enum Control. See `nodes/actions/popup.lua`.
-- [ ] Screen Marker
-  - SELF-DRAWN. Draw a border/rect at a saved screen-space rect (`ui.Rectangle`, or Canvas `AddLine`); persist the rect in Watchdog's Store. Reuses the DevTools/editor Canvas pattern.
+- [x] Screen Marker — `action.screen_marker`
+  - SELF-DRAWN dismiss-only EffectRegistry effect (#29 overlay Canvas): a persistent border box drawn via Canvas `AddOutline`, `thickness` + `color` data pins. The rect is draw-only — a "Draw on screen" button (`ui/screen_marker_capture.lua`) arms a transient full-screen capture overlay (drag corner→corner writes one `{x,y,w,h}` param, pixels, no clamp; Esc cancels), not a typed field and not #18's composite-control framework. Nil rect never fires; concurrency idempotent/Replace (one marker per node, Stack capped at 1; different nodes stack). Done (#39).
 - [ ] Object Marker
   - SELF-DRAWN via `ScreenConvert`. Each `Event.Draw`, project a world tile/entity to screen — `entity.position`/`.coordGrid` (from `Player.GetEntity()`, `NPCList`/`ObjStackList`, or a fixed `CoordGrid`) → `ScreenConvert.CoordGridToScreen(coordGrid, heightAboveGround)` (or `Vector3ToScreen`) → draw on Canvas. Exactly the `DevTools/overlay.lua` tile-marker pattern; must re-project every frame since the camera moves.
 - [ ] Counter — increment a counter (may just reuse `LibNodeGraphStd`'s `std.counter` instead of a dedicated node)
@@ -57,8 +57,8 @@ Target: mirror the trigger/notification list from https://github.com/adamk33n3r/
   - INTERNAL, no API. Flip a Watchdog alert/graph's `enabled` flag in Watchdog state.
 - [ ] Dismiss Overlay
   - INTERNAL, no API. Remove a Watchdog-owned Overlay (from the action above) by id — pure bookkeeping over our own state, not a game-side registry.
-- [ ] Dismiss Screen Marker
-  - INTERNAL, no API. As above, for a Watchdog-owned Screen Marker.
+- [x] Dismiss Screen Marker
+  - INTERNAL, no API. Folded into `action.screen_marker`'s own `dismiss` exec-in pin (#39's #3 dismiss idiom) rather than a separate node type, same as Screen Flash's Dismiss pin.
 - [ ] Dismiss Object Marker
   - INTERNAL, no API. As above, for a Watchdog-owned Object Marker.
 - [ ] Request Focus — request focus on the window
