@@ -230,6 +230,11 @@ Event.Draw.Subscribe(Events.Draw, onDraw)
 -- (core/events docs); ignore auto-repeat so a held key doesn't flicker the panel.
 Event.KeyDown.Subscribe(Events.KeyDown, function(keyEvent)
     if keyEvent == nil or keyEvent.isRepeat then return end
+    -- Esc dismisses the color popup (#30) rather than toggling the editor Window.
+    if keyEvent.gameKey == GameKey.ESCAPE then
+        pcall(function() editor:onEscape() end)
+        return
+    end
     local target = GameKey[TOGGLE_KEY]
     if target ~= nil and keyEvent.gameKey == target then
         pcall(function() editor:Toggle() end)
