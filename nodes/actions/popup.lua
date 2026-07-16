@@ -34,12 +34,19 @@ Popup.DEFAULT_HOLD_SECONDS = 4.0
 -- all alerts) share a single Queue — one banner live, the rest pending (AC: Queue-only).
 Popup.OWNER = "action.popup"
 
--- Pure animation state for a given `elapsed` time and `hold` duration: the phase name and a
--- 0..1 alpha for fading. Split out from the handle so it's unit-testable without any Canvas.
--- A zero/negative hold collapses to just the in->out ramps (still valid, never divides by 0).
-function Popup.Anim(elapsed, hold)
+-- Normalize a raw `hold` control value into a valid duration: default when non-numeric,
+-- clamp negatives to 0. The single source of truth both Anim and BuildHandle read, so a
+-- zero/negative hold always collapses to just the in->out ramps (never divides by 0).
+local function normalizeHold(hold)
     hold = tonumber(hold) or Popup.DEFAULT_HOLD_SECONDS
     if hold < 0 then hold = 0 end
+    return hold
+end
+
+-- Pure animation state for a given `elapsed` time and `hold` duration: the phase name and a
+-- 0..1 alpha for fading. Split out from the handle so it's unit-testable without any Canvas.
+function Popup.Anim(elapsed, hold)
+    hold = normalizeHold(hold)
     local inT = Popup.IN_SECONDS
     local outT = Popup.OUT_SECONDS
     local holdEnd = inT + hold
@@ -62,7 +69,7 @@ end
 -- A theme is a plain descriptor the Draw reads: `kind` ("primitive" = Canvas rectangles;
 -- "sprites" = multi-part sprite frame), a `label` for the dropdown, colors, and (for the
 -- sprite kind) the assembled left/mid/right sprite ids. New themes are one RegisterTheme
--- call — the registry seam the AC asks for. `_order` keeps declaration order for the
+-- call — the registry seam the AC asks for. `themeOrder` keeps declaration order for the
 -- dropdown so Parchment (the default) stays first.
 
 Popup.DEFAULT_THEME = "parchment"
@@ -232,8 +239,7 @@ end
 -- popup). No onDone is needed — auto-expiry is the whole lifecycle.
 function Popup.BuildHandle(spec)
     spec = spec or {}
-    local hold = tonumber(spec.hold) or Popup.DEFAULT_HOLD_SECONDS
-    if hold < 0 then hold = 0 end
+    local hold = normalizeHold(spec.hold)
     local total = Popup.IN_SECONDS + hold + Popup.OUT_SECONDS
     local theme = Popup.ThemeFor(spec.theme)
     local elapsed = 0
