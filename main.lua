@@ -65,6 +65,7 @@ LibNodeGraphStd.Register(registry)
 require("nodes/triggers/chat").Register(registry, runtime)
 require("nodes/actions/log").Register(registry)
 require("nodes/actions/sound").Register(registry)
+require("nodes/actions/screen_flash").Register(registry, runtime)
 require("nodes/actions/popup").Register(registry, runtime)
 require("nodes/actions/infobox").Register(registry, runtime)
 

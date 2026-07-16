@@ -41,8 +41,8 @@ Target: mirror the trigger/notification list from https://github.com/adamk33n3r/
   - NO API. There is no way to inject a NEW chat line. `Event.ChatMessage`'s `chatMessage` is writeable but only mutates an INCOMING message; `ExecuteConsoleCommand` runs console commands, not chat (confirmed vs docs). `action.log` (→ Lua console via `log()`) stays our only text-out; a true in-game chatbox message is blocked.
 - [ ] Overhead — display overhead text
   - NO API. No overhead-text field/method on `PlayerEntity`/`NPCEntity` and no set-overhead call (same gap as the Overhead Text trigger). Not achievable.
-- [ ] Screen Flash
-  - SELF-DRAWN (no dedicated API). Draw a full-screen colored rect — `ui.Rectangle` mounted on the root interface, or on the editor's Canvas — and fade its alpha over N `Event.Logic`/`Draw` ticks. Colors via `Vector4.new(r,g,b,a)`.
+- [x] Screen Flash — `action.screen_flash`
+  - SELF-DRAWN dismiss-only EffectRegistry effect (#29 overlay Canvas): two hardcoded 25-tick rise/fall segments, each shaped `instant`/`fade` by its own dropdown, repeating until dismissed. Full RGBA `color` (alpha = peak alpha). `Dismiss` exec pin + `dismissOn` dropdown (none/mouse/keyboard/both) driven by `runtime.keyboardActivityTick`/`mouseActivityTick`. Concurrency Replace (re-Show restarts). Done (#37).
 - [ ] Overlay — overlay notification
   - SELF-DRAWN. No native "overlay notification" primitive; compose from `ui.GroupBox` + `ui.Text` (+ `ui.Sprite`) or Canvas, positioned in screen space on the root interface. Same toolkit as the Watchdog editor.
 - [x] Popup — like collection log / league task popup — `action.popup`
