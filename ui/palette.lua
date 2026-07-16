@@ -44,7 +44,7 @@ local HEADER_INSET = 6
 
 local function rowLabel(row)
     if row.header then return row.label or row.category end
-    if row.unavailable then return row.displayName .. " — " .. row.reason end
+    if row.unavailable then return row.displayName .. " - " .. row.reason end
     return row.displayName
 end
 
