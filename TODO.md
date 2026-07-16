@@ -1,3 +1,8 @@
+> **Node architecture is being charted as a wayfinder map:**
+> [Wayfinder: Watchdog trigger/action node architecture](https://github.com/adamk33n3r/rs3-Watchdog/issues/1)
+> (GitHub issue #1). The per-node feasibility notes below are the source of truth that map's
+> tickets design against.
+
 - consolidate the comparison nodes into one with a dropdown selector for the operation. it's clutter to have 6 different nodes to just change the operation between two numbers.
 
 ## Node port backlog (mirroring runelite-watchdog)

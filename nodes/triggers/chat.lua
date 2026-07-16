@@ -1,10 +1,12 @@
 local Chat = {}
 
--- Fired by main.lua on each incoming chat line, with the message text as the payload
--- (see LibNodeGraph/docs/adr/0009). The trigger matches against its `contains` control
--- and, on a match, republishes the text on the `message` Data output for downstream
--- nodes before firing `out`. `contains` empty => match every line.
-function Chat.Register(registry)
+-- Fired by runtime.lua's dispatcher on each incoming chat line, with the message text as
+-- the payload (see LibNodeGraph/docs/adr/0009). The trigger matches against its `contains`
+-- control and, on a match, republishes the text on the `message` Data output for downstream
+-- nodes before firing `out`. `contains` empty => match every line. No runtime-level
+-- transform/filter is needed — this substring match stays in `run`, unchanged from before
+-- the migration onto the dispatcher.
+function Chat.Register(registry, runtime)
     registry:RegisterNodeType("trigger.chat", {
         category = "trigger",
         displayName = "Chat Trigger",
@@ -28,6 +30,8 @@ function Chat.Register(registry)
             ctx:Fire("out")
         end,
     })
+
+    runtime:BindTrigger("trigger.chat", { { event = "ChatMessage" } })
 end
 
 return Chat

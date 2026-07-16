@@ -1,0 +1,467 @@
+<title>Watchdog — Color Picker Control Prototype</title>
+<style>
+  :root{
+    /* Real Watchdog editor theme (ui/theme.lua) */
+    --viewport:#1a1a1e;
+    --grid:#282830; --grid-major:#34343c;
+    --node-body:#2b2b30; --node-border:#0f0f12;
+    --node-sel:#f0a020;
+    --title:#f0f0f4; --pin-label:#c6c8d0;
+    --control-bg:#1c1c21; --control-border:#464652; --control-hot:#f0a020;
+    --control-text:#e1e3e9; --control-empty:#787a84; --control-caret:#aaacb6;
+    --exec:#f2f2f2;
+    --cat-action:#2f5f9b; --cat-trigger:#9b2f2f;
+    --panel:#202026; --panel-header:#30303a; --panel-header-tx:#96bee6;
+    --accent:#f0a020;
+    --ink:#e4e6ec; --ink-dim:#9a9ca8;
+    --font-ui:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    --font-mono:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#141418;color:var(--ink);font-family:var(--font-ui);
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:1180px;margin:0 auto;padding:24px 20px 120px}
+  header.page{margin-bottom:18px}
+  header.page h1{font-size:19px;margin:0 0 4px;font-weight:650;letter-spacing:.2px}
+  header.page p{margin:0;color:var(--ink-dim);font-size:13px;line-height:1.5;max-width:70ch}
+  .layout{display:grid;grid-template-columns:1fr 340px;gap:20px;align-items:start}
+  @media(max-width:900px){.layout{grid-template-columns:1fr}}
+
+  /* Mock editor viewport */
+  .viewport{position:relative;border-radius:8px;overflow:hidden;
+    border:1px solid #000;min-height:520px;
+    background:var(--viewport);
+    background-image:
+      linear-gradient(var(--grid) 1px,transparent 1px),
+      linear-gradient(90deg,var(--grid) 1px,transparent 1px),
+      linear-gradient(var(--grid-major) 1px,transparent 1px),
+      linear-gradient(90deg,var(--grid-major) 1px,transparent 1px);
+    background-size:22px 22px,22px 22px,110px 110px,110px 110px;
+  }
+  .vp-label{position:absolute;top:8px;left:10px;font:600 10px/1 var(--font-mono);
+    letter-spacing:.12em;text-transform:uppercase;color:#55555f;pointer-events:none}
+
+  /* Node */
+  .node{position:absolute;width:230px;background:var(--node-body);
+    border:1px solid var(--node-border);border-radius:5px;
+    box-shadow:0 6px 18px rgba(0,0,0,.45);user-select:none}
+  .node.sel{border-color:var(--node-sel)}
+  .node-head{height:26px;display:flex;align-items:center;padding:0 10px;
+    background:var(--cat-action);border-radius:4px 4px 0 0;
+    font-weight:650;font-size:12.5px;color:var(--title)}
+  .node-head .x{margin-left:auto;color:#dcdce0cc;font-size:13px}
+  .node-body-pad{padding:8px 0 10px}
+  .pin-row{display:flex;align-items:center;min-height:24px;padding:0 10px;gap:8px}
+  .pin-dot{width:9px;height:9px;flex:none;border-radius:1px}
+  .pin-dot.exec{background:var(--exec);transform:rotate(45deg);border-radius:0}
+  .pin-dot.data{background:#7fa8d8}
+  .pin-dot.out{margin-left:auto}
+  .pin-label{font-size:12px;color:var(--pin-label)}
+  .pin-label.right{margin-left:auto}
+  .ctl-box{margin-left:auto;min-width:70px;height:16px;background:var(--control-bg);
+    border:1px solid var(--control-border);border-radius:2px;
+    display:flex;align-items:center;padding:0 5px;font:11px/1 var(--font-mono);
+    color:var(--control-text);cursor:text}
+  .ctl-box.empty{color:var(--control-empty)}
+
+  /* checkerboard util */
+  .checker{background-image:
+      linear-gradient(45deg,#5a5a5a 25%,transparent 25%),
+      linear-gradient(-45deg,#5a5a5a 25%,transparent 25%),
+      linear-gradient(45deg,transparent 75%,#5a5a5a 75%),
+      linear-gradient(-45deg,transparent 75%,#5a5a5a 75%);
+    background-size:8px 8px;background-position:0 0,0 4px,4px -4px,-4px 0;
+    background-color:#8a8a8a}
+
+  /* swatch chip (shared) */
+  .chip{position:relative;border-radius:2px;overflow:hidden;cursor:pointer;
+    border:1px solid var(--control-border)}
+  .chip .fill{position:absolute;inset:0}
+
+  /* Variant A — inline composite */
+  .compA{margin-left:auto;display:flex;flex-direction:column;gap:3px;width:132px}
+  .compA .chan{display:flex;align-items:center;gap:6px;height:13px}
+  .compA .chan b{width:9px;font:600 9px/1 var(--font-mono);color:var(--control-empty)}
+  .compA .track{position:relative;flex:1;height:8px;border-radius:2px;cursor:pointer;
+    border:1px solid #000}
+  .compA .track .knob{position:absolute;top:-2px;width:3px;height:12px;background:#fff;
+    border:1px solid #000;border-radius:1px;transform:translateX(-50%)}
+  .compA .chan i{width:26px;text-align:right;font:10px/1 var(--font-mono);
+    color:var(--control-text);font-style:normal}
+  .compA .previewrow{display:flex;align-items:center;gap:6px;height:16px;margin-top:1px}
+  .compA .previewrow .chip{flex:1;height:15px}
+
+  /* Popup panel (variants B & C) */
+  .popup{position:absolute;width:250px;background:var(--panel);
+    border:1px solid #000;border-radius:6px;box-shadow:0 12px 40px rgba(0,0,0,.6);
+    z-index:20;overflow:hidden}
+  .popup.canvasdrawn{border:1px dashed #6a6a3a}
+  .popup.realcomp{border:1px solid #3a3a48}
+  .popup-head{height:24px;display:flex;align-items:center;padding:0 10px;
+    background:var(--panel-header);color:var(--panel-header-tx);
+    font:600 11px/1 var(--font-mono);letter-spacing:.05em}
+  .popup-head .tag{margin-left:auto;font-size:9px;opacity:.8;letter-spacing:.08em}
+  .popup-head .close{margin-left:8px;cursor:pointer;color:#cfcfd6}
+  .popup-body{padding:10px}
+  /* smooth SV square + hue slider */
+  .svsq{position:relative;width:100%;height:118px;border-radius:3px;overflow:hidden;
+    border:1px solid #000;cursor:crosshair;margin-bottom:7px;touch-action:none}
+  .svsq .huebase{position:absolute;inset:0}
+  .svsq .white{position:absolute;inset:0;
+    background:linear-gradient(90deg,#fff,rgba(255,255,255,0))}
+  .svsq .black{position:absolute;inset:0;
+    background:linear-gradient(0deg,#000,rgba(0,0,0,0))}
+  .svsq .cross{position:absolute;width:12px;height:12px;border-radius:50%;
+    border:2px solid #fff;box-shadow:0 0 0 1px #000,inset 0 0 0 1px #000;
+    transform:translate(-50%,-50%);pointer-events:none}
+  .huestrip{position:relative;width:100%;height:13px;border-radius:3px;overflow:hidden;
+    border:1px solid #000;cursor:pointer;margin-bottom:8px;touch-action:none;
+    background:linear-gradient(90deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)}
+  .huestrip .knob,.alpha-track .knob{position:absolute;top:-1px;width:4px;height:100%;
+    background:#fff;border:1px solid #000;border-radius:1px;transform:translateX(-50%)}
+  .huestrip .knob{height:calc(100% + 2px);top:-1px}
+  .swrow{display:flex;gap:8px;margin-bottom:8px;align-items:center}
+  .swrow .lbl{font:10px/1 var(--font-mono);color:var(--ink-dim);width:52px}
+  .swrow .prevcur{flex:1;display:flex;gap:6px}
+  .swrow .prevcur .chip{flex:1;height:22px}
+  .hexrow{display:flex;align-items:center;gap:6px;margin-bottom:8px}
+  .hexrow span{font:11px/1 var(--font-mono);color:var(--ink-dim)}
+  .hexrow input{flex:1;background:var(--control-bg);border:1px solid var(--control-border);
+    color:var(--control-text);font:11px/1 var(--font-mono);padding:5px 6px;border-radius:2px}
+  .chanrow{display:flex;align-items:center;gap:5px;margin-bottom:5px}
+  .chanrow b{width:14px;font:600 10px/1 var(--font-mono);color:var(--ink-dim)}
+  .chanrow input[type=range]{flex:1;accent-color:var(--accent);height:14px}
+  .chanrow .val{width:26px;text-align:right;font:10px/1 var(--font-mono)}
+  .chanrow .step{width:20px;height:18px;background:var(--control-bg);
+    border:1px solid var(--control-border);color:var(--control-text);
+    border-radius:2px;cursor:pointer;font:11px/1 var(--font-mono);padding:0}
+  .alpha-track{position:relative;flex:1;height:14px;border-radius:2px;overflow:hidden;
+    cursor:pointer;border:1px solid #000}
+  .alpha-track .grad{position:absolute;inset:0}
+
+  /* right rail: trade-off notes */
+  .rail{background:#1b1b21;border:1px solid #2c2c36;border-radius:8px;padding:16px;
+    position:sticky;top:16px}
+  .rail h2{font:600 11px/1 var(--font-mono);letter-spacing:.1em;text-transform:uppercase;
+    color:var(--accent);margin:0 0 10px}
+  .rail .vname{font-size:14px;font-weight:650;margin:0 0 2px;color:var(--title)}
+  .rail .vsub{font-size:12px;color:var(--ink-dim);margin:0 0 14px;line-height:1.45}
+  .rail dl{margin:0;display:grid;gap:11px}
+  .rail dt{font:600 10px/1 var(--font-mono);letter-spacing:.06em;text-transform:uppercase;
+    color:#8fb4dc;margin-bottom:3px}
+  .rail dd{margin:0;font-size:12.5px;line-height:1.5;color:var(--ink)}
+  .rail .flag{display:inline-block;font:600 9px/1 var(--font-mono);padding:2px 5px;
+    border-radius:3px;margin-right:5px;vertical-align:middle}
+  .flag.pro{background:#1e3a24;color:#7fd693}
+  .flag.con{background:#3a1e1e;color:#e08a8a}
+
+  /* switcher bar */
+  .switcher{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);
+    display:flex;align-items:center;gap:2px;background:#0c0c10;border:1px solid #3a3a46;
+    border-radius:999px;padding:5px 6px;box-shadow:0 8px 30px rgba(0,0,0,.6);z-index:100}
+  .switcher button{background:none;border:none;color:var(--accent);font-size:16px;
+    cursor:pointer;width:34px;height:34px;border-radius:999px;line-height:1}
+  .switcher button:hover{background:#ffffff14}
+  .switcher .cur{min-width:220px;text-align:center;font:600 12.5px/1.3 var(--font-ui);
+    padding:0 6px;color:var(--ink)}
+  .switcher .cur small{display:block;color:var(--ink-dim);font-weight:400;font-size:10.5px;
+    margin-top:2px;font-family:var(--font-mono)}
+  button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+</style>
+
+<div class="wrap">
+  <header class="page">
+    <h1>Color Picker (RGBA) control — three rendering surfaces</h1>
+    <p>The <code>color</code> pin on a <strong>Screen Flash</strong> action node, whose peak alpha rides
+    on this control's alpha channel (#12). Same live RGBA value in all three — what differs is
+    <em>where the picker lives and how it's drawn</em>. Flip with ← → or the bar below. Colours are the
+    real editor theme.</p>
+  </header>
+
+  <div class="layout">
+    <div class="viewport" id="vp">
+      <div class="vp-label">Watchdog editor · graph viewport</div>
+      <!-- node injected per variant -->
+    </div>
+    <aside class="rail" id="rail"></aside>
+  </div>
+</div>
+
+<div class="switcher" role="group" aria-label="variant switcher">
+  <button id="prev" aria-label="previous variant">‹</button>
+  <div class="cur" id="curlabel"></div>
+  <button id="next" aria-label="next variant">›</button>
+</div>
+
+<script>
+// ---- shared live RGBA state ----
+const state = { r:60, g:200, b:255, a:180 };   // 0..255 each (alpha 0..255)
+function hex2(n){return n.toString(16).padStart(2,'0')}
+function cssRGB(){return `rgb(${state.r},${state.g},${state.b})`}
+function cssRGBA(){return `rgba(${state.r},${state.g},${state.b},${(state.a/255).toFixed(3)})`}
+function hex8(){return (hex2(state.r)+hex2(state.g)+hex2(state.b)+hex2(state.a)).toUpperCase()}
+function hsvToRgb(h,s,v){
+  const c=v*s, x=c*(1-Math.abs((h/60)%2-1)), m=v-c; let r,g,b;
+  if(h<60)[r,g,b]=[c,x,0];else if(h<120)[r,g,b]=[x,c,0];else if(h<180)[r,g,b]=[0,c,x];
+  else if(h<240)[r,g,b]=[0,x,c];else if(h<300)[r,g,b]=[x,0,c];else[r,g,b]=[c,0,x];
+  return [Math.round((r+m)*255),Math.round((g+m)*255),Math.round((b+m)*255)];
+}
+const clampByte=n=>Math.max(0,Math.min(255,Math.round(n)));
+
+// ---- variant definitions ----
+const variants = [
+  {
+    key:'A', name:'Inline Canvas composite', sub:'Lives on the pin. No popup.',
+    build: buildInline,
+    rail:{
+      lead:'The #18 coordgrid precedent, extended: the control is drawn immediate-mode directly on the node, expanding the pin\'s row height. No HSV grid — too big to embed — just a swatch + four channel tracks (R/G/B/A) you drag.',
+      alpha:['A is a <b>fourth channel track</b>, identical to R/G/B. The preview swatch sits over a <span class="checker" style="padding:0 3px">checker</span> so transparency is visible.'],
+      surface:['<span class="flag pro">PRO</span>Everything on-canvas, one draw pass, no z-order or teardown.','<span class="flag con">CON</span>Adds ~64px of node height; no fine hex entry; dragging tiny tracks is fiddly.'],
+      value:['One <code>{r,g,b,a}</code> table Control. Composite contributes <b>~6 rects</b> (swatch + 4 tracks + preview) sharing <code>pinName</code>, discriminated by <code>kind</code> — same flat <code>geom.controls</code> shape as coordgrid.'],
+      invoke:['<b>Always inline</b>, no affordance to open. Edits commit live as you drag.'],
+    }
+  },
+  {
+    key:'B', name:'Canvas-drawn popup', sub:'Chip on pin → modal drawn on overlay Canvas.',
+    build: buildCanvasPopup,
+    rail:{
+      lead:'The pin shows only a small swatch chip. Click it and a full picker is drawn immediate-mode on the editor Canvas — a <b>smooth click-and-drag saturation/value field</b> (built from <code>AddGradientH</code>+<code>AddGradientV</code>, a few rects, not 312 swatches) with a hue slider, plus hex and RGBA rows. Drag the crosshair. Nothing real is mounted.',
+      alpha:['A <b>dedicated alpha slider</b> under the RGB rows, its track a transparent→opaque gradient of the current colour over a checker. Peak-alpha semantics read clearly as "how strong the flash gets".'],
+      surface:['<span class="flag pro">PRO</span>Full picker without bloating the node; still pure Canvas, so it composits with the editor + effect overlays uniformly.','<span class="flag con">CON</span>Must hand-build modal focus + outside-click dismiss. But the SV field is <b>one rect to hit-test</b> (cursor→S,V) — cheaper than the discrete grid, and drag falls out naturally.'],
+      value:['Same <code>{r,g,b,a}</code> table Control. The chip is the only on-pin rect; the popup is transient editor state, not part of <code>geom.controls</code>.'],
+      invoke:['<b>Click-to-open</b> on the chip; popup anchors beside the pin, closes on outside-click / Esc / re-click.'],
+    }
+  },
+  {
+    key:'C', name:'Real-component ui.Panel popup', sub:'Chip on pin → mount real ui components.',
+    build: buildRealPopup,
+    rail:{
+      lead:'Literally the MenuInterface approach (menu.lua:852). The chip click mounts a real <code>ui.Panel</code> with real buttons/inputs/swatches as a sibling overlay, torn down on close. The editor Canvas keeps drawing underneath.',
+      alpha:['<b>Alpha channel row</b> matching MenuInterface\'s R/G/B rows (input + −/+/−−/++ steppers), plus the checker-backed current swatch. Precise numeric alpha, no dragging.'],
+      surface:['<span class="flag pro">PRO</span>Free text inputs, native focus/caret, steppers, hover — no immediate-mode hit-testing to write.','<span class="flag con">CON</span>Two UI worlds to reconcile: real component z-order vs. the editor Canvas + effect overlay Canvas; mount/unmount lifecycle tied to the pin.'],
+      value:['Same <code>{r,g,b,a}</code> table Control; the panel reads/writes it via get/set. Serialized as packed <code>#RRGGBBAA</code> hex8 in graph params.'],
+      invoke:['<b>Click-to-open</b> on the chip; a real modal panel, an explicit ✕ / Set / outside-click to dismiss.'],
+    }
+  },
+];
+
+// ---- node scaffold shared by all variants ----
+function nodeShell(innerControlHTML){
+  return `
+  <div class="node sel" style="left:150px;top:120px">
+    <div class="node-head">Screen Flash <span class="x">✕</span></div>
+    <div class="node-body-pad">
+      <div class="pin-row"><span class="pin-dot exec"></span><span class="pin-label">Show</span>
+        <span class="pin-dot exec out"></span></div>
+      <div class="pin-row"><span class="pin-dot exec"></span><span class="pin-label">Dismiss</span></div>
+      ${innerControlHTML}
+      <div class="pin-row"><span class="pin-dot data"></span><span class="pin-label">In-shape</span>
+        <span class="ctl-box" style="min-width:56px">fade ▾</span></div>
+    </div>
+  </div>`;
+}
+
+// ---- Variant A: inline composite ----
+function buildInline(vp){
+  const chan=(l,k,max)=>`
+    <div class="chan" data-k="${k}"><b>${l}</b>
+      <div class="track" data-k="${k}" data-max="${max}">
+        <div class="knob"></div></div><i data-k="${k}v"></i></div>`;
+  const ctrl=`
+    <div class="pin-row" style="align-items:flex-start;min-height:92px;padding-top:2px">
+      <span class="pin-dot data" style="margin-top:2px"></span>
+      <span class="pin-label" style="margin-top:1px">Color</span>
+      <div class="compA">
+        ${chan('R','r',255)}${chan('G','g',255)}${chan('B','b',255)}${chan('A','a',255)}
+        <div class="previewrow">
+          <span class="checker chip" style="height:15px"><span class="fill" data-fill></span></span>
+        </div>
+      </div>
+    </div>`;
+  vp.insertAdjacentHTML('beforeend', nodeShell(ctrl));
+  const root=vp.querySelector('.compA');
+  function sync(){
+    ['r','g','b','a'].forEach(k=>{
+      const pct=state[k]/255*100;
+      root.querySelector(`.track[data-k="${k}"] .knob`).style.left=pct+'%';
+      root.querySelector(`.track[data-k="${k}"]`).style.background=
+        k==='a'
+          ? `linear-gradient(90deg,rgba(${state.r},${state.g},${state.b},0),${cssRGB()})`
+          : gradFor(k);
+      root.querySelector(`i[data-k="${k}v"]`).textContent=state[k];
+    });
+    root.querySelector('[data-fill]').style.background=cssRGBA();
+  }
+  function gradFor(k){
+    const lo={...state}, hi={...state}; lo[k]=0; hi[k]=255;
+    return `linear-gradient(90deg,rgb(${lo.r},${lo.g},${lo.b}),rgb(${hi.r},${hi.g},${hi.b}))`;
+  }
+  root.querySelectorAll('.track').forEach(t=>{
+    const drag=e=>{const rc=t.getBoundingClientRect();
+      state[t.dataset.k]=clampByte((e.clientX-rc.left)/rc.width*255); sync();};
+    t.addEventListener('pointerdown',e=>{t.setPointerCapture(e.pointerId);drag(e);
+      const mv=ev=>drag(ev);t.addEventListener('pointermove',mv);
+      t.addEventListener('pointerup',()=>t.removeEventListener('pointermove',mv),{once:true});});
+  });
+  sync();
+}
+
+function rgbToHsv(r,g,b){
+  r/=255;g/=255;b/=255;const mx=Math.max(r,g,b),mn=Math.min(r,g,b),d=mx-mn;
+  let h=0; if(d){ if(mx===r)h=((g-b)/d)%6; else if(mx===g)h=(b-r)/d+2; else h=(r-g)/d+4; h*=60; if(h<0)h+=360;}
+  return [h, mx===0?0:d/mx, mx];
+}
+
+// ---- shared popup picker body (B & C differ only in framing) ----
+function pickerBody(mode){
+  const svhue=`
+    <div class="svsq">
+      <div class="huebase"></div><div class="white"></div><div class="black"></div>
+      <div class="cross"></div>
+    </div>
+    <div class="huestrip"><div class="knob"></div></div>`;
+  const channel = mode==='real'
+    ? (l,k)=>`<div class="chanrow"><b>${l}</b>
+        <button class="step" data-k="${k}" data-d="-16">«</button>
+        <button class="step" data-k="${k}" data-d="-1">‹</button>
+        <span class="val" data-v="${k}"></span>
+        <button class="step" data-k="${k}" data-d="1">›</button>
+        <button class="step" data-k="${k}" data-d="16">»</button></div>`
+    : (l,k)=>`<div class="chanrow"><b>${l}</b>
+        <input type="range" min="0" max="255" data-k="${k}"><span class="val" data-v="${k}"></span></div>`;
+  const alphaCtl = mode==='real'
+    ? channel('A','a')
+    : `<div class="chanrow"><b>A</b>
+        <div class="alpha-track" data-k="a"><div class="grad"></div>
+          <div class="knob" style="position:absolute;top:-1px;width:3px;height:16px;background:#fff;border:1px solid #000;transform:translateX(-50%)"></div>
+        </div><span class="val" data-v="a"></span></div>`;
+  return `
+    ${svhue}
+    <div class="swrow"><span class="lbl">prev / cur</span>
+      <div class="prevcur">
+        <span class="checker chip"><span class="fill" data-prev></span></span>
+        <span class="checker chip"><span class="fill" data-cur></span></span>
+      </div></div>
+    <div class="hexrow"><span>#</span><input data-hex maxlength="8"><span style="font-size:9px">RRGGBBAA</span></div>
+    ${channel('R','r')}${channel('G','g')}${channel('B','b')}${alphaCtl}`;
+}
+
+function wirePicker(pop, mode){
+  const prev={...state};
+  // HSV is the authoritative picker state; RGB derives from it. Hue is kept even at s/v=0.
+  let [H,S,V]=rgbToHsv(state.r,state.g,state.b);
+  function fromHSV(){ const [r,g,b]=hsvToRgb(H,S,V); state.r=r;state.g=g;state.b=b; }
+  function adoptRGB(){ [H,S,V]=rgbToHsv(state.r,state.g,state.b); }
+  function sync(){
+    pop.querySelectorAll('[data-v]').forEach(el=>el.textContent=state[el.dataset.v]);
+    pop.querySelectorAll('input[type=range]').forEach(el=>el.value=state[el.dataset.k]);
+    const cur=pop.querySelector('[data-cur]'); if(cur)cur.style.background=cssRGBA();
+    const pv=pop.querySelector('[data-prev]');
+    if(pv)pv.style.background=`rgba(${prev.r},${prev.g},${prev.b},${(prev.a/255).toFixed(3)})`;
+    const hx=pop.querySelector('[data-hex]'); if(hx&&document.activeElement!==hx)hx.value=hex8();
+    // SV square: hue base + crosshair at (S, 1-V)
+    const [hr,hg,hb]=hsvToRgb(H,1,1);
+    pop.querySelector('.huebase').style.background=`rgb(${hr},${hg},${hb})`;
+    const cr=pop.querySelector('.cross');
+    cr.style.left=S*100+'%'; cr.style.top=(1-V)*100+'%';
+    cr.style.background=cssRGB();
+    pop.querySelector('.huestrip .knob').style.left=H/360*100+'%';
+    const at=pop.querySelector('.alpha-track');
+    if(at){at.querySelector('.grad').style.background=
+      `linear-gradient(90deg,rgba(${state.r},${state.g},${state.b},0),${cssRGB()})`;
+      at.querySelector('.knob').style.left=state.a/255*100+'%';}
+    document.querySelectorAll('[data-chip]').forEach(c=>c.style.background=cssRGBA());
+  }
+  // drag helper: maps a pointer to 0..1 within an element on both axes
+  function dragField(el,onXY){
+    const move=e=>{const rc=el.getBoundingClientRect();
+      onXY(Math.min(1,Math.max(0,(e.clientX-rc.left)/rc.width)),
+           Math.min(1,Math.max(0,(e.clientY-rc.top)/rc.height))); sync();};
+    el.addEventListener('pointerdown',e=>{el.setPointerCapture(e.pointerId);move(e);
+      const mv=ev=>move(ev);el.addEventListener('pointermove',mv);
+      el.addEventListener('pointerup',()=>el.removeEventListener('pointermove',mv),{once:true});});
+  }
+  dragField(pop.querySelector('.svsq'),(x,y)=>{S=x;V=1-y;fromHSV();});
+  dragField(pop.querySelector('.huestrip'),(x)=>{H=x*360;fromHSV();});
+  pop.querySelectorAll('input[type=range]').forEach(r=>r.addEventListener('input',()=>{
+    state[r.dataset.k]=+r.value;adoptRGB();sync();}));
+  pop.querySelectorAll('.step').forEach(b=>b.addEventListener('click',()=>{
+    state[b.dataset.k]=clampByte(state[b.dataset.k]+ +b.dataset.d);adoptRGB();sync();}));
+  const hx=pop.querySelector('[data-hex]');
+  hx.addEventListener('input',()=>{const v=hx.value.replace(/[^0-9a-f]/gi,'');
+    if(v.length>=6){state.r=parseInt(v.slice(0,2),16);state.g=parseInt(v.slice(2,4),16);
+      state.b=parseInt(v.slice(4,6),16);if(v.length>=8)state.a=parseInt(v.slice(6,8),16);adoptRGB();sync();}});
+  const at=pop.querySelector('.alpha-track');
+  if(at){const drag=e=>{const rc=at.getBoundingClientRect();
+      state.a=clampByte((e.clientX-rc.left)/rc.width*255);sync();};
+    at.addEventListener('pointerdown',e=>{at.setPointerCapture(e.pointerId);drag(e);
+      const mv=ev=>drag(ev);at.addEventListener('pointermove',mv);
+      at.addEventListener('pointerup',()=>at.removeEventListener('pointermove',mv),{once:true});});}
+  sync();
+}
+
+// pin with a clickable chip that opens a popup
+function chipPinNode(vp, popClass, popTag, mode){
+  const ctrl=`
+    <div class="pin-row"><span class="pin-dot data"></span><span class="pin-label">Color</span>
+      <span class="checker chip" id="chip" style="margin-left:auto;width:46px;height:16px">
+        <span class="fill" data-chip></span></span></div>`;
+  vp.insertAdjacentHTML('beforeend', nodeShell(ctrl));
+  vp.querySelector('[data-chip]').style.background=cssRGBA();
+  let pop=null;
+  function open(){
+    if(pop)return;
+    pop=document.createElement('div');
+    pop.className='popup '+popClass;
+    pop.style.left='400px'; pop.style.top='118px';
+    pop.innerHTML=`<div class="popup-head">Color · flash <span class="tag">${popTag}</span>
+      <span class="close" id="pclose">✕</span></div>
+      <div class="popup-body">${pickerBody(mode)}</div>`;
+    vp.appendChild(pop);
+    wirePicker(pop, mode);
+    pop.querySelector('#pclose').addEventListener('click',close);
+  }
+  function close(){if(pop){pop.remove();pop=null;}}
+  vp.querySelector('#chip').addEventListener('click',open);
+  open(); // start open so the picker is visible on load
+}
+function buildCanvasPopup(vp){ chipPinNode(vp,'canvasdrawn','drawn on editor canvas','slider'); }
+function buildRealPopup(vp){ chipPinNode(vp,'realcomp','real ui.Panel','real'); }
+
+// ---- rail ----
+function renderRail(v){
+  const r=v.rail;
+  document.getElementById('rail').innerHTML=`
+    <h2>Variant ${v.key}</h2>
+    <p class="vname">${v.name}</p>
+    <p class="vsub">${r.lead}</p>
+    <dl>
+      <div><dt>Alpha channel</dt><dd>${r.alpha.join('<br>')}</dd></div>
+      <div><dt>Rendering surface</dt><dd>${r.surface.join('<br>')}</dd></div>
+      <div><dt>Value shape</dt><dd>${r.value.join('<br>')}</dd></div>
+      <div><dt>Invocation</dt><dd>${r.invoke.join('<br>')}</dd></div>
+    </dl>`;
+}
+
+// ---- switcher ----
+let idx=0;
+function show(i){
+  idx=(i+variants.length)%variants.length;
+  const v=variants[idx];
+  const vp=document.getElementById('vp');
+  vp.querySelectorAll('.node,.popup').forEach(n=>n.remove());
+  v.build(vp);
+  renderRail(v);
+  document.getElementById('curlabel').innerHTML=
+    `${v.key} — ${v.name}<small>${v.sub}</small>`;
+}
+document.getElementById('prev').onclick=()=>show(idx-1);
+document.getElementById('next').onclick=()=>show(idx+1);
+addEventListener('keydown',e=>{
+  const t=e.target.tagName;
+  if(t==='INPUT'||t==='TEXTAREA'||e.target.isContentEditable)return;
+  if(e.key==='ArrowLeft')show(idx-1);
+  if(e.key==='ArrowRight')show(idx+1);
+});
+show(0);
+</script>
