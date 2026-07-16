@@ -232,6 +232,69 @@ function TestRuntime:testEventSourceIsInjectedNotGlobal()
     luaunit.assertEquals(self.graph:GetLastValue(nodeId, "payload"), "ok")
 end
 
+--- Activity ticks (runtime.keyboardActivityTick / runtime.mouseActivityTick, #29) -----------
+
+function TestRuntime:testKeyboardActivityTickStartsAtZero()
+    luaunit.assertEquals(self.runtime.keyboardActivityTick, 0)
+end
+
+function TestRuntime:testKeyboardActivityTickIncrementsOnKeyDown()
+    self.source:Push("KeyDown", { gameKey = "F8", isRepeat = false })
+    luaunit.assertEquals(self.runtime.keyboardActivityTick, 1)
+
+    self.source:Push("KeyDown", { gameKey = "A", isRepeat = false })
+    luaunit.assertEquals(self.runtime.keyboardActivityTick, 2)
+end
+
+function TestRuntime:testKeyboardActivityTickSurvivesStop()
+    self.source:Push("KeyDown", { gameKey = "F8", isRepeat = false })
+    self.runtime:Stop()
+    -- Stop unsubscribes the dispatcher's own channels; the tick value itself must persist
+    -- (it's just a counter, not a live subscription).
+    luaunit.assertEquals(self.runtime.keyboardActivityTick, 1)
+end
+
+-- A fake `Mouse` global stand-in: `pos` is mutated by the test between Update() calls to
+-- simulate movement; `available` lets a test simulate Mouse.IsAvailable() == false (mobile).
+local function newFakeMouse(x, y)
+    local mouse = { available = true, pos = { x = x, y = y } }
+    function mouse.IsAvailable() return mouse.available end
+    function mouse.GetPosition() return mouse.pos end
+    return mouse
+end
+
+function TestRuntime:testMouseActivityTickStartsAtZero()
+    local runtime = Runtime.new(self.source.source, newFakeMouse(0, 0))
+    luaunit.assertEquals(runtime.mouseActivityTick, 0)
+end
+
+function TestRuntime:testMouseActivityTickIncrementsOnPositionChange()
+    local mouse = newFakeMouse(10, 10)
+    local runtime = Runtime.new(self.source.source, mouse)
+
+    runtime:Update(1) -- first poll just establishes the baseline position
+    luaunit.assertEquals(runtime.mouseActivityTick, 0)
+
+    mouse.pos = { x = 11, y = 10 }
+    runtime:Update(1)
+    luaunit.assertEquals(runtime.mouseActivityTick, 1)
+
+    runtime:Update(1) -- unchanged position: no further tick
+    luaunit.assertEquals(runtime.mouseActivityTick, 1)
+end
+
+function TestRuntime:testMouseActivityTickIgnoredWhenMouseUnavailable()
+    local mouse = newFakeMouse(0, 0)
+    mouse.available = false
+    local runtime = Runtime.new(self.source.source, mouse)
+
+    runtime:Update(1)
+    mouse.pos = { x = 99, y = 99 }
+    runtime:Update(1)
+
+    luaunit.assertEquals(runtime.mouseActivityTick, 0)
+end
+
 function TestRuntime:testStopUnsubscribesAllChannels()
     registerEchoTrigger(self.registry, "fixture.echo")
     self.runtime:BindTrigger("fixture.echo", { { event = "Custom" } })

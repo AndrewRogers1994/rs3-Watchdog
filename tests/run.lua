@@ -23,5 +23,6 @@ require("test_node")
 require("test_controls")
 require("test_unavailable")
 require("test_palette")
+require("test_effects")
 
 os.exit(luaunit.LuaUnit.run())

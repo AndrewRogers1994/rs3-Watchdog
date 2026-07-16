@@ -11,18 +11,84 @@
 --
 -- The event source is injectable (`Runtime.new(eventSource)`, defaults to the client `Event`
 -- global) so tests can feed synthetic events through a fake source instead.
+--
+-- Runtime also owns the EffectRegistry (`runtime.effects`, see effects.lua) and two activity
+-- tick counters (`runtime.keyboardActivityTick` / `runtime.mouseActivityTick`), consumed later
+-- by effect nodes like Screen Flash's dismiss-on (#29). Keyboard activity is tracked the same
+-- way as any trigger binding, through the injectable event source; mouse activity has no
+-- client event to bind (see Mouse docs — position is poll-only) so it's advanced from
+-- `Runtime:Update(dt)`, called once per Logic tick alongside the effect registry. Like the
+-- event source, the `Mouse` global is injectable (`Runtime.new(eventSource, mouseSource)`) so
+-- this is exercised under the standalone test harness too.
+
+local Effects = require("effects")
+local Util = require("util")
 
 local Runtime = {}
 
-function Runtime.new(eventSource)
+-- `mouseSource` is the injectable stand-in for the client `Mouse` global (defaults to it),
+-- mirroring `eventSource`'s seam: tests pass a fake exposing `IsAvailable()`/`GetPosition()`
+-- instead of relying on the real (test-environment-absent) client global.
+function Runtime.new(eventSource, mouseSource)
     Runtime.__index = Runtime
-    return setmetatable({
+    local self = setmetatable({
         eventSource = eventSource or Event,
+        mouseSource = mouseSource or Mouse,
         graph = nil,
         -- eventName -> { bindings = { { typeKey, transform, filter }, ... },
         --                subscribed, subscribeName, source }
         channels = {},
+        effects = Effects.new(),
+        keyboardActivityTick = 0,
+        mouseActivityTick = 0,
+        _lastMousePos = nil,
     }, Runtime)
+    self:_bindActivityTracking()
+    return self
+end
+
+-- Subscribes to KeyDown on the injectable event source to count keyboard activity (any key,
+-- including repeats — "activity" just means the player touched the keyboard). Kept separate
+-- from the BindTrigger/channels fan-out below since it isn't tied to a node typeKey; torn
+-- down explicitly in Stop.
+function Runtime:_bindActivityTracking()
+    local source = self.eventSource.KeyDown
+    if source == nil or source.Subscribe == nil then
+        return
+    end
+    local runtime = self
+    source.Subscribe("watchdog_runtime_activity_key", function()
+        runtime.keyboardActivityTick = runtime.keyboardActivityTick + 1
+    end)
+    self._activitySource = source
+end
+
+-- Advances the effect registry and polls mouse-activity by position change. Called once per
+-- Logic tick (see main.lua); `dt` is forwarded verbatim to every live effect handle's update.
+function Runtime:Update(dt)
+    self:_pollMouseActivity()
+    self.effects:Update(dt)
+end
+
+-- Mouse position is poll-only (no move/click event on the client — see core/mouse.lua docs),
+-- hence advancing this from Update rather than a binding. `mouseSource` defaults to nil (no
+-- client global set up) outside the client, so this is a no-op unless injected.
+function Runtime:_pollMouseActivity()
+    local mouse = self.mouseSource
+    if mouse == nil or not mouse.IsAvailable() then
+        return
+    end
+    local ok, pos = pcall(mouse.GetPosition)
+    if not ok or pos == nil then
+        return
+    end
+    local last = self._lastMousePos
+    -- The first poll only establishes a baseline — there's nothing to compare yet, so it
+    -- must not itself count as "activity" (a plugin load/reload isn't a mouse movement).
+    if last ~= nil and (pos.x ~= last.x or pos.y ~= last.y) then
+        self.mouseActivityTick = self.mouseActivityTick + 1
+    end
+    self._lastMousePos = { x = pos.x, y = pos.y }
 end
 
 -- The live graph the dispatcher fans out over. Set once main.lua knows which graph it's
@@ -55,15 +121,10 @@ function Runtime:BindTrigger(typeKey, entries)
     end
 end
 
--- pcalls `fn`, logging (and swallowing) any error under a shared "Watchdog runtime: <context>"
--- prefix. Used for both transform and filter, which fail the same way: don't let one bad
--- node-authored function break dispatch for every other binding.
+-- Used for both transform and filter, which fail the same way: don't let one bad
+-- node-authored function break dispatch for every other binding. See util.lua.
 local function callOrLog(context, fn, ...)
-    local ok, result = pcall(fn, ...)
-    if not ok and log ~= nil then
-        log("Watchdog runtime: " .. context .. " — " .. tostring(result))
-    end
-    return ok, result
+    return Util.CallOrLog("runtime", context, fn, ...)
 end
 
 function Runtime:_ensureSubscribed(eventName, channel)
@@ -134,8 +195,9 @@ function Runtime:_fireBinding(binding, payload)
     end
 end
 
--- Unsubscribes every channel this runtime subscribed. Mirrors the per-event Unsubscribe
--- calls main.lua used to make by hand for each hardcoded trigger.
+-- Unsubscribes every channel this runtime subscribed (trigger bindings + the activity
+-- tracker) and empties the effect registry. Mirrors the per-event Unsubscribe calls
+-- main.lua used to make by hand for each hardcoded trigger.
 function Runtime:Stop()
     for _, channel in pairs(self.channels) do
         if channel.subscribed then
@@ -144,6 +206,11 @@ function Runtime:Stop()
             channel.subscribed = false
         end
     end
+    if self._activitySource ~= nil then
+        pcall(function() self._activitySource.Unsubscribe("watchdog_runtime_activity_key") end)
+        self._activitySource = nil
+    end
+    self.effects:Clear()
 end
 
 return Runtime
