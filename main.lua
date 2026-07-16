@@ -12,6 +12,7 @@ end
 local Editor = require("ui/graph")
 local Store  = require("store")
 local Runtime = require("runtime")
+local OverlayStack = require("overlay")
 
 if LibPluginMenu ~= nil then
     LibPluginMenu.Unregister("watchdog")
@@ -60,6 +61,30 @@ end
 
 local runtime = Runtime.new()
 
+-- Overlay action (#36): one shared, draggable toast stack riding on runtime.effects, keyed
+-- off `runtime.overlay` the same way `runtime.effects` already is, so nodes/actions/overlay.lua
+-- only needs the (registry, runtime) it's already handed. Anchor position persists under its
+-- own persistentdb key, independent of the graph document store.lua owns.
+local OVERLAY_ANCHOR_KEY = "watchdog_overlay_anchor"
+runtime.overlay = OverlayStack.new(runtime.effects, {
+    Load = function()
+        if PersistentDB == nil or LibNodeGraph == nil or LibNodeGraph.Json == nil then return nil end
+        local text
+        pcall(function() text = PersistentDB:GetString(OVERLAY_ANCHOR_KEY) end)
+        if type(text) ~= "string" or text == "" then return nil end
+        local ok, pos = pcall(function() return LibNodeGraph.Json.Default.decode(text) end)
+        if ok then return pos end
+        return nil
+    end,
+    Save = function(pos)
+        if PersistentDB == nil or LibNodeGraph == nil or LibNodeGraph.Json == nil then return end
+        local ok, text = pcall(function() return LibNodeGraph.Json.Default.encode(pos) end)
+        if ok and text ~= nil then
+            pcall(function() PersistentDB:SetString(OVERLAY_ANCHOR_KEY, text) end)
+        end
+    end,
+})
+
 local registry = LibNodeGraph.NewRegistry()
 LibNodeGraphStd.Register(registry)
 require("nodes/triggers/chat").Register(registry, runtime)
@@ -69,6 +94,7 @@ require("nodes/actions/screen_flash").Register(registry, runtime)
 require("nodes/actions/popup").Register(registry, runtime)
 require("nodes/actions/infobox").Register(registry, runtime)
 require("nodes/actions/screen_marker").Register(registry, runtime)
+require("nodes/actions/overlay").Register(registry, runtime)
 
 --- Graph: restore the saved one, or seed a demo on first run -----------------------------
 -- Persistence backend lives in store.lua (multi-graph, keyed by name). We only ever show
@@ -204,7 +230,8 @@ end
 -- always-on overlay Canvas (see effects.lua); `infoboxMounted` tracks the InfoBox Area's (#41)
 -- own click-capture layer; `screenMarkerMounted` tracks the Screen Marker capture overlay's
 -- (#39) own click-capture layer — all four must keep working while the editor Window is
--- closed, so none can be gated on state.mounted.
+-- closed, so none can be gated on state.mounted. The Overlay toast stack (#36) rides on the
+-- effects Canvas, so it mounts/draws alongside `effectsMounted` rather than needing its own flag.
 local state = { mounted = false, effectsMounted = false, infoboxMounted = false, screenMarkerMounted = false }
 
 -- Debounced autosave, but only while the editor Window is open — that's the only time the
@@ -232,6 +259,7 @@ local function onLogic()
     -- Advances the effect registry (and polls mouse activity) every tick, independent of
     -- whether the editor Window has mounted yet.
     pcall(function() runtime:Update(LOGIC_TICK_SECONDS) end)
+    pcall(function() runtime.overlay:Update(LOGIC_TICK_SECONDS) end)
 
     -- The InfoBox Area's click-capture layer tracks the strip's own Bounds (grows/shrinks as
     -- tiles are added/removed) and its drag needs to follow the cursor every tick same as any
@@ -266,6 +294,7 @@ local function onLogic()
                 -- read back off the registry rather than the pcall's `ok` — mirrors the
                 -- editor:Mount retry-on-failure pattern just below.
                 state.effectsMounted = runtime.effects:IsMounted()
+                pcall(function() runtime.overlay:Mount(parent) end)
             end
             if not state.infoboxMounted then
                 pcall(function() runtime.infobox:Mount(parent) end)
@@ -313,6 +342,9 @@ local function onDraw()
     -- Draws even when the editor Window is closed — the overlay Canvas is always-on.
     if state.effectsMounted then
         pcall(function() runtime.effects:Draw() end)
+        -- The Overlay toast stack (#36) rides the same overlay Canvas as `effects`, drawn as its
+        -- own pass so one bad toast can't take the rest of the overlay down.
+        pcall(function() runtime.overlay:Draw(runtime.effects:GetCanvas()) end)
         -- The InfoBox Area (#41) shares the same overlay Canvas as `effects`, drawn as its own
         -- pass so a bad tile can't take the rest of the overlay down. Hover position reuses
         -- Update's own mouse poll rather than a second GetPosition call.
@@ -339,6 +371,7 @@ function api.Stop()
     pcall(function() Event.KeyDown.Unsubscribe(Events.KeyDown) end)
     pcall(function() runtime:Stop() end)
     pcall(function() runtime.effects:Unmount() end)
+    pcall(function() runtime.overlay:Unmount() end)
     pcall(function() runtime.infobox:Unmount() end)
     pcall(function() runtime.screenMarkerCapture:Unmount() end)
     pcall(function() editor:Unmount() end)

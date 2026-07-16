@@ -33,5 +33,6 @@ require("test_infobox")
 require("test_infobox_node")
 require("test_screen_marker_capture")
 require("test_screen_marker")
+require("test_overlay")
 
 os.exit(luaunit.LuaUnit.run())
