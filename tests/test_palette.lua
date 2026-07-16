@@ -3,6 +3,11 @@
 -- before requiring Palette so any module-load-time color/font building would also be safe.
 _G.Vector4 = { new = function(r, g, b, a) return { r, g, b, a } end }
 _G.id = { Font = setmetatable({}, { __index = function() return 1 end }) }
+-- Theme.TextWidth measures via config.Font[name]:GetStringWidth; stub a deterministic
+-- (if unrealistic) metric — 7px/byte — so panel-width tests can assert exact numbers.
+_G.config = { Font = setmetatable({}, { __index = function()
+    return { GetStringWidth = function(_, text) return #text * 7 end }
+end }) }
 
 local luaunit = require("luaunit")
 local Palette = require("ui/palette")
@@ -127,6 +132,30 @@ function TestPalette:testDrawShowsDimmedReasonOnUnavailableRowsOnly()
     luaunit.assertNotNil(byText[inventoryText],
         "expected an inline reason drawn for the unavailable Inventory row")
     luaunit.assertEquals(byText[inventoryText].color, Theme.Vec4(Theme.COL_PALETTE_TEXT_DIM))
+end
+
+function TestPalette:testDrawWidensPanelToFitLongestRowText()
+    self.registry.nodeTypes["live.trigger.long"] = {
+        key = "live.trigger.long", category = "trigger", displayName = string.rep("A", 45),
+    }
+    self.palette:Open(self.registry, nil, { screenX = 10, screenY = 10, anchorGX = 0, anchorGY = 0 })
+    self.palette:Draw(mockCanvas(), 0, 0, 800, 600, -1, -1)
+
+    -- The item-row text inset (14, see ui/palette.lua's ITEM_INSET) + 45 chars * the stub's
+    -- 7px/byte + Theme.PALETTE_PAD comfortably beats every other row, including the fixed
+    -- Theme.PALETTE_W this panel used to be capped at (which clipped long reason text).
+    luaunit.assertEquals(self.palette.rect.w, 14 + 45 * 7 + Theme.PALETTE_PAD)
+    luaunit.assertTrue(self.palette.rect.w > Theme.PALETTE_W)
+end
+
+function TestPalette:testDrawClampsPanelWidthToViewport()
+    self.registry.nodeTypes["live.trigger.long"] = {
+        key = "live.trigger.long", category = "trigger", displayName = string.rep("A", 45),
+    }
+    self.palette:Open(self.registry, nil, { screenX = 10, screenY = 10, anchorGX = 0, anchorGY = 0 })
+    self.palette:Draw(mockCanvas(), 0, 0, 100, 600, -1, -1)   -- viewport narrower than content
+
+    luaunit.assertEquals(self.palette.rect.w, 100)
 end
 
 return TestPalette
