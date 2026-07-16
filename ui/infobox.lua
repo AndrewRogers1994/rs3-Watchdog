@@ -307,8 +307,7 @@ end
 -- `color` data-in) so a box always draws with legible text.
 local function textVec4(color)
     if color == nil then
-        local c = Theme.COL_INFOBOX_TEXT
-        return Vector4.new(c[1], c[2], c[3], c[4])
+        return Theme.Vec4(Theme.COL_INFOBOX_TEXT)
     end
     local a = (color.a == nil) and 255 or color.a
     return Vector4.new((color.r or 0) / 255, (color.g or 0) / 255, (color.b or 0) / 255, a / 255)
@@ -324,9 +323,8 @@ function InfoBox:Draw(canvas, hoverX, hoverY)
         local box = r.box
         pcall(function() canvas:AddRectangle(r.x, r.y, r.w, r.h, Theme.Vec4(Theme.COL_INFOBOX_BG)) end)
         pcall(function()
-            local bc = Theme.COL_INFOBOX_BORDER
             local t = Theme.BORDER_THICKNESS
-            local bv = Vector4.new(bc[1], bc[2], bc[3], bc[4])
+            local bv = Theme.Vec4(Theme.COL_INFOBOX_BORDER)
             canvas:AddRectangle(r.x, r.y, r.w, t, bv)
             canvas:AddRectangle(r.x, r.y + r.h - t, r.w, t, bv)
             canvas:AddRectangle(r.x, r.y, t, r.h, bv)
