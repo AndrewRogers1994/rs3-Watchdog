@@ -739,6 +739,21 @@ function Editor:onScroll(...)
     self.view:ZoomAt(lx, ly, factor, Theme.ZOOM_MIN, Theme.ZOOM_MAX)
 end
 
+--- Control commit ------------------------------------------------------------------------
+
+-- The one path every Control edit in this file commits through: writes the value via
+-- Graph:SetControl, then runs the "control-commit" leg of the generalized `preload(node)`
+-- node-type hook (#33) — the other leg (graph-restore) runs from Runtime:AddAlert at startup.
+-- A resource-backed node (e.g. action.custom_sound) preloads the instant its dropdown Control
+-- is picked, not just next reload. Silent no-op if no runtime was wired in (e.g. a headless
+-- Editor in a future test) — PreloadNode itself already no-ops without a registry set.
+function Editor:setControl(nodeId, pinName, value)
+    pcall(function() self.graph:SetControl(nodeId, pinName, value) end)
+    if self.runtime ~= nil then
+        pcall(function() self.runtime:PreloadNode(self.graph, nodeId) end)
+    end
+end
+
 --- Composite Control actions ------------------------------------------------------------
 
 -- coordgrid's "set to current position" button (#25): overwrites the whole {x,z,level}
@@ -748,10 +763,8 @@ end
 function Editor:setCoordgridToCurrentPosition(nodeId, pinName)
     if not Player.IsAvailable() then return end
     local entity = Player.GetEntity()
-    pcall(function()
-        self.graph:SetControl(nodeId, pinName,
-            { x = entity.coordGrid.x, z = entity.coordGrid.z, level = entity.coordGrid.level })
-    end)
+    self:setControl(nodeId, pinName,
+        { x = entity.coordGrid.x, z = entity.coordGrid.z, level = entity.coordGrid.level })
 end
 
 --- Screen Marker capture (#39) -----------------------------------------------------------
@@ -760,14 +773,13 @@ end
 -- see ui/screen_marker_capture.lua) for this node's `rect` pin. The overlay owns its own
 -- click-capture layer and drag state machine (mounted/driven from main.lua, same as the
 -- InfoBox Area's own drag-as-unit capture) — the Editor's only job is arming it and handing
--- it a commit callback that writes the finished rect through the normal Graph:SetControl
--- path, same as every other Control edit. Silent no-op if no runtime was wired in (e.g. a
+-- it a commit callback that writes the finished rect through the normal setControl path,
+-- same as every other Control edit. Silent no-op if no runtime was wired in (e.g. a
 -- headless Editor in a future test).
 function Editor:armScreenMarkerCapture(nodeId, pinName)
     if self.runtime == nil or self.runtime.screenMarkerCapture == nil then return end
-    local graph = self.graph
     self.runtime.screenMarkerCapture:Arm(nodeId, pinName, function(rect)
-        pcall(function() graph:SetControl(nodeId, pinName, rect) end)
+        self:setControl(nodeId, pinName, rect)
     end)
 end
 
@@ -835,13 +847,13 @@ function Editor:handleColorPopupClick(lx, ly)
     -- part == "other" (padding/prev-cur chips) or nil (Draw hasn't run yet): stay open.
 end
 
--- Writes the popup's current working value back through the same Graph:SetControl path
--- every other Control uses — live, once per drag tick, mirroring the coordgrid axis fields'
--- and the plain scalar editor's live-write behavior.
+-- Writes the popup's current working value back through the same setControl path every
+-- other Control uses — live, once per drag tick, mirroring the coordgrid axis fields' and the
+-- plain scalar editor's live-write behavior.
 function Editor:commitColorPopupValue()
     local cp = self.colorPopup
     if not cp.open then return end
-    pcall(function() self.graph:SetControl(cp.nodeId, cp.pinName, cp:Value()) end)
+    self:setControl(cp.nodeId, cp.pinName, cp:Value())
 end
 
 -- Mounts a transient InputField over the popup's hex row (ADR-0004's mechanism, reused here
@@ -1063,7 +1075,7 @@ function Editor:commitField()
     if value == nil then
         value = Controls.Parse(e.spec, raw, self.graph:GetControl(e.nodeId, e.pinName))
     end
-    pcall(function() self.graph:SetControl(e.nodeId, e.pinName, value) end)
+    self:setControl(e.nodeId, e.pinName, value)
 end
 
 -- Commits a composite Control's single axis (#25) via Controls.CommitAxis's pure
@@ -1074,7 +1086,7 @@ function Editor:commitAxisField()
     local current = self.graph:GetControl(e.nodeId, e.pinName)
     local value, changed = Controls.CommitAxis(current, e.axis, raw, quantity)
     if changed then
-        pcall(function() self.graph:SetControl(e.nodeId, e.pinName, value) end)
+        self:setControl(e.nodeId, e.pinName, value)
     end
 end
 
@@ -1094,7 +1106,7 @@ function Editor:onControlSelect()
     if e == nil then return end
     local choice = self:selectedChoice(e)
     if choice ~= nil then
-        pcall(function() self.graph:SetControl(e.nodeId, e.pinName, choice.value) end)
+        self:setControl(e.nodeId, e.pinName, choice.value)
     end
     self:closeControlEditor()
 end

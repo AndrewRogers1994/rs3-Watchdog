@@ -467,4 +467,76 @@ function TestRuntime:testStopUnsubscribesAllChannels()
     luaunit.assertEquals(self.graph:GetLastValue(nodeId, "payload"), "first")
 end
 
+--- Preload node-type hook (#33: PreloadNode/PreloadGraph, graph-restore + control-commit) --
+
+local function registerPreloadFixture(registry, calls)
+    registry:RegisterNodeType("fixture.preload", {
+        category = "action",
+        pins = { { name = "in", kind = "exec", direction = "in" } },
+        preload = function(node)
+            calls[#calls + 1] = { id = node.id, resource = node.GetControl("resource") }
+        end,
+        run = function(_ctx) end,
+    })
+end
+
+function TestRuntime:testPreloadNodeCallsTheNodeTypesPreloadHook()
+    local calls = {}
+    registerPreloadFixture(self.registry, calls)
+    self.runtime:SetRegistry(self.registry)
+    local nodeId = self.graph:AddNode("fixture.preload", { resource = "beep" })
+
+    self.runtime:PreloadNode(self.graph, nodeId)
+
+    luaunit.assertEquals(#calls, 1)
+    luaunit.assertEquals(calls[1].id, nodeId)
+    luaunit.assertEquals(calls[1].resource, "beep")
+end
+
+function TestRuntime:testPreloadNodeIsANoopWithoutRegistrySet()
+    local calls = {}
+    registerPreloadFixture(self.registry, calls)
+    local nodeId = self.graph:AddNode("fixture.preload")
+
+    self.runtime:PreloadNode(self.graph, nodeId)
+
+    luaunit.assertEquals(#calls, 0)
+end
+
+function TestRuntime:testPreloadNodeIsANoopForATypeWithNoPreloadHook()
+    registerEchoTrigger(self.registry, "fixture.echo")
+    self.runtime:SetRegistry(self.registry)
+    local nodeId = self.graph:AddNode("fixture.echo")
+
+    local ok = pcall(function() self.runtime:PreloadNode(self.graph, nodeId) end)
+    luaunit.assertTrue(ok)
+end
+
+function TestRuntime:testPreloadGraphRunsEveryNodesPreloadHook()
+    local calls = {}
+    registerPreloadFixture(self.registry, calls)
+    self.runtime:SetRegistry(self.registry)
+    self.graph:AddNode("fixture.preload", { resource = "a" })
+    self.graph:AddNode("fixture.preload", { resource = "b" })
+
+    self.runtime:PreloadGraph(self.graph)
+
+    luaunit.assertEquals(#calls, 2)
+end
+
+function TestRuntime:testAddAlertPreloadsTheGraphOnce()
+    -- Simulates the graph-restore call site: main.lua adds every restored alert through
+    -- AddAlert, which must run the preload pass with no separate step.
+    local calls = {}
+    registerPreloadFixture(self.registry, calls)
+    self.runtime:SetRegistry(self.registry)
+    local graphB = Graph.new(self.registry)
+    graphB:AddNode("fixture.preload", { resource = "restored" })
+
+    self.runtime:AddAlert("restored-alert", graphB, true)
+
+    luaunit.assertEquals(#calls, 1)
+    luaunit.assertEquals(calls[1].resource, "restored")
+end
+
 return TestRuntime

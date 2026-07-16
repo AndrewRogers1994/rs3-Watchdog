@@ -32,9 +32,9 @@ Target: mirror the trigger/notification list from https://github.com/adamk33n3r/
 
 ### Actions
 - [x] Sound Effect — `action.sound`
-  - `audio.Play(builtinResourceID, params?)` with a builtin sound id. Done.
-- [ ] Custom Sound — play a custom sound file
-  - `audio.Play(resource, params?)` where `resource` = `Plugin.resources[filename]` (a `PluginResource`/`PluginAudioResource` for a file dropped in the plugin's `resources/` folder; may need `PluginResource:Load()` first). Same node shape as `action.sound` but resource-backed instead of a builtin id; requires bundling the audio file. `params` (`audio.SoundPlaybackParams`) covers volume/loops/bus.
+  - `audio.Play(builtinResourceID, params?)` with a builtin sound id, `bus` hardcoded `sfx` (#33 retrofit). Done.
+- [x] Custom Sound — `action.custom_sound` (#33)
+  - `audio.Play(resource, params?)` where `resource` = `Plugin.resources[name]`, picked via an interim dropdown Control (enumerated from `Plugin.resources` at Register time — a disk file-picker is API-blocked/out of scope). `volume` (1.0)/`loops` (0) pins, `bus` hardcoded `sfx`. Resources are never Unloaded, preload-on-reference via a new generalized `preload(node)` node-type hook (`runtime.lua`'s `PreloadNode`/`PreloadGraph`), called on graph-restore (`Runtime:AddAlert`) and control-commit (`ui/graph.lua`'s new `Editor:setControl`, the one path every Control edit now commits through) — plus an on-demand backstop in `run` itself. BUILD-VERIFY: `Plugin.resources` enumerable via `pairs`, `PluginResource:Load()`, `audio.SoundPlaybackParams` fields.
 - [ ] Text to Speech
   - VIA ELEVENLABS HTTP + BLOCKED ON FILE WRITE (as in the RuneLite version). No built-in synthesis; instead POST the text to the ElevenLabs API: `HTTPRequest.new(Plugin.urls[...], path)` → `:AddHeader("xi-api-key", ...)` / content-type → `:Post(body, onDone)`, needs the `httpAccess` permission + a manifest base URL. The returned MP3 arrives in `request.data`. Playback is the blocker: `audio.Play` only accepts a builtin id or a disk-backed `PluginAudioResource` (`Plugin.resources[file]`) — there's no in-memory bytes→audio path — so the response must be written to disk (also how the RuneLite version caches it) before it can be played. That needs file-write permission, which isn't available yet (reportedly being worked on). Unblocks once file write lands.
 - [ ] Game Message — chat message out (distinct from `action.log`, which is a debug logger, not a port of this)

@@ -137,13 +137,68 @@ end
 -- fire time, so toggling it back on is O(1) and lossless. `name` may be nil for an anonymous
 -- alert (it just can't be targeted by SetEnabled/Toggle then). A duplicate name replaces the
 -- prior entry's index binding (last wins), matching the Store's name-keyed model.
+--
+-- Also runs the generalized `preload(node)` node-type hook (#33) over every node already in the
+-- graph — this is the "graph-restore" call site: main.lua adds every restored alert exactly
+-- once at startup, through this same method, so no separate restore-time pass is needed.
 function Runtime:AddAlert(name, graph, enabled)
     local alert = { name = name, graph = graph, enabled = enabled ~= false }
     self.alerts[#self.alerts + 1] = alert
     if name ~= nil then
         self._alertsByName[name] = alert
     end
+    self:PreloadGraph(graph)
     return alert
+end
+
+-- Injects the node-type registry (#33) so PreloadNode/PreloadGraph can look up a node's
+-- descriptor by typeKey. Kept as its own seam (like SetPersistence) rather than a Runtime.new
+-- param, since main.lua constructs the registry after the runtime.
+function Runtime:SetRegistry(registry)
+    self._registry = registry
+end
+
+-- Runs every node's `preload(node)` node-type hook (if it has one) for one graph. A no-op
+-- until SetRegistry has been called (e.g. AddAlert during early startup, before the registry
+-- exists) or when `graph` is nil.
+function Runtime:PreloadGraph(graph)
+    if graph == nil or self._registry == nil then
+        return
+    end
+    for _, node in ipairs(graph:GetNodes()) do
+        self:PreloadNode(graph, node.id)
+    end
+end
+
+-- Runs one node's `preload(node)` node-type hook, if its registered type has one. This is the
+-- "control-commit" call site (#33): the Editor calls this right after Graph:SetControl so a
+-- resource-backed node (e.g. action.custom_sound) preloads the instant its dropdown Control is
+-- picked, not just at graph-restore. `node` (the hook's argument) exposes the same
+-- `{ id, typeKey, GetControl(pinName) }` shape as the dispatcher's own filter nodeHandle.
+function Runtime:PreloadNode(graph, nodeId)
+    if graph == nil or self._registry == nil then
+        return
+    end
+    local target
+    for _, node in ipairs(graph:GetNodes()) do
+        if node.id == nodeId then
+            target = node
+            break
+        end
+    end
+    if target == nil then
+        return
+    end
+    local nodeType = self._registry:GetNodeType(target.typeKey)
+    if nodeType == nil or nodeType.preload == nil then
+        return
+    end
+    local nodeHandle = {
+        id = nodeId,
+        typeKey = target.typeKey,
+        GetControl = function(pinName) return graph:GetControl(nodeId, pinName) end,
+    }
+    callOrLog("preload error on '" .. tostring(target.typeKey) .. "'", nodeType.preload, nodeHandle)
 end
 
 -- Back-compat convenience (and the single-graph test path): replace the whole alert set with one

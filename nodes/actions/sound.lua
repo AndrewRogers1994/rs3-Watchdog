@@ -14,12 +14,12 @@ function Sound.Register(registry)
               default = DEFAULT_SOUND_ID },
         },
         run = function(ctx)
-            -- audio.Play(builtinResourceID, params?) — one-shot with defaults (see audio
-            -- docs). Guard against a nil/non-number soundId (e.g. an unconnected wire that
+            -- audio.Play(builtinResourceID, params?) — one-shot, `bus` hardcoded "sfx" (#33
+            -- retrofit). Guard against a nil/non-number soundId (e.g. an unconnected wire that
             -- resolved to something odd) so a bad input can't error the whole graph run.
             local soundId = ctx:In("soundId")
             if type(soundId) == "number" then
-                audio.Play(soundId)
+                audio.Play(soundId, { bus = "sfx" })
             end
         end,
     })
