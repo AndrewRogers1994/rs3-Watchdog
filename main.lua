@@ -247,8 +247,8 @@ local function onLogic()
     end
 
     -- The Screen Marker capture overlay's (#39) click-capture layer needs no per-tick
-    -- Reposition the way InfoBox's does (its size only ever changes on Arm/Cancel), but its
-    -- drag does need to follow the cursor every tick same as any other polled interaction.
+    -- Reposition the way InfoBox's does — its size only ever changes on Arm/Cancel — but its
+    -- drag does need to follow the cursor every tick, same as any other polled interaction.
     if state.screenMarkerMounted and runtime.screenMarkerCapture:IsDragging() then
         local mx, my = runtime:GetMousePos()
         if mx ~= nil then
