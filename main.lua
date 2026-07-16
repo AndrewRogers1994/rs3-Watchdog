@@ -66,6 +66,7 @@ require("nodes/triggers/chat").Register(registry, runtime)
 require("nodes/actions/log").Register(registry)
 require("nodes/actions/sound").Register(registry)
 require("nodes/actions/popup").Register(registry, runtime)
+require("nodes/actions/infobox").Register(registry, runtime)
 
 --- Graph: restore the saved one, or seed a demo on first run -----------------------------
 -- Persistence backend lives in store.lua (multi-graph, keyed by name). We only ever show
@@ -163,6 +164,21 @@ runtime:SetPersistence({
     end,
 })
 
+-- Restore the InfoBox Area's (#41) persisted anchor, if any was ever saved, then wire its own
+-- EndDrag persistence hook the same seam shape as the alert enable/disable one above.
+do
+    local ax, ay = Store.GetInfoBoxAnchor(document)
+    if ax ~= nil and ay ~= nil then
+        runtime.infobox:SetAnchor(ax, ay)
+    end
+end
+runtime.infobox:SetPersistence({
+    SaveAnchor = function(x, y)
+        Store.SetInfoBoxAnchor(document, x, y)
+        Store.Save(document)
+    end,
+})
+
 --- Client root parent (interface may not be loaded yet; retried on the Logic loop) ------
 
 local function getRootParent()
@@ -183,9 +199,10 @@ end
 --- Event loops --------------------------------------------------------------------------
 
 -- `mounted` tracks the editor Window; `effectsMounted` tracks the EffectRegistry's own
--- always-on overlay Canvas (see effects.lua) — separate flags because the overlay must keep
--- drawing while the editor Window is closed, so its mount/draw can't be gated on state.mounted.
-local state = { mounted = false, effectsMounted = false }
+-- always-on overlay Canvas (see effects.lua); `infoboxMounted` tracks the InfoBox Area's (#41)
+-- own click-capture layer, same reasoning — all three must keep working while the editor
+-- Window is closed, so none can be gated on state.mounted.
+local state = { mounted = false, effectsMounted = false, infoboxMounted = false }
 
 -- Debounced autosave, but only while the editor Window is open — that's the only time the
 -- graph can be edited, so during normal play we stay off persistentdb entirely instead of
@@ -213,7 +230,20 @@ local function onLogic()
     -- whether the editor Window has mounted yet.
     pcall(function() runtime:Update(LOGIC_TICK_SECONDS) end)
 
-    if not state.effectsMounted or not state.mounted then
+    -- The InfoBox Area's click-capture layer tracks the strip's own Bounds (grows/shrinks as
+    -- tiles are added/removed) and its drag needs to follow the cursor every tick same as any
+    -- other polled interaction here — both independent of whether the capture just mounted.
+    if state.infoboxMounted then
+        pcall(function() runtime.infobox:Reposition() end)
+        if runtime.infobox:IsDragging() then
+            local mx, my = runtime:GetMousePos()
+            if mx ~= nil then
+                pcall(function() runtime.infobox:Drag(mx, my) end)
+            end
+        end
+    end
+
+    if not state.effectsMounted or not state.infoboxMounted or not state.mounted then
         local parent = getRootParent()
         if parent ~= nil then
             if not state.effectsMounted then
@@ -222,6 +252,10 @@ local function onLogic()
                 -- read back off the registry rather than the pcall's `ok` — mirrors the
                 -- editor:Mount retry-on-failure pattern just below.
                 state.effectsMounted = runtime.effects:IsMounted()
+            end
+            if not state.infoboxMounted then
+                pcall(function() runtime.infobox:Mount(parent) end)
+                state.infoboxMounted = runtime.infobox:IsMounted()
             end
             if not state.mounted then
                 local ok, err = pcall(function() editor:Mount(parent) end)
@@ -261,6 +295,13 @@ local function onDraw()
     -- Draws even when the editor Window is closed — the overlay Canvas is always-on.
     if state.effectsMounted then
         pcall(function() runtime.effects:Draw() end)
+        -- The InfoBox Area (#41) shares the same overlay Canvas as `effects`, drawn as its own
+        -- pass so a bad tile can't take the rest of the overlay down. Hover position reuses
+        -- Update's own mouse poll rather than a second GetPosition call.
+        pcall(function()
+            local hx, hy = runtime:GetMousePos()
+            runtime.infobox:Draw(runtime.effects.canvas, hx, hy)
+        end)
     end
 end
 
@@ -277,9 +318,11 @@ function api.Stop()
     pcall(function() Event.KeyDown.Unsubscribe(Events.KeyDown) end)
     pcall(function() runtime:Stop() end)
     pcall(function() runtime.effects:Unmount() end)
+    pcall(function() runtime.infobox:Unmount() end)
     pcall(function() editor:Unmount() end)
     state.mounted = false
     state.effectsMounted = false
+    state.infoboxMounted = false
 end
 
 api.editor = editor

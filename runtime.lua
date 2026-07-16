@@ -18,9 +18,10 @@
 -- The event source is injectable (`Runtime.new(eventSource)`, defaults to the client `Event`
 -- global) so tests can feed synthetic events through a fake source instead.
 --
--- Runtime also owns the EffectRegistry (`runtime.effects`, see effects.lua) and two activity
--- tick counters (`runtime.keyboardActivityTick` / `runtime.mouseActivityTick`), consumed later
--- by effect nodes like Screen Flash's dismiss-on (#29). Keyboard activity is tracked the same
+-- Runtime also owns the EffectRegistry (`runtime.effects`, see effects.lua), the shared InfoBox
+-- Area (`runtime.infobox`, see ui/infobox.lua, #41), and two activity tick counters
+-- (`runtime.keyboardActivityTick` / `runtime.mouseActivityTick`), consumed later by effect
+-- nodes like Screen Flash's dismiss-on (#29). Keyboard activity is tracked the same
 -- way as any trigger binding, through the injectable event source; mouse activity has no
 -- client event to bind (see Mouse docs — position is poll-only) so it's advanced from
 -- `Runtime:Update(dt)`, called once per Logic tick alongside the effect registry. Like the
@@ -28,6 +29,7 @@
 -- this is exercised under the standalone test harness too.
 
 local Effects = require("effects")
+local InfoBoxArea = require("ui/infobox")
 local Util = require("util")
 
 local Runtime = {}
@@ -57,6 +59,11 @@ function Runtime.new(eventSource, mouseSource)
         --                subscribed, subscribeName, source }
         channels = {},
         effects = Effects.new(),
+        -- The shared InfoBox Area (#41): a registry-level layout component living on the same
+        -- overlay Canvas as `effects`, but not a free EffectRegistry handle (it needs per-box
+        -- bounds effects deliberately disclaims — see ui/infobox.lua). Reached by action.infobox
+        -- the same way nodes reach `runtime.effects`.
+        infobox = InfoBoxArea.new(),
         keyboardActivityTick = 0,
         mouseActivityTick = 0,
         _lastMousePos = nil,
@@ -87,6 +94,16 @@ end
 function Runtime:Update(dt)
     self:_pollMouseActivity()
     self.effects:Update(dt)
+end
+
+-- The last polled mouse position (x, y), or nil, nil before the first Update tick / when no
+-- mouseSource is injected. Lets a Draw-pass caller (main.lua, for the InfoBox Area's hover
+-- tooltip) reuse the same poll _pollMouseActivity already does each Logic tick, instead of a
+-- second GetPosition call of its own.
+function Runtime:GetMousePos()
+    local pos = self._lastMousePos
+    if pos == nil then return nil, nil end
+    return pos.x, pos.y
 end
 
 -- Mouse position is poll-only (no move/click event on the client — see core/mouse.lua docs),
@@ -291,6 +308,7 @@ function Runtime:Stop()
         self._activitySource = nil
     end
     self.effects:Clear()
+    self.infobox:Clear()
 end
 
 return Runtime

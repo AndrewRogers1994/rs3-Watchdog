@@ -28,5 +28,7 @@ require("test_effects")
 require("test_popup")
 require("test_color")
 require("test_color_popup")
+require("test_infobox")
+require("test_infobox_node")
 
 os.exit(luaunit.LuaUnit.run())

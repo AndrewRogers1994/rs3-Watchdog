@@ -72,7 +72,27 @@ end
 --- Document construction ------------------------------------------------------------------
 
 function Store.Empty()
-    return { version = DOC_VERSION, current = nil, graphs = {} }
+    return { version = DOC_VERSION, current = nil, graphs = {}, infoboxAnchor = nil }
+end
+
+--- InfoBox Area anchor (#41) --------------------------------------------------------------
+-- The shared InfoBox strip's draggable anchor lives at the document's top level (it's not
+-- per-graph state, unlike an alert's `enabled` flag) — one strip position for the whole
+-- plugin, the same way runtime.lua's persistence hook already wires a per-alert flag through
+-- Store.SetEnabled. Not persisted through Store.UpsertCurrent's autosave loop; the InfoBox
+-- Area's own EndDrag calls this hook directly (main.lua wires it), same seam shape as
+-- Runtime:SetPersistence.
+
+function Store.SetInfoBoxAnchor(doc, x, y)
+    doc.infoboxAnchor = { x = x, y = y }
+end
+
+-- Returns x, y, or nil, nil if no anchor was ever saved (a fresh install; the caller keeps
+-- ui/infobox.lua's own default top-left anchor).
+function Store.GetInfoBoxAnchor(doc)
+    local a = doc.infoboxAnchor
+    if a == nil then return nil, nil end
+    return a.x, a.y
 end
 
 local function indexOf(doc, name)
