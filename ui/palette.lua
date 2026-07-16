@@ -162,12 +162,14 @@ function Palette:Draw(canvas, vx, vy, vw, vh, mx, my)
 
     -- Width fits the widest row (falls back to the fixed PALETTE_W when text metrics
     -- aren't available, e.g. a bare Lua runtime under test) so a long unavailable-row
-    -- reason never gets clipped by the panel edge.
+    -- reason never gets clipped by the panel edge. Right margin mirrors the row's own
+    -- left inset rather than the (smaller) panel-wide PALETTE_PAD, both for visual
+    -- symmetry and so the fit isn't razor-thin against font-metric rounding.
     local panelW = Theme.PALETTE_W
     for _, row in ipairs(self.rows) do
         local w = Theme.TextWidth(12, rowLabel(row))
         if w ~= nil then
-            local needed = rowInset(row) + w + pad
+            local needed = rowInset(row) * 2 + w
             if needed > panelW then panelW = needed end
         end
     end

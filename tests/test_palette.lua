@@ -141,10 +141,11 @@ function TestPalette:testDrawWidensPanelToFitLongestRowText()
     self.palette:Open(self.registry, nil, { screenX = 10, screenY = 10, anchorGX = 0, anchorGY = 0 })
     self.palette:Draw(mockCanvas(), 0, 0, 800, 600, -1, -1)
 
-    -- The item-row text inset (14, see ui/palette.lua's ITEM_INSET) + 45 chars * the stub's
-    -- 7px/byte + Theme.PALETTE_PAD comfortably beats every other row, including the fixed
-    -- Theme.PALETTE_W this panel used to be capped at (which clipped long reason text).
-    luaunit.assertEquals(self.palette.rect.w, 14 + 45 * 7 + Theme.PALETTE_PAD)
+    -- The item-row text inset (14, see ui/palette.lua's ITEM_INSET), mirrored on both
+    -- sides, + 45 chars * the stub's 7px/byte comfortably beats every other row,
+    -- including the fixed Theme.PALETTE_W this panel used to be capped at (which
+    -- clipped long reason text).
+    luaunit.assertEquals(self.palette.rect.w, 14 * 2 + 45 * 7)
     luaunit.assertTrue(self.palette.rect.w > Theme.PALETTE_W)
 end
 
