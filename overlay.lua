@@ -43,8 +43,6 @@ Overlay.OWNER = "overlay"
 Overlay.MAX_STACK = 10
 Overlay.DEFAULT_TTL = 5.0
 
-local DB_KEY = "watchdog_overlay_anchor"
-
 -- `effects` is the EffectRegistry (runtime.effects) this stack pushes its toast handles
 -- into. `persistence` is optional: `{ Load() -> {dx,dy}|nil, Save({dx,dy}) }`; omitted (or
 -- both nil, the bare-interpreter default) just means the anchor never survives a reload.
@@ -57,7 +55,7 @@ function Overlay.new(effects, persistence)
         byOwner = {},   -- nodeKey -> { handle, ... }, oldest first
         anchor = { dx = 0, dy = 0 },
         drag = nil,     -- { startMouse = {x,y}, startAnchor = {dx,dy} } while a drag is live
-        canvas = nil,   -- client-only, see Mount
+        capture = nil,  -- client-only NON-clickthrough drag-capture component, see Mount
     }, Overlay)
     self:_loadAnchor()
     return self
