@@ -295,6 +295,163 @@ function TestRuntime:testMouseActivityTickIgnoredWhenMouseUnavailable()
     luaunit.assertEquals(runtime.mouseActivityTick, 0)
 end
 
+--- Alert model: all-graphs-live fan-out + enable/disable (#27) ---------------------------
+
+-- A fake persistence hook standing in for the Store wiring: records every SetEnabled call and
+-- exposes the last-known flag per name so a test can assert the runtime persisted the change.
+local function newFakePersistence()
+    local fake = { calls = {}, state = {} }
+    fake.SetEnabled = function(name, enabled)
+        fake.calls[#fake.calls + 1] = { name = name, enabled = enabled }
+        fake.state[name] = enabled
+    end
+    return fake
+end
+
+function TestRuntime:testTriggerFiresInAllEnabledAlertsNotJustOne()
+    registerEchoTrigger(self.registry, "fixture.echo")
+    self.runtime:BindTrigger("fixture.echo", { { event = "Custom" } })
+
+    -- Two independent live graphs, each an enabled alert — mirrors two saved alert graphs.
+    local graphA = Graph.new(self.registry)
+    local graphB = Graph.new(self.registry)
+    self.runtime:SetGraph(nil) -- clear the setUp single-graph alert
+    self.runtime:AddAlert("A", graphA, true)
+    self.runtime:AddAlert("B", graphB, true)
+    local aId = graphA:AddNode("fixture.echo")
+    local bId = graphB:AddNode("fixture.echo")
+
+    self.source:Push("Custom", "ping")
+
+    -- The event fanned out to the matching node in *both* graphs, not only the first.
+    luaunit.assertEquals(graphA:GetLastValue(aId, "payload"), "ping")
+    luaunit.assertEquals(graphB:GetLastValue(bId, "payload"), "ping")
+end
+
+function TestRuntime:testDisabledAlertSuppressesFiringButStaysLive()
+    registerEchoTrigger(self.registry, "fixture.echo")
+    self.runtime:BindTrigger("fixture.echo", { { event = "Custom" } })
+
+    local graphA = Graph.new(self.registry)
+    self.runtime:SetGraph(nil)
+    self.runtime:AddAlert("A", graphA, false) -- starts disabled
+    local aId = graphA:AddNode("fixture.echo")
+
+    self.source:Push("Custom", "while-disabled")
+    luaunit.assertNil(graphA:GetLastValue(aId, "payload")) -- suppressed, didn't fire
+
+    -- Re-enabling is O(1) and the same live graph/node fires again (state was never torn down).
+    self.runtime:SetEnabled("A", true)
+    self.source:Push("Custom", "after-enable")
+    luaunit.assertEquals(graphA:GetLastValue(aId, "payload"), "after-enable")
+end
+
+function TestRuntime:testSetEnabledPersistsThroughHook()
+    local fake = newFakePersistence()
+    self.runtime:SetPersistence(fake)
+
+    local graphA = Graph.new(self.registry)
+    self.runtime:SetGraph(nil)
+    self.runtime:AddAlert("A", graphA, true)
+
+    luaunit.assertTrue(self.runtime:SetEnabled("A", false))
+    luaunit.assertEquals(fake.state["A"], false)
+    luaunit.assertEquals(#fake.calls, 1)
+    luaunit.assertEquals(fake.calls[1], { name = "A", enabled = false })
+end
+
+function TestRuntime:testToggleFlipsAndPersists()
+    local fake = newFakePersistence()
+    self.runtime:SetPersistence(fake)
+
+    local graphA = Graph.new(self.registry)
+    self.runtime:SetGraph(nil)
+    self.runtime:AddAlert("A", graphA, true)
+
+    luaunit.assertEquals(self.runtime:Toggle("A"), false) -- true -> false
+    luaunit.assertEquals(fake.state["A"], false)
+    luaunit.assertEquals(self.runtime:Toggle("A"), true)  -- false -> true
+    luaunit.assertEquals(fake.state["A"], true)
+end
+
+function TestRuntime:testToggleReturnsNilForUnknownAlert()
+    self.runtime:SetGraph(nil)
+    luaunit.assertNil(self.runtime:Toggle("ghost"))
+end
+
+function TestRuntime:testSetEnabledReturnsFalseForUnknownAlertButStillPersists()
+    -- A stale name (post-rename) has no live alert, but the persistence hook still runs so the
+    -- on-disk flag can be corrected. Firing is unaffected (nothing live matches).
+    local fake = newFakePersistence()
+    self.runtime:SetPersistence(fake)
+    self.runtime:SetGraph(nil)
+
+    luaunit.assertFalse(self.runtime:SetEnabled("ghost", false))
+    luaunit.assertEquals(fake.state["ghost"], false)
+end
+
+function TestRuntime:testTriggerFiresOnNodeAddedMidEdit()
+    -- The editor edits the current alert's *same live graph instance*; a node added to it after
+    -- registration must fire without re-registering the alert (the "fires mid-edit" criterion).
+    registerEchoTrigger(self.registry, "fixture.echo")
+    self.runtime:BindTrigger("fixture.echo", { { event = "Custom" } })
+
+    local graphA = Graph.new(self.registry)
+    self.runtime:SetGraph(nil)
+    self.runtime:AddAlert("A", graphA, true)
+
+    -- Node created *after* AddAlert, as an in-editor edit would.
+    local newId = graphA:AddNode("fixture.echo")
+    self.source:Push("Custom", "mid-edit")
+
+    luaunit.assertEquals(graphA:GetLastValue(newId, "payload"), "mid-edit")
+end
+
+-- A fake Store standing in for store.lua behind the persistence hook: SetEnabled mutates an
+-- in-memory doc and a save-count records that Save ran, so a test can assert the whole
+-- SetEnabled -> Store.SetEnabled -> Save path the AC calls out, not just the runtime's own state.
+local function newFakeStoreHook()
+    local doc = { graphs = { { name = "A", enabled = true } } }
+    local fake = { doc = doc, saves = 0 }
+    fake.SetEnabled = function(name, enabled)
+        for _, entry in ipairs(doc.graphs) do
+            if entry.name == name then entry.enabled = enabled end
+        end
+        fake.saves = fake.saves + 1 -- stands in for Store.Save flushing the doc
+    end
+    return fake
+end
+
+function TestRuntime:testSetEnabledPersistsThroughFakeStoreEndToEnd()
+    local store = newFakeStoreHook()
+    self.runtime:SetPersistence(store)
+    local graphA = Graph.new(self.registry)
+    self.runtime:SetGraph(nil)
+    self.runtime:AddAlert("A", graphA, true)
+
+    self.runtime:SetEnabled("A", false)
+
+    -- The flag reached the fake Store's document and the doc was flushed.
+    luaunit.assertEquals(store.doc.graphs[1].enabled, false)
+    luaunit.assertEquals(store.saves, 1)
+end
+
+function TestRuntime:testAlertMayToggleItself()
+    -- The Alert Toggle action (#35) can target its own graph by name; toggling flips this
+    -- alert's own enabled flag, silencing its subsequent triggers.
+    registerEchoTrigger(self.registry, "fixture.echo")
+    self.runtime:BindTrigger("fixture.echo", { { event = "Custom" } })
+
+    local graphA = Graph.new(self.registry)
+    self.runtime:SetGraph(nil)
+    self.runtime:AddAlert("A", graphA, true)
+    local aId = graphA:AddNode("fixture.echo")
+
+    self.runtime:Toggle("A") -- self-disable
+    self.source:Push("Custom", "should-not-fire")
+    luaunit.assertNil(graphA:GetLastValue(aId, "payload"))
+end
+
 function TestRuntime:testStopUnsubscribesAllChannels()
     registerEchoTrigger(self.registry, "fixture.echo")
     self.runtime:BindTrigger("fixture.echo", { { event = "Custom" } })

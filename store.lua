@@ -13,7 +13,12 @@
 -- `current` pointer, even though the editor only shows one today. Adding the "new graph /
 -- switch graph" UI later is purely additive — the backend already keys everything by name.
 --
---   { version, current = <name|nil>, graphs = { { name, graph, layout, view }, ... } }
+--   { version, current = <name|nil>, graphs = { { name, graph, layout, view, enabled }, ... } }
+--
+-- Each entry also carries a persistent `enabled` flag (#27): a saved graph *is* an "alert", and
+-- disabling one silences its triggers without deleting it. The flag defaults to true and is
+-- carried additively — old documents (written before it existed) load with a missing flag, which
+-- Restore/RestoreAll treat as enabled so a pre-#27 save keeps firing after upgrade.
 --
 -- `graph` is exactly what LibNodeGraph.Serialize produces (the same shareable structure a
 -- user would export), so there is no separate saved-vs-shared representation. Layout is
@@ -77,21 +82,36 @@ local function indexOf(doc, name)
     return nil
 end
 
-local function buildEntry(name, graph, layout, view)
+-- Normalizes any stored/passed enabled value to a strict boolean, treating nil (a pre-#27
+-- entry, or an omitted argument already resolved by the caller) as enabled.
+local function normalizeEnabled(enabled)
+    return enabled ~= false
+end
+
+local function buildEntry(name, graph, layout, view, enabled)
     return {
         name = name,
         graph = LibNodeGraph.Serialize(graph),
         layout = layoutToArray(layout),
         view = viewToTable(view),
+        enabled = normalizeEnabled(enabled),
     }
 end
 
 -- Inserts or replaces the named graph entry and marks it the current one. Mutates and
--- returns `doc`.
-function Store.UpsertCurrent(doc, name, graph, layout, view)
+-- returns `doc`. `enabled` is optional: when omitted (nil) an existing entry keeps its current
+-- flag — so the editor autosave loop, which re-upserts the current graph without knowing its
+-- enabled state, never silently re-arms an alert the user disabled — and a brand-new entry
+-- defaults to enabled.
+function Store.UpsertCurrent(doc, name, graph, layout, view, enabled)
     doc.graphs = doc.graphs or {}
-    local entry = buildEntry(name, graph, layout, view)
     local i = indexOf(doc, name)
+    if enabled == nil then
+        -- Preserve the existing flag (may be false — can't use `x and y or z` here), default
+        -- true for a new entry.
+        if i ~= nil then enabled = doc.graphs[i].enabled else enabled = true end
+    end
+    local entry = buildEntry(name, graph, layout, view, enabled)
     if i ~= nil then
         doc.graphs[i] = entry
     else
@@ -101,8 +121,18 @@ function Store.UpsertCurrent(doc, name, graph, layout, view)
     return doc
 end
 
+-- Flips a saved entry's enabled flag in place (the runtime's persistence hook for
+-- SetEnabled/Toggle). Returns true if the named entry existed, false otherwise (a stale name,
+-- e.g. after a rename — accepted per #27). Does not persist; the caller runs Store.Save.
+function Store.SetEnabled(doc, name, enabled)
+    local i = indexOf(doc, name)
+    if i == nil then return false end
+    doc.graphs[i].enabled = normalizeEnabled(enabled)
+    return true
+end
+
 -- Rebuilds a live Graph + Layout + View from the named entry (defaults to doc.current).
--- Returns graph, layout, view, name — or nil if there's no such entry to restore.
+-- Returns graph, layout, view, name, enabled — or nil if there's no such entry to restore.
 function Store.Restore(doc, registry, name)
     name = name or doc.current
     if name == nil then return nil end
@@ -110,7 +140,31 @@ function Store.Restore(doc, registry, name)
     if i == nil then return nil end
     local entry = doc.graphs[i]
     local graph = LibNodeGraph.Deserialize(entry.graph, registry)
-    return graph, layoutFromArray(entry.layout), entry.view, entry.name
+    return graph, layoutFromArray(entry.layout), entry.view, entry.name, normalizeEnabled(entry.enabled)
+end
+
+-- Rebuilds *every* saved graph into a live instance (#27: all saved graphs instantiate live at
+-- startup, not just the current one, so triggers in every enabled alert fire). Returns an array
+-- of { name, graph, layout, view, enabled } in stored order. An entry that fails to deserialize
+-- (a node type no longer registered, a corrupt structure) is logged and skipped rather than
+-- aborting the whole set, so one bad alert can't take the others down.
+function Store.RestoreAll(doc, registry)
+    local restored = {}
+    for _, entry in ipairs((doc or {}).graphs or {}) do
+        local ok, graph = pcall(function() return LibNodeGraph.Deserialize(entry.graph, registry) end)
+        if ok and graph ~= nil then
+            restored[#restored + 1] = {
+                name = entry.name,
+                graph = graph,
+                layout = layoutFromArray(entry.layout),
+                view = entry.view,
+                enabled = normalizeEnabled(entry.enabled),
+            }
+        elseif log ~= nil then
+            log("Watchdog: skipping unrestorable graph '" .. tostring(entry.name) .. "' — " .. tostring(graph))
+        end
+    end
+    return restored
 end
 
 function Store.ListNames(doc)

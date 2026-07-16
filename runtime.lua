@@ -9,6 +9,12 @@
 -- gates it (always passes if omitted), and a pass calls `graph:Fire(nodeId, payload)` so the
 -- node's own `run(ctx)` only shapes outputs and fires exec.
 --
+-- Every saved graph is a live "alert" (#27): the dispatcher fans out over *all* enabled alerts
+-- (`Runtime:AddAlert`), not just the one the editor is viewing, so triggers fire in every alert
+-- and while the editor is open mid-edit. A per-alert `enabled` flag is checked at fire time —
+-- `Runtime:SetEnabled`/`Toggle` flip it in O(1) without tearing down the graph, and persist it
+-- through the injected persistence hook (`Runtime:SetPersistence`, wired to the Store).
+--
 -- The event source is injectable (`Runtime.new(eventSource)`, defaults to the client `Event`
 -- global) so tests can feed synthetic events through a fake source instead.
 --
@@ -26,6 +32,13 @@ local Util = require("util")
 
 local Runtime = {}
 
+-- Wraps a node-authored (or persistence-hook) callback so one bad function can't break dispatch
+-- for every other binding — used by the transform/filter fan-out and the enable-persistence hook.
+-- See util.lua. Declared up here so every method below (SetEnabled included) can see it.
+local function callOrLog(context, fn, ...)
+    return Util.CallOrLog("runtime", context, fn, ...)
+end
+
 -- `mouseSource` is the injectable stand-in for the client `Mouse` global (defaults to it),
 -- mirroring `eventSource`'s seam: tests pass a fake exposing `IsAvailable()`/`GetPosition()`
 -- instead of relying on the real (test-environment-absent) client global.
@@ -34,7 +47,12 @@ function Runtime.new(eventSource, mouseSource)
     local self = setmetatable({
         eventSource = eventSource or Event,
         mouseSource = mouseSource or Mouse,
-        graph = nil,
+        -- Every saved graph instantiates live as an "alert" (#27); the dispatcher fans out over
+        -- *all* of them, not just the one the editor is viewing. `alerts` is the ordered list of
+        -- { name, graph, enabled }; `_alertsByName` indexes it for O(1) SetEnabled/Toggle.
+        alerts = {},
+        _alertsByName = {},
+        _persistence = nil,
         -- eventName -> { bindings = { { typeKey, transform, filter }, ... },
         --                subscribed, subscribeName, source }
         channels = {},
@@ -91,10 +109,65 @@ function Runtime:_pollMouseActivity()
     self._lastMousePos = { x = pos.x, y = pos.y }
 end
 
--- The live graph the dispatcher fans out over. Set once main.lua knows which graph it's
--- editing (restored from the Store, or freshly seeded).
+-- Registers a live graph as an alert the dispatcher fans out over. `enabled` defaults to true;
+-- a disabled alert stays live (its nodes are never torn down) but has its triggers suppressed at
+-- fire time, so toggling it back on is O(1) and lossless. `name` may be nil for an anonymous
+-- alert (it just can't be targeted by SetEnabled/Toggle then). A duplicate name replaces the
+-- prior entry's index binding (last wins), matching the Store's name-keyed model.
+function Runtime:AddAlert(name, graph, enabled)
+    local alert = { name = name, graph = graph, enabled = enabled ~= false }
+    self.alerts[#self.alerts + 1] = alert
+    if name ~= nil then
+        self._alertsByName[name] = alert
+    end
+    return alert
+end
+
+-- Back-compat convenience (and the single-graph test path): replace the whole alert set with one
+-- anonymous, always-enabled alert. main.lua uses AddAlert for the real multi-alert startup.
 function Runtime:SetGraph(graph)
-    self.graph = graph
+    self.alerts = {}
+    self._alertsByName = {}
+    if graph ~= nil then
+        self:AddAlert(nil, graph, true)
+    end
+end
+
+-- Injects the persistence hook the alert-enable API writes through: an object exposing
+-- `SetEnabled(name, enabled)` (main.lua wires it to Store.SetEnabled + Store.Save; tests pass a
+-- fake that records calls). Kept as a seam so the runtime's dispatch logic never touches the
+-- client PersistentDB directly.
+function Runtime:SetPersistence(persistence)
+    self._persistence = persistence
+end
+
+-- Enables or disables the named alert and persists the flag. Targets by free-text name (any
+-- graph may toggle any alert, including itself; a stale name after a rename is an accepted no-op
+-- on the in-memory side, #27). Returns true if a live alert of that name existed. Persistence is
+-- attempted regardless, so the on-disk flag can be corrected even if no live alert matches.
+function Runtime:SetEnabled(name, enabled)
+    enabled = enabled and true or false
+    local alert = self._alertsByName[name]
+    if alert ~= nil then
+        alert.enabled = enabled
+    end
+    if self._persistence ~= nil and self._persistence.SetEnabled ~= nil then
+        callOrLog("persistence SetEnabled for '" .. tostring(name) .. "'",
+            self._persistence.SetEnabled, name, enabled)
+    end
+    return alert ~= nil
+end
+
+-- Flips the named alert's enabled flag (and persists it). Returns the new enabled state, or nil
+-- if no live alert of that name exists (nothing to flip).
+function Runtime:Toggle(name)
+    local alert = self._alertsByName[name]
+    if alert == nil then
+        return nil
+    end
+    local newEnabled = not alert.enabled
+    self:SetEnabled(name, newEnabled)
+    return newEnabled
 end
 
 -- Registers a trigger node type's event binding(s). `entries` is a list of
@@ -119,12 +192,6 @@ function Runtime:BindTrigger(typeKey, entries)
         }
         self:_ensureSubscribed(entry.event, channel)
     end
-end
-
--- Used for both transform and filter, which fail the same way: don't let one bad
--- node-authored function break dispatch for every other binding. See util.lua.
-local function callOrLog(context, fn, ...)
-    return Util.CallOrLog("runtime", context, fn, ...)
 end
 
 function Runtime:_ensureSubscribed(eventName, channel)
@@ -168,8 +235,20 @@ function Runtime:_dispatch(eventName, raw)
     end
 end
 
+-- Fans a shaped payload out to every matching node in every *enabled* alert's graph. The
+-- enabled check is done here, at fire time (not by tearing down a disabled alert), so toggling
+-- an alert is O(1) and never loses graph state — a disabled alert stays live but silent. The
+-- editor's current graph is just one alert among these, so its triggers fire mid-edit like any
+-- other's.
 function Runtime:_fireBinding(binding, payload)
-    local graph = self.graph
+    for _, alert in ipairs(self.alerts) do
+        if alert.enabled then
+            self:_fireBindingInGraph(binding, payload, alert.graph)
+        end
+    end
+end
+
+function Runtime:_fireBindingInGraph(binding, payload, graph)
     if graph == nil then
         return
     end
