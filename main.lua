@@ -41,6 +41,11 @@ local Events = {
 -- GameKey.F8, GameKey.P, GameKey.SPACE, ...). Change this one string to rebind.
 local TOGGLE_KEY = "F8"
 
+-- Approximate seconds per Event.Logic tick (~0.02s, see CLAUDE.md). Logic doesn't hand back
+-- a measured dt, so runtime.effects' handles (TTL/animation) advance against this fixed
+-- per-tick delta, the same tick-counting convention SAVE_INTERVAL_TICKS below already uses.
+local LOGIC_TICK_SECONDS = 0.02
+
 if Plugin.HasPermission(PluginPermissions.httpAccess) then
     log("Watchdog: plugin has HTTP access")
 else
@@ -144,7 +149,10 @@ end
 
 --- Event loops --------------------------------------------------------------------------
 
-local state = { mounted = false }
+-- `mounted` tracks the editor Window; `effectsMounted` tracks the EffectRegistry's own
+-- always-on overlay Canvas (see effects.lua) — separate flags because the overlay must keep
+-- drawing while the editor Window is closed, so its mount/draw can't be gated on state.mounted.
+local state = { mounted = false, effectsMounted = false }
 
 -- Debounced autosave, but only while the editor Window is open — that's the only time the
 -- graph can be edited, so during normal play we stay off persistentdb entirely instead of
@@ -168,16 +176,29 @@ local function persistNow()
 end
 
 local function onLogic()
-    if not state.mounted then
+    -- Advances the effect registry (and polls mouse activity) every tick, independent of
+    -- whether the editor Window has mounted yet.
+    pcall(function() runtime:Update(LOGIC_TICK_SECONDS) end)
+
+    if not state.effectsMounted or not state.mounted then
         local parent = getRootParent()
         if parent ~= nil then
-            local ok, err = pcall(function() editor:Mount(parent) end)
-            if ok then
-                state.mounted = true
-            elseif log ~= nil then
-                log("Watchdog: mount failed — " .. tostring(err))
+            if not state.effectsMounted then
+                pcall(function() runtime.effects:Mount(parent) end)
+                state.effectsMounted = true
+            end
+            if not state.mounted then
+                local ok, err = pcall(function() editor:Mount(parent) end)
+                if ok then
+                    state.mounted = true
+                elseif log ~= nil then
+                    log("Watchdog: mount failed — " .. tostring(err))
+                end
             end
         end
+    end
+
+    if not state.mounted then
         return
     end
     pcall(function() editor:update() end)
@@ -201,6 +222,10 @@ local function onDraw()
     if state.mounted then
         pcall(function() editor:draw() end)
     end
+    -- Draws even when the editor Window is closed — the overlay Canvas is always-on.
+    if state.effectsMounted then
+        pcall(function() runtime.effects:Draw() end)
+    end
 end
 
 --- Public API + lifecycle ---------------------------------------------------------------
@@ -215,8 +240,10 @@ function api.Stop()
     pcall(function() Event.Draw.Unsubscribe(Events.Draw) end)
     pcall(function() Event.KeyDown.Unsubscribe(Events.KeyDown) end)
     pcall(function() runtime:Stop() end)
+    pcall(function() runtime.effects:Unmount() end)
     pcall(function() editor:Unmount() end)
     state.mounted = false
+    state.effectsMounted = false
 end
 
 api.editor = editor

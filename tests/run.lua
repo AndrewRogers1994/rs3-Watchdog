@@ -21,5 +21,6 @@ require("test_runtime")
 require("test_chat")
 require("test_node")
 require("test_controls")
+require("test_effects")
 
 os.exit(luaunit.LuaUnit.run())

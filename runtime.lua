@@ -11,18 +11,74 @@
 --
 -- The event source is injectable (`Runtime.new(eventSource)`, defaults to the client `Event`
 -- global) so tests can feed synthetic events through a fake source instead.
+--
+-- Runtime also owns the EffectRegistry (`runtime.effects`, see effects.lua) and two activity
+-- tick counters (`runtime.keyboardActivityTick` / `runtime.mouseActivityTick`), consumed later
+-- by effect nodes like Screen Flash's dismiss-on (#29). Keyboard activity is tracked the same
+-- way as any trigger binding, through the injectable event source; mouse activity has no
+-- client event to bind (see Mouse docs — position is poll-only) so it's advanced from
+-- `Runtime:Update(dt)`, called once per Logic tick alongside the effect registry.
+
+local Effects = require("effects")
 
 local Runtime = {}
 
 function Runtime.new(eventSource)
     Runtime.__index = Runtime
-    return setmetatable({
+    local self = setmetatable({
         eventSource = eventSource or Event,
         graph = nil,
         -- eventName -> { bindings = { { typeKey, transform, filter }, ... },
         --                subscribed, subscribeName, source }
         channels = {},
+        effects = Effects.new(),
+        keyboardActivityTick = 0,
+        mouseActivityTick = 0,
+        _lastMousePos = nil,
     }, Runtime)
+    self:_bindActivityTracking()
+    return self
+end
+
+-- Subscribes to KeyDown on the injectable event source to count keyboard activity (any key,
+-- including repeats — "activity" just means the player touched the keyboard). Kept separate
+-- from the BindTrigger/channels fan-out below since it isn't tied to a node typeKey; torn
+-- down explicitly in Stop.
+function Runtime:_bindActivityTracking()
+    local source = self.eventSource.KeyDown
+    if source == nil or source.Subscribe == nil then
+        return
+    end
+    local runtime = self
+    source.Subscribe("watchdog_runtime_activity_key", function()
+        runtime.keyboardActivityTick = runtime.keyboardActivityTick + 1
+    end)
+    self._activitySource = source
+end
+
+-- Advances the effect registry and polls mouse-activity by position change. Called once per
+-- Logic tick (see main.lua); `dt` is forwarded verbatim to every live effect handle's update.
+function Runtime:Update(dt)
+    self:_pollMouseActivity()
+    self.effects:Update(dt)
+end
+
+-- Mouse position is poll-only (no move/click event on the client — see core/mouse.lua docs),
+-- and the client `Mouse` global doesn't exist under the standalone test harness, so this is a
+-- silent no-op there (mirrors the pcall-guarded client-global pattern used elsewhere).
+function Runtime:_pollMouseActivity()
+    if Mouse == nil or not Mouse.IsAvailable() then
+        return
+    end
+    local ok, pos = pcall(Mouse.GetPosition)
+    if not ok or pos == nil then
+        return
+    end
+    local last = self._lastMousePos
+    if last == nil or pos.x ~= last.x or pos.y ~= last.y then
+        self.mouseActivityTick = self.mouseActivityTick + 1
+    end
+    self._lastMousePos = { x = pos.x, y = pos.y }
 end
 
 -- The live graph the dispatcher fans out over. Set once main.lua knows which graph it's
@@ -134,8 +190,9 @@ function Runtime:_fireBinding(binding, payload)
     end
 end
 
--- Unsubscribes every channel this runtime subscribed. Mirrors the per-event Unsubscribe
--- calls main.lua used to make by hand for each hardcoded trigger.
+-- Unsubscribes every channel this runtime subscribed (trigger bindings + the activity
+-- tracker) and empties the effect registry. Mirrors the per-event Unsubscribe calls
+-- main.lua used to make by hand for each hardcoded trigger.
 function Runtime:Stop()
     for _, channel in pairs(self.channels) do
         if channel.subscribed then
@@ -144,6 +201,11 @@ function Runtime:Stop()
             channel.subscribed = false
         end
     end
+    if self._activitySource ~= nil then
+        pcall(function() self._activitySource.Unsubscribe("watchdog_runtime_activity_key") end)
+        self._activitySource = nil
+    end
+    self.effects:Clear()
 end
 
 return Runtime

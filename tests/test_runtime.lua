@@ -232,6 +232,28 @@ function TestRuntime:testEventSourceIsInjectedNotGlobal()
     luaunit.assertEquals(self.graph:GetLastValue(nodeId, "payload"), "ok")
 end
 
+--- Activity ticks (runtime.keyboardActivityTick / runtime.mouseActivityTick, #29) -----------
+
+function TestRuntime:testKeyboardActivityTickStartsAtZero()
+    luaunit.assertEquals(self.runtime.keyboardActivityTick, 0)
+end
+
+function TestRuntime:testKeyboardActivityTickIncrementsOnKeyDown()
+    self.source:Push("KeyDown", { gameKey = "F8", isRepeat = false })
+    luaunit.assertEquals(self.runtime.keyboardActivityTick, 1)
+
+    self.source:Push("KeyDown", { gameKey = "A", isRepeat = false })
+    luaunit.assertEquals(self.runtime.keyboardActivityTick, 2)
+end
+
+function TestRuntime:testKeyboardActivityTickSurvivesStop()
+    self.source:Push("KeyDown", { gameKey = "F8", isRepeat = false })
+    self.runtime:Stop()
+    -- Stop unsubscribes the dispatcher's own channels; the tick value itself must persist
+    -- (it's just a counter, not a live subscription).
+    luaunit.assertEquals(self.runtime.keyboardActivityTick, 1)
+end
+
 function TestRuntime:testStopUnsubscribesAllChannels()
     registerEchoTrigger(self.registry, "fixture.echo")
     self.runtime:BindTrigger("fixture.echo", { { event = "Custom" } })
