@@ -1326,6 +1326,18 @@ function Editor:expandCapture()
     end)
 end
 
+-- Re-asserts the editor's front-most z-order after another always-on overlay (the InfoBox
+-- Area's drag capture) temporarily jumped its capture in front of ours mid-drag. Fronts the
+-- Capture Layer first, then the GroupBox on top of it — the same relative order Mount
+-- establishes (GroupBox + toolbar Buttons out-rank Capture, Capture out-ranks everything
+-- else). No-op while hidden: a closed editor's capture is disabled and shouldn't out-rank the
+-- InfoBox. Called from main.lua the tick an InfoBox drag ends.
+function Editor:RaiseToFront()
+    if not self.visible then return end
+    pcall(function() if self.capture ~= nil then self.capture:MoveToFront() end end)
+    pcall(function() if self.groupBox ~= nil then self.groupBox:MoveToFront() end end)
+end
+
 -- Clamps the Window fully on screen so the header can never be dragged out of reach.
 function Editor:clampWindow()
     local sw, sh = self:screenSize()

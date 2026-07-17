@@ -14,7 +14,7 @@ local Store  = require("store")
 local Runtime = require("runtime")
 local OverlayStack = require("overlay")
 
-if LibPluginMenu ~= nil then
+local function RegisterToPluginMenu()
     LibPluginMenu.Unregister("watchdog")
     LibPluginMenu.Register({
         id = "watchdog",
@@ -25,6 +25,23 @@ if LibPluginMenu ~= nil then
             pcall(function() Watchdog.editor:Toggle() end)
         end
     })
+end
+Event.OptionalDependencyChanged.Subscribe('opdepchanged', function(dep)
+    log('op dep changed:', dep.pluginIdentifier, dep.enabled, LibPluginMenu, dep.pluginIdentifier == 'LibPluginMenu')
+    if LibPluginMenu ~= nil then
+        RegisterToPluginMenu()
+    end
+end)
+
+-- log("LibPluginMenu is available: " .. tostring(LibPluginMenu ~= nil))
+
+-- ExecuteConsoleCommand("pon LibPluginMenu")
+
+-- log("LibPluginMenu is available: " .. tostring(LibPluginMenu ~= nil))
+
+log(LibPluginMenu)
+if LibPluginMenu ~= nil then
+    RegisterToPluginMenu()
 end
 
 -- Names used to Subscribe/Unsubscribe each editor-lifecycle event we hook directly (mount
@@ -238,7 +255,7 @@ end
 -- (#39) own click-capture layer — all four must keep working while the editor Window is
 -- closed, so none can be gated on state.mounted. The Overlay toast stack (#36) rides on the
 -- effects Canvas, so it mounts/draws alongside `effectsMounted` rather than needing its own flag.
-local state = { mounted = false, effectsMounted = false, infoboxMounted = false, screenMarkerMounted = false }
+local state = { mounted = false, effectsMounted = false, infoboxMounted = false, screenMarkerMounted = false, infoboxWasDragging = false }
 
 -- Debounced autosave, but only while the editor Window is open — that's the only time the
 -- graph can be edited, so during normal play we stay off persistentdb entirely instead of
@@ -272,12 +289,20 @@ local function onLogic()
     -- other polled interaction here — both independent of whether the capture just mounted.
     if state.infoboxMounted then
         pcall(function() runtime.infobox:Reposition() end)
-        if runtime.infobox:IsDragging() then
+        local dragging = runtime.infobox:IsDragging()
+        if dragging then
             local mx, my = runtime:GetMousePos()
             if mx ~= nil then
                 pcall(function() runtime.infobox:Drag(mx, my) end)
             end
+        elseif state.infoboxWasDragging then
+            -- The drag fronted the InfoBox capture over the editor's own Capture Layer so a
+            -- fast cursor crossing into the editor couldn't steal the hover and drop the grab.
+            -- Now that it's ended, restore the editor to the top so the idle strip-sized
+            -- capture can't intercept clicks meant for the editor where they overlap.
+            pcall(function() editor:RaiseToFront() end)
         end
+        state.infoboxWasDragging = dragging
     end
 
     -- The Screen Marker capture overlay's (#39) click-capture layer needs no per-tick
