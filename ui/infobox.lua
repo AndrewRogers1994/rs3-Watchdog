@@ -258,9 +258,18 @@ function InfoBox:Mount(rootParent)
         c.clickthrough = false
         c:Subscribe(ui.Hook.ONCLICK, function()
             local mx, my = mousePos()
-            if mx ~= nil then area:BeginDrag(mx, my) end
+            if mx ~= nil and area:BeginDrag(mx, my) then
+                -- Grow the capture to full-screen for the duration of the drag so a fast
+                -- cursor can never outrun the strip-sized hit area and trigger ONRELEASE on
+                -- cursor-leave (which ends the drag prematurely). Reposition() leaves it alone
+                -- while IsDragging(); EndDrag's Reposition shrinks it back to Bounds.
+                area:_expandCapture()
+            end
         end)
-        c:Subscribe(ui.Hook.ONRELEASE, function() area:EndDrag() end)
+        c:Subscribe(ui.Hook.ONRELEASE, function()
+            area:EndDrag()
+            area:Reposition()
+        end)
         return c
     end)
     if ok then
@@ -273,6 +282,22 @@ end
 
 function InfoBox:IsMounted()
     return self._capture ~= nil
+end
+
+-- Grows the capture layer to cover the whole screen for the duration of a drag, so the
+-- release always routes back to us regardless of how far/fast the cursor moved (same idiom as
+-- ui/graph.lua's expandCapture). The 4-arg SetSize is 0 absolute + 1.0 relative = full screen.
+-- Also fronts it above every sibling (notably the editor's own Capture Layer, mounted after
+-- ours) so crossing into the editor's area during a drag can't steal the hover and drop the
+-- grab. main.lua restores the editor's z-order on drag end (Editor:RaiseToFront), so this
+-- front-ing is scoped to the drag — the idle strip-sized capture never out-ranks the editor.
+function InfoBox:_expandCapture()
+    if self._capture == nil then return end
+    pcall(function()
+        self._capture:SetPos(0, 0)
+        self._capture:SetSize(0, 0, 1.0, 1.0)
+        self._capture:MoveToFront()
+    end)
 end
 
 function InfoBox:Unmount()
@@ -288,6 +313,12 @@ end
 -- the game or editor with nothing to actually drag.
 function InfoBox:Reposition()
     if self._capture == nil then
+        return
+    end
+    -- While a drag is live the capture is deliberately grown to full-screen (see
+    -- _expandCapture); the per-tick reposition must not shrink it back mid-drag or a fast
+    -- cursor would leave the hit area and drop the grab.
+    if self:IsDragging() then
         return
     end
     local b = self:Bounds()
