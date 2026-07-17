@@ -96,4 +96,11 @@ function Color.DrawChecker(canvas, x, y, w, h, cell, colA, colB)
     end
 end
 
+function Color.ToRGBA(r, g, b, a)
+    local function to255(x)
+        return math.floor(x * 255 + 0.5)
+    end
+    return (to255(r) << 24) | (to255(g) << 16) | (to255(b) << 8) | to255(a)
+end
+
 return Color

@@ -4,6 +4,9 @@
 > tickets design against.
 
 - consolidate the comparison nodes into one with a dropdown selector for the operation. it's clutter to have 6 different nodes to just change the operation between two numbers.
+- By default, exec pins should only allow one connection but can be configured to allow more than 1
+- Right now you can create multiple duplicate connections. If you try to create a connection that already exists, treat that as the user wanting to remove that existing connection.
+- checkbox control for booleans
 
 ## Node port backlog (mirroring runelite-watchdog)
 
