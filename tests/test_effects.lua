@@ -176,6 +176,34 @@ function TestEffects:testClearEmptiesStackAndQueueWithoutFiringOnDone()
     luaunit.assertEquals(bCalls.updates, 0)
 end
 
+--- BeginFrame(): wipes the retained Canvas once per frame (distinct from Clear) ----------
+
+function TestEffects:testBeginFrameClearsTheCanvas()
+    local cleared = 0
+    local fakeCanvas = { Clear = function() cleared = cleared + 1 end }
+
+    self.registry:BeginFrame(fakeCanvas)
+
+    luaunit.assertEquals(cleared, 1)
+end
+
+function TestEffects:testBeginFrameLeavesHandlesUntouched()
+    -- Clearing the Canvas pixels must not disturb the live handle set (that's Clear's job).
+    local a, aCalls = makeHandle(10)
+    self.registry:PushStack("owner", a)
+
+    self.registry:BeginFrame({ Clear = function() end })
+
+    luaunit.assertEquals(self.registry:StackCount("owner"), 1)
+    self.registry:Update(1)
+    luaunit.assertEquals(aCalls.updates, 1) -- still live and advancing
+end
+
+function TestEffects:testBeginFrameIsANoOpWithNoCanvas()
+    -- Unmounted (canvas nil) and no override passed — must not error.
+    self.registry:BeginFrame()
+end
+
 --- Draw: not asserted against real rendering, just that it's invoked on live handles -----
 
 function TestEffects:testDrawInvokesLiveStackAndActiveQueueHandlesOnly()

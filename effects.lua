@@ -123,6 +123,25 @@ function EffectRegistry:PushQueue(owner, handle)
     end
 end
 
+--- Per-frame reset ------------------------------------------------------------------------
+
+-- Wipes the overlay Canvas's retained drawables — call once at the very top of a frame,
+-- before any Draw pass. ui.Canvas is retained-mode: drawables added by AddRectangle/AddSprite/
+-- AddText/AddOutline persist until Clear(), so without this each frame composites on top of
+-- every prior frame's output (ghost trails, dismissed effects staying visible — see #46).
+-- Because the four onDraw passes share this one Canvas, the wipe must happen once here rather
+-- than inside any pass (which would erase the siblings already drawn this frame).
+--
+-- Distinct from Clear(): BeginFrame touches only the Canvas pixels; Clear empties the handle
+-- Stacks/Queues. `canvas` defaults to the mounted overlay Canvas (tests pass a fake one).
+function EffectRegistry:BeginFrame(canvas)
+    canvas = canvas or self.canvas
+    if canvas == nil then
+        return
+    end
+    callOrLog("clear error", function() canvas:Clear() end)
+end
+
 --- Removal / lifecycle --------------------------------------------------------------------
 
 function EffectRegistry:_finish(handle)

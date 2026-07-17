@@ -347,6 +347,9 @@ local function onDraw()
     end
     -- Draws even when the editor Window is closed — the overlay Canvas is always-on.
     if state.effectsMounted then
+        -- Wipe the retained overlay Canvas once, before the four passes below (they share it).
+        -- See EffectRegistry:BeginFrame and #46.
+        pcall(function() runtime.effects:BeginFrame() end)
         pcall(function() runtime.effects:Draw() end)
         -- The Overlay toast stack (#36) rides the same overlay Canvas as `effects`, drawn as its
         -- own pass so one bad toast can't take the rest of the overlay down.
