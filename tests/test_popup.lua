@@ -13,6 +13,10 @@ local luaunit = require("luaunit")
 local Popup = require("nodes/actions/popup")
 local EffectRegistry = require("effects")
 
+-- Popup.Draw early-returns unless Vector4 exists (its primitive-frame path uses it); stub it
+-- so the draw path is actually exercised. AddSprite's own colour arg is a Uint, not a Vector4.
+_G.Vector4 = _G.Vector4 or { new = function(r, g, b, a) return { r, g, b, a } end }
+
 TestPopup = {}
 
 --- Animation: in -> hold -> out, auto-expiring -------------------------------------------
@@ -72,13 +76,16 @@ end
 
 -- A fake overlay Canvas recording draw calls, covering every method Popup.Draw may touch.
 local function makeFakeCanvas()
-    local calls = { rects = 0, outlines = 0, texts = 0, sprites = 0 }
+    local calls = { rects = 0, outlines = 0, texts = 0, sprites = 0, spriteColours = {} }
     return {
         width = 1920,
         AddRectangle = function(_self) calls.rects = calls.rects + 1 end,
         AddOutline   = function(_self) calls.outlines = calls.outlines + 1 end,
         AddText      = function(_self) calls.texts = calls.texts + 1 end,
-        AddSprite    = function(_self) calls.sprites = calls.sprites + 1 end,
+        AddSprite    = function(_self, _x, _y, _w, _h, _sprite, colour)
+            calls.sprites = calls.sprites + 1
+            calls.spriteColours[#calls.spriteColours + 1] = colour
+        end,
     }, calls
 end
 
@@ -93,6 +100,29 @@ function TestPopup:testDrawIsInvokedThroughRegistryWithoutPropagatingErrors()
     local canvas = makeFakeCanvas()
     local ok = pcall(function() effects:Draw(canvas) end)
     luaunit.assertTrue(ok)
+end
+
+function TestPopup:testAddSpriteColoursAreUintNotVector4()
+    -- Regression (#47): ui.Canvas:AddSprite's colour arg is a Uint RGBA — there is no Vector4
+    -- overload — so a Vector4 there renders nothing. Drive both sprite paths (the 3-part frame
+    -- ribbon and the left icon) and assert every colour handed to AddSprite is a number.
+    _G.id = _G.id or {}
+    Popup.RegisterTheme("sprite_regression", {
+        kind = "sprites", label = "Sprite Regression", edgeW = 24,
+        sprites = { left = 1, mid = 2, right = 3 },
+    })
+    local canvas, calls = makeFakeCanvas()
+    Popup.Draw(canvas, {
+        theme = Popup.ThemeFor("sprite_regression"),
+        icon = 4,
+        title = "T", body = "b",
+        anim = { alpha = 1 },
+    })
+    -- 3 frame pieces + 1 icon; none skipped.
+    luaunit.assertEquals(calls.sprites, 4)
+    for _, colour in ipairs(calls.spriteColours) do
+        luaunit.assertEquals(type(colour), "number")
+    end
 end
 
 --- Theme registry: Parchment default + Leagues + extension seam --------------------------

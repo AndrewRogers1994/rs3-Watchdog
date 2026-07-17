@@ -191,10 +191,13 @@ function Popup.Draw(canvas, opts)
     local y = TOP_MARGIN
 
     -- Frame: primitive rectangles, or the assembled 3-part sprite ribbon.
+    -- AddSprite's colour arg is a Uint RGBA (there is no Vector4 overload — see
+    -- docs/research/popup-frame-sprites.md), so tint via Color.ToRGBA, not Vector4.
+    local Color = require("ui/color")
+    local white = Color.ToRGBA(1, 1, 1, alpha) -- untinted white at the frame's current alpha
     if theme.kind == "sprites" and canvas.AddSprite ~= nil and id ~= nil then
         local s = theme.sprites
         local edge = theme.edgeW or 24
-        local white = Vector4.new(1, 1, 1, alpha)
         canvas:AddSprite(x, y, edge, BANNER_H, s.left, white)
         canvas:AddSprite(x + edge, y, BANNER_W - edge * 2, BANNER_H, s.mid, white)
         canvas:AddSprite(x + BANNER_W - edge, y, edge, BANNER_H, s.right, white)
@@ -211,7 +214,7 @@ function Popup.Draw(canvas, opts)
         local iconSize = 40
         pcall(function()
             canvas:AddSprite(x + 12, y + (BANNER_H - iconSize) * 0.5, iconSize, iconSize,
-                opts.icon, Vector4.new(1, 1, 1, alpha))
+                opts.icon, white)
         end)
         textX = x + 12 + iconSize + 12
     end

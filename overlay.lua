@@ -263,8 +263,10 @@ function Overlay:_drawHandle(canvas, handle)
     local textX = x + Theme.OVERLAY_ACCENT_W + Theme.OVERLAY_PAD_X
     if state.icon ~= nil then
         local iconY = y + (h - Theme.OVERLAY_ICON_SIZE) * 0.5
+        -- AddSprite's colour arg is a Uint RGBA, not a Vector4 (see
+        -- docs/research/popup-frame-sprites.md); untinted white, like InfoBox.
         canvas:AddSprite(textX, iconY, Theme.OVERLAY_ICON_SIZE, Theme.OVERLAY_ICON_SIZE, state.icon,
-            Vector4.new(1, 1, 1, 1))
+            0xFFFFFFFF)
         textX = textX + Theme.OVERLAY_ICON_SIZE + Theme.OVERLAY_PAD_X
     end
 
