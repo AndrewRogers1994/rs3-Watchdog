@@ -49,6 +49,24 @@ const hooks = {
   sandbox: { onSandboxReady: [{ command: 'npm install' }] },
 };
 
+// Watchdog isn't self-contained: its tests (tests/run.lua) and typecheck (.luarc.json)
+// reference sibling repos by relative path (../LibNodeGraph, ../runescape-api-stubs), and the
+// shared conventions live in the root CLAUDE.md one dir up. Sandcastle only mounts THIS repo's
+// worktree, so those are absent — which is why `npm run test`/`typecheck` couldn't run and
+// broken changes merged (e.g. #41 shipping without its theme constants). Bind-mount the real
+// host repos as read-only siblings so the relative paths resolve to the live code and the
+// conventions load. Read-only on purpose: an engine change is out of scope for a plugin
+// sandbox — the agent should flag it as a separate LibNodeGraph issue, not edit across repos.
+// (hostPath is resolved from cwd = this repo's root; sandboxPath '~' = /home/agent.)
+const dockerSandbox = docker({
+  mounts: [
+    { hostPath: '../LibNodeGraph', sandboxPath: '~/LibNodeGraph', readonly: true },
+    { hostPath: '../LibNodeGraphStd', sandboxPath: '~/LibNodeGraphStd', readonly: true },
+    { hostPath: '../runescape-api-stubs', sandboxPath: '~/runescape-api-stubs', readonly: true },
+    { hostPath: '../CLAUDE.md', sandboxPath: '~/CLAUDE.md', readonly: true },
+  ],
+});
+
 // Copy node_modules from the host into the worktree before each sandbox
 // starts. Avoids a full npm install from scratch; the hook above handles
 // platform-specific binaries and any packages added since the last copy.
@@ -74,7 +92,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // -------------------------------------------------------------------------
   const plan = await sandcastle.run({
     hooks,
-    sandbox: docker(),
+    sandbox: dockerSandbox,
     name: 'planner',
     // One iteration is enough: the planner just needs to read and reason,
     // not write code. (Structured output requires maxIterations: 1.)
@@ -117,7 +135,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     issues.map(async (issue) => {
       const sandbox = await sandcastle.createSandbox({
         branch: issue.branch,
-        sandbox: docker(),
+        sandbox: dockerSandbox,
         hooks,
         copyToWorktree,
       });
@@ -211,7 +229,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // -------------------------------------------------------------------------
   await sandcastle.run({
     hooks,
-    sandbox: docker(),
+    sandbox: dockerSandbox,
     name: 'merger',
     maxIterations: 1,
     agent: sandcastle.claudeCode('claude-opus-4-8'),

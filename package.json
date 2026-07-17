@@ -1,6 +1,8 @@
 {
   "scripts": {
-    "sandcastle": "npx tsx .sandcastle/main.mts"
+    "sandcastle": "npx tsx .sandcastle/main.mts",
+    "test": "lua tests/run.lua",
+    "typecheck": "lua-language-server --check . --checklevel=Warning"
   },
   "devDependencies": {
     "@ai-hero/sandcastle": "^0.12.0",

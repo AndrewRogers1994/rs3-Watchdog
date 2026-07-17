@@ -8,6 +8,13 @@ Only work on the issue specified.
 
 Work on branch {{BRANCH}}. Make commits and run tests.
 
+Your target plugin is **Watchdog** (this repo). The sibling folders (`../LibNodeGraph`,
+`../LibNodeGraphStd`, `../runescape-api-stubs`) are its dependencies, mounted **read-only** so
+tests and typecheck resolve and you can read the engine API. Do not attempt to edit them — if
+the task genuinely requires an engine/dependency change, that's out of scope for this sandbox:
+stop, and leave a comment on the issue describing the needed engine change so it can be filed
+as a separate LibNodeGraph issue. See the root `CLAUDE.md` for the repo layout and conventions.
+
 # CONTEXT
 
 Here are the last 10 commits:
