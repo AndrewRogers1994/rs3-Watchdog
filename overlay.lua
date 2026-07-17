@@ -56,6 +56,7 @@ function Overlay.new(effects, persistence)
         anchor = { dx = 0, dy = 0 },
         drag = nil,     -- { startMouse = {x,y}, startAnchor = {dx,dy} } while a drag is live
         capture = nil,  -- client-only NON-clickthrough drag-capture component, see Mount
+        rootParent = nil, -- client root component, kept for screen width (see _screenWidth)
     }, Overlay)
     self:_loadAnchor()
     return self
@@ -211,22 +212,23 @@ end
 
 --- Canvas drawing (client-only; untested under the standalone Lua test harness) -----------
 
--- The default top-center anchor point in absolute screen space, before the user's own drag
--- offset. `canvas` is only used to read the client's own viewport size where available;
--- falls back to a fixed guess so this never errors outside the client.
-local function screenWidth(canvas)
-    if ui ~= nil and ui.Interfaces ~= nil and ui.Interfaces.GetScreenSize ~= nil then
-        local ok, size = pcall(function() return ui.Interfaces:GetScreenSize() end)
-        if ok and size ~= nil and size.x ~= nil then
-            return size.x
-        end
+-- Full-screen width, read from the client's root component (the same source, and fallback,
+-- as the Editor's own screenSize() in ui/graph.lua — the Canvas can't be measured for this).
+-- Falls back to a fixed guess so this never errors outside the client.
+function Overlay:_screenWidth()
+    local w = 1920
+    if self.rootParent ~= nil then
+        pcall(function()
+            if self.rootParent.width and self.rootParent.width > 0 then w = self.rootParent.width end
+        end)
     end
-    return 1280
+    return w
 end
 
-function Overlay:_anchorPoint(canvas)
+-- The default top-center anchor point in absolute screen space, before the user's own drag offset.
+function Overlay:_anchorPoint()
     return {
-        x = screenWidth(canvas) * 0.5 + self.anchor.dx,
+        x = self:_screenWidth() * 0.5 + self.anchor.dx,
         y = Theme.OVERLAY_TOP_MARGIN + self.anchor.dy,
     }
 end
@@ -243,7 +245,7 @@ function Overlay:_drawHandle(canvas, handle)
         return
     end
 
-    local anchor = self:_anchorPoint(canvas)
+    local anchor = self:_anchorPoint()
     local x = anchor.x - Theme.OVERLAY_W * 0.5
     local y = anchor.y + (index - 1) * (Theme.OVERLAY_H + Theme.OVERLAY_GAP)
     local w, h = Theme.OVERLAY_W, Theme.OVERLAY_H
@@ -294,11 +296,12 @@ end
 -- press-then-poll gesture: ONCLICK begins the drag, Mouse.GetPosition() is polled each Logic
 -- tick while pressed (see Update below), ONRELEASE ends and persists it.
 function Overlay:Mount(rootParent)
+    self.rootParent = rootParent  -- kept for _screenWidth() (anchor centering)
     if self.capture ~= nil then
         return
     end
     local ok, capture = pcall(function()
-        local c = ui.Component.new(rootParent)
+        local c = ui.Panel.new(rootParent)
         c.clickthrough = false
         local self_ = self
         c:Subscribe(ui.Hook.ONCLICK, function()

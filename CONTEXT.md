@@ -152,3 +152,20 @@ clamped inside the Viewport, and dismissed by an outside click / Esc / re-click 
 but unlike the Palette its SV/hue/channel rows are themselves draggable, not single-shot
 picks. Deliberately transient editor state, not part of any Node's `geom.controls`.
 _Avoid_: Color picker dialog, swatch popup, panel (in prose — that's the Palette's own word)
+
+**Test Button**:
+A small ▶ button drawn between an exec-in Pin's glyph and its label (`geom.testButtons`, one
+per exec-in Pin, gated on `CONTROL_MIN_ZOOM` like a Control Box). Clicking it fires that exec
+input directly through the engine (`Graph:FireInput`), running the Node's `run` as if a wire
+had fired into that Pin — a live fire whose real side effects happen, for testing a Node in
+isolation without wiring a Trigger.
+_Avoid_: Run button, play button, trigger button
+
+## Testing node types
+
+Node behavior (a node type's `run`) is verified against a **real** `LibNodeGraph` Graph —
+`AddNode`, set Controls, drive with `Graph:FireInput(id, execPin)` / `Graph:Fire(id)`, assert
+on the observable effect — **never** a hand-built `ctx` table, which is blind to divergence
+from the real engine's run context. See `tests/test_screen_marker.lua` /
+`tests/test_infobox_node.lua`, and [LibNodeGraph's CONTEXT.md](../LibNodeGraph/CONTEXT.md#the-runctx-contract-and-how-its-enforced)
+for the full rationale and the two other guards (the runtime field guard + LuaLS typing).

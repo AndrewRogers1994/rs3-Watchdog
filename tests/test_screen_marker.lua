@@ -10,6 +10,10 @@ _G.Vector4 = _G.Vector4 or { new = function(r, g, b, a) return { r, g, b, a } en
 local luaunit = require("luaunit")
 local ScreenMarker = require("nodes/actions/screen_marker")
 local EffectRegistry = require("effects")
+-- Real engine (LibNodeGraph, on package.path — see tests/run.lua), so run() is exercised
+-- through a genuine ctx rather than a fabricated one.
+local Registry = require("registry")
+local Graph = require("graph")
 
 local function makeFakeRegistry()
     return {
@@ -47,81 +51,72 @@ function TestScreenMarkerRegistration:testRegistersActionScreenMarkerWithShowAnd
     luaunit.assertEquals(byName.color.dataType, "color")
 end
 
---- run(): a fake ctx whose `state` persists across calls for the same node (mirroring the
---- engine's per-node ctx.state, like action.screen_flash's own Stack-keyed-by-state idiom). --
-
-local function makeCtxFactory()
-    local states = {}
-    return function(nodeId, values, pin)
-        states[nodeId] = states[nodeId] or {}
-        return {
-            nodeId = nodeId,
-            pin = pin,
-            state = states[nodeId],
-            In = function(_self, name) return values[name] end,
-        }
-    end
-end
+--- run(): fired through a REAL LibNodeGraph, so ctx is the engine's genuine run context rather
+--- than a hand-built stand-in. A fabricated ctx can only ever agree with the code's own
+--- assumptions — that is exactly how the original ctx.pin/ctx.exec divergence slipped through.
+--- (See CONTEXT.md: node behavior is verified against a real Graph.) ------------------------
 
 TestScreenMarkerRun = {}
 
 function TestScreenMarkerRun:setUp()
-    self.reg = makeFakeRegistry()
+    self.registry = Registry.new()
     self.effects = EffectRegistry.new()
-    ScreenMarker.Register(self.reg, { effects = self.effects })
-    self.desc = self.reg.types["action.screen_marker"]
-    self.ctx = makeCtxFactory()
+    ScreenMarker.Register(self.registry, { effects = self.effects })
+    self.graph = Graph.new(self.registry)
 end
 
+-- The node keys its effect stack by its own ctx.state table, which StackCount also takes.
+-- Reaching graph.nodes[id].state is white-box, but it is the node's real per-instance state.
+local function stateOf(graph, id) return graph.nodes[id].state end
+
 function TestScreenMarkerRun:testShowWithARectPushesOneEffect()
-    local ctx = self.ctx("n1", { rect = { x = 1, y = 2, w = 3, h = 4 } }, "show")
-    self.desc.run(ctx)
-    luaunit.assertEquals(self.effects:StackCount(ctx.state), 1)
+    local id = self.graph:AddNode("action.screen_marker", { rect = { x = 1, y = 2, w = 3, h = 4 } })
+    self.graph:FireInput(id, "show")
+    luaunit.assertEquals(self.effects:StackCount(stateOf(self.graph, id)), 1)
 end
 
 function TestScreenMarkerRun:testShowWithNilRectNeverFires()
-    local ctx = self.ctx("n1", {}, "show")
-    self.desc.run(ctx)
-    luaunit.assertEquals(self.effects:StackCount(ctx.state), 0)
+    local id = self.graph:AddNode("action.screen_marker")
+    self.graph:FireInput(id, "show")
+    luaunit.assertEquals(self.effects:StackCount(stateOf(self.graph, id)), 0)
 end
 
 function TestScreenMarkerRun:testDismissRemovesTheEffect()
-    local rect = { x = 1, y = 2, w = 3, h = 4 }
-    self.desc.run(self.ctx("n1", { rect = rect }, "show"))
-    local ctx = self.ctx("n1", {}, "dismiss")
-    self.desc.run(ctx)
-    luaunit.assertEquals(self.effects:StackCount(ctx.state), 0)
+    local id = self.graph:AddNode("action.screen_marker", { rect = { x = 1, y = 2, w = 3, h = 4 } })
+    self.graph:FireInput(id, "show")
+    self.graph:FireInput(id, "dismiss")
+    luaunit.assertEquals(self.effects:StackCount(stateOf(self.graph, id)), 0)
 end
 
 function TestScreenMarkerRun:testDismissOnUnshownNodeIsANoop()
-    local ok = pcall(function() self.desc.run(self.ctx("ghost", {}, "dismiss")) end)
+    local id = self.graph:AddNode("action.screen_marker")
+    local ok = pcall(function() self.graph:FireInput(id, "dismiss") end)
     luaunit.assertTrue(ok)
 end
 
 function TestScreenMarkerRun:testReShowReplacesRatherThanStacking()
-    local rect = { x = 1, y = 2, w = 3, h = 4 }
-    local ctx1 = self.ctx("n1", { rect = rect }, "show")
-    self.desc.run(ctx1)
-    local ctx2 = self.ctx("n1", { rect = rect }, "show")
-    self.desc.run(ctx2)
-    luaunit.assertEquals(self.effects:StackCount(ctx2.state), 1)
+    local id = self.graph:AddNode("action.screen_marker", { rect = { x = 1, y = 2, w = 3, h = 4 } })
+    self.graph:FireInput(id, "show")
+    self.graph:FireInput(id, "show")
+    luaunit.assertEquals(self.effects:StackCount(stateOf(self.graph, id)), 1)
 end
 
 function TestScreenMarkerRun:testDifferentNodesStackIndependently()
     local rect = { x = 1, y = 2, w = 3, h = 4 }
-    local ctxA = self.ctx("a", { rect = rect }, "show")
-    local ctxB = self.ctx("b", { rect = rect }, "show")
-    self.desc.run(ctxA)
-    self.desc.run(ctxB)
-    luaunit.assertEquals(self.effects:StackCount(ctxA.state), 1)
-    luaunit.assertEquals(self.effects:StackCount(ctxB.state), 1)
+    local a = self.graph:AddNode("action.screen_marker", { rect = rect })
+    local b = self.graph:AddNode("action.screen_marker", { rect = rect })
+    self.graph:FireInput(a, "show")
+    self.graph:FireInput(b, "show")
+    luaunit.assertEquals(self.effects:StackCount(stateOf(self.graph, a)), 1)
+    luaunit.assertEquals(self.effects:StackCount(stateOf(self.graph, b)), 1)
 end
 
-function TestScreenMarkerRun:testMissingPinFallsBackToShowBehavior()
-    -- No `.pin` (a ctx shaped like a single-exec-in node) still treats a rect'd firing as Show.
-    local ctx = self.ctx("n1", { rect = { x = 0, y = 0, w = 5, h = 5 } })
-    self.desc.run(ctx)
-    luaunit.assertEquals(self.effects:StackCount(ctx.state), 1)
+function TestScreenMarkerRun:testExternalFireWithNoExecPinFallsBackToShowBehavior()
+    -- Entered with no exec pin (ctx.exec nil, as an external Graph:Fire does) still treats a
+    -- rect'd firing as Show rather than Dismiss.
+    local id = self.graph:AddNode("action.screen_marker", { rect = { x = 0, y = 0, w = 5, h = 5 } })
+    self.graph:Fire(id)
+    luaunit.assertEquals(self.effects:StackCount(stateOf(self.graph, id)), 1)
 end
 
 --- BuildHandle: a persistent effect handle that never auto-expires -------------------------

@@ -268,6 +268,7 @@ end
 
 --- Node registration ---------------------------------------------------------------------
 
+---@param registry LibNodeGraph.Registry
 function Popup.Register(registry, runtime)
     -- Register the two enum Control Specs the config pins use (curated dropdowns), reusing
     -- ADR-0004's Control Spec seam. Presentation lives in ui/controls.lua; the domain data

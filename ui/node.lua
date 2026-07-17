@@ -63,7 +63,8 @@ function Node.BuildGeometry(pins, x, y, width, opts)
     end
     local height = rowTop[rows + 1] + Theme.BODY_PAD_BOTTOM
 
-    local geom = { x = x, y = y, w = width, h = height, pins = {}, byName = {}, controls = {} }
+    local geom = { x = x, y = y, w = width, h = height,
+        pins = {}, byName = {}, controls = {}, testButtons = {} }
 
     -- Delete button center, in the header, Graph-space relative to the node origin. Shared
     -- by Draw and HitClose so the glyph and its hit-target can't disagree.
@@ -88,6 +89,26 @@ function Node.BuildGeometry(pins, x, y, width, opts)
 
     place(inputs, Theme.PIN_MARGIN_X)
     place(outputs, width - Theme.PIN_MARGIN_X)
+
+    -- Test button: one small square per exec-in pin, sitting between the pin glyph and its
+    -- label. Clicking it fires that exec input directly (ui/graph.lua), so a node's run can be
+    -- exercised without wiring a Trigger. The pin's label is pushed right past the button via
+    -- `labelInset`, consumed by Node.Draw.
+    for _, pin in ipairs(inputs) do
+        if pin.kind == "exec" then
+            local entry = geom.byName[pin.name]
+            if entry ~= nil then
+                local bw = Theme.TEST_BTN_W
+                local bx = Theme.PIN_MARGIN_X + Theme.PIN_GLYPH * 0.5 + Theme.PIN_LABEL_GAP
+                geom.testButtons[#geom.testButtons + 1] = {
+                    pinName = pin.name,
+                    x = bx, y = entry.cy - Theme.CONTROL_H * 0.5,
+                    w = bw, h = Theme.CONTROL_H,
+                }
+                entry.labelInset = bw + Theme.PIN_LABEL_GAP
+            end
+        end
+    end
 
     -- Control boxes: one group per unconnected data-input Pin whose Type Tag has a spec.
     -- A scalar spec contributes one box in the "value column" to the right of the pin label
@@ -249,7 +270,10 @@ function Node.Draw(canvas, view, geom, meta, opts)
             local labelCol = Theme.Vec4(Theme.COL_PIN_LABEL)
             local ty = pcy - view:Scale(7)
             if pin.direction == "in" then
-                canvas:AddText(pcx + hs + view:Scale(Theme.PIN_LABEL_GAP), ty,
+                -- An exec-in pin's label is pushed right to clear its test button (labelInset,
+                -- set in BuildGeometry); every other pin has no inset.
+                local inset = Theme.PIN_LABEL_GAP + (pin.labelInset or 0)
+                canvas:AddText(pcx + hs + view:Scale(inset), ty,
                     pin.label, labelFont, labelCol)
             else
                 -- Right-align output labels against the glyph (measured at the drawn size).
@@ -320,7 +344,39 @@ function Node.Draw(canvas, view, geom, meta, opts)
                 end
             end
         end
+
+        -- Test buttons (one per exec-in pin): a green square with a ▶ play triangle, gated on
+        -- the same CONTROL_MIN_ZOOM as Control boxes so an undrawn button is never hittable.
+        for _, tb in ipairs(geom.testButtons) do
+            local bx, by = view:ToScreen(geom.x + tb.x, geom.y + tb.y)
+            local bw, bh = view:Scale(tb.w), view:Scale(tb.h)
+            local hot = opts.mouseX ~= nil
+                and opts.mouseX >= bx and opts.mouseX <= bx + bw
+                and opts.mouseY >= by and opts.mouseY <= by + bh
+            canvas:AddRectangle(bx, by, bw, bh, Theme.Vec4(Theme.COL_TEST_BTN_BG))
+            canvas:AddOutline(bx, by, bw, bh, math.max(1, view:Scale(1)),
+                Theme.Vec4(hot and Theme.COL_TEST_BTN_HOT or Theme.COL_NODE_BORDER))
+            -- Centered right-pointing play triangle.
+            local cx, cy = bx + bw * 0.5, by + bh * 0.5
+            local a = view:Scale(4)
+            local glyph = Theme.Vec4(hot and Theme.COL_TEST_BTN_HOT or Theme.COL_TEST_BTN_GLYPH)
+            canvas:AddTriangle(cx - a * 0.7, cy - a, cx - a * 0.7, cy + a, cx + a, cy, glyph)
+        end
     end
+end
+
+-- Returns the test-button entry under the screen point (sx,sy), or nil. Gated on the same zoom
+-- threshold as Draw so an undrawn button is never clickable.
+function Node.TestButtonAt(geom, view, sx, sy)
+    if view.zoom < Theme.CONTROL_MIN_ZOOM then return nil end
+    for _, tb in ipairs(geom.testButtons) do
+        local bx, by = view:ToScreen(geom.x + tb.x, geom.y + tb.y)
+        local bw, bh = view:Scale(tb.w), view:Scale(tb.h)
+        if sx >= bx and sx <= bx + bw and sy >= by and sy <= by + bh then
+            return tb
+        end
+    end
+    return nil
 end
 
 -- Returns the pin entry under the screen point (sx,sy), or nil. Hit area is the glyph

@@ -52,6 +52,7 @@ function ScreenMarker.BuildHandle(rect, thickness, color)
     }
 end
 
+---@param registry LibNodeGraph.Registry
 function ScreenMarker.Register(registry, runtime)
     registry:RegisterNodeType("action.screen_marker", {
         category = "action",
@@ -74,7 +75,7 @@ function ScreenMarker.Register(registry, runtime)
                 end
             end
 
-            if ctx.pin == "dismiss" then
+            if ctx.exec == "dismiss" then
                 dismiss()
                 return
             end

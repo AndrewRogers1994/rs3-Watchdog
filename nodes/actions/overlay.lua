@@ -6,18 +6,14 @@
 -- `contains` — this codebase has no separate "config" pin kind, see CONTEXT.md's Control
 -- Box) rather than a distinct mechanism, even though the issue groups them as "Config".
 --
--- BUILD-VERIFY: which exec-in pin fired is read off `ctx.pin`, and the node's own stable
--- identity (for STACKing/dismissing only *this* node's toasts) off `ctx.nodeId` — both
--- inferred from this engine's existing `ctx.payload` naming convention (runtime.lua's
--- dispatcher) and the `nodeId` returned by `graph:AddNode` used everywhere else in this
--- codebase, since every other node registered so far (sound/log/chat) has exactly one
--- exec-in and never needed either. Confirm both field names against the real LibNodeGraph
--- engine (absent from this sandbox — see tests/run.lua) before shipping; nothing else about
--- this node depends on them.
+-- Which exec-in pin fired is read off `ctx.exec`, and the node's own stable identity (for
+-- STACKing/dismissing only *this* node's toasts) off `ctx.nodeId` — both provided by
+-- LibNodeGraph's run ctx (see LibNodeGraph/graph.lua's _makeCtx).
 local Overlay = {}
 
 local DEFAULT_COLOR = { r = 240, g = 160, b = 32, a = 255 }
 
+---@param registry LibNodeGraph.Registry
 function Overlay.Register(registry, runtime)
     registry:RegisterNodeType("action.overlay", {
         category = "action",
@@ -35,8 +31,8 @@ function Overlay.Register(registry, runtime)
             if stack == nil then
                 return
             end
-            local nodeKey = ctx.nodeId or ctx.id
-            if ctx.pin == "dismiss" then
+            local nodeKey = ctx.nodeId
+            if ctx.exec == "dismiss" then
                 stack:Dismiss(nodeKey)
                 return
             end

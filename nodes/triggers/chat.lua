@@ -6,6 +6,7 @@ local Chat = {}
 -- nodes before firing `out`. `contains` empty => match every line. No runtime-level
 -- transform/filter is needed — this substring match stays in `run`, unchanged from before
 -- the migration onto the dispatcher.
+---@param registry LibNodeGraph.Registry
 function Chat.Register(registry, runtime)
     registry:RegisterNodeType("trigger.chat", {
         category = "trigger",

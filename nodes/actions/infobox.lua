@@ -10,10 +10,9 @@
 -- dismissal needs no stashed runtime handle the way a stacked effect would — Remove(ctx.nodeId)
 -- is idempotent regardless of how many times `update` fired first.
 --
--- BUILD-VERIFY: which exec-in pin fired is read off `ctx.pin` (falling back to "update" when
--- absent, so a single-exec-in-shaped ctx still lazy-creates/refreshes the tile) — the engine's
--- exact multi-exec-in-pin ctx contract isn't exercised anywhere else in this codebase yet
--- (every other action node so far has exactly one exec-in) and must be confirmed in-client.
+-- Which exec-in pin fired is read off `ctx.exec` (falling back to "update" when absent, so a
+-- single-exec-in-shaped ctx still lazy-creates/refreshes the tile), and the node's own id off
+-- `ctx.nodeId` — both provided by LibNodeGraph's run ctx (see LibNodeGraph/graph.lua).
 
 local InfoBox = require("ui/infobox")
 
@@ -38,6 +37,7 @@ function Node.IconChoices()
     return Node.ICONS
 end
 
+---@param registry LibNodeGraph.Registry
 function Node.Register(registry, runtime)
     -- Registers the curated icon dropdown's Control Spec (ADR-0004's enum widget), the same
     -- seam action.popup uses for its own icon/theme dropdowns. Guarded so a headless require
@@ -73,13 +73,14 @@ function Node.Register(registry, runtime)
             end
             local owner = ctx.nodeId
 
-            if ctx.pin == "dismiss" then
+            if ctx.exec == "dismiss" then
                 area:Remove(owner)
                 return
             end
 
-            -- "update" (also the fallback when the firing pin can't be told apart, see the
-            -- BUILD-VERIFY note above): pull value/color/icon/title and rewrite the tile.
+            -- "update" (also the fallback when the firing pin can't be told apart — e.g. a
+            -- single-exec-in-shaped ctx with ctx.exec nil): pull value/color/icon/title and
+            -- rewrite the tile.
             local value = ctx:In("value")
             if ctx:In("dismissWhenEmpty") and InfoBox.IsEmpty(value) then
                 area:Remove(owner)

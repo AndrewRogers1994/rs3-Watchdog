@@ -60,6 +60,7 @@ function CustomSound.ResourceChoices()
     return choices
 end
 
+---@param registry LibNodeGraph.Registry
 function CustomSound.Register(registry)
     local Controls = require("ui/controls")
     Controls.Register("customSoundResource", {

@@ -1,4 +1,5 @@
 local Log = {}
+---@param registry LibNodeGraph.Registry
 function Log.Register(registry)
     registry:RegisterNodeType("action.log", {
         category = "action",
@@ -11,6 +12,8 @@ function Log.Register(registry)
             local message = ctx:In("message")
             if message ~= nil then
                 log(tostring(message))
+            else
+                log("message was nil")
             end
         end,
     })

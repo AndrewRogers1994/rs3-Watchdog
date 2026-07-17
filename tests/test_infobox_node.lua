@@ -7,21 +7,15 @@ _G.Vector4 = _G.Vector4 or { new = function(r, g, b, a) return { r, g, b, a } en
 local luaunit = require("luaunit")
 local InfoBoxNode = require("nodes/actions/infobox")
 local InfoBox = require("ui/infobox")
+-- Real engine (LibNodeGraph, on package.path — see tests/run.lua), so run() is exercised
+-- through a genuine ctx rather than a fabricated one.
+local Registry = require("registry")
+local Graph = require("graph")
 
 local function makeFakeRegistry()
     return {
         types = {},
         RegisterNodeType = function(self, key, desc) self.types[key] = desc end,
-    }
-end
-
--- `pin` stands in for the ctx.pin BUILD-VERIFY assumption (which exec-in pin fired);
--- omitting it exercises the "update" fallback path.
-local function makeCtx(nodeId, values, pin)
-    return {
-        nodeId = nodeId,
-        pin = pin,
-        In = function(_self, name) return values[name] end,
     }
 end
 
@@ -63,81 +57,106 @@ function TestInfoBoxNodeRegistration:testIconChoicesIncludeNoneAndAreCurated()
     luaunit.assertTrue(#choices > 1)
 end
 
+-- Run tests fire through a REAL LibNodeGraph, so ctx is the engine's genuine run context (a
+-- fabricated ctx can only agree with the code's own assumptions — how the ctx.pin/ctx.exec
+-- divergence slipped through). The tile owner is the node's real integer id (ctx.nodeId).
 TestInfoBoxNodeRun = {}
 
 function TestInfoBoxNodeRun:setUp()
-    self.reg = makeFakeRegistry()
+    self.registry = Registry.new()
     self.area = InfoBox.new()
-    InfoBoxNode.Register(self.reg, { infobox = self.area })
-    self.desc = self.reg.types["action.infobox"]
+    InfoBoxNode.Register(self.registry, { infobox = self.area })
+    self.graph = Graph.new(self.registry)
+end
+
+function TestInfoBoxNodeRun:add(controls)
+    return self.graph:AddNode("action.infobox", controls)
 end
 
 function TestInfoBoxNodeRun:testUpdateLazyCreatesTheTile()
-    self.desc.run(makeCtx("n1", { value = 5, title = "HP" }, "update"))
-    luaunit.assertTrue(self.area:Has("n1"))
-    luaunit.assertEquals(self.area:Get("n1").text, "5")
-    luaunit.assertEquals(self.area:Get("n1").title, "HP")
+    local id = self:add({ value = 5, title = "HP" })
+    self.graph:FireInput(id, "update")
+    luaunit.assertTrue(self.area:Has(id))
+    luaunit.assertEquals(self.area:Get(id).text, "5")
+    luaunit.assertEquals(self.area:Get(id).title, "HP")
 end
 
 function TestInfoBoxNodeRun:testUpdateRewritesInPlaceNotANewTile()
-    self.desc.run(makeCtx("n1", { value = 1 }, "update"))
-    self.desc.run(makeCtx("n1", { value = 2 }, "update"))
+    local id = self:add({ value = 1 })
+    self.graph:FireInput(id, "update")
+    self.graph:SetControl(id, "value", 2)
+    self.graph:FireInput(id, "update")
     luaunit.assertEquals(self.area:Count(), 1)
-    luaunit.assertEquals(self.area:Get("n1").text, "2")
+    luaunit.assertEquals(self.area:Get(id).text, "2")
 end
 
-function TestInfoBoxNodeRun:testMissingPinFieldFallsBackToUpdate()
-    -- BUILD-VERIFY fallback: a ctx with no `.pin` still lazy-creates/refreshes (never dismiss).
-    self.desc.run(makeCtx("n1", { value = "x" }))
-    luaunit.assertTrue(self.area:Has("n1"))
+function TestInfoBoxNodeRun:testExternalFireWithNoExecPinFallsBackToUpdate()
+    -- Entered with no exec pin (ctx.exec nil, as an external Graph:Fire does) still lazy-
+    -- creates/refreshes the tile rather than dismissing it.
+    local id = self:add({ value = "x" })
+    self.graph:Fire(id)
+    luaunit.assertTrue(self.area:Has(id))
 end
 
 function TestInfoBoxNodeRun:testDismissRemovesTheTile()
-    self.desc.run(makeCtx("n1", { value = 1 }, "update"))
-    self.desc.run(makeCtx("n1", {}, "dismiss"))
-    luaunit.assertFalse(self.area:Has("n1"))
+    local id = self:add({ value = 1 })
+    self.graph:FireInput(id, "update")
+    self.graph:FireInput(id, "dismiss")
+    luaunit.assertFalse(self.area:Has(id))
 end
 
 function TestInfoBoxNodeRun:testDismissOnUnknownOwnerIsANoop()
-    local ok = pcall(function() self.desc.run(makeCtx("ghost", {}, "dismiss")) end)
+    local id = self:add({})
+    local ok = pcall(function() self.graph:FireInput(id, "dismiss") end)
     luaunit.assertTrue(ok)
-    luaunit.assertFalse(self.area:Has("ghost"))
+    luaunit.assertFalse(self.area:Has(id))
 end
 
 function TestInfoBoxNodeRun:testDismissWhenEmptyRemovesOnEmptyUpdate()
-    self.desc.run(makeCtx("n1", { value = 1 }, "update"))
-    self.desc.run(makeCtx("n1", { value = 0, dismissWhenEmpty = true }, "update"))
-    luaunit.assertFalse(self.area:Has("n1"))
+    local id = self:add({ value = 1 })
+    self.graph:FireInput(id, "update")
+    self.graph:SetControl(id, "value", 0)
+    self.graph:SetControl(id, "dismissWhenEmpty", true)
+    self.graph:FireInput(id, "update")
+    luaunit.assertFalse(self.area:Has(id))
 end
 
 function TestInfoBoxNodeRun:testDismissWhenEmptyOffKeepsTheTileOnEmptyUpdate()
-    self.desc.run(makeCtx("n1", { value = 1 }, "update"))
-    self.desc.run(makeCtx("n1", { value = 0, dismissWhenEmpty = false }, "update"))
-    luaunit.assertTrue(self.area:Has("n1"))
-    luaunit.assertEquals(self.area:Get("n1").text, "0")
+    local id = self:add({ value = 1 })
+    self.graph:FireInput(id, "update")
+    self.graph:SetControl(id, "value", 0)
+    self.graph:SetControl(id, "dismissWhenEmpty", false)
+    self.graph:FireInput(id, "update")
+    luaunit.assertTrue(self.area:Has(id))
+    luaunit.assertEquals(self.area:Get(id).text, "0")
 end
 
 function TestInfoBoxNodeRun:testFirstUpdateEmptyWithDismissWhenEmptyNeverAppears()
-    self.desc.run(makeCtx("n1", { value = nil, dismissWhenEmpty = true }, "update"))
-    luaunit.assertFalse(self.area:Has("n1"))
+    local id = self:add({ value = nil, dismissWhenEmpty = true })
+    self.graph:FireInput(id, "update")
+    luaunit.assertFalse(self.area:Has(id))
 end
 
 function TestInfoBoxNodeRun:testDifferentNodesGetDifferentTiles()
-    self.desc.run(makeCtx("a", { value = 1 }, "update"))
-    self.desc.run(makeCtx("b", { value = 2 }, "update"))
+    local a = self:add({ value = 1 })
+    local b = self:add({ value = 2 })
+    self.graph:FireInput(a, "update")
+    self.graph:FireInput(b, "update")
     luaunit.assertEquals(self.area:Count(), 2)
 end
 
 function TestInfoBoxNodeRun:testNilRuntimeInfoboxIsASilentNoop()
-    local reg = makeFakeRegistry()
-    InfoBoxNode.Register(reg, {})
-    local desc = reg.types["action.infobox"]
-    local ok = pcall(function() desc.run(makeCtx("n1", { value = 1 }, "update")) end)
+    local registry = Registry.new()
+    InfoBoxNode.Register(registry, {})
+    local graph = Graph.new(registry)
+    local id = graph:AddNode("action.infobox", { value = 1 })
+    local ok = pcall(function() graph:FireInput(id, "update") end)
     luaunit.assertTrue(ok)
 end
 
 function TestInfoBoxNodeRun:testColorPassesThroughUnmodified()
     local color = { r = 10, g = 20, b = 30, a = 255 }
-    self.desc.run(makeCtx("n1", { value = 1, color = color }, "update"))
-    luaunit.assertEquals(self.area:Get("n1").color, color)
+    local id = self:add({ value = 1, color = color })
+    self.graph:FireInput(id, "update")
+    luaunit.assertEquals(self.area:Get(id).color, color)
 end

@@ -4,6 +4,7 @@ local Sound = {}
 -- pin stores/serializes the number, so the node keeps working even if the constant moves.
 local DEFAULT_SOUND_ID = id.Sound.TOWN_CRIER_BELL_RING_1
 
+---@param registry LibNodeGraph.Registry
 function Sound.Register(registry)
     registry:RegisterNodeType("action.sound", {
         category = "action",

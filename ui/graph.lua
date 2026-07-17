@@ -350,6 +350,19 @@ function Editor:controlAt(sx, sy)
     return nil
 end
 
+-- Topmost exec-in test button under a screen point: { nodeId, tb } or nil. Front-most wins.
+function Editor:testButtonAt(sx, sy)
+    for i = #self.nodeOrder, 1, -1 do
+        local id = self.nodeOrder[i]
+        local geom = self.geoms[id]
+        if geom ~= nil then
+            local tb = Node.TestButtonAt(geom, self.view, sx, sy)
+            if tb ~= nil then return { nodeId = id, tb = tb } end
+        end
+    end
+    return nil
+end
+
 -- Topmost node whose header delete button is under a screen point: nodeId or nil.
 function Editor:closeAt(sx, sy)
     for i = #self.nodeOrder, 1, -1 do
@@ -484,6 +497,18 @@ function Editor:beginPress()
         else
             self:openControlEditor(hitCtrl.nodeId, hitCtrl.ctrl)
         end
+        return
+    end
+
+    -- A test button on an exec-in pin fires that pin (runs the node as if wired) — not a drag,
+    -- so unwind the gesture setup the same way the Control branch does.
+    local hitTest = self:testButtonAt(lx, ly)
+    if hitTest ~= nil then
+        self.pressed = false
+        self:positionCapture()
+        self.selected = hitTest.nodeId
+        self:bringToFront(hitTest.nodeId)
+        self:fireTestPin(hitTest.nodeId, hitTest.tb.pinName)
         return
     end
 
@@ -751,6 +776,20 @@ function Editor:setControl(nodeId, pinName, value)
     pcall(function() self.graph:SetControl(nodeId, pinName, value) end)
     if self.runtime ~= nil then
         pcall(function() self.runtime:PreloadNode(self.graph, nodeId) end)
+    end
+end
+
+--- Test button (per exec-in pin) --------------------------------------------------------
+
+-- Fires one exec-in pin of `nodeId` directly through the engine, running that node's own
+-- run(ctx) as if an upstream wire had fired into `pinName` (ctx.exec == pinName, no payload).
+-- Guarded like linkPins: a node whose run errors must never crash the frame. This is a live
+-- fire against the real graph — the node's actual side effects (log lines, overlays, sounds,
+-- info boxes) happen, which is the point: it exercises the node in isolation for testing.
+function Editor:fireTestPin(nodeId, pinName)
+    local ok, err = pcall(function() self.graph:FireInput(nodeId, pinName) end)
+    if not ok and log ~= nil then
+        log("Watchdog: test fire failed — " .. tostring(err))
     end
 end
 

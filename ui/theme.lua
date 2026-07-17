@@ -174,6 +174,14 @@ Theme.COL_SCREEN_MARKER_DRAG = col(255, 255, 255, 1.0)
 -- Execution pins and wires use one fixed neutral color (they carry no Type Tag).
 Theme.COL_EXEC        = col(242, 242, 242, 1.0)
 
+-- Per-exec-in-pin "test" button: a small square between an exec-in pin's glyph and its label
+-- that fires that pin (calls the node's run as if the wire had fired) for testing. Drawn/hit
+-- on the same CONTROL_MIN_ZOOM gate as inline Control boxes.
+Theme.TEST_BTN_W        = 18                        -- square button side (graph units)
+Theme.COL_TEST_BTN_BG   = col(46, 78, 52, 1.0)      -- muted green (a "run/play" affordance)
+Theme.COL_TEST_BTN_HOT  = col(120, 210, 130, 1.0)   -- border + glyph under the cursor
+Theme.COL_TEST_BTN_GLYPH = col(200, 240, 205, 1.0)  -- the ▶ play triangle
+
 -- Category -> header band color. Opaque consumer tags; unknowns fall back.
 Theme.CATEGORY_COLORS = {
     trigger = col(155, 47, 47, 1.0),   -- red-ish (events)

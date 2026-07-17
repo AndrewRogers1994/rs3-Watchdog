@@ -12,12 +12,10 @@
 -- own persistent `ctx.state` table, evicts the node's own still-live handle before pushing the
 -- new one. No exec-out.
 --
--- ASSUMPTION (Build-verify against LibNodeGraph, unavailable in this sandbox — see CLAUDE.md):
--- this is the first Watchdog node with two independent exec-in pins. `run(ctx)` is assumed to
--- be invoked once per firing with `ctx.pin` naming which exec-in pin fired, mirroring
--- `ctx:Fire(name)` for exec-outs. If the engine instead dispatches per-pin handlers some other
--- way, only the `ctx.pin` branch below needs adjusting -- the shaping/dismiss-on math is pure
--- and already unit-tested (tests/test_screen_flash.lua) independent of this wiring.
+-- This node has two independent exec-in pins. `run(ctx)` is invoked once per firing with
+-- `ctx.exec` naming which exec-in pin fired (LibNodeGraph/graph.lua's _makeCtx), mirroring
+-- `ctx:Fire(name)` for exec-outs. The shaping/dismiss-on math below is pure and unit-tested
+-- (tests/test_screen_flash.lua) independent of this wiring.
 
 local Controls = require("ui/controls")
 
@@ -111,6 +109,7 @@ local function makeHandle(color, inShape, outShape, dismissOn, baseline, runtime
     }
 end
 
+---@param registry LibNodeGraph.Registry
 function ScreenFlash.Register(registry, runtime)
     registry:RegisterNodeType("action.screen_flash", {
         category = "action",
@@ -137,7 +136,7 @@ function ScreenFlash.Register(registry, runtime)
                 end
             end
 
-            if ctx.pin == "dismiss" then
+            if ctx.exec == "dismiss" then
                 dismiss()
                 return
             end
