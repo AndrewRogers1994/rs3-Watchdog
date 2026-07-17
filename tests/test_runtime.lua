@@ -472,7 +472,13 @@ end
 local function registerPreloadFixture(registry, calls)
     registry:RegisterNodeType("fixture.preload", {
         category = "action",
-        pins = { { name = "in", kind = "exec", direction = "in" } },
+        -- A real preload node (e.g. action.custom_sound) reads its resource from a declared
+        -- data-input pin's Control; the engine only stores controls for declared pins, so the
+        -- fixture must declare `resource` too or GetControl("resource") comes back nil.
+        pins = {
+            { name = "in", kind = "exec", direction = "in" },
+            { name = "resource", kind = "data", direction = "in", dataType = "string" },
+        },
         preload = function(node)
             calls[#calls + 1] = { id = node.id, resource = node.GetControl("resource") }
         end,

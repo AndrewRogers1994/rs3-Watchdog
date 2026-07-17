@@ -92,6 +92,24 @@ Theme.COL_OVERLAY_BG     = col(24, 24, 28, 0.92)
 Theme.COL_OVERLAY_BORDER = col(10, 10, 12, 1.0)
 Theme.COL_OVERLAY_TEXT   = col(230, 230, 236, 1.0)
 
+-- InfoBox strip (#41): a wrapping row of fixed square icon+text tiles drawn on the effect
+-- overlay Canvas (like the overlay toast, fixed screen-space), one tile per action.infobox
+-- node, laid out left-to-right from a shared draggable anchor and wrapping past a width.
+Theme.INFOBOX_BOX_SIZE   = 36    -- side of each fixed square icon+text tile
+Theme.INFOBOX_GAP        = 2     -- gap between adjacent tiles (both axes)
+Theme.INFOBOX_DEFAULT_X  = 8     -- default anchor: top-left corner, small inset
+Theme.INFOBOX_DEFAULT_Y  = 8
+Theme.INFOBOX_WRAP_WIDTH = 220   -- row wraps once it would exceed this pixel width
+Theme.INFOBOX_TEXT_PT    = 14    -- point size for the value text drawn on a tile
+Theme.INFOBOX_TOOLTIP_PT = 12    -- point size for the hover tooltip
+Theme.INFOBOX_TOOLTIP_PAD = 4    -- inner padding around the tooltip text
+
+Theme.COL_INFOBOX_BG      = col(30, 30, 34, 0.85)
+Theme.COL_INFOBOX_BORDER  = col(12, 12, 15, 1.0)
+Theme.COL_INFOBOX_TEXT    = col(255, 255, 255, 1.0)  -- default (unset/nil color) — white
+Theme.COL_INFOBOX_TIP_BG  = col(18, 18, 22, 0.96)    -- hover tooltip backing
+Theme.COL_INFOBOX_TIP_TX  = col(230, 232, 240, 1.0)
+
 Theme.BORDER_THICKNESS = 2
 Theme.WIRE_THICKNESS   = 3
 Theme.WIRE_SEGMENTS    = 16    -- straight segments a bezier Wire is tessellated into
