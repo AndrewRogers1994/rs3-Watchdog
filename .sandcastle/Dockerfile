@@ -29,6 +29,15 @@ USER ${AGENT_UID}:${AGENT_GID}
 # Install Claude Code CLI
 RUN curl -fsSL https://claude.ai/install.sh | bash
 
+# Install lua-language-server (used by .vscode/typecheck.sh). The release
+# tarball's binary loads main.lua/meta/etc. from paths relative to itself,
+# so it's extracted intact and symlinked into .local/bin rather than copied.
+ARG LUALS_VERSION=3.18.2
+RUN mkdir -p /home/agent/.local/share/lua-language-server /home/agent/.local/bin \
+  && curl -fsSL "https://github.com/LuaLS/lua-language-server/releases/download/${LUALS_VERSION}/lua-language-server-${LUALS_VERSION}-linux-x64.tar.gz" \
+  | tar -xz -C /home/agent/.local/share/lua-language-server \
+  && ln -s /home/agent/.local/share/lua-language-server/bin/lua-language-server /home/agent/.local/bin/lua-language-server
+
 # Add Claude to PATH
 ENV PATH="/home/agent/.local/bin:$PATH"
 

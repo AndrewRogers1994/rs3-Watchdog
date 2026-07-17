@@ -12,6 +12,8 @@
 - Prefer named exports over default exports
 -->
 
+Always use LF for line endings in files.
+
 ## Testing
 
 <!-- Example:
