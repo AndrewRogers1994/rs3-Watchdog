@@ -103,6 +103,7 @@ function Palette:Open(registry, filterFn, opts)
         end
     end
     for key, def in pairs(registry.nodeTypes) do
+        if def.hidden then goto continue end
         local targetPin = true
         if filterFn ~= nil then targetPin = filterFn(def) end
         if targetPin then
@@ -119,6 +120,7 @@ function Palette:Open(registry, filterFn, opts)
                 targetPin = (filterFn ~= nil) and targetPin or nil,
             }
         end
+        ::continue::
     end
 
     -- Unavailable rows (nodes/unavailable.lua) are display-only and only make sense on an
