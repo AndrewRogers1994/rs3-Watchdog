@@ -11,9 +11,9 @@ function Log.Register(registry)
         run = function(ctx)
             local message = ctx:In("message")
             if message ~= nil then
-                log(tostring(message))
+                print("Watchdog: " .. tostring(message))
             else
-                log("message was nil")
+                print("Watchdog: message was nil")
             end
         end,
     })

@@ -65,7 +65,7 @@ function Logic.Register(registry, runtime)
                 return
             end
             local payload = ctx.payload
-            if type(payload) == "table" then
+            if payload ~= nil then
                 ctx:Out("logicTick", payload.logicTick)
             end
             ctx:Fire("out")
