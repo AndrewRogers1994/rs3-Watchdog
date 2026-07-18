@@ -15,6 +15,11 @@
 -- Node Type that can't be built on the current API is visible (with why) instead of just
 -- silently absent. Filtered/drag-to-create opens never show them — there's nothing there
 -- to auto-connect to.
+--
+-- Any row may carry a `description`: a short blurb rendered as an inline dimmed suffix after
+-- the display name (`displayName - description`). An unavailable row's "why" and a live Node
+-- Type's own `description` (#52, e.g. Client Tick's "Fires 50x/sec") are the same field, so
+-- there's one concept, not two — the row just dims the whole thing when it's also unavailable.
 
 local Theme = require("ui/theme")
 local Unavailable = require("nodes/unavailable")
@@ -36,7 +41,7 @@ local function categoryLabel(cat)
     return cat:sub(1, 1):upper() .. cat:sub(2)
 end
 
--- The text actually drawn for a row (unavailable rows append their reason) and its left
+-- The text actually drawn for a row (a row with a description appends it inline) and its left
 -- inset from the panel edge. Shared between width measurement and drawing so they can't
 -- drift apart.
 local ITEM_INSET = 14
@@ -44,7 +49,9 @@ local HEADER_INSET = 6
 
 local function rowLabel(row)
     if row.header then return row.label or row.category end
-    if row.unavailable then return row.displayName .. " - " .. row.reason end
+    if row.description ~= nil and row.description ~= "" then
+        return row.displayName .. " - " .. row.description
+    end
     return row.displayName
 end
 
@@ -98,6 +105,9 @@ function Palette:Open(registry, filterFn, opts)
                 typeKey = key,
                 displayName = def.displayName or key,
                 category = cat,
+                -- Optional inline blurb (#52), rendered the same dimmed-suffix way as an
+                -- unavailable row's "why"; nil for the many types that don't set one.
+                description = def.description,
                 -- Only carried in filtered mode; unfiltered opens leave it nil.
                 targetPin = (filterFn ~= nil) and targetPin or nil,
             }
@@ -114,7 +124,7 @@ function Palette:Open(registry, filterFn, opts)
             byCat[cat][#byCat[cat] + 1] = {
                 displayName = entry.displayName,
                 category = cat,
-                reason = entry.reason,
+                description = entry.description,
                 unavailable = true,
             }
         end
@@ -161,8 +171,8 @@ function Palette:Draw(canvas, vx, vy, vw, vh, mx, my)
     if total == 0 then return end
 
     -- Width fits the widest row (falls back to the fixed PALETTE_W when text metrics
-    -- aren't available, e.g. a bare Lua runtime under test) so a long unavailable-row
-    -- reason never gets clipped by the panel edge. Right margin mirrors the row's own
+    -- aren't available, e.g. a bare Lua runtime under test) so a long row description
+    -- never gets clipped by the panel edge. Right margin mirrors the row's own
     -- left inset rather than the (smaller) panel-wide PALETTE_PAD, both for visual
     -- symmetry and so the fit isn't razor-thin against font-metric rounding.
     local panelW = Theme.PALETTE_W

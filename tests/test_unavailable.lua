@@ -7,14 +7,14 @@ function TestUnavailable:testShipsSevenEntries()
     luaunit.assertEquals(#Unavailable, 7)
 end
 
-function TestUnavailable:testEveryEntryHasDisplayNameCategoryAndReason()
+function TestUnavailable:testEveryEntryHasDisplayNameCategoryAndDescription()
     for i, entry in ipairs(Unavailable) do
         luaunit.assertNotNil(entry.displayName, "entry " .. i .. " missing displayName")
         luaunit.assertNotEquals(entry.displayName, "")
         luaunit.assertTrue(entry.category == "trigger" or entry.category == "action",
             "entry " .. i .. " has unexpected category '" .. tostring(entry.category) .. "'")
-        luaunit.assertNotNil(entry.reason, "entry " .. i .. " missing reason")
-        luaunit.assertNotEquals(entry.reason, "")
+        luaunit.assertNotNil(entry.description, "entry " .. i .. " missing description")
+        luaunit.assertNotEquals(entry.description, "")
     end
 end
 

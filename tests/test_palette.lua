@@ -76,13 +76,13 @@ function TestPalette:testUnavailableRowsCarryNoTypeKeyOrTargetPin()
             luaunit.assertTrue(r.unavailable)
             luaunit.assertIsNil(r.typeKey)
             luaunit.assertIsNil(r.targetPin)
-            luaunit.assertNotNil(r.reason)
+            luaunit.assertNotNil(r.description)
         end
     end
-    -- Spot-check one concrete reason string against nodes/unavailable.lua.
+    -- Spot-check one concrete description string against nodes/unavailable.lua.
     for _, r in ipairs(itemRows(self.palette.rows)) do
         if r.displayName == "Inventory" then
-            luaunit.assertEquals(r.reason, "no inventory-read API")
+            luaunit.assertEquals(r.description, "no inventory-read API")
         end
     end
 end
@@ -127,11 +127,45 @@ function TestPalette:testDrawShowsDimmedReasonOnUnavailableRowsOnly()
     luaunit.assertNotNil(byText["Alarm"])
     luaunit.assertEquals(byText["Alarm"].color, Theme.Vec4(Theme.COL_PALETTE_TEXT))
 
-    -- Unavailable row: display name plus its terse reason, dimmed.
+    -- Unavailable row: display name plus its terse description, dimmed.
     local inventoryText = "Inventory - no inventory-read API"
     luaunit.assertNotNil(byText[inventoryText],
-        "expected an inline reason drawn for the unavailable Inventory row")
+        "expected an inline description drawn for the unavailable Inventory row")
     luaunit.assertEquals(byText[inventoryText].color, Theme.Vec4(Theme.COL_PALETTE_TEXT_DIM))
+end
+
+-- A live Node Type carrying a `description` (#52, e.g. Client Tick's "Fires 50x/sec") renders
+-- the same inline `displayName - description` suffix an unavailable row does — but in the
+-- normal (non-dimmed) text color, since it's a real, clickable type.
+function TestPalette:testDrawShowsInlineDescriptionOnLiveNodeType()
+    self.registry.nodeTypes["live.trigger.tick"] = {
+        key = "live.trigger.tick", category = "trigger",
+        displayName = "Client Tick", description = "Fires 50x/sec",
+    }
+    self.palette:Open(self.registry, nil, { screenX = 10, screenY = 10, anchorGX = 0, anchorGY = 0 })
+    local canvas = mockCanvas()
+    self.palette:Draw(canvas, 0, 0, 800, 600, -1, -1)
+
+    local byText = {}
+    for _, c in ipairs(canvas.textCalls) do byText[c.text] = c end
+
+    local tickText = "Client Tick - Fires 50x/sec"
+    luaunit.assertNotNil(byText[tickText],
+        "expected an inline description drawn for the live Client Tick row")
+    luaunit.assertEquals(byText[tickText].color, Theme.Vec4(Theme.COL_PALETTE_TEXT))
+
+    -- And it's a real, clickable row (unlike an unavailable one): RowAt returns it.
+    local rowH, pad, px, py = Theme.PALETTE_ROW_H, Theme.PALETTE_PAD, 10, 10
+    -- Row order within the trigger group is alphabetical by displayName; "Client Tick" sorts
+    -- after "Alarm" (row 2) and the interleaved unavailable "Inventory"/"Overhead Text"/
+    -- "Sound Fired" — but we don't need its exact index: assert the drawn call carried a
+    -- typeKey-bearing item row by finding it back through the rows list.
+    local found
+    for _, r in ipairs(self.palette.rows) do
+        if r.typeKey == "live.trigger.tick" then found = r break end
+    end
+    luaunit.assertNotNil(found)
+    luaunit.assertIsNil(found.unavailable)
 end
 
 function TestPalette:testDrawWidensPanelToFitLongestRowText()
