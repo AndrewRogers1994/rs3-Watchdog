@@ -138,6 +138,8 @@ Theme.WINDOW_TITLE    = "Watchdog — Editor"
 Theme.PALETTE_W     = 220   -- popup width (clamped to the Viewport if narrower)
 Theme.PALETTE_ROW_H = 20    -- uniform row height (headers and items share it)
 Theme.PALETTE_PAD   = 6      -- inner padding above/below the row list
+Theme.PALETTE_MAX_H = 400   -- cap the popup height so a big Registry doesn't fill the screen
+                            -- (scrolls past this); also bounded to 92% of the draw rect
 
 -- Two clicks pairing into a double-click that opens the Palette on empty space.
 Theme.DOUBLECLICK_TICKS = 12  -- Logic ticks (~0.02s each) allowed between the two clicks

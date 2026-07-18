@@ -67,6 +67,8 @@ function Editor.new(graph, registry, layout, runtime)
             w = Theme.WINDOW_W, h = Theme.WINDOW_H,
         },
         canvas = nil,
+        paletteCanvas = nil,       -- separate full-screen Canvas for the Palette (screen space,
+                                   -- unclipped) so it can render past the Window edges
         capture = nil,
         rootParent = nil,          -- the client's root component, kept for screenSize()
         groupBox = nil,            -- real GroupBox providing the native header/title/frame
@@ -120,6 +122,15 @@ end
 -- SetHeaderLayout so the two can't drift.
 function Editor:toLocal(sx, sy)
     return sx - self.window.x, sy - self.window.y - Theme.WINDOW_HEADER_H
+end
+
+-- Inverse of toLocal: a Canvas-draw-space (GroupBox-local) point back to absolute screen
+-- coordinates. Used for the out-of-window Palette, which draws on its own full-screen Canvas
+-- (paletteCanvas) in screen space so it can extend past the Window edges — the window Canvas
+-- clips to its bounds (verified in-client), so an overflowing popup has to live on a
+-- full-screen surface instead.
+function Editor:toScreen(lx, ly)
+    return lx + self.window.x, ly + self.window.y + Theme.WINDOW_HEADER_H
 end
 
 --- Small helpers ------------------------------------------------------------------------
@@ -415,9 +426,11 @@ function Editor:beginPress()
     if self.editing ~= nil then self:closeControlEditor() end
 
     -- The Palette is modal: while it's open, a click either picks a Node Type or dismisses
-    -- it — never a drag gesture, so this is handled before pressed/expandCapture.
+    -- it — never a drag gesture, so this is handled before pressed/expandCapture. It hit-tests
+    -- in SCREEN space (it draws on the full-screen paletteCanvas), so pass the raw mouse, not
+    -- the toLocal'd coords.
     if self.palette.open then
-        self:handlePaletteClick(lx, ly)
+        self:handlePaletteClick(mx, my)
         return
     end
 
@@ -602,7 +615,10 @@ function Editor:endPress()
     self.wire = nil
     self.dragNodeId = nil
     self.colorDragPart = nil
-    self:positionCapture()  -- shrink the Capture Layer back to the Window
+    -- Shrink the Capture Layer back to the Window — UNLESS this release just opened the Palette
+    -- (a Wire dropped on empty Viewport, via commitWire above), which needs the capture to stay
+    -- full-screen so its out-of-window rows remain clickable. closePalette restores it later.
+    if not self.palette.open then self:positionCapture() end
 end
 
 -- Commits one output->input link, honoring the engine rules the UI enforces: a Data input
@@ -663,13 +679,19 @@ end
 --- Palette (Node creation) --------------------------------------------------------------
 
 -- Opens the Palette listing every Node Type; the new Node lands where it was opened.
-function Editor:openPaletteUnfiltered(sx, sy)
+-- `lx, ly` are Canvas-local (the caller's frame); the Palette draws in SCREEN space on its
+-- own full-screen Canvas, so the anchor is converted with toScreen, while the new-node
+-- position stays graph-space (view:ToGraph of the local point). Expands the Capture Layer to
+-- full-screen so rows drawn past the Window edge are still clickable (closePalette restores it).
+function Editor:openPaletteUnfiltered(lx, ly)
     -- The toolbar + is a real Button (bypasses beginPress's colorPopup-modal check), so
     -- mutual exclusion with the color popup has to be enforced here too.
     self:closeColorPopup()
-    local gx, gy = self.view:ToGraph(sx, sy)
+    local gx, gy = self.view:ToGraph(lx, ly)
+    local scx, scy = self:toScreen(lx, ly)
     self.palette:Open(self.registry, nil,
-        { screenX = sx, screenY = sy, anchorGX = gx, anchorGY = gy, connect = nil })
+        { screenX = scx, screenY = scy, anchorGX = gx, anchorGY = gy, connect = nil })
+    self:expandCapture()
     self.mode = "idle"
     self.selected = nil
 end
@@ -677,8 +699,9 @@ end
 -- Opens the Palette filtered to Node Types with a Pin that could receive `source` (the
 -- dragged Wire's Pin): matching kind, opposite direction, and (for Data) a compatible
 -- Type Tag. The first such Pin per type is recorded as the auto-connect target.
-function Editor:openPaletteFiltered(sx, sy, source)
-    local gx, gy = self.view:ToGraph(sx, sy)
+function Editor:openPaletteFiltered(lx, ly, source)
+    local gx, gy = self.view:ToGraph(lx, ly)
+    local scx, scy = self:toScreen(lx, ly)
     local want = source.entry
     local wantDir = (want.direction == "out") and "in" or "out"
     local filter = function(def)
@@ -693,18 +716,28 @@ function Editor:openPaletteFiltered(sx, sy, source)
         return nil
     end
     self.palette:Open(self.registry, filter, {
-        screenX = sx, screenY = sy, anchorGX = gx, anchorGY = gy,
+        screenX = scx, screenY = scy, anchorGX = gx, anchorGY = gy,
         connect = { nodeId = source.nodeId, entry = source.entry },
     })
+    self:expandCapture()
+end
+
+-- Closes the Palette and shrinks the Capture Layer back to the Window (undoing the
+-- full-screen expand openPalette* applied), unless a drag gesture still owns the capture.
+function Editor:closePalette()
+    self.palette:Close()
+    if not self.pressed then self:positionCapture() end
 end
 
 -- Routes a click while the Palette is open: pick an item, or dismiss on an outside click.
+-- `mx, my` are SCREEN coords (the Palette hit-tests in screen space, matching how it draws on
+-- the full-screen paletteCanvas) — beginPress passes the raw mouse position, not toLocal'd.
 function Editor:handlePaletteClick(mx, my)
     local row = self.palette:RowAt(mx, my)
     if row ~= nil then
         self:placeFromPalette(row)
     elseif not self.palette:Contains(mx, my) then
-        self.palette:Close()
+        self:closePalette()
     end
     -- A click on a header row or inner padding is ignored, keeping the Palette open.
 end
@@ -715,7 +748,7 @@ function Editor:placeFromPalette(row)
     local anchorGX, anchorGY = self.palette.anchorGX, self.palette.anchorGY
     local connect = self.palette.connect
     local targetPin = row.targetPin
-    self.palette:Close()
+    self:closePalette()
 
     local ok, newId = pcall(function() return self.graph:AddNode(row.typeKey) end)
     if not ok or newId == nil then
@@ -1263,15 +1296,25 @@ function Editor:draw()
     self:drawPendingWire()
     self:drawChrome()
 
-    -- The Palette and color popup draw last, on top of the chrome, clamped inside the
-    -- Viewport. The two are mutually exclusive (see openColorPopup/openPaletteUnfiltered),
-    -- so draw order between them doesn't matter in practice.
-    if self.palette.open then
-        self.palette:Draw(self.canvas, vx, vy, vw, vh, self.mouse.x, self.mouse.y)
-    end
+    -- The color popup draws last on the content Canvas, on top of the chrome, clamped inside
+    -- the Viewport. (It and the Palette are mutually exclusive — see openColorPopup /
+    -- openPaletteUnfiltered — so they never contend for the surface.)
     if self.colorPopup.open then
         self.colorPopup:Draw(self.canvas, vx, vy, vw, vh, self.mouse.x, self.mouse.y,
             { hexEditing = self.colorHexField ~= nil })
+    end
+
+    -- The Palette draws on its OWN full-screen Canvas in screen space, so it can extend past
+    -- the Window edges (the content Canvas above clips to the Window). Cleared every frame;
+    -- fronted and redrawn only while open, clamped to the whole screen rather than the Viewport.
+    if self.paletteCanvas ~= nil then
+        pcall(function() self.paletteCanvas:Clear() end)
+        if self.palette.open then
+            pcall(function() self.paletteCanvas:MoveToFront() end)
+            local sw, sh = self:screenSize()
+            local msx, msy = self:toScreen(self.mouse.x, self.mouse.y)
+            self.palette:Draw(self.paletteCanvas, 0, 0, sw, sh, msx, msy)
+        end
     end
 end
 
@@ -1369,6 +1412,9 @@ function Editor:SetVisible(v)
     if self.canvas ~= nil then
         pcall(function() self.canvas.hidden = not self.visible end)
     end
+    if self.paletteCanvas ~= nil then
+        pcall(function() self.paletteCanvas.hidden = not self.visible end)
+    end
     if self.capture ~= nil then
         pcall(function()
             self.capture.hidden = not self.visible
@@ -1416,6 +1462,17 @@ function Editor:Mount(parent)
     self.capture = ui.Button.new(parent)
     self.capture.alpha = 0
     self.capture.clickthrough = false
+
+    -- The Palette's own drawing surface: a full-screen Canvas mounted on the root parent (NOT
+    -- the GroupBox), so it isn't clipped to the Window and its rows can extend past the Window
+    -- edges. Screen-space coords (SetPos 0,0 + full-screen SetSize), inert/clickthrough like
+    -- the content Canvas — clicks fall through to the Capture Layer, which is expanded to
+    -- full-screen while the Palette is open (see openPalette*/closePalette) so out-of-window
+    -- rows are still hit-testable. Re-fronted each frame it's open (draw); Cleared otherwise.
+    self.paletteCanvas = ui.Canvas.new(parent)
+    self.paletteCanvas:SetPos(0, 0)
+    self.paletteCanvas:SetSize(0, 0, 1.0, 1.0)
+    self.paletteCanvas.clickthrough = true
 
     -- Keep the Window on screen (in case defaults exceed this display), then size the
     -- capture and re-sync the GroupBox's position (mountGroupBox positioned it once
@@ -1522,6 +1579,12 @@ end
 function Editor:Unmount()
     self:closeControlEditor()  -- tear down any transient editor before its parent goes away
     self:closeColorPopup()
+    if self.paletteCanvas ~= nil then
+        -- A sibling of the GroupBox (mounted on the root parent), so groupBox:Destroy() below
+        -- won't take it — tear it down explicitly.
+        pcall(function() self.paletteCanvas:Destroy() end)
+        self.paletteCanvas = nil
+    end
     if self.capture ~= nil then
         pcall(function() self.capture:Destroy() end)
         self.capture = nil

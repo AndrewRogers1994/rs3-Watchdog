@@ -8,8 +8,11 @@
 --
 -- The Palette owns no graph state. On Open it flattens the Registry into an ordered list
 -- of rows (Category headers interleaved with item rows); the Editor reads the chosen
--- item back out and performs the AddNode/Connect itself. Kept clamped inside the Viewport
--- so every row lands on the Window-sized Capture Layer (no capture resizing needed).
+-- item back out and performs the AddNode/Connect itself. It draws in whatever coordinate
+-- frame the Editor hands Draw a bounds rect for and clamps itself inside that rect: the
+-- Editor passes the FULL SCREEN (on a dedicated full-screen paletteCanvas) so rows can spill
+-- past the Window edges, and expands its Capture Layer to full-screen while open so those
+-- out-of-window rows stay clickable. (The rect is arbitrary — tests pass a fake viewport.)
 --
 -- Unfiltered opens also interleave the dimmed, inert rows from nodes/unavailable.lua so a
 -- Node Type that can't be built on the current API is visible (with why) instead of just
@@ -19,7 +22,10 @@
 -- Any row may carry a `description`: a short blurb rendered as an inline dimmed suffix after
 -- the display name (`displayName - description`). An unavailable row's "why" and a live Node
 -- Type's own `description` (#52, e.g. Client Tick's "Fires 50x/sec") are the same field, so
--- there's one concept, not two — the row just dims the whole thing when it's also unavailable.
+-- there's one concept, not two. The description is *always* drawn dimmed — it's a secondary
+-- blurb that shouldn't compete with the name — so the two are drawn as separate text calls:
+-- the name in the row's own color (dim only when the row is also unavailable), the suffix in
+-- the dim color regardless.
 
 local Theme = require("ui/theme")
 local Unavailable = require("nodes/unavailable")
@@ -65,7 +71,7 @@ function Palette.new()
         rows = {},        -- flat draw list; header rows { header=true, category } or item rows
         scroll = 0,       -- rows scrolled off the top
         maxScroll = 0,    -- recomputed each Draw (needs the visible-row count)
-        screenX = 0,      -- where the panel was requested (clamped into the Viewport at Draw)
+        screenX = 0,      -- where the panel was requested (clamped into the bounds rect at Draw)
         screenY = 0,
         anchorGX = 0,     -- Graph-space point the new Node's origin is placed at
         anchorGY = 0,
@@ -161,8 +167,9 @@ function Palette:Scroll(delta)
     if self.scroll > self.maxScroll then self.scroll = self.maxScroll end
 end
 
--- Draws the panel, clamped fully inside the Viewport rect. Rows are a uniform height so
--- headers and items share the same scroll math. Records `self.rect` for hit-testing.
+-- Draws the panel, clamped fully inside the given bounds rect (vx,vy,vw,vh) — the Editor
+-- passes the full screen so the panel may sit past the Window edges. Rows are a uniform height
+-- so headers and items share the same scroll math. Records `self.rect` for hit-testing.
 function Palette:Draw(canvas, vx, vy, vw, vh, mx, my)
     if not self.open then return end
     local rowH = Theme.PALETTE_ROW_H
@@ -185,13 +192,15 @@ function Palette:Draw(canvas, vx, vy, vw, vh, mx, my)
     end
     panelW = math.min(panelW, vw)
 
-    local maxPanelH = math.min(total * rowH + pad * 2, math.floor(vh * 0.92))
+    local maxPanelH = math.min(total * rowH + pad * 2, math.floor(vh * 0.92), Theme.PALETTE_MAX_H)
     local visibleRows = math.floor((maxPanelH - pad * 2) / rowH)
     if visibleRows < 1 then visibleRows = 1 end
     if visibleRows > total then visibleRows = total end
     local panelH = visibleRows * rowH + pad * 2
 
-    -- Clamp the panel inside the Viewport so every row is over the Capture Layer.
+    -- Clamp the panel inside the bounds rect so it stays on screen; the Editor expands its
+    -- full-screen Capture Layer while the Palette is open, so every row (even one past the
+    -- Window edge) is still over the capture and clickable.
     local px, py = self.screenX, self.screenY
     if px + panelW > vx + vw then px = vx + vw - panelW end
     if py + panelH > vy + vh then py = vy + vh - panelH end
@@ -228,8 +237,21 @@ function Palette:Draw(canvas, vx, vy, vw, vh, mx, my)
                         Theme.Vec4(Theme.COL_PALETTE_HOVER))
                 end
                 if font ~= nil then
-                    local color = row.unavailable and Theme.COL_PALETTE_TEXT_DIM or Theme.COL_PALETTE_TEXT
-                    canvas:AddText(px + ITEM_INSET, ry + 3, rowLabel(row), font, Theme.Vec4(color))
+                    local tx, ty = px + ITEM_INSET, ry + 3
+                    -- The name takes the row's own color; an unavailable row dims it too.
+                    local nameColor = row.unavailable and Theme.COL_PALETTE_TEXT_DIM
+                        or Theme.COL_PALETTE_TEXT
+                    canvas:AddText(tx, ty, row.displayName, font, Theme.Vec4(nameColor))
+                    -- The description suffix is always dimmed, so it reads as a secondary
+                    -- blurb whether the row is a live Node Type or an unavailable one. Drawn
+                    -- as its own call, offset by the measured name width (falls back to no
+                    -- offset when text metrics aren't available, e.g. under the test harness).
+                    if row.description ~= nil and row.description ~= "" then
+                        local nameW = Theme.TextWidth(12, row.displayName)
+                        local sx = nameW ~= nil and (tx + nameW) or tx
+                        canvas:AddText(sx, ty, " - " .. row.description, font,
+                            Theme.Vec4(Theme.COL_PALETTE_TEXT_DIM))
+                    end
                 end
             end
         end

@@ -127,16 +127,19 @@ function TestPalette:testDrawShowsDimmedReasonOnUnavailableRowsOnly()
     luaunit.assertNotNil(byText["Alarm"])
     luaunit.assertEquals(byText["Alarm"].color, Theme.Vec4(Theme.COL_PALETTE_TEXT))
 
-    -- Unavailable row: display name plus its terse description, dimmed.
-    local inventoryText = "Inventory - no inventory-read API"
-    luaunit.assertNotNil(byText[inventoryText],
+    -- Unavailable row: name and description are drawn as separate calls, both dimmed.
+    luaunit.assertNotNil(byText["Inventory"])
+    luaunit.assertEquals(byText["Inventory"].color, Theme.Vec4(Theme.COL_PALETTE_TEXT_DIM))
+    local inventoryDesc = " - no inventory-read API"
+    luaunit.assertNotNil(byText[inventoryDesc],
         "expected an inline description drawn for the unavailable Inventory row")
-    luaunit.assertEquals(byText[inventoryText].color, Theme.Vec4(Theme.COL_PALETTE_TEXT_DIM))
+    luaunit.assertEquals(byText[inventoryDesc].color, Theme.Vec4(Theme.COL_PALETTE_TEXT_DIM))
 end
 
 -- A live Node Type carrying a `description` (#52, e.g. Client Tick's "Fires 50x/sec") renders
--- the same inline `displayName - description` suffix an unavailable row does — but in the
--- normal (non-dimmed) text color, since it's a real, clickable type.
+-- an inline description suffix the same way an unavailable row does: the name in the normal
+-- (non-dimmed) text color since it's a real, clickable type, but the description suffix always
+-- dimmed so it reads as a secondary blurb.
 function TestPalette:testDrawShowsInlineDescriptionOnLiveNodeType()
     self.registry.nodeTypes["live.trigger.tick"] = {
         key = "live.trigger.tick", category = "trigger",
@@ -149,10 +152,13 @@ function TestPalette:testDrawShowsInlineDescriptionOnLiveNodeType()
     local byText = {}
     for _, c in ipairs(canvas.textCalls) do byText[c.text] = c end
 
-    local tickText = "Client Tick - Fires 50x/sec"
-    luaunit.assertNotNil(byText[tickText],
+    -- Name in normal color; the description suffix drawn separately and dimmed.
+    luaunit.assertNotNil(byText["Client Tick"])
+    luaunit.assertEquals(byText["Client Tick"].color, Theme.Vec4(Theme.COL_PALETTE_TEXT))
+    local tickDesc = " - Fires 50x/sec"
+    luaunit.assertNotNil(byText[tickDesc],
         "expected an inline description drawn for the live Client Tick row")
-    luaunit.assertEquals(byText[tickText].color, Theme.Vec4(Theme.COL_PALETTE_TEXT))
+    luaunit.assertEquals(byText[tickDesc].color, Theme.Vec4(Theme.COL_PALETTE_TEXT_DIM))
 
     -- And it's a real, clickable row (unlike an unavailable one): RowAt returns it.
     local rowH, pad, px, py = Theme.PALETTE_ROW_H, Theme.PALETTE_PAD, 10, 10
