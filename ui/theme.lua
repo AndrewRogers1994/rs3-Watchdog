@@ -126,12 +126,12 @@ Theme.ZOOM_MAX = 2.0
 
 --- Window (screen-space) ----------------------------------------------------------------
 
-Theme.WINDOW_X        = 420
+Theme.WINDOW_X        = 600
 Theme.WINDOW_Y        = 340
 Theme.WINDOW_W        = 900
 Theme.WINDOW_H        = 560
 Theme.WINDOW_HEADER_H = 28
-Theme.WINDOW_TITLE    = "Watchdog — Node Graph"
+Theme.WINDOW_TITLE    = "Watchdog — Editor"
 
 --- Palette (screen-space popup) + toolbar -----------------------------------------------
 

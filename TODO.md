@@ -7,6 +7,7 @@
 - By default, exec pins should only allow one connection but can be configured to allow more than 1
 - Right now you can create multiple duplicate connections. If you try to create a connection that already exists, treat that as the user wanting to remove that existing connection.
 - checkbox control for booleans
+- add prefix config to Log
 
 ## Node port backlog (mirroring runelite-watchdog)
 
