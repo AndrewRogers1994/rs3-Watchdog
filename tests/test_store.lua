@@ -65,13 +65,13 @@ end
 
 function TestStore:testNewEntryDefaultsEnabledTrue()
     local doc = Store.Empty()
-    Store.UpsertCurrent(doc, "alpha", graphWithOneNode(self.registry), {}, nil)
+    Store.UpsertCurrent(doc, "alpha", graphWithOneNode(self.registry), {})
     luaunit.assertEquals(doc.graphs[1].enabled, true)
 end
 
 function TestStore:testEnabledTrueSurvivesRoundTrip()
     local doc = Store.Empty()
-    Store.UpsertCurrent(doc, "alpha", graphWithOneNode(self.registry), {}, nil, true)
+    Store.UpsertCurrent(doc, "alpha", graphWithOneNode(self.registry), {}, true)
 
     local reloaded = saveAndReload(doc)
 
@@ -81,7 +81,7 @@ end
 
 function TestStore:testEnabledFalseSurvivesRoundTrip()
     local doc = Store.Empty()
-    Store.UpsertCurrent(doc, "alpha", graphWithOneNode(self.registry), {}, nil, false)
+    Store.UpsertCurrent(doc, "alpha", graphWithOneNode(self.registry), {}, false)
 
     local reloaded = saveAndReload(doc)
 
@@ -92,7 +92,7 @@ end
 -- pre-#27 document keeps firing after upgrade rather than loading silently disabled.
 function TestStore:testMissingEnabledRestoresAsTrue()
     local doc = Store.Empty()
-    Store.UpsertCurrent(doc, "alpha", graphWithOneNode(self.registry), {}, nil)
+    Store.UpsertCurrent(doc, "alpha", graphWithOneNode(self.registry), {})
     doc.graphs[1].enabled = nil -- simulate a document written before the flag existed
 
     local restored = Store.RestoreAll(doc, self.registry)
@@ -108,10 +108,10 @@ end
 -- disabled — an omitted `enabled` preserves whatever the entry already had.
 function TestStore:testUpsertPreservesExistingEnabledWhenOmitted()
     local doc = Store.Empty()
-    Store.UpsertCurrent(doc, "alpha", graphWithOneNode(self.registry), {}, nil, false)
+    Store.UpsertCurrent(doc, "alpha", graphWithOneNode(self.registry), {}, false)
 
     -- Re-save the same graph as the autosave loop would, passing no enabled argument.
-    Store.UpsertCurrent(doc, "alpha", graphWithOneNode(self.registry), {}, nil)
+    Store.UpsertCurrent(doc, "alpha", graphWithOneNode(self.registry), {})
 
     luaunit.assertEquals(doc.graphs[1].enabled, false)
 end
@@ -120,7 +120,7 @@ end
 
 function TestStore:testSetEnabledFlipsExistingEntry()
     local doc = Store.Empty()
-    Store.UpsertCurrent(doc, "alpha", graphWithOneNode(self.registry), {}, nil, true)
+    Store.UpsertCurrent(doc, "alpha", graphWithOneNode(self.registry), {}, true)
 
     luaunit.assertTrue(Store.SetEnabled(doc, "alpha", false))
     luaunit.assertEquals(doc.graphs[1].enabled, false)
@@ -133,7 +133,7 @@ end
 
 function TestStore:testSetEnabledPersistsThroughRoundTrip()
     local doc = Store.Empty()
-    Store.UpsertCurrent(doc, "alpha", graphWithOneNode(self.registry), {}, nil, true)
+    Store.UpsertCurrent(doc, "alpha", graphWithOneNode(self.registry), {}, true)
     Store.SetEnabled(doc, "alpha", false)
 
     local reloaded = saveAndReload(doc)
@@ -145,8 +145,8 @@ end
 
 function TestStore:testRestoreAllReturnsEveryGraphLiveWithFlag()
     local doc = Store.Empty()
-    Store.UpsertCurrent(doc, "alpha", graphWithOneNode(self.registry), {}, nil, true)
-    Store.UpsertCurrent(doc, "beta", graphWithOneNode(self.registry), {}, nil, false)
+    Store.UpsertCurrent(doc, "alpha", graphWithOneNode(self.registry), {}, true)
+    Store.UpsertCurrent(doc, "beta", graphWithOneNode(self.registry), {}, false)
 
     local reloaded = saveAndReload(doc)
     local restored = Store.RestoreAll(reloaded, self.registry)

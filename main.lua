@@ -173,9 +173,9 @@ do
     end
     if #restored == 0 then
         local graph, layout = seedDemo()
-        Store.UpsertCurrent(document, "default", graph, layout, nil)
+        Store.UpsertCurrent(document, "default", graph, layout)
         Store.Save(document)
-        restored = { { name = "default", graph = graph, layout = layout, view = nil, enabled = true } }
+        restored = { { name = "default", graph = graph, layout = layout, enabled = true } }
     end
 end
 
@@ -203,7 +203,7 @@ if currentAlert == nil then
 end
 
 local graph = currentAlert.graph
-local editor = Editor.new(graph, registry, currentAlert.layout, currentAlert.view, runtime)
+local editor = Editor.new(graph, registry, currentAlert.layout, runtime)
 
 -- Persistence hook for the alert enable/disable API: SetEnabled/Toggle write the flag straight
 -- to the saved document and flush, so an alert toggled off (by the user or an Alert Toggle node,
@@ -269,7 +269,7 @@ local SAVE_INTERVAL_TICKS = 100
 local saveState = { tick = 0, wasOpen = false, lastEncoded = Store.Encode(document) }
 
 local function persistNow()
-    Store.UpsertCurrent(document, currentName, editor.graph, editor:GetLayout(), editor:GetView())
+    Store.UpsertCurrent(document, currentName, editor.graph, editor:GetLayout())
     local encoded = Store.Encode(document)
     if encoded ~= nil and encoded ~= saveState.lastEncoded then
         if Store.Save(document) then

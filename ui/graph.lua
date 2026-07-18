@@ -31,11 +31,16 @@ local ColorPopup = require("ui/color_popup")
 local Editor = {}
 Editor.__index = Editor
 
--- graph, registry: the live LibNodeGraph objects. layout: optional { [id] = {x,y} }.
--- view: optional restored { panX, panY, zoom }; when given, Mount skips its default framing.
+-- graph, registry: the live LibNodeGraph objects. layout: optional saved node positions.
 -- runtime: optional (see runtime.lua) — only reached for its `screenMarkerCapture` (#39), the
 -- full-screen "Draw on screen" capture overlay a Screen Marker node's `rect` Control arms.
-function Editor.new(graph, registry, layout, view, runtime)
+-- The View (pan/zoom) is intentionally NOT restored: it resets to the default origin on every
+-- open (see resetView), so there's nothing to thread in or persist.
+---@param graph LibNodeGraph.Graph
+---@param registry LibNodeGraph.Registry
+---@param layout Watchdog.Layout|nil
+---@param runtime table|nil
+function Editor.new(graph, registry, layout, runtime)
     local self = setmetatable({
         graph = graph,
         registry = registry,
@@ -69,24 +74,11 @@ function Editor.new(graph, registry, layout, view, runtime)
         closeButton = nil,         -- real Button, top-right of the GroupBox
     }, Editor)
 
-    -- A restored View overrides the default framing Mount would otherwise apply.
-    if view ~= nil then
-        self.view.panX = view.panX or self.view.panX
-        self.view.panY = view.panY or self.view.panY
-        self.view.zoom = view.zoom or self.view.zoom
-        self._viewProvided = true
-    end
-
     return self
 end
 
--- Current View as a plain, persistable table (see store.lua). Read live, so it reflects
--- whatever the user last panned/zoomed to.
-function Editor:GetView()
-    return { panX = self.view.panX, panY = self.view.panY, zoom = self.view.zoom }
-end
-
 -- The live Layout map (nodeId -> {x,y}); mutated in place as nodes are dragged/created.
+---@return Watchdog.Layout
 function Editor:GetLayout()
     return self.layout
 end
@@ -1345,8 +1337,21 @@ function Editor:clampWindow()
     self.window.y = clampv(self.window.y, 0, math.max(0, sh - self.window.h))
 end
 
+-- The default framing (pan + zoom) applied on a fresh Mount and each time the Window is
+-- opened. Centralized so the two callers can't drift. Recentering on open is deliberate:
+-- pan or zoom far enough and your nodes scroll off-screen with no way back, so every open
+-- snaps the graph transform back to this known origin.
+function Editor:resetView()
+    self.view.panX = 0
+    self.view.panY = 0
+    self.view.zoom = 1.0
+end
+
 function Editor:SetVisible(v)
+    local becomingVisible = v and not self.visible
     self.visible = v and true or false
+    -- Re-center the graph every time the Window opens, so a stray pan can never lose the nodes.
+    if becomingVisible then self:resetView() end
     if not self.visible then
         -- Abandon any in-progress gesture (and dismiss the Palette / close the inline editor)
         -- so nothing resumes mid-interaction when reshown.
@@ -1427,12 +1432,9 @@ function Editor:Mount(parent)
     -- a Button falls straight through to the Capture behind.
     pcall(function() self.groupBox:MoveToFront() end)
 
-    -- Position content inside the Window on first mount (local space now) — unless a
-    -- persisted View was restored (see Editor.new), in which case honor the saved pan/zoom.
-    if not self._viewProvided then
-        self.view.panX = 30
-        self.view.panY = Theme.WINDOW_HEADER_H + 30
-    end
+    -- Frame content at the default origin on first mount (SetVisible re-applies this on every
+    -- subsequent open, so a stray pan/zoom can never lose the nodes).
+    self:resetView()
 
     self:SetVisible(self.visible)
 end
