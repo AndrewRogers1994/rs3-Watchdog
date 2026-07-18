@@ -89,15 +89,18 @@ function Editor:IsVisible()
     return self.visible
 end
 
--- The content region: x, y, w, h, in GroupBox-local space. Covers the WHOLE box, including
--- the strip behind the toolbar Buttons — the native header (title text) actually floats
--- above the box's own top edge (straddling local y=0, per the _TITLED stylesheet's overlap
--- convention), so nothing here paints over it; drawBackground's grid just fills what used to
--- be an uncovered gap behind the +/x row instead of leaving the contentBackgroundSprite show
--- through it.
+-- The content region: x, y, w, h, in GroupBox-local (Canvas-draw) space. Its height is the
+-- Window height MINUS the reserved header strip: the Canvas is a child that starts at the
+-- content-area origin (WINDOW_HEADER_H below the frame top), so of its full win.h only
+-- (win.h - WINDOW_HEADER_H) is actually visible — the GroupBox clips the overshooting bottom
+-- strip. Verified in-client (clip probe, 2026-07-17): drawing past this height is silently cut
+-- off, which is what let the Palette believe it had room it didn't and get its bottom clipped.
+-- Width needs no such adjustment (the Canvas spans the full win.w). The native header (title
+-- text) floats above local y=0 per the _TITLED stylesheet's overlap convention, so nothing
+-- here paints over it.
 function Editor:viewportRect()
     local win = self.window
-    return 0, 0, win.w, win.h
+    return 0, 0, win.w, win.h - Theme.WINDOW_HEADER_H
 end
 
 -- Whether a local-space point is inside the Window's header strip. `local` space is the
@@ -1187,8 +1190,8 @@ end
 -- are the real GroupBox this Canvas is a child of (see Mount) — its header shows through
 -- here because the Canvas never paints above viewportRect's top edge.
 function Editor:drawChrome()
-    local win = self.window
-    self.canvas:AddOutline(0, 0, win.w, win.h, Theme.BORDER_THICKNESS,
+    local vx, vy, vw, vh = self:viewportRect()
+    self.canvas:AddOutline(vx, vy, vw, vh, Theme.BORDER_THICKNESS,
         Theme.Vec4(Theme.COL_WINDOW_BORDER))
 end
 
@@ -1399,7 +1402,11 @@ function Editor:Mount(parent)
 
     self.canvas = ui.Canvas.new(self.groupBox)
     self.canvas:SetPos(0, 0)
-    self.canvas:SetSize(self.window.w, self.window.h)  -- local: fills the whole GroupBox
+    -- Height excludes the reserved header strip: the Canvas starts at the content-area origin
+    -- (WINDOW_HEADER_H below the frame top), so sizing it the full win.h overshoots the box
+    -- bottom by that much and the GroupBox clips it. Size it to the true content area so the
+    -- Canvas's own bounds match what's visible (see viewportRect).
+    self.canvas:SetSize(self.window.w, self.window.h - Theme.WINDOW_HEADER_H)
     self.canvas.clickthrough = true
 
     -- Invisible Capture Layer sized to the Window. Kept as a separate, absolutely-
