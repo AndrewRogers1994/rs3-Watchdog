@@ -3,11 +3,13 @@
 > (GitHub issue #1). The per-node feasibility notes below are the source of truth that map's
 > tickets design against.
 
-- consolidate the comparison nodes into one with a dropdown selector for the operation. it's clutter to have 6 different nodes to just change the operation between two numbers.
-- By default, exec pins should only allow one connection but can be configured to allow more than 1
-- Right now you can create multiple duplicate connections. If you try to create a connection that already exists, treat that as the user wanting to remove that existing connection.
-- checkbox control for booleans
-- add prefix config to Log
+- [ ] 1. consolidate the comparison nodes into one with a dropdown selector for the operation. it's clutter to have 6 different nodes to just change the operation between two numbers.
+- [ ] 2. By default, exec pins should only allow one connection but can be configured to allow more than 1
+- [x] 3. Right now you can create multiple duplicate connections. If you try to create a connection that already exists, treat that as the user wanting to remove that existing connection. _(Engine: `Connect` now returns `id` or `nil, reason` — uniform result contract, no asserts — and rejects exact-duplicate edges (`"duplicate"`, checked before `"data_input_occupied"`); new `Graph:FindConnection`. Editor `linkPins`: identical wire → toggle off (uniform exec+data); different-source data occupant → replace.)_
+- [ ] 4. checkbox control for booleans
+- [ ] 5. add prefix config to Log
+- [ ] 6. when drag-and-dropping a connection line and it opens the palette, can we keep rendering the connection line until the palette is closed either by dismissing or selecting a node?
+- [ ] 7. stateful nodes should display what state they are in. counter should display the current number, flipflop should display what side it will fire next, doonce and gate should display if it is open or closed
 
 ## Node port backlog (mirroring runelite-watchdog)
 
@@ -15,10 +17,11 @@ Target: mirror the trigger/notification list from https://github.com/adamk33n3r/
 (`TriggerType.java` / `NotificationType.java`). Their "notifications" = our "actions".
 
 ### Triggers
+
 - [x] Game Message — `trigger.chat`
   - `Event.ChatMessage` → payload `chatMessage` (String), `chatType` (ChatType), `timestamp`. Filter `chatType` to the game/engine types (GENERAL=0, ENGINE=4, SPAM=109, broadcasts, etc.).
 - [x] Player Chat Message — `trigger.chat` (same node, chat-type-aware)
-  - `Event.ChatMessage` (same event) → filter `chatType` to player-typed lines: PUBLIC=2, FRIEND_CHAT=9, CLANCHANNEL_*, GROUP_*, PRIVATE_INCOMING/OUTGOING, and their QUICKCHAT variants.
+  - `Event.ChatMessage` (same event) → filter `chatType` to player-typed lines: PUBLIC=2, FRIEND_CHAT=9, CLANCHANNEL\_\*, GROUP\_\*, PRIVATE_INCOMING/OUTGOING, and their QUICKCHAT variants.
 - [ ] Overhead Text
   - NO EVENT. The API has no overhead-text event and `PlayerEntity`/`NPCEntity` expose no overhead/chat-text field (only uid, displayName, position, coordGrid, facing). Not achievable with the current API — needs a Jagex-side event.
 - [ ] Stat Changed — boosts/drains
@@ -35,6 +38,7 @@ Target: mirror the trigger/notification list from https://github.com/adamk33n3r/
   - NO EVENT, but POLLABLE. No position-change event; poll `Player.GetEntity().coordGrid` (CoordGrid) or `.position` (Vector3) on `Event.Logic` (~50/s) and test distance against the target coord. `Player.IsAvailable()` guards logged-out state.
 
 ### Actions
+
 - [x] Sound Effect — `action.sound`
   - `audio.Play(builtinResourceID, params?)` with a builtin sound id, `bus` hardcoded `sfx` (#33 retrofit). Done.
 - [x] Custom Sound — `action.custom_sound` (#33)
@@ -69,6 +73,7 @@ Target: mirror the trigger/notification list from https://github.com/adamk33n3r/
   - NO API. No programmatic focus-request method; only the read-only `Event.WindowFocusChanged` (confirmed vs docs). Not achievable.
 
 ### Not supported (no RS3 plugin API equivalent currently)
+
 - [ ] Notification Fired (trigger) — cross-plugin notification bus doesn't exist on RS3
 - [ ] Tray Notification (action) — no OS tray access
 - [ ] Dink (action) — RuneLite-specific 3rd-party webhook plugin integration

@@ -138,9 +138,9 @@ local function seedDemo()
 
     -- Guard each connect so one bad edge can't stop the plugin from loading.
     local function tryConnect(fromN, fromP, toN, toP)
-        local ok, err = pcall(function() graph:Connect(fromN, fromP, toN, toP) end)
-        if not ok and log ~= nil then
-            log("Watchdog: demo connect failed — " .. tostring(err))
+        local id, reason = graph:Connect(fromN, fromP, toN, toP)
+        if id == nil and log ~= nil then
+            log("Watchdog: demo connect failed — " .. tostring(reason))
         end
     end
 

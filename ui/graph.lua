@@ -669,22 +669,26 @@ function Editor:endPress()
     if not self.palette.open then self:positionCapture() end
 end
 
--- Commits one output->input link, honoring the engine rules the UI enforces: a Data input
--- takes a single Connection (the engine hard-asserts on a second) so the existing one is
--- replaced first, and Connect itself is guarded because it can still reject a cycle — a bad
--- link must never crash the frame. Shared by Wire drops and Palette auto-connect.
+-- Commits one output->input link. Order matters: re-dropping the *identical* wire toggles it
+-- off (removes the existing edge) — uniform for exec and data. Otherwise a Data input takes a
+-- single Connection, so a *different-source* occupant is replaced first. Connect returns a
+-- reason rather than throwing (uniform result contract); a rejection (e.g. cycle) is logged,
+-- never crashes the frame. Shared by Wire drops and Palette auto-connect.
 function Editor:linkPins(outNode, outPin, inNode, inPin, isData)
+    local dup = self.graph:FindConnection(outNode, outPin, inNode, inPin)
+    if dup ~= nil then
+        self.graph:Disconnect(dup.id)   -- toggle off
+        return true
+    end
     if isData then
         local existing = self:connectionInto(inNode, inPin)
         if existing ~= nil then self.graph:Disconnect(existing.id) end
     end
-    local ok, err = pcall(function()
-        self.graph:Connect(outNode, outPin, inNode, inPin)
-    end)
-    if not ok and log ~= nil then
-        log("Watchdog: connect rejected — " .. tostring(err))
+    local id, reason = self.graph:Connect(outNode, outPin, inNode, inPin)
+    if id == nil and log ~= nil then
+        log("Watchdog: connect rejected — " .. tostring(reason))
     end
-    return ok
+    return id ~= nil
 end
 
 -- Resolves the pending Wire against whatever pin is under the cursor and connects if
