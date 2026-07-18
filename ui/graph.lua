@@ -23,6 +23,7 @@
 local Theme    = require("ui/theme")
 local View     = require("ui/view")
 local Node     = require("ui/node")
+local Placeholder = require("ui/placeholder")
 local Wire     = require("ui/wire")
 local Palette  = require("ui/palette")
 local Controls = require("ui/controls")
@@ -234,7 +235,35 @@ local function safeComboStyle()
     return nil
 end
 
+-- The reserved placeholder type key (#53), read from the authoritative source. LibNodeGraph is a
+-- hard dependency (called unguarded in store.lua too), so no nil-guard or literal fallback — a
+-- fallback string would only duplicate the constant and silently drift if the lib ever renamed it.
+function Editor:unknownTypeKey()
+    return LibNodeGraph.UNKNOWN_TYPE
+end
+
+-- Whether a node is a `__unknown__` placeholder, read authoritatively from its live type key
+-- (not the per-frame geom, so it's valid even before the first draw builds geometry).
+function Editor:isPlaceholderNode(nodeId)
+    local node = self.graph.nodes[nodeId]
+    return node ~= nil and node.typeKey == self:unknownTypeKey()
+end
+
+-- The original (missing) type key a placeholder stashes, or nil for a real node. Read from the
+-- engine's documented `node.unknown` carrier (LibNodeGraph.Node.unknown) — the one piece of a
+-- placeholder that survives only on the live node, not in the id/type projection GetNodes gives.
+function Editor:unknownTypeOf(nodeId)
+    local node = self.graph.nodes[nodeId]
+    if node == nil or node.unknown == nil then return nil end
+    return node.unknown.type
+end
+
 function Editor:meta(nodeId, typeKey)
+    -- A placeholder is titled by the type it's standing in for, not the reserved key (#53).
+    if typeKey == self:unknownTypeKey() then
+        return { title = "⚠ Unknown: " .. (self:unknownTypeOf(nodeId) or "?"),
+            category = nil, placeholder = true }
+    end
     local nt = self.registry:GetNodeType(typeKey)
     if nt == nil then return { title = typeKey, category = nil } end
     return { title = nt.displayName or typeKey, category = nt.category }
@@ -271,13 +300,22 @@ function Editor:buildGeoms()
         connectedIn[c.toNode][c.toPin] = true
     end
 
+    local unknownKey = self:unknownTypeKey()
     local present = {}
     for _, n in ipairs(self.graph:GetNodes()) do
         present[n.id] = n.typeKey
         local pos = self:posOf(n.id)
-        local pins = self.graph:GetPins(n.id) or {}
-        local geom = Node.BuildGeometry(pins, pos.x, pos.y, Theme.NODE_WIDTH,
-            { connected = connectedIn[n.id] or {} })
+        local pins, opts
+        if n.typeKey == unknownKey then
+            -- A placeholder (#53) has no real pins (GetPins returns []); reconstruct display-only
+            -- stubs from the wires touching it, and skip all interactive geometry (opts.placeholder).
+            pins = Placeholder.Stubs(self.graph, n.id)
+            opts = { placeholder = true }
+        else
+            pins = self.graph:GetPins(n.id) or {}
+            opts = { connected = connectedIn[n.id] or {} }
+        end
+        local geom = Node.BuildGeometry(pins, pos.x, pos.y, Theme.NODE_WIDTH, opts)
         geom.typeKey = n.typeKey
         -- Fill each Control box's current value + display string (Node stays graph-only).
         -- A composite Control (#25, e.g. coordgrid) shares one stored table across several
@@ -318,12 +356,14 @@ end
 
 --- Hit-testing (uses last frame's geoms) ------------------------------------------------
 
--- Topmost pin under a screen point: { nodeId, entry } or nil. Front-most node wins.
+-- Topmost pin under a screen point: { nodeId, entry } or nil. Front-most node wins. A
+-- placeholder's stubs (#53) are deliberately excluded: they're display-only geometry, never
+-- wire drag endpoints — the engine can't validate a wire to a pin whose real definition is gone.
 function Editor:pinAt(sx, sy)
     for i = #self.nodeOrder, 1, -1 do
         local id = self.nodeOrder[i]
         local geom = self.geoms[id]
-        if geom ~= nil then
+        if geom ~= nil and not geom.placeholder then
             local pin = Node.PinAt(geom, self.view, sx, sy)
             if pin ~= nil then return { nodeId = id, entry = pin } end
         end
@@ -552,7 +592,11 @@ function Editor:beginWire(hit)
 
     if hit.entry.direction == "in" then
         local conn = self:connectionInto(hit.nodeId, hit.entry.name)
-        if conn ~= nil then
+        -- Don't grab a wire whose source is a placeholder stub (#53): re-anchoring the loose end
+        -- to a pin the engine can't resolve would fail to reconnect, silently dropping a wire the
+        -- user only meant to inspect. Leave it intact — a fresh wire from this input can still
+        -- replace it if dropped on a real output (linkPins swaps the data input's connection).
+        if conn ~= nil and not self:isPlaceholderNode(conn.fromNode) then
             self.graph:Disconnect(conn.id)
             local srcGeom = self.geoms[conn.fromNode]
             local srcEntry = srcGeom and srcGeom.byName[conn.fromPin]

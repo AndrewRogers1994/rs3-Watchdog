@@ -19,6 +19,7 @@ LibNodeGraph = {
     Serialize = Serialize.Serialize,
     Deserialize = Serialize.Deserialize,
     Json = Json,
+    UNKNOWN_TYPE = require("registry").UNKNOWN_TYPE,
 }
 
 local Store = require("store")
@@ -159,6 +160,102 @@ function TestStore:testRestoreAllReturnsEveryGraphLiveWithFlag()
     -- Each entry carries a live, usable Graph (not the serialized table).
     luaunit.assertEquals(#restored[1].graph:GetNodes(), 1)
     luaunit.assertEquals(#restored[2].graph:GetNodes(), 1)
+end
+
+--- Unknown-node preservation (#53): a saved alert with an unregistered type loads as a -----
+--- placeholder rather than being skipped, and round-trips losslessly while the type is absent.
+
+-- A stored entry whose graph references a type the reload registry won't have: a known trigger
+-- (node 1) wired into an unknown `action.overlay` (node 2). Built as the on-disk serialized
+-- shape directly, since the point is that node 2's type is never registered.
+local function docWithUnknownNode()
+    return {
+        version = 1,
+        current = "alpha",
+        graphs = { {
+            name = "alpha",
+            enabled = true,
+            layout = {},
+            graph = {
+                version = 1,
+                nodes = {
+                    { id = 1, type = "fixture.trigger", controls = {} },
+                    { id = 2, type = "action.overlay", controls = { text = "hi" } },
+                },
+                connections = {
+                    { fromNode = 1, fromPin = "out", toNode = 2, toPin = "in" },
+                },
+            },
+        } },
+    }
+end
+
+function TestStore:testUnknownNodeLoadsAsPlaceholderNotSkipped()
+    local doc = docWithUnknownNode()
+
+    local restored = Store.RestoreAll(doc, self.registry)
+
+    -- The alert is preserved, not dropped for its one unknown node.
+    luaunit.assertEquals(#restored, 1)
+    luaunit.assertEquals(restored[1].name, "alpha")
+    -- Both nodes come back: the known trigger and the placeholder standing in for the unknown.
+    local nodes = restored[1].graph:GetNodes()
+    luaunit.assertEquals(#nodes, 2)
+    local byId = {}
+    for _, n in ipairs(nodes) do byId[n.id] = n.typeKey end
+    luaunit.assertEquals(byId[1], "fixture.trigger")
+    luaunit.assertEquals(byId[2], LibNodeGraph.UNKNOWN_TYPE)
+    -- The wire into the placeholder survives (preserved verbatim).
+    luaunit.assertEquals(#restored[1].graph:GetConnections(), 1)
+end
+
+function TestStore:testKnownNodesStillFireAlongsideAPlaceholder()
+    local doc = docWithUnknownNode()
+    local restored = Store.RestoreAll(doc, self.registry)
+    -- Firing the known trigger runs through the graph without the placeholder aborting it.
+    luaunit.assertEquals(restored[1].graph:Fire(1), nil)
+end
+
+function TestStore:testPlaceholderRoundTripsLosslesslyWhileTypeAbsent()
+    local first = Store.RestoreAll(docWithUnknownNode(), self.registry)[1]
+
+    -- Re-persist the restored (placeholder-bearing) graph and reload it, exactly as the editor
+    -- autosave loop would — the unknown node must re-emit its ORIGINAL type + controls verbatim.
+    local doc = Store.Empty()
+    Store.UpsertCurrent(doc, first.name, first.graph, first.layout, first.enabled)
+    local reloaded = saveAndReload(doc)
+
+    local entry = reloaded.graphs[1]
+    luaunit.assertEquals(entry.graph.nodes[2].type, "action.overlay")
+    luaunit.assertEquals(entry.graph.nodes[2].controls.text, "hi")
+
+    -- And it still restores to a placeholder (regression: no double-wrapping / drift).
+    local second = Store.RestoreAll(reloaded, self.registry)
+    luaunit.assertEquals(#second[1].graph:GetNodes(), 2)
+    luaunit.assertEquals(#second[1].graph:GetConnections(), 1)
+end
+
+-- Once the missing type is registered again, the same saved document loads the REAL node with
+-- its original controls + wiring — no placeholder remains.
+function TestStore:testPlaceholderRestoresToRealNodeWhenTypeReturns()
+    self.registry:RegisterNodeType("action.overlay", {
+        category = "action",
+        pins = {
+            { name = "in", kind = "exec", direction = "in" },
+            { name = "text", kind = "data", direction = "in", dataType = "string" },
+        },
+        run = function() end,
+    })
+
+    local restored = Store.RestoreAll(docWithUnknownNode(), self.registry)
+
+    local nodes = restored[1].graph:GetNodes()
+    luaunit.assertEquals(#nodes, 2)
+    for _, n in ipairs(nodes) do
+        luaunit.assertNotEquals(n.typeKey, LibNodeGraph.UNKNOWN_TYPE)
+    end
+    luaunit.assertEquals(restored[1].graph:GetControl(2, "text"), "hi")
+    luaunit.assertEquals(#restored[1].graph:GetConnections(), 1)
 end
 
 --- InfoBox Area anchor (#41) --------------------------------------------------------------

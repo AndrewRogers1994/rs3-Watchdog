@@ -132,6 +132,50 @@ function TestControlAtHitTest:testBelowMinZoomNothingIsHittable()
     luaunit.assertNil(Node.ControlAt(self.geom, self.view, sx, sy))
 end
 
+TestPlaceholderGeometry = {}
+
+-- A placeholder node (#53) lays out its reconstructed stubs as plain pins but must offer no
+-- interactive geometry: no Control boxes (raw controls are opaque without codecs) and no
+-- per-exec-in test buttons (FireInput would assert on a pin the engine can't resolve).
+function TestPlaceholderGeometry:setUp()
+    -- One exec input stub (would normally spawn a test button) + one data input stub (would
+    -- normally spawn a Control box) + one output — none of the interactive parts should appear.
+    self.pins = {
+        { name = "gate", kind = "exec", direction = "in", label = "gate" },
+        { name = "amount", kind = "data", direction = "in", dataType = "number", label = "amount" },
+        { name = "result", kind = "data", direction = "out", dataType = "any", label = "result" },
+    }
+    self.geom = Node.BuildGeometry(self.pins, 0, 0, Theme.NODE_WIDTH, { placeholder = true })
+end
+
+function TestPlaceholderGeometry:testMarksGeomAsPlaceholder()
+    luaunit.assertTrue(self.geom.placeholder)
+end
+
+function TestPlaceholderGeometry:testHasNoControlBoxes()
+    luaunit.assertEquals(#self.geom.controls, 0)
+end
+
+function TestPlaceholderGeometry:testHasNoTestButtons()
+    luaunit.assertEquals(#self.geom.testButtons, 0)
+end
+
+function TestPlaceholderGeometry:testStubsStillLayOutAsPins()
+    luaunit.assertNotNil(self.geom.byName.gate)
+    luaunit.assertNotNil(self.geom.byName.amount)
+    luaunit.assertNotNil(self.geom.byName.result)
+    luaunit.assertEquals(self.geom.byName.result.direction, "out")
+end
+
+-- A non-placeholder node with the same exec-in/data-in pins DOES get the interactive parts —
+-- proof the suppression is the flag's doing, not an accident of these pins.
+function TestPlaceholderGeometry:testNonPlaceholderSamePinsGetsControlsAndTestButtons()
+    local geom = Node.BuildGeometry(self.pins, 0, 0, Theme.NODE_WIDTH)
+    luaunit.assertEquals(#geom.testButtons, 1)
+    luaunit.assertEquals(#geom.controls, 1)
+    luaunit.assertFalse(geom.placeholder)
+end
+
 TestSwatchGeometry = {}
 
 function TestSwatchGeometry:setUp()

@@ -239,22 +239,28 @@ function Store.Restore(doc, registry, name)
     local i = indexOf(doc, name)
     if i == nil then return nil end
     local entry = doc.graphs[i]
-    local graph = LibNodeGraph.Deserialize(entry.graph, registry)
+    -- Lenient deserialize (#53): an unregistered node type — usually a dependency plugin that
+    -- didn't load — becomes an inert `__unknown__` placeholder that round-trips losslessly and
+    -- restores once the type returns, instead of taking down the whole alert.
+    local graph = LibNodeGraph.Deserialize(entry.graph, registry, { onUnknown = "placeholder" })
     return graph, layoutFromArray(entry.layout), entry.name, normalizeEnabled(entry.enabled)
 end
 
 -- Rebuilds *every* saved graph into a live instance (#27: all saved graphs instantiate live at
 -- startup, not just the current one, so triggers in every enabled alert fire). Returns an array
--- of { name, graph, layout, enabled } in stored order. An entry that fails to deserialize
--- (a node type no longer registered, a corrupt structure) is logged and skipped rather than
--- aborting the whole set, so one bad alert can't take the others down.
+-- of { name, graph, layout, enabled } in stored order. Deserialize is lenient (#53): an
+-- unregistered node type no longer drops the alert — it loads as an inert placeholder (see
+-- Store.Restore). The pcall stays purely as a backstop for a genuinely corrupt document (e.g.
+-- `graphs`/`nodes` not a table), so one malformed entry can't take the others down.
 ---@param doc Watchdog.StoreDocument
 ---@param registry LibNodeGraph.Registry
 ---@return Watchdog.RestoredAlert[]  # one live alert per restorable entry, in stored order
 function Store.RestoreAll(doc, registry)
     local restored = {}
     for _, entry in ipairs((doc or {}).graphs or {}) do
-        local ok, graph = pcall(function() return LibNodeGraph.Deserialize(entry.graph, registry) end)
+        local ok, graph = pcall(function()
+            return LibNodeGraph.Deserialize(entry.graph, registry, { onUnknown = "placeholder" })
+        end)
         if ok and graph ~= nil then
             restored[#restored + 1] = {
                 name = entry.name,

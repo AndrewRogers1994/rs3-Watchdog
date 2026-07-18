@@ -26,6 +26,10 @@ end
 function Node.BuildGeometry(pins, x, y, width, opts)
     width = width or Theme.NODE_WIDTH
     local connected = (opts and opts.connected) or {}
+    -- A placeholder node (#53) renders its reconstructed stubs as pins, but offers none of the
+    -- interactive geometry: no Control boxes (raw controls are opaque without their codecs) and
+    -- no per-exec-in test buttons (FireInput would assert on a pin the engine can't resolve).
+    local placeholder = (opts and opts.placeholder) or false
 
     local inputs, outputs = {}, {}
     for _, pin in ipairs(pins) do
@@ -51,7 +55,7 @@ function Node.BuildGeometry(pins, x, y, width, opts)
             rowTop[i] = cy
             local extraH = 0
             local pin = inputs[i]
-            if pin ~= nil then
+            if pin ~= nil and not placeholder then
                 local spec = controlSpecFor(pin, connected)
                 if spec ~= nil and spec.extraH ~= nil then
                     extraH = spec.extraH(pin) or 0
@@ -64,7 +68,7 @@ function Node.BuildGeometry(pins, x, y, width, opts)
     local height = rowTop[rows + 1] + Theme.BODY_PAD_BOTTOM
 
     local geom = { x = x, y = y, w = width, h = height,
-        pins = {}, byName = {}, controls = {}, testButtons = {} }
+        pins = {}, byName = {}, controls = {}, testButtons = {}, placeholder = placeholder }
 
     -- Delete button center, in the header, Graph-space relative to the node origin. Shared
     -- by Draw and HitClose so the glyph and its hit-target can't disagree.
@@ -94,7 +98,7 @@ function Node.BuildGeometry(pins, x, y, width, opts)
     -- label. Clicking it fires that exec input directly (ui/graph.lua), so a node's run can be
     -- exercised without wiring a Trigger. The pin's label is pushed right past the button via
     -- `labelInset`, consumed by Node.Draw.
-    for _, pin in ipairs(inputs) do
+    for _, pin in ipairs(placeholder and {} or inputs) do
         if pin.kind == "exec" then
             local entry = geom.byName[pin.name]
             if entry ~= nil then
@@ -116,7 +120,7 @@ function Node.BuildGeometry(pins, x, y, width, opts)
     -- spec (widget == "composite") instead lays out its own sub-rects in the full-width band
     -- reserved below the row (rowTop[i+1] - extraH .. rowTop[i+1]), via spec.Layout.
     local labelStart = Theme.PIN_MARGIN_X + Theme.PIN_GLYPH * 0.5 + Theme.PIN_LABEL_GAP
-    for i, pin in ipairs(inputs) do
+    for i, pin in ipairs(placeholder and {} or inputs) do
         local spec = controlSpecFor(pin, connected)
         if spec ~= nil then
             local cy = rowTop[i] + Theme.PIN_ROW_HEIGHT * 0.5
@@ -214,9 +218,13 @@ function Node.Draw(canvas, view, geom, meta, opts)
     local sw, sh = view:Scale(geom.w), view:Scale(geom.h)
     local headerH = view:Scale(Theme.HEADER_HEIGHT)
 
-    -- Body, header band, border.
-    canvas:AddRectangle(sx, sy, sw, sh, Theme.Vec4(Theme.COL_NODE_BODY))
-    canvas:AddRectangle(sx, sy, sw, headerH, Theme.Vec4(Theme.CategoryColor(meta.category)))
+    -- Body, header band, border. A placeholder (#53) uses its own muted grey palette instead of
+    -- a category color, so it reads as an inert stand-in rather than a real node of some type.
+    local bodyCol = geom.placeholder and Theme.COL_NODE_UNKNOWN_BODY or Theme.COL_NODE_BODY
+    local headerCol = geom.placeholder and Theme.COL_NODE_UNKNOWN_HEADER
+        or Theme.CategoryColor(meta.category)
+    canvas:AddRectangle(sx, sy, sw, sh, Theme.Vec4(bodyCol))
+    canvas:AddRectangle(sx, sy, sw, headerH, Theme.Vec4(headerCol))
     local borderCol = opts.selected and Theme.COL_NODE_SEL or Theme.COL_NODE_BORDER
     canvas:AddOutline(sx, sy, sw, sh, Theme.BORDER_THICKNESS, Theme.Vec4(borderCol))
 
