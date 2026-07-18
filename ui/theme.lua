@@ -141,6 +141,11 @@ Theme.PALETTE_PAD   = 6      -- inner padding above/below the row list
 Theme.PALETTE_MAX_H = 400   -- cap the popup height so a big Registry doesn't fill the screen
                             -- (scrolls past this); also bounded to 92% of the draw rect
 
+-- Scrollbar in the reserved right gutter (only drawn when the list overflows). Press-anywhere
+-- jumps the thumb under the cursor and scrubs (see Palette:ScrollToY); the wheel still scrolls.
+Theme.PALETTE_SCROLLBAR_W         = 8   -- gutter/track width reserved on the panel's right edge
+Theme.PALETTE_SCROLLBAR_MIN_THUMB = 24  -- floor on the proportional thumb so it stays grabbable
+
 -- Two clicks pairing into a double-click that opens the Palette on empty space.
 Theme.DOUBLECLICK_TICKS = 12  -- Logic ticks (~0.02s each) allowed between the two clicks
 Theme.DOUBLECLICK_DIST  = 6   -- max screen-px drift between the two clicks
@@ -161,6 +166,9 @@ Theme.COL_PALETTE_HEADER_TX = col(150, 190, 230, 1.0)  -- category label
 Theme.COL_PALETTE_HOVER     = col(60, 70, 90, 1.0)      -- row under the cursor
 Theme.COL_PALETTE_TEXT      = col(220, 222, 230, 1.0)
 Theme.COL_PALETTE_TEXT_DIM  = col(130, 132, 140, 1.0)  -- unavailable-node row + its reason
+Theme.COL_PALETTE_TRACK     = col(22, 22, 26, 1.0)      -- recessed scrollbar track backing
+Theme.COL_PALETTE_THUMB     = col(80, 88, 104, 1.0)     -- scrollbar thumb
+Theme.COL_PALETTE_THUMB_HOT = col(110, 122, 148, 1.0)   -- thumb while being dragged
 
 Theme.COL_NODE_BODY   = col(43, 43, 48, 0.96)
 Theme.COL_NODE_BORDER = col(15, 15, 18, 1.0)

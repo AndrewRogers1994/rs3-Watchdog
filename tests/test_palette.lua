@@ -189,6 +189,84 @@ function TestPalette:testDrawWidensPanelToFitLongestRowText()
     luaunit.assertTrue(self.palette.rect.w > Theme.PALETTE_W)
 end
 
+-- The scrollbar is only drawn (and its rect recorded) when the row list overflows the
+-- visible area. A short list that fits leaves no scrollbar behind.
+function TestPalette:testScrollbarOnlyWhenListOverflows()
+    self.palette:Open(self.registry, nil, { screenX = 10, screenY = 10, anchorGX = 0, anchorGY = 0 })
+
+    -- Tall draw rect: all 12 rows (2 headers + 10 items) fit, so no scrollbar.
+    self.palette:Draw(mockCanvas(), 0, 0, 800, 600, -1, -1)
+    luaunit.assertIsNil(self.palette.rect.scrollbar)
+    luaunit.assertEquals(self.palette.maxScroll, 0)
+
+    -- Short draw rect forces only a few visible rows -> overflow -> scrollbar present.
+    self.palette:Draw(mockCanvas(), 0, 0, 800, 80, -1, -1)
+    local sb = self.palette.rect.scrollbar
+    luaunit.assertNotNil(sb)
+    luaunit.assertTrue(self.palette.maxScroll > 0)
+    -- Thumb is proportional but floored to the grabbable minimum, and never taller than the track.
+    luaunit.assertTrue(sb.thumbH >= math.min(Theme.PALETTE_SCROLLBAR_MIN_THUMB, sb.h))
+    luaunit.assertTrue(sb.thumbH <= sb.h)
+end
+
+-- Reserving the gutter narrows the clickable row width: a press in the scrollbar column
+-- returns no row even at a row's own Y, while the same row is still hittable to its left.
+function TestPalette:testRowAtExcludesScrollbarGutter()
+    self.palette:Open(self.registry, nil, { screenX = 10, screenY = 10, anchorGX = 0, anchorGY = 0 })
+    self.palette:Draw(mockCanvas(), 0, 0, 800, 80, -1, -1)   -- overflow -> gutter reserved
+
+    local r = self.palette.rect
+    local sb = r.scrollbar
+    -- Alarm is the first item row (row 2, after the trigger header at row 1) and, unscrolled,
+    -- it's the first visible non-header row.
+    local rowY = r.y + r.pad + 1 * r.rowH + math.floor(r.rowH / 2)
+
+    -- Left of the gutter: the row is live and hittable.
+    luaunit.assertNotNil(self.palette:RowAt(r.x + 4, rowY))
+    -- Inside the gutter column at the same Y: no row (it's the scrollbar's space).
+    luaunit.assertIsNil(self.palette:RowAt(sb.x + 1, rowY))
+end
+
+-- Press-anywhere jump-to-cursor mapping: clicking at (or above) the track top pins scroll to
+-- 0; clicking at (or below) the track bottom pins it to maxScroll. Centered-thumb math, so the
+-- endpoints saturate rather than leaving the thumb half-hanging off the ends.
+function TestPalette:testScrollToYMapsEndpoints()
+    self.palette:Open(self.registry, nil, { screenX = 10, screenY = 10, anchorGX = 0, anchorGY = 0 })
+    self.palette:Draw(mockCanvas(), 0, 0, 800, 80, -1, -1)   -- overflow
+    local sb = self.palette.rect.scrollbar
+
+    self.palette:ScrollToY(sb.y)
+    luaunit.assertEquals(self.palette.scroll, 0)
+
+    self.palette:ScrollToY(sb.y + sb.h)
+    luaunit.assertEquals(self.palette.scroll, self.palette.maxScroll)
+
+    -- Well above the track saturates at 0 too (clamped, not negative).
+    self.palette:ScrollToY(sb.y - 100)
+    luaunit.assertEquals(self.palette.scroll, 0)
+end
+
+-- ScrollbarAt reports a press within the gutter column (used by the Editor to start a drag),
+-- and rejects a press out over the rows or entirely outside the panel.
+function TestPalette:testScrollbarAtHitTest()
+    self.palette:Open(self.registry, nil, { screenX = 10, screenY = 10, anchorGX = 0, anchorGY = 0 })
+    self.palette:Draw(mockCanvas(), 0, 0, 800, 80, -1, -1)
+    local sb = self.palette.rect.scrollbar
+
+    luaunit.assertTrue(self.palette:ScrollbarAt(sb.x + 1, sb.y + 5))
+    luaunit.assertFalse(self.palette:ScrollbarAt(self.palette.rect.x + 4, sb.y + 5))  -- over a row
+    luaunit.assertFalse(self.palette:ScrollbarAt(-50, -50))                            -- off-panel
+end
+
+-- With no scrollbar (short list) ScrollbarAt is always false and ScrollToY is inert.
+function TestPalette:testScrollbarInertWhenNoOverflow()
+    self.palette:Open(self.registry, nil, { screenX = 10, screenY = 10, anchorGX = 0, anchorGY = 0 })
+    self.palette:Draw(mockCanvas(), 0, 0, 800, 600, -1, -1)   -- everything fits
+    luaunit.assertFalse(self.palette:ScrollbarAt(self.palette.rect.x + 1, self.palette.rect.y + 1))
+    self.palette:ScrollToY(9999)
+    luaunit.assertEquals(self.palette.scroll, 0)
+end
+
 function TestPalette:testDrawClampsPanelWidthToViewport()
     self.registry.nodeTypes["live.trigger.long"] = {
         key = "live.trigger.long", category = "trigger", displayName = string.rep("A", 45),

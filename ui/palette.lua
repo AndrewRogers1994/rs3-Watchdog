@@ -71,6 +71,7 @@ function Palette.new()
         rows = {},        -- flat draw list; header rows { header=true, category } or item rows
         scroll = 0,       -- rows scrolled off the top
         maxScroll = 0,    -- recomputed each Draw (needs the visible-row count)
+        scrollDragging = false,  -- Editor sets this while dragging the scrollbar (thumb draws hot)
         screenX = 0,      -- where the panel was requested (clamped into the bounds rect at Draw)
         screenY = 0,
         anchorGX = 0,     -- Graph-space point the new Node's origin is placed at
@@ -156,6 +157,7 @@ function Palette:Close()
     self.rows = {}
     self.rect = nil
     self.connect = nil
+    self.scrollDragging = false
 end
 
 -- Scrolls the list. `delta` follows the wheel convention (delta > 0 = wheel up).
@@ -182,6 +184,19 @@ function Palette:Draw(canvas, vx, vy, vw, vh, mx, my)
     -- never gets clipped by the panel edge. Right margin mirrors the row's own
     -- left inset rather than the (smaller) panel-wide PALETTE_PAD, both for visual
     -- symmetry and so the fit isn't razor-thin against font-metric rounding.
+    local maxPanelH = math.min(total * rowH + pad * 2, math.floor(vh * 0.92), Theme.PALETTE_MAX_H)
+    local visibleRows = math.floor((maxPanelH - pad * 2) / rowH)
+    if visibleRows < 1 then visibleRows = 1 end
+    if visibleRows > total then visibleRows = total end
+    local panelH = visibleRows * rowH + pad * 2
+
+    -- The list overflows exactly when not every row is visible; only then is a scrollbar (and
+    -- the gutter it needs) drawn. `rowW` is the width available to row text/hover/hit (measured
+    -- from the panel's left px) — the full panel normally, pulled in by the reserved gutter when
+    -- the scrollbar is present.
+    local hasScrollbar = total > visibleRows
+    local gutter = hasScrollbar and (Theme.PALETTE_SCROLLBAR_W + 2) or 0
+
     local panelW = Theme.PALETTE_W
     for _, row in ipairs(self.rows) do
         local w = Theme.TextWidth(12, rowLabel(row))
@@ -190,13 +205,9 @@ function Palette:Draw(canvas, vx, vy, vw, vh, mx, my)
             if needed > panelW then panelW = needed end
         end
     end
-    panelW = math.min(panelW, vw)
-
-    local maxPanelH = math.min(total * rowH + pad * 2, math.floor(vh * 0.92), Theme.PALETTE_MAX_H)
-    local visibleRows = math.floor((maxPanelH - pad * 2) / rowH)
-    if visibleRows < 1 then visibleRows = 1 end
-    if visibleRows > total then visibleRows = total end
-    local panelH = visibleRows * rowH + pad * 2
+    -- Widen by the gutter so reserving it doesn't steal room from the text (rows keep their fit).
+    panelW = math.min(panelW + gutter, vw)
+    local rowW = panelW - gutter
 
     -- Clamp the panel inside the bounds rect so it stays on screen; the Editor expands its
     -- full-screen Capture Layer while the Palette is open, so every row (even one past the
@@ -221,7 +232,7 @@ function Palette:Draw(canvas, vx, vy, vw, vh, mx, my)
         if row ~= nil then
             local ry = py + pad + (i - 1) * rowH
             if row.header then
-                canvas:AddRectangle(px + 1, ry, panelW - 2, rowH,
+                canvas:AddRectangle(px + 1, ry, rowW - 2, rowH,
                     Theme.Vec4(Theme.COL_PALETTE_HEADER_BG))
                 if font ~= nil then
                     canvas:AddText(px + HEADER_INSET, ry + 3, rowLabel(row), font,
@@ -229,11 +240,12 @@ function Palette:Draw(canvas, vx, vy, vw, vh, mx, my)
                 end
             else
                 -- Unavailable rows are inert (RowAt excludes them): no hover highlight, no
-                -- click affordance to suggest otherwise.
+                -- click affordance to suggest otherwise. The gutter is not part of a row, so
+                -- hovering it (mx past the row width) highlights nothing.
                 local hovered = not row.unavailable
-                    and mx >= px and mx <= px + panelW and my >= ry and my < ry + rowH
+                    and mx >= px and mx <= px + rowW and my >= ry and my < ry + rowH
                 if hovered then
-                    canvas:AddRectangle(px + 1, ry, panelW - 2, rowH,
+                    canvas:AddRectangle(px + 1, ry, rowW - 2, rowH,
                         Theme.Vec4(Theme.COL_PALETTE_HOVER))
                 end
                 if font ~= nil then
@@ -257,8 +269,56 @@ function Palette:Draw(canvas, vx, vy, vw, vh, mx, my)
         end
     end
 
-    self.rect = { x = px, y = py, w = panelW, h = panelH,
-                  pad = pad, rowH = rowH, visibleRows = visibleRows }
+    -- Scrollbar in the reserved gutter (only when the list overflows). Track spans the row
+    -- viewport; the thumb is proportional (visible/total of the track) with a grabbable floor,
+    -- and slides from top (scroll 0) to bottom (scroll maxScroll). Recorded on self.rect so the
+    -- Editor can hit-test a drag against it (ScrollbarAt) and map cursor Y back to scroll
+    -- (ScrollToY). Drawn last so it sits above the rows.
+    local scrollbar = nil
+    if hasScrollbar then
+        local trackX = px + panelW - Theme.PALETTE_SCROLLBAR_W - 1
+        local trackY = py + pad
+        local trackW = Theme.PALETTE_SCROLLBAR_W
+        local trackH = visibleRows * rowH
+        local thumbH = math.max(Theme.PALETTE_SCROLLBAR_MIN_THUMB,
+            math.floor(visibleRows / total * trackH))
+        if thumbH > trackH then thumbH = trackH end
+        local usable = trackH - thumbH
+        local frac = self.maxScroll > 0 and (self.scroll / self.maxScroll) or 0
+        local thumbY = trackY + math.floor(usable * frac + 0.5)
+
+        canvas:AddRectangle(trackX, trackY, trackW, trackH, Theme.Vec4(Theme.COL_PALETTE_TRACK))
+        local thumbCol = self.scrollDragging and Theme.COL_PALETTE_THUMB_HOT or Theme.COL_PALETTE_THUMB
+        canvas:AddRectangle(trackX, thumbY, trackW, thumbH, Theme.Vec4(thumbCol))
+
+        scrollbar = { x = trackX, y = trackY, w = trackW, h = trackH, thumbH = thumbH }
+    end
+
+    self.rect = { x = px, y = py, w = panelW, h = panelH, rowW = rowW,
+                  pad = pad, rowH = rowH, visibleRows = visibleRows, scrollbar = scrollbar }
+end
+
+-- Whether a screen point is within the scrollbar's gutter column (its track). The Editor calls
+-- this on press to decide whether to start a scroll-drag; false when no scrollbar is drawn.
+function Palette:ScrollbarAt(sx, sy)
+    local r = self.rect
+    if not self.open or r == nil or r.scrollbar == nil then return false end
+    local sb = r.scrollbar
+    return sx >= sb.x and sx <= sb.x + sb.w and sy >= sb.y and sy <= sb.y + sb.h
+end
+
+-- Maps a screen Y to a scroll position: the thumb centers under the cursor (so a press-anywhere
+-- jump and a subsequent drag share one mapping), clamped so the ends saturate at 0 / maxScroll.
+-- Inert when there's no scrollbar.
+function Palette:ScrollToY(sy)
+    local r = self.rect
+    if not self.open or r == nil or r.scrollbar == nil then return end
+    local sb = r.scrollbar
+    local usable = sb.h - sb.thumbH
+    local frac = 0
+    if usable > 0 then frac = (sy - sb.y - sb.thumbH / 2) / usable end
+    if frac < 0 then frac = 0 elseif frac > 1 then frac = 1 end
+    self.scroll = math.floor(frac * self.maxScroll + 0.5)
 end
 
 -- The item row under a screen point, or nil (header rows, unavailable rows, and empty
@@ -266,7 +326,9 @@ end
 function Palette:RowAt(sx, sy)
     local r = self.rect
     if not self.open or r == nil then return nil end
-    if sx < r.x or sx > r.x + r.w or sy < r.y or sy > r.y + r.h then return nil end
+    -- Rows only span the row width; the gutter beyond it belongs to the scrollbar, so a press
+    -- there is not a row (and must not be, or it'd swallow the scroll-drag the Editor wants).
+    if sx < r.x or sx > r.x + r.rowW or sy < r.y or sy > r.y + r.h then return nil end
     local i = math.floor((sy - (r.y + r.pad)) / r.rowH) + 1
     if i < 1 or i > r.visibleRows then return nil end
     local row = self.rows[self.scroll + i]

@@ -595,6 +595,9 @@ function Editor:update()
             local lx, ly = self:toLocal(mx, my)
             self.colorPopup:ApplyDrag(self.colorDragPart, lx, ly)
             self:commitColorPopupValue()
+        elseif self.mode == "palettescroll" then
+            -- Palette hit-tests in screen space, so scrub with the raw mouse (no toLocal).
+            self.palette:ScrollToY(my)
         end
         -- "wire" needs no state here; the loose end follows self.mouse in Draw.
     end
@@ -615,6 +618,7 @@ function Editor:endPress()
     self.wire = nil
     self.dragNodeId = nil
     self.colorDragPart = nil
+    self.palette.scrollDragging = false
     -- Shrink the Capture Layer back to the Window — UNLESS this release just opened the Palette
     -- (a Wire dropped on empty Viewport, via commitWire above), which needs the capture to stay
     -- full-screen so its out-of-window rows remain clickable. closePalette restores it later.
@@ -733,6 +737,18 @@ end
 -- `mx, my` are SCREEN coords (the Palette hit-tests in screen space, matching how it draws on
 -- the full-screen paletteCanvas) — beginPress passes the raw mouse position, not toLocal'd.
 function Editor:handlePaletteClick(mx, my)
+    -- A press in the scrollbar gutter starts a scroll-drag (jump-to-cursor now, scrub as the
+    -- cursor moves — see update's "palettescroll" branch). This is the one Palette press that
+    -- becomes a real drag gesture, so it sets up pressed/expandCapture like the color popup's
+    -- draggable parts do; checked before RowAt since the gutter isn't a row.
+    if self.palette:ScrollbarAt(mx, my) then
+        self.pressed = true
+        self:expandCapture()
+        self.mode = "palettescroll"
+        self.palette.scrollDragging = true
+        self.palette:ScrollToY(my)
+        return
+    end
     local row = self.palette:RowAt(mx, my)
     if row ~= nil then
         self:placeFromPalette(row)
