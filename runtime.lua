@@ -70,6 +70,13 @@ function Runtime.new(eventSource, mouseSource)
         -- eventName -> { bindings = { { typeKey, transform, filter }, ... },
         --                subscribed, subscribeName, source }
         channels = {},
+        -- Poll edge state (#28), keyed by graph then by nodeId — a poll node's predicate
+        -- history so the gate can fire `Enter`/`Leave` only on a transition. Node ids are only
+        -- unique *within* a graph (two alerts can hold the same id), so it's a per-graph subtable
+        -- rather than one flat `nodeId -> bool` map. Weak graph keys let a dropped alert's state
+        -- be collected. Lazy (missing ⇒ false, so already-true-at-load fires Enter) and never
+        -- serialized — a reload re-detects edges from scratch.
+        pollEdgeState = setmetatable({}, { __mode = "k" }),
         effects = Effects.new(),
         -- The shared InfoBox Area (#41): a registry-level layout component living on the same
         -- overlay Canvas as `effects`, but not a free EffectRegistry handle (it needs per-box
@@ -258,9 +265,18 @@ function Runtime:Toggle(name)
 end
 
 -- Registers a trigger node type's event binding(s). `entries` is a list of
--- `{ event = "ChannelName", transform = fn(raw) -> payload, filter = fn(payload, node) -> bool }`.
+-- `{ kind = "event"|"poll", event = "ChannelName", transform = fn(raw) -> payload,
+--    filter = fn(payload, node) -> bool }`.
 -- Multi-source nodes (e.g. a future Entity Spawn node) list several entries. Each distinct
 -- `event` is subscribed exactly once, no matter how many typeKeys bind to it.
+--
+-- `kind` defaults to "event": the payload fans out to every filter-passing node on every event
+-- (the Chat/Tick path). A "poll" entry rides the *same* transform -> filter pipeline but adds an
+-- edge gate (#28): `transform` samples shared world state once per tick, `filter(payload, node)`
+-- is the per-node predicate, and the node's own `Enter`/`Leave` exec pin fires only on the
+-- transition of that predicate — see `_firePollBindingInGraph`. A poll entry is expected to bind
+-- a per-tick channel (e.g. "Logic") and declare a `transform` that returns nil when the source is
+-- unreadable (logged out), which freezes edge state for that tick.
 function Runtime:BindTrigger(typeKey, entries)
     assert(type(typeKey) == "string" and typeKey ~= "", "BindTrigger requires a typeKey")
     assert(type(entries) == "table" and #entries > 0, "BindTrigger requires at least one binding entry")
@@ -274,6 +290,7 @@ function Runtime:BindTrigger(typeKey, entries)
         end
         channel.bindings[#channel.bindings + 1] = {
             typeKey = typeKey,
+            kind = entry.kind or "event",
             transform = entry.transform,
             filter = entry.filter,
         }
@@ -317,7 +334,16 @@ function Runtime:_dispatch(eventName, raw)
             end
         end
         if transformOk then
-            self:_fireBinding(binding, payload)
+            if binding.kind == "poll" then
+                -- A nil sample means the source was unreadable this tick (e.g. logged out): skip
+                -- the whole binding and leave every node's edge state untouched (frozen), so there's
+                -- no spurious Leave now and no relog-Enter next tick unless a real transition occurs.
+                if payload ~= nil then
+                    self:_firePollBinding(binding, payload)
+                end
+            else
+                self:_fireBinding(binding, payload)
+            end
         end
     end
 end
@@ -352,6 +378,83 @@ function Runtime:_fireBindingInGraph(binding, payload, graph)
             end
             if passes then
                 pcall(function() graph:Fire(nodeId, payload) end)
+            end
+        end
+    end
+end
+
+-- Poll fan-out (#28). Same shape as `_fireBinding` — over every *enabled* alert — but each
+-- graph is handled by `_firePollBindingInGraph`, which applies the edge gate instead of firing
+-- on every filter pass. A disabled alert is skipped (and so its edge state is left frozen until
+-- re-enabled), mirroring the enabled check on the event path.
+function Runtime:_firePollBinding(binding, payload)
+    for _, alert in ipairs(self.alerts) do
+        if alert.enabled then
+            self:_firePollBindingInGraph(binding, payload, alert.graph)
+        end
+    end
+end
+
+-- Returns this graph's lazy `nodeId -> bool` edge-state subtable, creating it on first use. Kept
+-- per-graph (not one flat map) because node ids are only unique within a graph — see
+-- `pollEdgeState` in Runtime.new.
+function Runtime:_pollEdgeStateFor(graph)
+    local states = self.pollEdgeState[graph]
+    if states == nil then
+        states = {}
+        self.pollEdgeState[graph] = states
+    end
+    return states
+end
+
+-- What the dispatcher hands a poll node's `run(ctx)` as `ctx.payload` — the resolved edge plus
+-- the value `transform` sampled this tick. A poll node's run is expected to do only
+-- `ctx:Fire(ctx.payload.edge)` (and optionally surface `sample` on data outputs); the dispatcher
+-- owns which edge occurred, so the node never re-derives it.
+---@class Watchdog.PollFirePayload
+---@field edge "Enter"|"Leave"  # the transition the edge gate detected this tick
+---@field sample any            # the value transform() sampled this tick (shared world state)
+
+-- The edge gate: for every poll node of this binding's typeKey, evaluate the per-node predicate
+-- `filter(payload, node)` and compare it to the node's remembered state. A false->true transition
+-- fires the node's `Enter` exec pin; true->false fires `Leave`. The node's own `run(ctx)` receives
+-- `{ edge = "Enter"|"Leave", sample = payload }` and is expected only to `ctx:Fire(ctx.payload.edge)`
+-- (and optionally surface `sample` on data outputs) — the dispatcher owns which edge occurred.
+-- `Leave` firing when unwired is a harmless no-op (the engine finds no target connections), so
+-- the "optional Leave" contract needs no wiring check here.
+--
+-- Edge state starts false (a node absent from `edgeStates`), so a predicate already true at load
+-- fires `Enter` on the first tick. A filter error freezes that one node's edge (treated like a
+-- nil sample) so a broken predicate can't manufacture a spurious transition.
+function Runtime:_firePollBindingInGraph(binding, payload, graph)
+    if graph == nil then
+        return
+    end
+    local edgeStates = self:_pollEdgeStateFor(graph)
+    for _, node in ipairs(graph:GetNodes()) do
+        if node.typeKey == binding.typeKey then
+            local nodeId = node.id
+            -- nil marks "freeze this node" (filter errored); true/false is the predicate result.
+            local current = true
+            if binding.filter ~= nil then
+                local nodeHandle = makeNodeHandle(graph, node)
+                local ok, result = callOrLog(
+                    "poll filter error on '" .. binding.typeKey .. "'",
+                    binding.filter, payload, nodeHandle)
+                if ok then
+                    current = result and true or false
+                else
+                    current = nil
+                end
+            end
+            if current ~= nil then
+                local prev = edgeStates[nodeId] == true -- lazy: missing ⇒ false
+                if current and not prev then
+                    pcall(function() graph:Fire(nodeId, { edge = "Enter", sample = payload }) end)
+                elseif prev and not current then
+                    pcall(function() graph:Fire(nodeId, { edge = "Leave", sample = payload }) end)
+                end
+                edgeStates[nodeId] = current
             end
         end
     end

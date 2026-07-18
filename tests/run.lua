@@ -18,6 +18,7 @@ package.path = rootDir .. "?.lua;" .. testsDir .. "?.lua;" .. rootDir .. "../Lib
 local luaunit = require("luaunit")
 
 require("test_runtime")
+require("test_poll")
 require("test_store")
 require("test_chat")
 require("test_logic_triggers")
