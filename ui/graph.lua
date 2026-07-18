@@ -261,7 +261,7 @@ end
 function Editor:meta(nodeId, typeKey)
     -- A placeholder is titled by the type it's standing in for, not the reserved key (#53).
     if typeKey == self:unknownTypeKey() then
-        return { title = "⚠ Unknown: " .. (self:unknownTypeOf(nodeId) or "?"),
+        return { title = "Unknown: " .. (self:unknownTypeOf(nodeId) or "?"),
             category = nil, placeholder = true }
     end
     local nt = self.registry:GetNodeType(typeKey)
