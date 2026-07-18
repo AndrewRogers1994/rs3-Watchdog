@@ -34,7 +34,7 @@ require("test_infobox")
 require("test_infobox_node")
 require("test_screen_marker_capture")
 require("test_screen_marker")
-require("test_overlay")
+require("test_toast")
 require("test_sound")
 require("test_custom_sound")
 

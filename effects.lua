@@ -66,7 +66,7 @@ function EffectRegistry:IsMounted()
 end
 
 -- The mounted overlay Canvas itself (nil until Mount succeeds) — exposed so a sibling
--- registry-level effect (e.g. overlay.lua's OverlayStack, #36) can draw onto the same
+-- registry-level effect (e.g. toast.lua's ToastStack, #36) can draw onto the same
 -- always-on surface without effects.lua threading its own Draw through every caller.
 function EffectRegistry:GetCanvas()
     return self.canvas

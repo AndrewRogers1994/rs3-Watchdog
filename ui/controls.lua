@@ -156,13 +156,13 @@ Controls.Register("color", {
     parse  = function(raw, current) return Color.ParseHex8(raw, current) end,
 })
 
--- overlayIcon (#36): a curated sprite-id dropdown for the Overlay action's `icon` config, plus
+-- toastIcon (#36): a curated sprite-id dropdown for the Toast action's `icon` config, plus
 -- a "None" option (value = nil) since AddSprite is optional on the toast. Ids are the High-
 -- confidence entries from docs/research/popup-frame-sprites.md's notification-icon set;
 -- `id.Sprite` is absent under the bare interpreter, so ids are the literal numeric constants
 -- (recorded in that research doc), not `id.Sprite.*` lookups, so this spec loads with no
 -- client globals like every other one in this file.
-Controls.Register("overlayIcon", {
+Controls.Register("toastIcon", {
     widget = "enum",
     choices = {
         { value = nil,   label = "None" },

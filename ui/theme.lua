@@ -76,24 +76,24 @@ Theme.COLOR_POPUP_ROW_H    = 18    -- prev/cur, hex, and each R/G/B/A row share 
 Theme.COLOR_POPUP_ROW_GAP  = 6     -- vertical gap between stacked rows
 Theme.COLOR_POPUP_CHECKER_CELL = 6 -- screen-px checker cell behind the alpha preview
 
--- Overlay toast (#36): a small draggable notification drawn on the always-on effect overlay
+-- Toast (#36): a small draggable notification drawn on the always-on effect overlay
 -- Canvas (effects.lua), NOT the editor's own Canvas — fixed screen-space, not scaled by the
 -- View. Body + a left accent bar (the `color` data pin's dynamic tint) + outline + optional
 -- icon sprite + text, stacked vertically below the shared, draggable anchor.
-Theme.OVERLAY_W            = 240   -- toast width
-Theme.OVERLAY_H            = 48    -- toast height
-Theme.OVERLAY_GAP          = 6     -- vertical gap between stacked toasts
-Theme.OVERLAY_ACCENT_W     = 3     -- left accent bar width
-Theme.OVERLAY_ICON_SIZE    = 28    -- optional icon sprite bounding box
-Theme.OVERLAY_PAD_X        = 8     -- inner left/right padding
-Theme.OVERLAY_TOP_MARGIN   = 24    -- default anchor distance below the top of the screen
+Theme.TOAST_W            = 240   -- toast width
+Theme.TOAST_H            = 48    -- toast height
+Theme.TOAST_GAP          = 6     -- vertical gap between stacked toasts
+Theme.TOAST_ACCENT_W     = 3     -- left accent bar width
+Theme.TOAST_ICON_SIZE    = 28    -- optional icon sprite bounding box
+Theme.TOAST_PAD_X        = 8     -- inner left/right padding
+Theme.TOAST_TOP_MARGIN   = 24    -- default anchor distance below the top of the screen
 
-Theme.COL_OVERLAY_BG     = col(24, 24, 28, 0.92)
-Theme.COL_OVERLAY_BORDER = col(10, 10, 12, 1.0)
-Theme.COL_OVERLAY_TEXT   = col(230, 230, 236, 1.0)
+Theme.COL_TOAST_BG     = col(24, 24, 28, 0.92)
+Theme.COL_TOAST_BORDER = col(10, 10, 12, 1.0)
+Theme.COL_TOAST_TEXT   = col(230, 230, 236, 1.0)
 
 -- InfoBox strip (#41): a wrapping row of fixed square icon+text tiles drawn on the effect
--- overlay Canvas (like the overlay toast, fixed screen-space), one tile per action.infobox
+-- overlay Canvas (like the toast, fixed screen-space), one tile per action.infobox
 -- node, laid out left-to-right from a shared draggable anchor and wrapping past a width.
 Theme.INFOBOX_BOX_SIZE   = 36    -- side of each fixed square icon+text tile
 Theme.INFOBOX_GAP        = 2     -- gap between adjacent tiles (both axes)

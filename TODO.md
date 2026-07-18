@@ -47,8 +47,8 @@ Target: mirror the trigger/notification list from https://github.com/adamk33n3r/
   - NO API. No overhead-text field/method on `PlayerEntity`/`NPCEntity` and no set-overhead call (same gap as the Overhead Text trigger). Not achievable.
 - [x] Screen Flash — `action.screen_flash`
   - SELF-DRAWN dismiss-only EffectRegistry effect (#29 overlay Canvas): two hardcoded 25-tick rise/fall segments, each shaped `instant`/`fade` by its own dropdown, repeating until dismissed. Full RGBA `color` (alpha = peak alpha). `Dismiss` exec pin + `dismissOn` dropdown (none/mouse/keyboard/both) driven by `runtime.keyboardActivityTick`/`mouseActivityTick`. Concurrency Replace (re-Show restarts). Done (#37).
-- [x] Overlay — overlay notification — `action.overlay` (#36)
-  - SELF-DRAWN via Canvas on the #29 effect overlay (not `ui.GroupBox`). `overlay.lua`'s OverlayStack owns one shared, cap-10-evict-oldest toast stack across every Overlay node, 5s default TTL / sticky-until-dismissed, same-node re-fire stacks, dismiss clears one node's toasts. Anchor drag/persistence math is unit-tested (`tests/test_overlay.lua`); the drag capture mount and `ctx.pin`/`ctx.nodeId` field names are BUILD-VERIFY against the real engine (absent from the sandbox this was built in).
+- [x] Toast — toast notification — `action.toast` (#36) _(was "Overlay" — legacy RuneLite name, renamed)_
+  - SELF-DRAWN via Canvas on the #29 effect overlay (not `ui.GroupBox`). `toast.lua`'s ToastStack owns one shared, cap-10-evict-oldest toast stack across every Toast node, 5s default TTL (now overridable per-node via the `hold` config pin, mirroring Popup) / sticky-until-dismissed, same-node re-fire stacks, dismiss clears one node's toasts. Anchor drag/persistence math is unit-tested (`tests/test_toast.lua`); the drag capture mount and `ctx.pin`/`ctx.nodeId` field names are BUILD-VERIFY against the real engine (absent from the sandbox this was built in).
 - [x] Popup — like collection log / league task popup — `action.popup`
   - SELF-DRAWN. No native popup API (confirmed vs docs); emulated with a Canvas-drawn banner on the always-on overlay Canvas (#29), animated in->hold->out over Logic ticks and auto-expiring (only HOLD is configurable, ~4s default). Queue-only. Single `body` data pin; `title`/`icon`/`theme`/`hold` are node-config (Control-only pins). Two themes behind a dropdown — Parchment (primitive, default) + Leagues (multi-part `RS3_RIBBON_LEAGUES_GOLD_*` sprites) — with a `Popup.RegisterTheme` seam; curated icon dropdown reuses the enum Control. See `nodes/actions/popup.lua`.
 - [x] Screen Marker — `action.screen_marker`
@@ -59,8 +59,8 @@ Target: mirror the trigger/notification list from https://github.com/adamk33n3r/
   - INTERNAL, no API. Value via `LibNodeGraphStd` `std.counter`; optional on-screen display is a self-drawn `ui.Text`.
 - [ ] Alert Toggle — toggle an alert's enabled state
   - INTERNAL, no API. Flip a Watchdog alert/graph's `enabled` flag in Watchdog state.
-- [ ] Dismiss Overlay
-  - INTERNAL, no API. Remove a Watchdog-owned Overlay (from the action above) by id — pure bookkeeping over our own state, not a game-side registry.
+- [ ] Dismiss Toast
+  - INTERNAL, no API. Remove a Watchdog-owned Toast (from the action above) by id — pure bookkeeping over our own state, not a game-side registry.
 - [x] Dismiss Screen Marker
   - INTERNAL, no API. Folded into `action.screen_marker`'s own `dismiss` exec-in pin (#39's #3 dismiss idiom) rather than a separate node type, same as Screen Flash's Dismiss pin.
 - [ ] Dismiss Object Marker

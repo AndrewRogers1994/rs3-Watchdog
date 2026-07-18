@@ -1,8 +1,8 @@
--- overlay.lua — OverlayStack: the shared, registry-level substrate every `action.overlay`
+-- toast.lua — ToastStack: the shared, registry-level substrate every `action.toast`
 -- node (#36) draws its toasts onto. Rides on top of effects.lua's EffectRegistry (its
 -- Stack policy already gives cap+evict-oldest+onDone for free) via ONE shared owner key
--- (`Overlay.OWNER`) so every Overlay node in every graph competes for the same 10 slots,
--- oldest evicted first — "One shared registry-level stack for all Overlay nodes" (#36 AC).
+-- (`Toast.OWNER`) so every Toast node in every graph competes for the same 10 slots,
+-- oldest evicted first — "One shared registry-level stack for all Toast nodes" (#36 AC).
 --
 -- On top of that shared Stack, this module keeps its own bookkeeping the EffectRegistry has
 -- no concept of:
@@ -31,23 +31,23 @@ local Util = require("util")
 local Theme = require("ui/theme")
 
 local function callOrLog(context, fn, ...)
-    return Util.CallOrLog("overlay", context, fn, ...)
+    return Util.CallOrLog("toast", context, fn, ...)
 end
 
-local Overlay = {}
-Overlay.__index = Overlay
+local Toast = {}
+Toast.__index = Toast
 
--- The single owner key every Overlay node's toasts share in the EffectRegistry's Stack, so
+-- The single owner key every Toast node's toasts share in the EffectRegistry's Stack, so
 -- the cap below applies across the whole graph (all alerts), not per node.
-Overlay.OWNER = "overlay"
-Overlay.MAX_STACK = 10
-Overlay.DEFAULT_TTL = 5.0
+Toast.OWNER = "toast"
+Toast.MAX_STACK = 10
+Toast.DEFAULT_TTL = 5.0
 
 -- `effects` is the EffectRegistry (runtime.effects) this stack pushes its toast handles
 -- into. `persistence` is optional: `{ Load() -> {dx,dy}|nil, Save({dx,dy}) }`; omitted (or
 -- both nil, the bare-interpreter default) just means the anchor never survives a reload.
-function Overlay.new(effects, persistence)
-    assert(effects ~= nil, "OverlayStack requires an EffectRegistry")
+function Toast.new(effects, persistence)
+    assert(effects ~= nil, "ToastStack requires an EffectRegistry")
     local self = setmetatable({
         effects = effects,
         persistence = persistence,
@@ -57,14 +57,14 @@ function Overlay.new(effects, persistence)
         drag = nil,     -- { startMouse = {x,y}, startAnchor = {dx,dy} } while a drag is live
         capture = nil,  -- client-only NON-clickthrough drag-capture component, see Mount
         rootParent = nil, -- client root component, kept for screen width (see _screenWidth)
-    }, Overlay)
+    }, Toast)
     self:_loadAnchor()
     return self
 end
 
 --- Anchor persistence -----------------------------------------------------------------
 
-function Overlay:_loadAnchor()
+function Toast:_loadAnchor()
     if self.persistence == nil or self.persistence.Load == nil then
         return
     end
@@ -74,7 +74,7 @@ function Overlay:_loadAnchor()
     end
 end
 
-function Overlay:_saveAnchor()
+function Toast:_saveAnchor()
     if self.persistence == nil or self.persistence.Save == nil then
         return
     end
@@ -82,22 +82,22 @@ function Overlay:_saveAnchor()
 end
 
 -- The current anchor as a {dx, dy} pixel offset from the default top-center point (see
--- Theme.OVERLAY_TOP_MARGIN for that default's own screen placement — client-only concern,
+-- Theme.TOAST_TOP_MARGIN for that default's own screen placement — client-only concern,
 -- kept out of this pure module).
-function Overlay:GetAnchorOffset()
+function Toast:GetAnchorOffset()
     return { dx = self.anchor.dx, dy = self.anchor.dy }
 end
 
 --- Drag ---------------------------------------------------------------------------------
 
-function Overlay:BeginDrag(mousePos)
+function Toast:BeginDrag(mousePos)
     self.drag = {
         startMouse = { x = mousePos.x, y = mousePos.y },
         startAnchor = { dx = self.anchor.dx, dy = self.anchor.dy },
     }
 end
 
-function Overlay:DragTo(mousePos)
+function Toast:DragTo(mousePos)
     if self.drag == nil then
         return
     end
@@ -108,7 +108,7 @@ end
 
 -- Ends the gesture and persists the final position — the only point in a drag that writes
 -- through the persistence hook, so dragging doesn't re-encode/save every polled frame.
-function Overlay:EndDrag()
+function Toast:EndDrag()
     if self.drag == nil then
         return
     end
@@ -123,7 +123,7 @@ end
 -- it under `nodeKey` so a later Dismiss(nodeKey) can find it. A node re-firing `show` calls
 -- this again and gets a SECOND handle stacked alongside the first (#36: "same-node re-fire
 -- STACKs"), never replacing it.
-function Overlay:Show(nodeKey, params)
+function Toast:Show(nodeKey, params)
     params = params or {}
     local sticky = params.sticky and true or false
     local state = {
@@ -132,13 +132,13 @@ function Overlay:Show(nodeKey, params)
         color = params.color,
         icon = params.icon,
         sticky = sticky,
-        remaining = sticky and nil or (params.ttl or Overlay.DEFAULT_TTL),
+        remaining = sticky and nil or (params.ttl or Toast.DEFAULT_TTL),
     }
 
     local self_ = self
     local handle
     handle = {
-        kind = "overlay",
+        kind = "toast",
         state = state,
         update = function(dt)
             if state.sticky then
@@ -159,14 +159,14 @@ function Overlay:Show(nodeKey, params)
     end
     owned[#owned + 1] = handle
 
-    self.effects:PushStack(Overlay.OWNER, handle, Overlay.MAX_STACK)
+    self.effects:PushStack(Toast.OWNER, handle, Toast.MAX_STACK)
     return handle
 end
 
 -- Removes `handle` from `live`/`byOwner` bookkeeping (called from its own onDone, whether it
 -- left the live set via natural TTL expiry, an explicit Dismiss, or a cap eviction — all
 -- three route through EffectRegistry's onDone the same way).
-function Overlay:_forget(handle)
+function Toast:_forget(handle)
     for i, h in ipairs(self.live) do
         if h == handle then
             table.remove(self.live, i)
@@ -189,10 +189,10 @@ function Overlay:_forget(handle)
 end
 
 -- Clears every live toast belonging to `nodeKey` (#36: "dismiss clears all of that node's
--- live overlays" — including sticky ones, which never expire on their own). No-op for a
+-- live toasts" — including sticky ones, which never expire on their own). No-op for a
 -- node with nothing live. Snapshots the owned list first since each Dismiss's onDone
 -- mutates `byOwner[nodeKey]` in place.
-function Overlay:Dismiss(nodeKey)
+function Toast:Dismiss(nodeKey)
     local owned = self.byOwner[nodeKey]
     if owned == nil then
         return
@@ -206,7 +206,7 @@ function Overlay:Dismiss(nodeKey)
     end
 end
 
-function Overlay:LiveCount()
+function Toast:LiveCount()
     return #self.live
 end
 
@@ -215,7 +215,7 @@ end
 -- Full-screen width, read from the client's root component (the same source, and fallback,
 -- as the Editor's own screenSize() in ui/graph.lua — the Canvas can't be measured for this).
 -- Falls back to a fixed guess so this never errors outside the client.
-function Overlay:_screenWidth()
+function Toast:_screenWidth()
     local w = 1920
     if self.rootParent ~= nil then
         pcall(function()
@@ -226,17 +226,17 @@ function Overlay:_screenWidth()
 end
 
 -- The default top-center anchor point in absolute screen space, before the user's own drag offset.
-function Overlay:_anchorPoint()
+function Toast:_anchorPoint()
     return {
         x = self:_screenWidth() * 0.5 + self.anchor.dx,
-        y = Theme.OVERLAY_TOP_MARGIN + self.anchor.dy,
+        y = Theme.TOAST_TOP_MARGIN + self.anchor.dy,
     }
 end
 
 -- Body + left accent bar (the `color` data pin's dynamic tint) + outline + optional icon
 -- sprite + text (#36 AC) — Canvas primitives only, not ui.GroupBox. Stacked vertically below
 -- the shared anchor in `live` order (oldest on top), independent of which node owns which.
-function Overlay:_drawHandle(canvas, handle)
+function Toast:_drawHandle(canvas, handle)
     local index
     for i, h in ipairs(self.live) do
         if h == handle then index = i; break end
@@ -246,33 +246,33 @@ function Overlay:_drawHandle(canvas, handle)
     end
 
     local anchor = self:_anchorPoint()
-    local x = anchor.x - Theme.OVERLAY_W * 0.5
-    local y = anchor.y + (index - 1) * (Theme.OVERLAY_H + Theme.OVERLAY_GAP)
-    local w, h = Theme.OVERLAY_W, Theme.OVERLAY_H
+    local x = anchor.x - Theme.TOAST_W * 0.5
+    local y = anchor.y + (index - 1) * (Theme.TOAST_H + Theme.TOAST_GAP)
+    local w, h = Theme.TOAST_W, Theme.TOAST_H
     local state = handle.state
 
-    canvas:AddRectangle(x, y, w, h, Theme.Vec4(Theme.COL_OVERLAY_BG))
+    canvas:AddRectangle(x, y, w, h, Theme.Vec4(Theme.COL_TOAST_BG))
     local accent = state.color
     if accent ~= nil then
-        canvas:AddRectangle(x, y, Theme.OVERLAY_ACCENT_W, h,
+        canvas:AddRectangle(x, y, Theme.TOAST_ACCENT_W, h,
             Vector4.new((accent.r or 255) / 255, (accent.g or 255) / 255, (accent.b or 255) / 255,
                 (accent.a or 255) / 255))
     end
-    canvas:AddOutline(x, y, w, h, Theme.BORDER_THICKNESS, Theme.Vec4(Theme.COL_OVERLAY_BORDER))
+    canvas:AddOutline(x, y, w, h, Theme.BORDER_THICKNESS, Theme.Vec4(Theme.COL_TOAST_BORDER))
 
-    local textX = x + Theme.OVERLAY_ACCENT_W + Theme.OVERLAY_PAD_X
+    local textX = x + Theme.TOAST_ACCENT_W + Theme.TOAST_PAD_X
     if state.icon ~= nil then
-        local iconY = y + (h - Theme.OVERLAY_ICON_SIZE) * 0.5
+        local iconY = y + (h - Theme.TOAST_ICON_SIZE) * 0.5
         -- AddSprite's colour arg is a Uint RGBA, not a Vector4 (see
         -- docs/research/popup-frame-sprites.md); untinted white, like InfoBox.
-        canvas:AddSprite(textX, iconY, Theme.OVERLAY_ICON_SIZE, Theme.OVERLAY_ICON_SIZE, state.icon,
+        canvas:AddSprite(textX, iconY, Theme.TOAST_ICON_SIZE, Theme.TOAST_ICON_SIZE, state.icon,
             0xFFFFFFFF)
-        textX = textX + Theme.OVERLAY_ICON_SIZE + Theme.OVERLAY_PAD_X
+        textX = textX + Theme.TOAST_ICON_SIZE + Theme.TOAST_PAD_X
     end
 
     local font = Theme.Font(12)
     if font ~= nil then
-        canvas:AddText(textX, y + h * 0.5 - 6, state.text, font, Theme.Vec4(Theme.COL_OVERLAY_TEXT))
+        canvas:AddText(textX, y + h * 0.5 - 6, state.text, font, Theme.Vec4(Theme.COL_TOAST_TEXT))
     end
 end
 
@@ -280,7 +280,7 @@ end
 -- onDraw that already drives runtime.effects:Draw()). `canvas` defaults to the mounted
 -- capture's own canvas — but the toasts actually draw on the shared effect overlay Canvas
 -- (effects.lua), passed in by the caller, same as every other effect kind.
-function Overlay:Draw(canvas)
+function Toast:Draw(canvas)
     if canvas == nil then
         return
     end
@@ -297,7 +297,7 @@ end
 -- live and repositioned every frame, mirroring the Editor's own Capture Layer (ui/graph.lua)
 -- press-then-poll gesture: ONCLICK begins the drag, Mouse.GetPosition() is polled each Logic
 -- tick while pressed (see Update below), ONRELEASE ends and persists it.
-function Overlay:Mount(rootParent)
+function Toast:Mount(rootParent)
     self.rootParent = rootParent  -- kept for _screenWidth() (anchor centering)
     if self.capture ~= nil then
         return
@@ -322,11 +322,11 @@ function Overlay:Mount(rootParent)
     if ok then
         self.capture = capture
     elseif log ~= nil then
-        log("Watchdog overlay: Mount failed — " .. tostring(capture))
+        log("Watchdog toast: Mount failed — " .. tostring(capture))
     end
 end
 
-function Overlay:Unmount()
+function Toast:Unmount()
     if self.capture ~= nil then
         pcall(function() self.capture:Destroy() end)
         self.capture = nil
@@ -336,7 +336,7 @@ end
 -- Called once per Logic tick (main.lua, alongside runtime:Update): while a press is held,
 -- polls Mouse.GetPosition() to drag the anchor, and repositions the capture component over
 -- the current stack bounds so it only ever intercepts clicks that actually land on a toast.
-function Overlay:Update(dt)
+function Toast:Update(dt)
     if self._pressed and Mouse ~= nil and Mouse.GetPosition ~= nil then
         local ok, pos = pcall(Mouse.GetPosition)
         if ok and pos ~= nil then
@@ -347,12 +347,12 @@ function Overlay:Update(dt)
         return
     end
     local anchor = self:_anchorPoint()
-    local x = anchor.x - Theme.OVERLAY_W * 0.5
-    local h = #self.live * Theme.OVERLAY_H + math.max(0, #self.live - 1) * Theme.OVERLAY_GAP
+    local x = anchor.x - Theme.TOAST_W * 0.5
+    local h = #self.live * Theme.TOAST_H + math.max(0, #self.live - 1) * Theme.TOAST_GAP
     pcall(function()
         self.capture:SetPos(x, anchor.y)
-        self.capture:SetSize(Theme.OVERLAY_W, h)
+        self.capture:SetSize(Theme.TOAST_W, h)
     end)
 end
 
-return Overlay
+return Toast
