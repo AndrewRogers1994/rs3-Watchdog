@@ -55,6 +55,22 @@ Theme.COORDGRID_FIELD_GAP  = 4     -- horizontal gap between the 3 fields
 Theme.COORDGRID_BAND_H     = Theme.COORDGRID_TOP_GAP + Theme.COORDGRID_FIELD_H
     + Theme.COORDGRID_MID_GAP + Theme.COORDGRID_BUTTON_H + Theme.COORDGRID_BOTTOM_GAP
 
+-- object_marker mode multi-select (#40): a full-width composite band below the pin's own row,
+-- holding one checkbox row per mode. Same CONTROL_MIN_ZOOM draw/hit gating as coordgrid. These are
+-- per-row sizes only — the number of rows (and thus the band height) is derived from the node's own
+-- mode list via Theme.ModeBandH(count), so the row count lives in ONE place (ObjectMarker.MODES).
+Theme.MODE_TOP_GAP    = 4      -- gap between the pin row and the first checkbox row
+Theme.MODE_ROW_H      = 16     -- one checkbox row height
+Theme.MODE_ROW_GAP    = 3      -- vertical gap between checkbox rows
+Theme.MODE_BOTTOM_GAP = 4      -- gap kept below the last row, before the next pin row
+
+-- The extraH a mode band of `count` checkbox rows reserves below its pin row.
+function Theme.ModeBandH(count)
+    if count <= 0 then return Theme.MODE_TOP_GAP + Theme.MODE_BOTTOM_GAP end
+    return Theme.MODE_TOP_GAP + count * Theme.MODE_ROW_H
+        + (count - 1) * Theme.MODE_ROW_GAP + Theme.MODE_BOTTOM_GAP
+end
+
 -- color swatch control (#30): the on-pin chip is a value-column box like a scalar Control
 -- (Theme.CONTROL_H tall), but a fixed, narrower width so it reads as a color chip rather
 -- than a text field. Checker cell is graph-space (scales with zoom like everything else on

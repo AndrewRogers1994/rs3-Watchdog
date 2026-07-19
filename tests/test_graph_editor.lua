@@ -98,3 +98,46 @@ function TestGraphEditor:testFanOutIsNotTreatedAsDuplicate()
     self.editor:linkPins(trig, "out", act2, "in", false)
     luaunit.assertEquals(#self.graph:GetConnections(), 2)
 end
+
+--- Object Marker mode multi-select toggle (#40) -------------------------------------------
+-- toggleMode only reads self.graph + the clicked control entry (ctrl.value/ctrl.spec), so it
+-- drives against the same metatable-backed fake `self` as linkPins above — no Canvas needed.
+
+local ObjectMarker = require("nodes/actions/object_marker")
+local EffectRegistry = require("effects")
+
+TestObjectMarkerModeToggle = {}
+
+function TestObjectMarkerModeToggle:setUp()
+    self.registry = Registry.new()
+    ObjectMarker.Register(self.registry, { effects = EffectRegistry.new() })
+    self.graph = Graph.new(self.registry)
+    self.editor = setmetatable({ graph = self.graph }, { __index = Editor })
+end
+
+-- The clicked mode checkbox row, as ui/node.lua would hand it to the dispatcher: the real mode
+-- spec (so modeDescriptor resolves enabled/reason) plus the default-resolved current value.
+function TestObjectMarkerModeToggle:ctrl(axis, value)
+    return { pinName = "mode", axis = axis, spec = { modes = ObjectMarker.MODES }, value = value }
+end
+
+function TestObjectMarkerModeToggle:testTogglingTileClearsItFromDefaultChecked()
+    local id = self.graph:AddNode("action.object_marker")
+    -- Reads as ticked only via the pin default; the first click must clear it, not re-tick.
+    self.editor:toggleMode(id, self:ctrl("tile", { tile = true }))
+    luaunit.assertEquals(self.graph:GetControl(id, "mode").tile, false)
+end
+
+function TestObjectMarkerModeToggle:testTogglingTileBackOn()
+    local id = self.graph:AddNode("action.object_marker")
+    self.editor:toggleMode(id, self:ctrl("tile", { tile = false }))
+    luaunit.assertEquals(self.graph:GetControl(id, "mode").tile, true)
+end
+
+function TestObjectMarkerModeToggle:testDisabledModeRowIsInert()
+    local id = self.graph:AddNode("action.object_marker")
+    self.editor:toggleMode(id, self:ctrl("hull", { tile = true }))
+    -- A disabled row writes nothing: the mode value is untouched (no `hull` key appears).
+    luaunit.assertNil(self.graph:GetControl(id, "mode").hull)
+    luaunit.assertEquals(self.graph:GetControl(id, "mode").tile, true)
+end

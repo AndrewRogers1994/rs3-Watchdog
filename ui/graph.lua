@@ -32,6 +32,16 @@ local ColorPopup = require("ui/color_popup")
 local Editor = {}
 Editor.__index = Editor
 
+-- The mode descriptor (from an object_marker.mode composite spec's `modes` list, #40) for a given
+-- checkbox row's key, or nil. Drives the row's label / enabled-dim / "needs render API" reason.
+local function modeDescriptor(spec, key)
+    if spec == nil or spec.modes == nil then return nil end
+    for _, m in ipairs(spec.modes) do
+        if m.key == key then return m end
+    end
+    return nil
+end
+
 -- graph, registry: the live LibNodeGraph objects. layout: optional saved node positions.
 -- runtime: optional (see runtime.lua) — only reached for its `screenMarkerCapture` (#39), the
 -- full-screen "Draw on screen" capture overlay a Screen Marker node's `rect` Control arms.
@@ -330,6 +340,18 @@ function Editor:buildGeoms()
                 ctrl.display = (axisVal ~= nil) and tostring(axisVal) or ""
             elseif ctrl.kind == "action" then
                 ctrl.display = "Set to current position"
+            elseif ctrl.kind == "mode" then
+                -- An object_marker mode checkbox row (#40): "[x]/[ ] Label", disabled rows
+                -- dimmed with their "needs render API" reason (the unavailable-node idiom).
+                local mode = modeDescriptor(ctrl.spec, ctrl.axis)
+                local enabled = mode ~= nil and mode.enabled
+                local checked = enabled and type(ctrl.value) == "table" and ctrl.value[ctrl.axis] == true
+                local label = (mode ~= nil and mode.label) or tostring(ctrl.axis)
+                if mode ~= nil and not enabled and mode.reason then
+                    label = label .. " — " .. mode.reason
+                end
+                ctrl.display = (checked and "[x] " or "[ ] ") .. label
+                ctrl.disabled = not enabled
             else
                 ctrl.display = Controls.Format(ctrl.spec, ctrl.value)
             end
@@ -540,8 +562,16 @@ function Editor:beginPress()
             self:setCoordgridToCurrentPosition(hitCtrl.nodeId, hitCtrl.ctrl.pinName)
         elseif hitCtrl.ctrl.kind == "swatch" then
             self:openColorPopup(hitCtrl.nodeId, hitCtrl.ctrl)
+        elseif hitCtrl.ctrl.kind == "mode" then
+            self:toggleMode(hitCtrl.nodeId, hitCtrl.ctrl)
         elseif hitCtrl.ctrl.kind == "capture" then
-            self:armScreenMarkerCapture(hitCtrl.nodeId, hitCtrl.ctrl.pinName)
+            -- The capture widget is shared: Screen Marker's rect uses the drag overlay, Object
+            -- Marker's object uses the MiniMenu select mode (spec.captureKind == "object").
+            if hitCtrl.ctrl.spec ~= nil and hitCtrl.ctrl.spec.captureKind == "object" then
+                self:armObjectMarkerCapture(hitCtrl.nodeId, hitCtrl.ctrl.pinName)
+            else
+                self:armScreenMarkerCapture(hitCtrl.nodeId, hitCtrl.ctrl.pinName)
+            end
         else
             self:openControlEditor(hitCtrl.nodeId, hitCtrl.ctrl)
         end
@@ -914,6 +944,40 @@ function Editor:armScreenMarkerCapture(nodeId, pinName)
     end)
 end
 
+--- Object Marker capture (#40) -----------------------------------------------------------
+
+-- Arms the shared MiniMenu select mode (runtime.objectMarkerCapture, see
+-- ui/object_marker_capture.lua) for this node's `object` pin. Unlike Screen Marker's drag
+-- overlay, the capture subscribes Event.MiniMenuEntrySelected and commits on an Examine of a LOC,
+-- writing the captured `{ name, coordGrid, subjectHash }` back through the normal setControl path.
+-- Silent no-op if no runtime was wired in (e.g. a headless Editor in a future test).
+function Editor:armObjectMarkerCapture(nodeId, pinName)
+    if self.runtime == nil or self.runtime.objectMarkerCapture == nil then return end
+    self.runtime.objectMarkerCapture:Arm(nodeId, pinName, function(object)
+        self:setControl(nodeId, pinName, object)
+    end)
+end
+
+--- Object Marker mode multi-select (#40) --------------------------------------------------
+
+-- Toggles one enabled mode checkbox (only Tile is enabled today) in the composite `mode` table
+-- Control, read-modify-write against the whole stored table. A disabled row ("needs render API")
+-- is inert — clicking it does nothing.
+function Editor:toggleMode(nodeId, ctrl)
+    local mode = modeDescriptor(ctrl.spec, ctrl.axis)
+    if mode == nil or not mode.enabled then return end
+    -- Base the flip on the value the row actually shows (ctrl.value, already default-resolved
+    -- in the geometry rebuild) rather than the raw stored Control — otherwise the first click on
+    -- a checkbox that reads as ticked only because of the pin default would re-tick it (nil ->
+    -- true) instead of clearing it.
+    local updated = {}
+    if type(ctrl.value) == "table" then
+        for k, v in pairs(ctrl.value) do updated[k] = v end
+    end
+    updated[ctrl.axis] = not (updated[ctrl.axis] == true)
+    self:setControl(nodeId, ctrl.pinName, updated)
+end
+
 --- Color popup (#30) ----------------------------------------------------------------------
 
 -- A press that could start a drag (SV field, hue strip, R/G/B/A rows), keyed by PartAt's
@@ -1032,12 +1096,15 @@ function Editor:closeColorHexEditor()
 end
 
 -- Esc dismisses the color popup (#30's third dismiss trigger, alongside outside-click and
--- re-click) and cancels an in-progress Screen Marker capture (#39). Wired from main.lua's
--- existing KeyDown subscription.
+-- re-click) and cancels an in-progress Screen Marker capture (#39) or Object Marker select
+-- mode (#40). Wired from main.lua's existing KeyDown subscription.
 function Editor:onEscape()
     if self.colorPopup.open then self:closeColorPopup() end
     if self.runtime ~= nil and self.runtime.screenMarkerCapture ~= nil then
         self.runtime.screenMarkerCapture:Cancel()
+    end
+    if self.runtime ~= nil and self.runtime.objectMarkerCapture ~= nil then
+        self.runtime.objectMarkerCapture:Cancel()
     end
 end
 

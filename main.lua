@@ -116,6 +116,7 @@ require("nodes/actions/screen_flash").Register(registry, runtime)
 require("nodes/actions/popup").Register(registry, runtime)
 require("nodes/actions/infobox").Register(registry, runtime)
 require("nodes/actions/screen_marker").Register(registry, runtime)
+require("nodes/actions/object_marker").Register(registry, runtime)
 require("nodes/actions/toast").Register(registry, runtime)
 require("nodes/actions/alert_toggle").Register(registry, runtime)
 
