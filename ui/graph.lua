@@ -1291,10 +1291,13 @@ function Editor:commitField()
         return
     end
     local raw, quantity = fieldContent(e.field)
-    -- An empty box means "leave the Control alone" — opening then closing a field without
-    -- typing must not overwrite the stored value (or a nil default) with 0/"". A numeric
-    -- field reports contentQuantity == 0 for empty content, which is what nuked soundID.
-    if type(raw) == "string" and raw:match("^%s*$") then return end
+    -- An empty box means "leave the Control alone" — but ONLY for numeric widgets, where
+    -- opening then closing a field without typing must not overwrite the stored value (or a
+    -- nil default) with 0 (a numeric field reports contentQuantity == 0 for empty content,
+    -- which is what nuked soundID). For a TEXT widget an empty/whitespace box is a MEANINGFUL
+    -- value — it's how the user clears the field (e.g. InfoBox `title`) — so it must commit
+    -- verbatim rather than snap back to the previous text. (Same principle as commitNeedleField.)
+    if e.widget ~= "text" and type(raw) == "string" and raw:match("^%s*$") then return end
 
     -- Prefer the field's own parsed integer (honors quantity suffixes like 1K/1M).
     local value = (e.widget == "number") and quantity or nil
