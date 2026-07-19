@@ -181,7 +181,7 @@ function Node.BuildGeometry(pins, x, y, width, opts)
                         spec    = spec,
                         default = pin.default,
                         kind = "capture",
-                        placeholder = "Draw on screen",
+                        placeholder = spec.placeholder or "Draw on screen",
                         x = left, y = cy - Theme.CONTROL_H * 0.5,
                         w = right - left, h = Theme.CONTROL_H,
                     }
@@ -336,6 +336,10 @@ function Node.Draw(canvas, view, geom, meta, opts)
                         local col = Theme.Vec4(Theme.COL_CONTROL_TEXT)
                         if text == nil or text == "" then
                             text, col = ctrl.placeholder or "…", Theme.Vec4(Theme.COL_CONTROL_EMPTY)
+                        elseif ctrl.disabled then
+                            -- A disabled mode row (#40, the unavailable-node idiom): shown, but
+                            -- dimmed so it reads as inert (Hull/Outline/Clickbox "needs render API").
+                            col = Theme.Vec4(Theme.COL_CONTROL_EMPTY)
                         end
                         canvas:AddText(bx + view:Scale(Theme.CONTROL_PAD_X), by + bh * 0.5 - view:Scale(6),
                             text, ctrlFont, col)

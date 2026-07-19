@@ -31,6 +31,7 @@
 local Effects = require("effects")
 local InfoBoxArea = require("ui/infobox")
 local ScreenMarkerCapture = require("ui/screen_marker_capture")
+local ObjectMarkerCapture = require("ui/object_marker_capture")
 local Util = require("util")
 
 local Runtime = {}
@@ -87,6 +88,12 @@ function Runtime.new(eventSource, mouseSource)
         -- `rect` Control — armed from the Editor (ui/graph.lua), mounted/drawn/driven from
         -- main.lua the same way runtime.infobox's own click-capture layer is.
         screenMarkerCapture = ScreenMarkerCapture.new(),
+        -- The shared "Select object" MiniMenu select mode (#40) behind action.object_marker's
+        -- `object` Control — armed from the Editor (ui/graph.lua). Unlike screenMarkerCapture it
+        -- has no mounted layer to drive: it self-manages an Event.MiniMenuEntrySelected
+        -- subscription while armed (see ui/object_marker_capture.lua), so main.lua only cancels
+        -- it on teardown.
+        objectMarkerCapture = ObjectMarkerCapture.new(),
         keyboardActivityTick = 0,
         mouseActivityTick = 0,
         _lastMousePos = nil,
@@ -475,6 +482,9 @@ function Runtime:Stop()
         pcall(function() self._activitySource.Unsubscribe("watchdog_runtime_activity_key") end)
         self._activitySource = nil
     end
+    -- Cancel any armed Object Marker select mode (#40) so its Event.MiniMenuEntrySelected
+    -- subscription is unsubscribed on teardown/reload rather than leaking across instances.
+    pcall(function() self.objectMarkerCapture:Cancel() end)
     self.effects:Clear()
     self.infobox:Clear()
 end

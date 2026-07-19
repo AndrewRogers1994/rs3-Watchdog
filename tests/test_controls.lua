@@ -85,3 +85,38 @@ function TestCoordgridSpec:testFieldsAndActionStayWithinTheBand()
         luaunit.assertTrue(r.y + r.h <= band.y + band.h + 1e-9)
     end
 end
+
+-- object_marker mode multi-select spec (#40): a composite band of one checkbox row per mode.
+-- Exercising extraH + Layout here evaluates the Theme.MODE_* band constants, so a missing one
+-- (e.g. an edit that landed in the wrong checkout) surfaces as a red test, not an in-client crash.
+local ObjectMarker = require("nodes/actions/object_marker")
+
+TestObjectMarkerModeSpec = {}
+
+function TestObjectMarkerModeSpec:setUp()
+    ObjectMarker.Register({ RegisterNodeType = function() end }, { effects = {} })
+    self.spec = Controls.For("object_marker.mode")
+end
+
+function TestObjectMarkerModeSpec:testRegisteredAsCompositeWithFourModes()
+    luaunit.assertNotNil(self.spec)
+    luaunit.assertEquals(self.spec.widget, "composite")
+    luaunit.assertEquals(#self.spec.modes, 4)
+    luaunit.assertTrue(self.spec.modes[1].enabled)          -- Tile
+    luaunit.assertFalse(self.spec.modes[2].enabled)         -- Hull (needs render API)
+end
+
+function TestObjectMarkerModeSpec:testLayoutProducesOneModeRowPerMode()
+    local band = { x = 10, y = 100, w = 170, h = self.spec.extraH({}) }
+    local rects = self.spec.Layout(band)
+    luaunit.assertEquals(#rects, 4)
+    local axes = {}
+    for _, r in ipairs(rects) do
+        luaunit.assertEquals(r.kind, "mode")
+        axes[r.axis] = true
+        -- Each row stays within the reserved band.
+        luaunit.assertTrue(r.y >= band.y - 1e-9)
+        luaunit.assertTrue(r.y + r.h <= band.y + band.h + 1e-9)
+    end
+    luaunit.assertTrue(axes.tile and axes.hull and axes.outline and axes.clickbox)
+end
