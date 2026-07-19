@@ -12,6 +12,7 @@
 - [ ] 7. stateful nodes should display what state they are in. counter should display the current number, flipflop should display what side it will fire next, doonce and gate should display if it is open or closed
 - [ ] 8. ToString supporting enums somehow. Strength is just the number 2 so piping it to ToString just turns it into `"2"`. It can't know it is a skill. Could add a dropdown to ToString to select an enum to transform. Or maybe a new node.
 - [x] 9. Dragging text to the right side of the editor window causes it to wrap.
+- [ ] 10. Concat node to combine strings
 
 ## Node port backlog (mirroring runelite-watchdog)
 

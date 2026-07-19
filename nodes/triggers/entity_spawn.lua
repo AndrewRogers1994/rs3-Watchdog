@@ -127,7 +127,7 @@ local function passesFilter(payload, node)
     local needle = node.GetControl("nameMatch")
     if needle ~= nil and needle ~= "" then
         local name = payload.name
-        if type(name) ~= "string" or string.find(name, needle, 1, true) == nil then
+        if type(name) ~= "string" or string.find(name, needle) == nil then
             return false
         end
     end
