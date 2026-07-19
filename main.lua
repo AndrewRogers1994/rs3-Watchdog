@@ -115,6 +115,7 @@ require("nodes/actions/popup").Register(registry, runtime)
 require("nodes/actions/infobox").Register(registry, runtime)
 require("nodes/actions/screen_marker").Register(registry, runtime)
 require("nodes/actions/toast").Register(registry, runtime)
+require("nodes/actions/alert_toggle").Register(registry, runtime)
 
 -- The generalized `preload(node)` node-type hook (#33): AddAlert (below) already runs the
 -- graph-restore preload pass through this; the Editor (ui/graph.lua) calls

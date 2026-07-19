@@ -40,6 +40,7 @@ require("test_screen_marker")
 require("test_toast")
 require("test_sound")
 require("test_custom_sound")
+require("test_alert_toggle")
 require("test_graph_editor")
 
 os.exit(luaunit.LuaUnit.run())
