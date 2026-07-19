@@ -112,8 +112,8 @@ function Runtime:_bindActivityTracking()
         return
     end
     local runtime = self
+    print()
     source.Subscribe("watchdog_runtime_activity_key", function()
-        print("this is the most important print statement of all time")
         runtime.keyboardActivityTick = runtime.keyboardActivityTick + 1
     end)
     self._activitySource = source

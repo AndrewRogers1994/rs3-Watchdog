@@ -54,15 +54,23 @@ end
 
 --- Pure predicate + extraction -------------------------------------------------------------
 
+-- True for an indexable API value. Live client API objects (the MiniMenu payload, its entry,
+-- locData/config) arrive as `userdata`, NOT `table`, so a bare `type(x) == "table"` check
+-- silently rejects real data — the class of bug that made capture "not work" even after the
+-- crash was fixed. The standalone test harness can only fabricate `table`s, so both must pass.
+local function isApiTable(v)
+    return type(v) == "userdata" or type(v) == "table"
+end
+
 -- Normalizes the MiniMenuEntrySelected callback arg to the MiniMenuEntry itself, unwrapping the
 -- docs' `.entry` wrapper when the payload carries one (see the header BUILD-VERIFY note). Returns
--- nil for a non-table arg. This is the single seam both ShouldCapture and Extract read through, so
--- either real payload shape works without changing their bodies.
+-- nil for a non-indexable arg. This is the single seam both ShouldCapture and Extract read through,
+-- so either real payload shape works without changing their bodies.
 local function entryOf(raw)
-    if type(raw) ~= "table" then
+    if not isApiTable(raw) then
         return nil
     end
-    if type(raw.entry) == "table" then
+    if isApiTable(raw.entry) then
         return raw.entry
     end
     return raw
@@ -93,8 +101,8 @@ function ObjectMarkerCapture.Extract(raw)
     if entry == nil then
         return nil
     end
-    local locData = type(entry.locData) == "table" and entry.locData or {}
-    local config = type(locData.config) == "table" and locData.config or nil
+    local locData = isApiTable(entry.locData) and entry.locData or {}
+    local config = isApiTable(locData.config) and locData.config or nil
     if config == nil then
         return nil
     end
@@ -124,8 +132,11 @@ function ObjectMarkerCapture:Arm(nodeId, pinName, onCommit)
     self.nodeId, self.pinName, self.onCommit = nodeId, pinName, onCommit
     local capture = self
     local channel = self.eventSource and self.eventSource.MiniMenuEntrySelected
+    print()
     if channel ~= nil and channel.Subscribe ~= nil then
-        channel.Subscribe(SUBSCRIBE_NAME, function(entry) capture:_onEntry(entry) end)
+        if not self._subscribed then
+            channel.Subscribe(SUBSCRIBE_NAME, function(entrySelected) capture:_onEntry(entrySelected) end)
+        end
         self._subscribed = true
     end
 end
@@ -147,7 +158,10 @@ function ObjectMarkerCapture:_unsubscribe()
     end
     local channel = self.eventSource and self.eventSource.MiniMenuEntrySelected
     if channel ~= nil and channel.Unsubscribe ~= nil then
-        pcall(function() channel.Unsubscribe(SUBSCRIBE_NAME) end)
+        pcall(function()
+            print()
+            channel.Unsubscribe(SUBSCRIBE_NAME)
+        end)
     end
     self._subscribed = false
 end

@@ -135,6 +135,15 @@ position"). Reserved always; drawn/hit-tested only above `CONTROL_MIN_ZOOM`, sam
 Control Box.
 _Avoid_: Sub-panel, composite box, field group
 
+**Matcher**:
+A reusable text-match specification carried by a Data Pin (Type Tag `matcher`): a needle
+string plus a Mode — **Substring** (case-insensitive, literal) or **Pattern** (case-sensitive,
+Lua pattern with magic characters). An empty needle matches everything (the filter is a
+no-op). Rendered as a Control Band holding a text field and a single-row Mode toggle after
+it; its matching semantics are shared by every Node that filters text (chat message, chat
+sender, entity name, …) rather than reimplemented per Node.
+_Avoid_: Filter, search, query, "contains" (as the concept name)
+
 **Swatch Chip**:
 A `swatch`-widget Control's on-Pin box (e.g. `color`'s `{r,g,b,a}` table): a checker-backed
 color-filled rect in the same value column a scalar Control Box occupies, discriminated by
@@ -160,6 +169,25 @@ input directly through the engine (`Graph:FireInput`), running the Node's `run` 
 had fired into that Pin — a live fire whose real side effects happen, for testing a Node in
 isolation without wiring a Trigger.
 _Avoid_: Run button, play button, trigger button
+
+## Node domain
+
+**Chat Trigger**:
+A Trigger Node that fires on the client's `ChatMessage` event. There are two, split by who
+authored the line: the **Game Message** trigger (system/engine/broadcast/examine lines) and
+the **Player Chat** trigger (lines a player typed — public, private, friends/clan/group).
+Each strips formatting tags from the incoming line before matching, so a Matcher never sees
+`<col=…>` markup, and exposes only the Chat Type Groups relevant to it.
+_Avoid_: Chat node, message node, chat listener
+
+**Chat Type Group**:
+A Watchdog-curated, named grouping of raw engine `ChatType` ids exposed as one choice in a
+Chat Trigger's type dropdown (e.g. *Examine* = `OBJ_EXAMINE`/`NPC_EXAMINE`/`LOC_EXAMINE`;
+*Private (Received)* = the incoming private + quickchat ids). Deliberately **not** 1:1 with
+the client's `ChatType` enum — a simplified, useful vocabulary that hides noise types and
+folds quick-chat into its parent channel. A Chat Trigger exposes only its own Groups, and
+**Any** means the union of that Trigger's Groups, never the whole enum.
+_Avoid_: Chat category, chat kind, chat class; "chat type" (that is the raw engine `ChatType`)
 
 ## Testing node types
 
