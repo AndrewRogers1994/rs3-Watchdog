@@ -70,7 +70,7 @@ function Location.Register(registry, runtime)
     registry:RegisterNodeType("trigger.location", {
         category = "trigger",
         displayName = "Location",
-        description = "Fires on entering (and optionally leaving) a radius around a tile",
+        description = "Entering/leaving a radius around a tile",
         pins = {
             -- The target tile ({ x, z, level }). Default nil: a fresh node has no target and never
             -- fires until one is set (e.g. the coordgrid control's "set to current position").

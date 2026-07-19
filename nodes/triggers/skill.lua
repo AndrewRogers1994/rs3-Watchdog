@@ -107,7 +107,7 @@ function Skill.Register(registry, runtime)
     registry:RegisterNodeType("trigger.xp_drop", {
         category = "trigger",
         displayName = "XP Drop",
-        description = "Fires when a skill gains XP (optionally for one chosen skill)",
+        description = "A skill gains XP",
         pins = {
             -- Which skill to watch; Any (the default) fires for every skill.
             { name = "skillFilter", kind = "data", direction = "in", dataType = "skill", default = "any" },
@@ -130,7 +130,7 @@ function Skill.Register(registry, runtime)
     registry:RegisterNodeType("trigger.stat_changed", {
         category = "trigger",
         displayName = "Stat Changed",
-        description = "Fires when a skill's gameplay level changes (optionally for one chosen skill)",
+        description = "A skill's level/boost changes",
         pins = {
             { name = "skillFilter", kind = "data", direction = "in", dataType = "skill", default = "any" },
             { name = "out", kind = "exec", direction = "out" },
