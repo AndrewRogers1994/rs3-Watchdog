@@ -66,7 +66,8 @@ function GameMessage.Register(registry, runtime)
         pins = {
             { name = "type", kind = "data", direction = "in", dataType = "gameMessageType", default = "any" },
             { name = "contains", kind = "data", direction = "in", dataType = "matcher",
-              label = "Message contains", default = { needle = "", mode = "substring" } },
+              label = "Message contains", placeholder = "any message",
+              default = { needle = "", mode = "substring" } },
             { name = "out", kind = "exec", direction = "out" },
             { name = "message", kind = "data", direction = "out", dataType = "string" },
         },

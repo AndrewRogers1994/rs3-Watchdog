@@ -113,6 +113,22 @@ function TestMatcherControlSpec:testLayoutProducesOneNeedleAndOneToggle()
     luaunit.assertEquals(kinds.needle.y, kinds.toggle.y)
 end
 
+function TestMatcherControlSpec:testNeedlePlaceholderIsPerPin()
+    local band = { x = 10, y = 100, w = 170, h = self.spec.extraH({}) }
+    -- The needle sub-rect takes its empty-state hint from the pin, so a sender Matcher reads
+    -- "any sender" rather than the message default.
+    local function needleOf(pin)
+        for _, r in ipairs(self.spec.Layout(band, pin)) do
+            if r.kind == "needle" then return r end
+        end
+    end
+    luaunit.assertEquals(needleOf({ placeholder = "any sender" }).placeholder, "any sender")
+    luaunit.assertEquals(needleOf({ placeholder = "any message" }).placeholder, "any message")
+    -- A pin with no placeholder (or no pin at all) falls back to a neutral hint.
+    luaunit.assertEquals(needleOf({}).placeholder, "match anything")
+    luaunit.assertEquals(needleOf(nil).placeholder, "match anything")
+end
+
 function TestMatcherControlSpec:testSubRectsStayWithinTheBand()
     local band = { x = 10, y = 100, w = 170, h = self.spec.extraH({}) }
     for _, r in ipairs(self.spec.Layout(band)) do

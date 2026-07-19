@@ -83,9 +83,11 @@ function PlayerChat.Register(registry, runtime)
         pins = {
             { name = "type", kind = "data", direction = "in", dataType = "playerChatType", default = "any" },
             { name = "contains", kind = "data", direction = "in", dataType = "matcher",
-              label = "Message contains", default = { needle = "", mode = "substring" } },
+              label = "Message contains", placeholder = "any message",
+              default = { needle = "", mode = "substring" } },
             { name = "senderContains", kind = "data", direction = "in", dataType = "matcher",
-              label = "Sender contains", default = { needle = "", mode = "substring" } },
+              label = "Sender contains", placeholder = "any sender",
+              default = { needle = "", mode = "substring" } },
             { name = "out", kind = "exec", direction = "out" },
             { name = "message", kind = "data", direction = "out", dataType = "string" },
             { name = "sender", kind = "data", direction = "out", dataType = "string" },
