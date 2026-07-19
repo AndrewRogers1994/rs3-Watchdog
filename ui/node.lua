@@ -343,6 +343,33 @@ function Node.Draw(canvas, view, geom, meta, opts)
                     end
                     canvas:AddOutline(bx, by, bw, bh, math.max(1, view:Scale(1)),
                         Theme.Vec4(hot and Theme.COL_CONTROL_HOT or Theme.COL_CONTROL_BORDER))
+                elseif ctrl.kind == "mode" then
+                    -- A mode row (#40): a label plus a real, right-aligned checkbox glyph. No
+                    -- full control-box backing (it reads as a toggle list, not a value field).
+                    -- Disabled rows (Hull/Outline/Clickbox — "needs render API") dim both parts.
+                    local labelCol = ctrl.disabled and Theme.COL_CONTROL_EMPTY or Theme.COL_CONTROL_TEXT
+                    if ctrlFont ~= nil then
+                        local text = ctrl.display or ""
+                        local tw = Theme.TextWidth(11 * view.zoom, text) or (#text * view:Scale(7))
+                        canvas:AddText(bx + view:Scale(Theme.CONTROL_PAD_X), by + bh * 0.5 - view:Scale(6),
+                            tw, 0, text, createTextDataConfig(ctrlFont, Theme.Vec4(labelCol)))
+                    end
+                    -- The checkbox: a small square right-aligned in the row, with a gold tick when
+                    -- checked. Box border tracks hot (unless disabled) so it reads as clickable.
+                    local boxSz = bh * 0.72
+                    local boxX = bx + bw - view:Scale(Theme.CONTROL_PAD_X) - boxSz
+                    local boxY = by + (bh - boxSz) * 0.5
+                    local borderCol = (hot and not ctrl.disabled) and Theme.COL_CONTROL_HOT or Theme.COL_CONTROL_BORDER
+                    canvas:AddRectangle(boxX, boxY, boxSz, boxSz, Theme.Vec4(Theme.COL_CHECK_BOX_BG))
+                    canvas:AddOutline(boxX, boxY, boxSz, boxSz, math.max(1, view:Scale(1)), Theme.Vec4(borderCol))
+                    if ctrl.checked then
+                        local tick = math.max(1, view:Scale(1.5))
+                        local markCol = Theme.Vec4(ctrl.disabled and Theme.COL_CONTROL_EMPTY or Theme.COL_CHECK_MARK)
+                        canvas:AddLine(boxX + boxSz * 0.20, boxY + boxSz * 0.52,
+                            boxX + boxSz * 0.42, boxY + boxSz * 0.74, tick, markCol)
+                        canvas:AddLine(boxX + boxSz * 0.42, boxY + boxSz * 0.74,
+                            boxX + boxSz * 0.80, boxY + boxSz * 0.26, tick, markCol)
+                    end
                 else
                     local bg = (ctrl.kind == "action" or ctrl.kind == "capture")
                         and Theme.COL_CONTROL_ACTION_BG or Theme.COL_CONTROL_BG

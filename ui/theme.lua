@@ -210,6 +210,8 @@ Theme.COL_CONTROL_TEXT   = col(225, 227, 233, 1.0)
 Theme.COL_CONTROL_EMPTY  = col(120, 122, 132, 1.0)  -- placeholder when the value is empty
 Theme.COL_CONTROL_CARET  = col(170, 172, 182, 1.0)  -- enum dropdown ▾ indicator
 Theme.COL_CONTROL_ACTION_BG = col(52, 56, 66, 1.0)  -- composite-control action button (e.g. coordgrid's "set to current position")
+Theme.COL_CHECK_BOX_BG   = col(20, 20, 24, 1.0)     -- mode checkbox (#40) inner fill
+Theme.COL_CHECK_MARK     = col(245, 205, 70, 1.0)   -- mode checkbox tick — gold, drawn when checked
 
 -- Checkerboard behind a color swatch/preview, so alpha reads visually (#30).
 Theme.COL_CHECKER_LIGHT = col(150, 150, 150, 1.0)

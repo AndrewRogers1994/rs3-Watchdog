@@ -341,16 +341,17 @@ function Editor:buildGeoms()
             elseif ctrl.kind == "action" then
                 ctrl.display = "Set to current position"
             elseif ctrl.kind == "mode" then
-                -- An object_marker mode checkbox row (#40): "[x]/[ ] Label", disabled rows
-                -- dimmed with their "needs render API" reason (the unavailable-node idiom).
+                -- An object_marker mode checkbox row (#40): a real checkbox glyph (drawn in
+                -- node.lua from ctrl.checked) plus a left-aligned label. Disabled rows are
+                -- dimmed and carry their "needs render API" reason (the unavailable-node idiom).
                 local mode = modeDescriptor(ctrl.spec, ctrl.axis)
                 local enabled = mode ~= nil and mode.enabled
-                local checked = enabled and type(ctrl.value) == "table" and ctrl.value[ctrl.axis] == true
                 local label = (mode ~= nil and mode.label) or tostring(ctrl.axis)
                 if mode ~= nil and not enabled and mode.reason then
                     label = label .. " — " .. mode.reason
                 end
-                ctrl.display = (checked and "[x] " or "[ ] ") .. label
+                ctrl.display = label
+                ctrl.checked = enabled and type(ctrl.value) == "table" and ctrl.value[ctrl.axis] == true
                 ctrl.disabled = not enabled
             else
                 ctrl.display = Controls.Format(ctrl.spec, ctrl.value)
