@@ -85,3 +85,34 @@ function TestCoordgridSpec:testFieldsAndActionStayWithinTheBand()
         luaunit.assertTrue(r.y + r.h <= band.y + band.h + 1e-9)
     end
 end
+
+-- The skill enum control (#31): the 29 SkillType members plus an Any default, reusing the
+-- existing enum widget. Registered by requiring the skill trigger node file (Register wires
+-- it up), mirroring how each domain enum spec is declared alongside the node that needs it.
+TestSkillControlSpec = {}
+
+function TestSkillControlSpec:setUp()
+    require("nodes/triggers/skill")
+    self.spec = Controls.For("skill")
+end
+
+function TestSkillControlSpec:testRegisteredAsEnumWidget()
+    luaunit.assertNotNil(self.spec)
+    luaunit.assertEquals(self.spec.widget, "enum")
+end
+
+function TestSkillControlSpec:testOffersAllTwentyNineSkillsPlusAny()
+    -- 29 SkillType members + one Any entry.
+    luaunit.assertEquals(#self.spec.choices, 30)
+    local any = self.spec.choices[1]
+    luaunit.assertEquals(any.value, "any")
+    luaunit.assertEquals(any.label, "Any")
+end
+
+function TestSkillControlSpec:testSkillChoicesAreIdKeyedAndFormatToLabels()
+    -- Values are the raw SkillType ids the client delivers on SkillTransmit.skill, so the
+    -- Control round-trips against the payload with no name lookup.
+    luaunit.assertEquals(Controls.Format(self.spec, 0), "Attack")
+    luaunit.assertEquals(Controls.Format(self.spec, 28), "Necromancy")
+    luaunit.assertEquals(Controls.Format(self.spec, "any"), "Any")
+end
