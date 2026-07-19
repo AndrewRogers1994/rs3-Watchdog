@@ -14,6 +14,7 @@
 - [x] 9. Dragging text to the right side of the editor window causes it to wrap.
 - [ ] 10. Concat node to combine strings
 - [ ] 11. Make any dropdowns that have "Any" put "Any" at the top.
+- [ ] 12. Screen Marker and Object Marker need a "hold" control like Toast.
 
 ## Node port backlog (mirroring runelite-watchdog)
 

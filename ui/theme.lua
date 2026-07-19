@@ -14,7 +14,7 @@ end
 
 --- Sizing (Graph-space units at zoom 1.0) -------------------------------------------
 
-Theme.NODE_WIDTH       = 190   -- default node body width
+Theme.NODE_WIDTH       = 250   -- default node body width
 Theme.HEADER_HEIGHT    = 26    -- category-colored title band
 Theme.PIN_ROW_HEIGHT   = 24    -- vertical stride between pin rows
 Theme.BODY_PAD_TOP     = 8     -- gap between header and first pin row
