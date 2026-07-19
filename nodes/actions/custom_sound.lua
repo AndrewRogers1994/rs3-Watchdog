@@ -94,7 +94,12 @@ function CustomSound.Register(registry)
             if type(volume) ~= "number" then volume = 1.0 end
             local loops = ctx:In("loops")
             if type(loops) ~= "number" then loops = 0 end
-            audio.Play(resource, { volume = volume, loops = loops, bus = "sfx" })
+            ---@type SoundPlaybackParams
+            local params = audio.SoundPlaybackParams.new()
+            params.volume = volume
+            params.numLoops = loops
+            params.audioBus = audio.AudioBus.SFX
+            audio.Play(resource, params)
         end,
     })
 end

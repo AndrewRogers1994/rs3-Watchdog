@@ -45,7 +45,7 @@ Controls.Register("dismissOn", {
 })
 
 -- Full opaque red: a loud, unmissable default so a never-configured node still visibly fires.
-local DEFAULT_COLOR = { r = 255, g = 0, b = 0, a = 255 }
+local DEFAULT_COLOR = { r = 255, g = 0, b = 0, a = 127 }
 
 -- Alpha (0..`peak`) at `tick` (0-based within one CYCLE_TICKS-long rise/fall cycle).
 -- `instant` steps straight to the segment's target value and holds it for the whole segment;
