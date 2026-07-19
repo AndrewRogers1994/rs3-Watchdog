@@ -139,16 +139,4 @@ function TestPlayerChat:testNilSenderOutputsEmptyString()
     luaunit.assertEquals(self.graph:GetLastValue(id, "message"), "hello")
 end
 
--- The matcher `placeholder` must survive the engine's pin normalization (RegisterNodeType and
--- GetPins both rebuild pins field-by-field), so the editor's per-control hint reaches the node
--- geometry. Drives the REAL registry + graph path, which the fake-pin control-spec unit test
--- bypasses — this is the seam where the field was being dropped.
-function TestPlayerChat:testMatcherPlaceholdersSurviveEnginePinNormalization()
-    local id = self.graph:AddNode("trigger.player_chat")
-    local byName = {}
-    for _, pin in ipairs(self.graph:GetPins(id)) do byName[pin.name] = pin end
-    luaunit.assertEquals(byName.contains.placeholder, "any message")
-    luaunit.assertEquals(byName.senderContains.placeholder, "any sender")
-end
-
 return TestPlayerChat

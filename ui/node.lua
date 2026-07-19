@@ -131,9 +131,7 @@ function Node.BuildGeometry(pins, x, y, width, opts)
                     x = Theme.PIN_MARGIN_X, y = rowTop[i + 1] - extraH,
                     w = width - Theme.PIN_MARGIN_X * 2, h = extraH,
                 }
-                -- Layout gets the pin too, so a composite spec can vary a sub-rect per pin
-                -- (e.g. the matcher's needle placeholder: "any message" vs "any sender").
-                local rects = spec.Layout and spec.Layout(band, pin) or {}
+                local rects = spec.Layout and spec.Layout(band) or {}
                 for _, r in ipairs(rects) do
                     geom.controls[#geom.controls + 1] = {
                         pinName = pin.name,
@@ -141,7 +139,7 @@ function Node.BuildGeometry(pins, x, y, width, opts)
                         spec    = spec,
                         default = pin.default,
                         kind = r.kind, axis = r.axis,
-                        placeholder = r.placeholder,  -- e.g. matcher needle's "any message"
+                        placeholder = r.placeholder,  -- e.g. the matcher needle's empty-state hint
                         x = r.x, y = r.y, w = r.w, h = r.h,
                     }
                 end

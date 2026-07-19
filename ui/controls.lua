@@ -165,19 +165,17 @@ Controls.Register("color", {
 Controls.Register("matcher", {
     widget = "composite",
     extraH = function(_pin) return Theme.MATCHER_BAND_H end,
-    -- `band` is the reserved rect (graph-space, relative to the node origin): {x, y, w, h}; `pin`
-    -- is the pin this band belongs to, so the empty-needle placeholder is configurable per
-    -- control (a sender Matcher wants "any sender", not "any message"). Falls back to a neutral
-    -- hint when a pin declares none.
-    Layout = function(band, pin)
+    -- `band` is the reserved rect (graph-space, relative to the node origin): {x, y, w, h}. The
+    -- empty-needle placeholder is a fixed generic hint — an empty Matcher matches every line,
+    -- regardless of which node it sits on, so one wording covers every case.
+    Layout = function(band)
         local y = band.y + Theme.MATCHER_TOP_GAP
         local h = Theme.MATCHER_FIELD_H
         local toggleW = math.min(Theme.MATCHER_TOGGLE_W, band.w)
         local fieldW = band.w - toggleW - Theme.MATCHER_GAP
         if fieldW < 0 then fieldW = 0 end
-        local placeholder = (pin ~= nil and pin.placeholder) or "match anything"
         return {
-            { kind = "needle", placeholder = placeholder,
+            { kind = "needle", placeholder = "matches anything",
               x = band.x, y = y, w = fieldW, h = h },
             { kind = "toggle",
               x = band.x + fieldW + Theme.MATCHER_GAP, y = y, w = toggleW, h = h },
