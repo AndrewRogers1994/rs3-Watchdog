@@ -340,6 +340,17 @@ function Editor:buildGeoms()
                 ctrl.display = (axisVal ~= nil) and tostring(axisVal) or ""
             elseif ctrl.kind == "action" then
                 ctrl.display = "Set to current position"
+            elseif ctrl.kind == "needle" then
+                -- The matcher needle text field (#56): shows just the `needle` string; an empty
+                -- needle falls back to the sub-rect's placeholder (drawn dimmed in node.lua).
+                local m = (type(ctrl.value) == "table") and ctrl.value or nil
+                ctrl.display = (m ~= nil and type(m.needle) == "string") and m.needle or ""
+            elseif ctrl.kind == "toggle" then
+                -- The matcher mode toggle (#56): a button labelled with the current mode, flipped
+                -- on click. Defaults to Substring when the stored matcher has no explicit mode.
+                local m = (type(ctrl.value) == "table") and ctrl.value or nil
+                local mode = (m ~= nil and m.mode) or "substring"
+                ctrl.display = (mode == "pattern") and "Pattern" or "Substring"
             elseif ctrl.kind == "mode" then
                 -- An object_marker mode checkbox row (#40): a real checkbox glyph (drawn in
                 -- node.lua from ctrl.checked) plus a left-aligned label. Disabled rows are
@@ -565,6 +576,8 @@ function Editor:beginPress()
             self:openColorPopup(hitCtrl.nodeId, hitCtrl.ctrl)
         elseif hitCtrl.ctrl.kind == "mode" then
             self:toggleMode(hitCtrl.nodeId, hitCtrl.ctrl)
+        elseif hitCtrl.ctrl.kind == "toggle" then
+            self:toggleMatcherMode(hitCtrl.nodeId, hitCtrl.ctrl)
         elseif hitCtrl.ctrl.kind == "capture" then
             -- The capture widget is shared: Screen Marker's rect uses the drag overlay, Object
             -- Marker's object uses the MiniMenu select mode (spec.captureKind == "object").
@@ -1175,6 +1188,12 @@ function Editor:openControlEditor(nodeId, ctrl)
         local whole = self.graph:GetControl(nodeId, pinName)
         if whole == nil then whole = ctrl.default end
         current = (type(whole) == "table") and whole[axis] or nil
+    elseif kind == "needle" then
+        -- The matcher's text field edits just the `needle` string of the whole {needle, mode}
+        -- table (committed back read-modify-write in commitNeedleField, so the mode survives).
+        local whole = self.graph:GetControl(nodeId, pinName)
+        if whole == nil then whole = ctrl.default end
+        current = (type(whole) == "table") and whole.needle or nil
     else
         current = self.graph:GetControl(nodeId, pinName)
         if current == nil then current = ctrl.default end
@@ -1230,7 +1249,7 @@ function Editor:openControlEditor(nodeId, ctrl)
     end
 
     self.editing = { nodeId = nodeId, pinName = pinName, spec = spec,
-        widget = spec.widget, field = field, kind = kind, axis = axis }
+        widget = spec.widget, field = field, kind = kind, axis = axis, default = ctrl.default }
     pcall(function() field:MoveToFront() end)
     -- No focus API is exposed (no SetFocus/RequestFocus on Component or InputField in the
     -- docs), so the user clicks the freshly-mounted field once to focus it. Kept as a
@@ -1257,6 +1276,14 @@ function Editor:commitField()
     -- `false` bool would flip it to `true`. Re-picking the already-selected value needs no
     -- commit (the value is already that), so there is no close case an enum must cover here.
     if e.widget == "enum" then return end
+    -- The matcher needle (#56) commits into just the `needle` key of the whole {needle, mode}
+    -- table (read-modify-write), so flipping the toggle and typing don't clobber each other.
+    -- Unlike a numeric axis field, an empty needle is a MEANINGFUL value (matches everything),
+    -- so it has its own commit rather than the empty-box-guarded coordgrid path below.
+    if e.kind == "needle" then
+        self:commitNeedleField()
+        return
+    end
     -- A composite Control's "field" box (#25) commits into just its own axis, read-modify-
     -- write against the whole stored table — see Controls.CommitAxis.
     if e.axis ~= nil then
@@ -1287,6 +1314,42 @@ function Editor:commitAxisField()
     if changed then
         self:setControl(e.nodeId, e.pinName, value)
     end
+end
+
+-- Read-modify-write helper for the matcher's {needle, mode} table Control (#56): starts from the
+-- stored value (or the pin default when unseeded), copies it, and returns the copy so a caller
+-- can mutate one key without dropping the other. Always yields a table with both keys present.
+local function matcherRMW(stored, default)
+    local updated = { needle = "", mode = "substring" }
+    local base = (type(stored) == "table") and stored or ((type(default) == "table") and default or nil)
+    if base ~= nil then
+        if type(base.needle) == "string" then updated.needle = base.needle end
+        if base.mode == "pattern" or base.mode == "substring" then updated.mode = base.mode end
+    end
+    return updated
+end
+
+-- Commits the matcher needle (#56): writes the field's text into the `needle` key, preserving the
+-- stored `mode`. Empty text is committed verbatim (an empty needle is a valid "match everything"
+-- filter), unlike the coordgrid axis path which guards empty as "leave alone".
+function Editor:commitNeedleField()
+    local e = self.editing
+    if e == nil then return end
+    local raw = fieldContent(e.field)
+    if type(raw) ~= "string" then raw = "" end
+    local updated = matcherRMW(self.graph:GetControl(e.nodeId, e.pinName), e.default)
+    updated.needle = raw
+    self:setControl(e.nodeId, e.pinName, updated)
+end
+
+-- Flips the matcher's Substring <-> Pattern mode (#56), read-modify-write against the whole
+-- {needle, mode} table so the needle text survives the toggle. Bases the flip on ctrl.value
+-- (already default-resolved in the geometry rebuild) so the first flip off a default-only
+-- matcher toggles from the shown mode rather than re-deriving nil.
+function Editor:toggleMatcherMode(nodeId, ctrl)
+    local updated = matcherRMW(ctrl.value, ctrl.default)
+    updated.mode = (updated.mode == "pattern") and "substring" or "pattern"
+    self:setControl(nodeId, ctrl.pinName, updated)
 end
 
 -- ONCONTENTCHANGED: live-write every keystroke; close on a submit/focus-loss cause.

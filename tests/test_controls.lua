@@ -86,6 +86,43 @@ function TestCoordgridSpec:testFieldsAndActionStayWithinTheBand()
     end
 end
 
+-- The matcher Control Band spec (#56): a composite band whose Layout yields a "needle" text
+-- field and a "toggle" mode button on one row. Exercising extraH + Layout here evaluates the
+-- Theme.MATCHER_* constants, so a missing one surfaces as a red test, not an in-client crash.
+TestMatcherControlSpec = {}
+
+function TestMatcherControlSpec:setUp()
+    self.spec = Controls.For("matcher")
+end
+
+function TestMatcherControlSpec:testRegisteredAsCompositeWidget()
+    luaunit.assertNotNil(self.spec)
+    luaunit.assertEquals(self.spec.widget, "composite")
+end
+
+function TestMatcherControlSpec:testLayoutProducesOneNeedleAndOneToggle()
+    local band = { x = 10, y = 100, w = 170, h = self.spec.extraH({}) }
+    local rects = self.spec.Layout(band)
+    luaunit.assertEquals(#rects, 2)
+    local kinds = {}
+    for _, r in ipairs(rects) do kinds[r.kind] = r end
+    luaunit.assertNotNil(kinds.needle)
+    luaunit.assertNotNil(kinds.toggle)
+    -- The toggle sits after the needle field on the same row.
+    luaunit.assertTrue(kinds.toggle.x > kinds.needle.x)
+    luaunit.assertEquals(kinds.needle.y, kinds.toggle.y)
+end
+
+function TestMatcherControlSpec:testSubRectsStayWithinTheBand()
+    local band = { x = 10, y = 100, w = 170, h = self.spec.extraH({}) }
+    for _, r in ipairs(self.spec.Layout(band)) do
+        luaunit.assertTrue(r.x >= band.x - 1e-9)
+        luaunit.assertTrue(r.x + r.w <= band.x + band.w + 1e-9)
+        luaunit.assertTrue(r.y >= band.y - 1e-9)
+        luaunit.assertTrue(r.y + r.h <= band.y + band.h + 1e-9)
+    end
+end
+
 -- The skill enum control (#31): the 29 SkillType members plus an Any default, reusing the
 -- existing enum widget. Registered by requiring the skill trigger node file (Register wires
 -- it up), mirroring how each domain enum spec is declared alongside the node that needs it.

@@ -139,6 +139,7 @@ function Node.BuildGeometry(pins, x, y, width, opts)
                         spec    = spec,
                         default = pin.default,
                         kind = r.kind, axis = r.axis,
+                        placeholder = r.placeholder,  -- e.g. matcher needle's "any message"
                         x = r.x, y = r.y, w = r.w, h = r.h,
                     }
                 end
@@ -371,7 +372,7 @@ function Node.Draw(canvas, view, geom, meta, opts)
                             boxX + boxSz * 0.80, boxY + boxSz * 0.26, tick, markCol)
                     end
                 else
-                    local bg = (ctrl.kind == "action" or ctrl.kind == "capture")
+                    local bg = (ctrl.kind == "action" or ctrl.kind == "capture" or ctrl.kind == "toggle")
                         and Theme.COL_CONTROL_ACTION_BG or Theme.COL_CONTROL_BG
                     canvas:AddRectangle(bx, by, bw, bh, Theme.Vec4(bg))
                     canvas:AddOutline(bx, by, bw, bh, math.max(1, view:Scale(1)),

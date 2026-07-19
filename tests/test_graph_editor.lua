@@ -141,3 +141,69 @@ function TestObjectMarkerModeToggle:testDisabledModeRowIsInert()
     luaunit.assertNil(self.graph:GetControl(id, "mode").hull)
     luaunit.assertEquals(self.graph:GetControl(id, "mode").tile, true)
 end
+
+--- Matcher Control Band commit (#56) ------------------------------------------------------
+-- toggleMatcherMode / commitNeedleField only touch self.graph (via setControl, which no-ops its
+-- preload leg when self.runtime is nil) and the clicked control entry / self.editing, so they
+-- drive against the same metatable-backed fake `self` — no Canvas mount needed. This is the
+-- persist-through-the-control-store leg of the acceptance criteria (the node tests seed controls
+-- directly; these assert the Editor's own read-modify-write actually lands in the store).
+
+local GameMessage = require("nodes/triggers/game_message")
+
+TestMatcherControlCommit = {}
+
+function TestMatcherControlCommit:setUp()
+    self.registry = Registry.new()
+    -- Registers trigger.game_message and its matcher-typed `contains` pin (default substring).
+    GameMessage.Register(self.registry, { BindTrigger = function() end })
+    self.graph = Graph.new(self.registry)
+    self.editor = setmetatable({ graph = self.graph }, { __index = Editor })
+end
+
+-- The clicked control entry as ui/node.lua hands it to the dispatcher: pinName + default-resolved
+-- current value + the pin default (matcherRMW falls back to it when the stored control is nil).
+function TestMatcherControlCommit:ctrl(value)
+    return { pinName = "contains", value = value, default = { needle = "", mode = "substring" } }
+end
+
+function TestMatcherControlCommit:testToggleFlipsModePreservingNeedle()
+    local id = self.graph:AddNode("trigger.game_message", { contains = { needle = "zulrah", mode = "substring" } })
+    self.editor:toggleMatcherMode(id, self:ctrl({ needle = "zulrah", mode = "substring" }))
+    local stored = self.graph:GetControl(id, "contains")
+    luaunit.assertEquals(stored.mode, "pattern")   -- flipped
+    luaunit.assertEquals(stored.needle, "zulrah")  -- preserved
+end
+
+function TestMatcherControlCommit:testTogglePatternBackToSubstring()
+    local id = self.graph:AddNode("trigger.game_message", { contains = { needle = "x", mode = "pattern" } })
+    self.editor:toggleMatcherMode(id, self:ctrl({ needle = "x", mode = "pattern" }))
+    luaunit.assertEquals(self.graph:GetControl(id, "contains").mode, "substring")
+end
+
+function TestMatcherControlCommit:testToggleFromDefaultOnlyMatcher()
+    -- No stored control: the flip bases off the pin default (substring) shown in the geometry.
+    local id = self.graph:AddNode("trigger.game_message")
+    self.editor:toggleMatcherMode(id, self:ctrl(nil))
+    luaunit.assertEquals(self.graph:GetControl(id, "contains").mode, "pattern")
+end
+
+function TestMatcherControlCommit:testCommitNeedleWritesTextPreservingMode()
+    local id = self.graph:AddNode("trigger.game_message", { contains = { needle = "", mode = "pattern" } })
+    self.editor.editing = { nodeId = id, pinName = "contains", kind = "needle",
+        field = { content = "%d+ gp" }, default = { needle = "", mode = "substring" } }
+    self.editor:commitNeedleField()
+    local stored = self.graph:GetControl(id, "contains")
+    luaunit.assertEquals(stored.needle, "%d+ gp")
+    luaunit.assertEquals(stored.mode, "pattern")  -- mode survives a needle edit
+end
+
+function TestMatcherControlCommit:testCommitEmptyNeedleIsAValidValue()
+    -- Unlike a coordgrid axis (empty = leave alone), an empty needle is committed verbatim
+    -- (it means "match everything"). Clearing "zulrah" to "" must actually store "".
+    local id = self.graph:AddNode("trigger.game_message", { contains = { needle = "zulrah", mode = "substring" } })
+    self.editor.editing = { nodeId = id, pinName = "contains", kind = "needle",
+        field = { content = "" }, default = { needle = "", mode = "substring" } }
+    self.editor:commitNeedleField()
+    luaunit.assertEquals(self.graph:GetControl(id, "contains").needle, "")
+end

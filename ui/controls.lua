@@ -156,6 +156,31 @@ Controls.Register("color", {
     parse  = function(raw, current) return Color.ParseHex8(raw, current) end,
 })
 
+-- matcher (#56): the reusable Matcher's `{ needle, mode }` table Control, edited as a Control
+-- Band with a text field (the needle) and a 2-way Substring/Pattern toggle after it on one row
+-- (see CONTEXT.md *Matcher*). Follows the coordgrid composite-band + kind-discriminated sub-rect
+-- pattern, but its two sub-rects are a "needle" text field and a "toggle" mode button (rather
+-- than coordgrid's numeric "field"s + "action"), so both round-trip the whole table via
+-- ui/graph.lua's needle/toggle branches rather than the numeric CommitAxis path.
+Controls.Register("matcher", {
+    widget = "composite",
+    extraH = function(_pin) return Theme.MATCHER_BAND_H end,
+    -- `band` is the reserved rect (graph-space, relative to the node origin): {x, y, w, h}.
+    Layout = function(band)
+        local y = band.y + Theme.MATCHER_TOP_GAP
+        local h = Theme.MATCHER_FIELD_H
+        local toggleW = math.min(Theme.MATCHER_TOGGLE_W, band.w)
+        local fieldW = band.w - toggleW - Theme.MATCHER_GAP
+        if fieldW < 0 then fieldW = 0 end
+        return {
+            { kind = "needle", placeholder = "any message",
+              x = band.x, y = y, w = fieldW, h = h },
+            { kind = "toggle",
+              x = band.x + fieldW + Theme.MATCHER_GAP, y = y, w = toggleW, h = h },
+        }
+    end,
+})
+
 -- toastIcon (#36): a curated sprite-id dropdown for the Toast action's `icon` config, plus
 -- a "None" option (value = nil) since AddSprite is optional on the toast. Ids are the High-
 -- confidence entries from docs/research/popup-frame-sprites.md's notification-icon set;

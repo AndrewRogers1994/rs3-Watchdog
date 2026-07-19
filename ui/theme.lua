@@ -55,6 +55,16 @@ Theme.COORDGRID_FIELD_GAP  = 4     -- horizontal gap between the 3 fields
 Theme.COORDGRID_BAND_H     = Theme.COORDGRID_TOP_GAP + Theme.COORDGRID_FIELD_H
     + Theme.COORDGRID_MID_GAP + Theme.COORDGRID_BUTTON_H + Theme.COORDGRID_BOTTOM_GAP
 
+-- matcher composite control (#56): a single-row band below the pin's own row, holding a text
+-- field (the needle) and a 2-way Substring/Pattern toggle button after it. Same CONTROL_MIN_ZOOM
+-- draw/hit gating as coordgrid; its height is what a matcher pin row's extraH reserves.
+Theme.MATCHER_TOP_GAP    = 4     -- gap between the pin row and the field/toggle row
+Theme.MATCHER_FIELD_H    = 16    -- needle field / toggle button height
+Theme.MATCHER_GAP        = 4     -- horizontal gap between the needle field and the toggle
+Theme.MATCHER_TOGGLE_W   = 64    -- toggle button width (fits "Substring")
+Theme.MATCHER_BOTTOM_GAP = 4     -- gap kept below the row, before the next pin row
+Theme.MATCHER_BAND_H     = Theme.MATCHER_TOP_GAP + Theme.MATCHER_FIELD_H + Theme.MATCHER_BOTTOM_GAP
+
 -- object_marker mode multi-select (#40): a full-width composite band below the pin's own row,
 -- holding one checkbox row per mode. Same CONTROL_MIN_ZOOM draw/hit gating as coordgrid. These are
 -- per-row sizes only — the number of rows (and thus the band height) is derived from the node's own

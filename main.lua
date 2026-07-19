@@ -104,7 +104,8 @@ runtime.toast = ToastStack.new(runtime.effects, {
 
 local registry = LibNodeGraph.NewRegistry()
 LibNodeGraphStd.Register(registry)
-require("nodes/triggers/chat").Register(registry, runtime)
+require("nodes/triggers/game_message").Register(registry, runtime)
+require("nodes/triggers/player_chat").Register(registry, runtime)
 require("nodes/triggers/logic").Register(registry, runtime)
 require("nodes/triggers/location").Register(registry, runtime)
 require("nodes/triggers/skill").Register(registry, runtime)
@@ -131,12 +132,13 @@ runtime:SetRegistry(registry)
 -- future "new graph / switch graph" UI is purely additive.
 
 -- The demo graph, built only when there's nothing saved yet: a small, deliberately varied
--- graph so the Editor has real content — an event flow (Chat Trigger -> Log, exec + data)
+-- graph so the Editor has real content — an event flow (Game Message -> Log, exec + data)
 -- and a pure data chain (Add -> Multiply).
 local function seedDemo()
     local graph = LibNodeGraph.NewGraph(registry)
 
-    local chatNode = graph:AddNode("trigger.chat", { contains = "Hello" })
+    local chatNode = graph:AddNode("trigger.game_message",
+        { contains = { needle = "Hello", mode = "substring" } })
     local logNode  = graph:AddNode("action.log")
     local addNode  = graph:AddNode("std.add", { a = 2, b = 3 })
     local mulNode  = graph:AddNode("std.multiply", { a = 4, b = 5 })
