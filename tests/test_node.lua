@@ -85,6 +85,29 @@ function TestCoordgridGeometry:testBandSitsBelowThePinRowAndSpansFullWidth()
     end
 end
 
+-- The matcher composite band (#56): the needle control must carry the pin's own `placeholder`
+-- through BuildGeometry, so a sender Matcher shows "any sender" not the generic fallback. This
+-- drives the real pin->geometry path (a fake pin passed straight to spec.Layout would miss the
+-- engine dropping unknown pin fields — the actual bug this guards).
+TestMatcherGeometry = {}
+
+function TestMatcherGeometry:needleOf(placeholder)
+    local pins = { { name = "senderContains", kind = "data", direction = "in",
+        dataType = "matcher", label = "Sender contains", placeholder = placeholder } }
+    local geom = Node.BuildGeometry(pins, 0, 0, Theme.NODE_WIDTH)
+    for _, ctrl in ipairs(geom.controls) do
+        if ctrl.kind == "needle" then return ctrl end
+    end
+end
+
+function TestMatcherGeometry:testNeedleCarriesPinPlaceholder()
+    luaunit.assertEquals(self:needleOf("any sender").placeholder, "any sender")
+end
+
+function TestMatcherGeometry:testMissingPlaceholderFallsBackToNeutralHint()
+    luaunit.assertEquals(self:needleOf(nil).placeholder, "match anything")
+end
+
 TestControlAtHitTest = {}
 
 function TestControlAtHitTest:setUp()
