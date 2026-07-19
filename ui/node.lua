@@ -209,6 +209,20 @@ function Node.PinCenter(geom, pinName)
     return geom.x + p.cx, geom.y + p.cy
 end
 
+---@param font Int
+---@param color Vector4
+---@return ui.TextDataConfig
+local function createTextDataConfig(font, color)
+    ---@type ui.TextDataConfig
+    local textData = ui.TextDataConfig.new()
+    textData.font = font
+    textData.colour = color
+    textData.isShadowed = true
+    textData.shadowRGBA = Color.ToRGBA(0, 0, 0, 1)
+    textData.maxLines = 1
+    return textData
+end
+
 -- Draws the node body, header, title, and pin glyphs/labels through the View.
 -- meta = { title, category }; opts = { selected = bool, mouseX, mouseY } — the local-space
 -- cursor (opts.mouseX/Y) lets the header delete button light up when hovered.
@@ -235,9 +249,11 @@ function Node.Draw(canvas, view, geom, meta, opts)
     if showTitle and meta.title then
         local font = Theme.Font(14 * view.zoom)
         if font ~= nil then
+            local tw = Theme.TextWidth(14 * view.zoom, meta.title) or (#meta.title * view:Scale(7))
+            local textData = createTextDataConfig(font, Theme.Vec4(Theme.COL_TITLE))
             canvas:AddText(sx + view:Scale(Theme.PIN_MARGIN_X),
                 sy + headerH * 0.5 - view:Scale(8),
-                meta.title, font, Theme.Vec4(Theme.COL_TITLE))
+                tw, 0, meta.title, textData)
         end
     end
 
@@ -277,17 +293,20 @@ function Node.Draw(canvas, view, geom, meta, opts)
         if labelFont ~= nil then
             local labelCol = Theme.Vec4(Theme.COL_PIN_LABEL)
             local ty = pcy - view:Scale(7)
+            local tw = Theme.TextWidth(12 * view.zoom, pin.label) or (#pin.label * view:Scale(7))
+            local textData = createTextDataConfig(labelFont, labelCol)
             if pin.direction == "in" then
                 -- An exec-in pin's label is pushed right to clear its test button (labelInset,
                 -- set in BuildGeometry); every other pin has no inset.
                 local inset = Theme.PIN_LABEL_GAP + (pin.labelInset or 0)
+                -- canvas:AddText(pcx + hs + view:Scale(inset), ty,
+                --     pin.label, labelFont, labelCol)
                 canvas:AddText(pcx + hs + view:Scale(inset), ty,
-                    pin.label, labelFont, labelCol)
+                    tw, 0, pin.label, textData)
             else
                 -- Right-align output labels against the glyph (measured at the drawn size).
-                local tw = Theme.TextWidth(12 * view.zoom, pin.label) or (#pin.label * view:Scale(7))
                 canvas:AddText(pcx - hs - view:Scale(Theme.PIN_LABEL_GAP) - tw, ty,
-                    pin.label, labelFont, labelCol)
+                    tw, 0, pin.label, textData)
             end
         end
     end
@@ -337,8 +356,10 @@ function Node.Draw(canvas, view, geom, meta, opts)
                         if text == nil or text == "" then
                             text, col = ctrl.placeholder or "…", Theme.Vec4(Theme.COL_CONTROL_EMPTY)
                         end
+                        local tw = Theme.TextWidth(11 * view.zoom, text) or (#text * view:Scale(7))
+                        local textData = createTextDataConfig(ctrlFont, col)
                         canvas:AddText(bx + view:Scale(Theme.CONTROL_PAD_X), by + bh * 0.5 - view:Scale(6),
-                            text, ctrlFont, col)
+                            tw, 0, text, textData)
                     end
 
                     -- Enum dropdown indicator: a small ▾ drawn as a filled triangle at the right.

@@ -10,6 +10,8 @@
 - [ ] 5. add prefix config to Log
 - [ ] 6. when drag-and-dropping a connection line and it opens the palette, can we keep rendering the connection line until the palette is closed either by dismissing or selecting a node?
 - [ ] 7. stateful nodes should display what state they are in. counter should display the current number, flipflop should display what side it will fire next, doonce and gate should display if it is open or closed
+- [ ] 8. ToString supporting enums somehow. Strength is just the number 2 so piping it to ToString just turns it into `"2"`. It can't know it is a skill. Could add a dropdown to ToString to select an enum to transform. Or maybe a new node.
+- [x] 9. Dragging text to the right side of the editor window causes it to wrap.
 
 ## Node port backlog (mirroring runelite-watchdog)
 
