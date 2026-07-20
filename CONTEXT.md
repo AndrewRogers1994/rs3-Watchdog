@@ -115,6 +115,9 @@ scale/clip with the View doesn't matter (ADR-0004).
 _Avoid_: Inline editor, popup, input widget (in prose)
 
 **Control Spec**:
+_(Target model: this passive table dissolves into the active **Pin Control** module below — the
+per-Type-Tag behavior is being re-homed so one control's layout, click behavior, and binding stop
+living in three files. The description here is the current state until that refactor lands.)_
 The Watchdog-owned mapping (`ui/controls.lua`) from an engine Type Tag to how its Control is
 rendered and edited: a widget kind (`number` / `text` / `enum` / `composite` / `swatch`) plus,
 for an enum, its choices, for a composite, its `extraH`/`Layout` (see Control Band), or for a
@@ -122,6 +125,26 @@ swatch, its hex8 `format`/`parse` (see Swatch Chip). Parallel to Type Color, and
 reason — the engine is deliberately tag-agnostic, so presentation lives here (ADR-0004). Tags
 with no spec (coord, any) get no Control Editor.
 _Avoid_: Type metadata, schema, control config
+
+**Widget** _(target model, not yet built)_:
+A generic, engine-agnostic input primitive — text field, number field, dropdown, swatch, button,
+mode toggle. Draws itself at a rect and edits a value, reporting the edited value back out; knows
+nothing of Pins, Nodes, or the Graph. The reusable half, isolated for a possible future UI-library
+extraction, so it may depend only on Theme/Color/`ui.*` — never on a Pin Control, the Editor, the
+Store, or the engine. Lives under `ui/widgets/`, one file per Widget.
+_Avoid_: control, component (that's the client's), field/box (those name one Widget kind, not the concept)
+
+**Pin Control** _(target model, not yet built)_:
+The per-Type-Tag module that composes Widgets and binds them to a Pin's stored Control value (the
+location Pin Control lays out three number Widgets + a grab-position button over a `coordgrid`; the
+color Pin Control, one swatch Widget). Owns its own layout, internal hit-routing, display, click
+behavior, and — crucially — the engine binding: the read-modify-write / codec mapping between a
+Widget's natural value and the Pin's stored value, so the matcher's `mode` survives a needle edit.
+Reaches the few Editor-only capabilities it needs (mount a transient field, open the Color Popup,
+arm a capture, commit) through a passed **host** seam, whose test adapter is a fake host driving
+press→commit headless. Replaces the passive Control Spec; registered by Type Tag in `ui/controls.lua`,
+one module per control under `ui/controls/`.
+_Avoid_: control spec (the passive table it replaces), widget (that's the primitive it composes), handler
 
 **Control Band**:
 A `composite`-widget Control's own full-width strip drawn below its Pin's row instead of the
