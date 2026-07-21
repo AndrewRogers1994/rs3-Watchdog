@@ -1,92 +1,37 @@
--- controls.lua — the Control Spec map: Type Tag -> how the Editor renders and edits an
--- unconnected data-input Pin's Control value (ADR-0004). Presentation only: LibNodeGraph
--- stays tag-agnostic, so which widget a tag uses and what an enum's members are live here,
--- parallel to Theme.TypeColor. A domain enum is one Controls.Register(tag, spec) call.
+-- controls.lua — the Type-Tag → Pin Control registry (ADR-0005). For an unconnected data-input
+-- Pin whose Type Tag is registered here, this maps the tag to the Pin Control MODULE that owns how
+-- that Control is laid out, displayed, clicked, and bound to the engine (ui/controls/*.lua). It is
+-- purely the registry: LibNodeGraph stays tag-agnostic, so which Control a tag uses lives here,
+-- parallel to Theme.TypeColor. A Pin whose tag has no Pin Control gets no Control (ADR-0004).
 --
--- A spec is:
---   { widget = "number" | "text" | "enum" | "composite",
---     choices = { { value = <control value>, label = <string> }, ... },  -- enum only
---     format  = function(value) -> string,   -- optional display override
---     parse   = function(raw, current) -> value,  -- optional text->value override
---     extraH  = function(pin) -> number,   -- composite only: extra row height it reserves
---     Layout  = function(band) -> { { kind, axis?, x, y, w, h }, ... } }  -- composite only
+-- Two ways a tag is registered:
+--   * Controls.Register(tag, descriptor) — the convenience path for the auto-wired Widget kinds
+--     (number/text/enum/swatch/capture/mode). The descriptor names the widget kind and its per-tag
+--     config (an enum's `choices`, a capture's `captureKind`/`placeholder`/`format`, a mode's
+--     `modes`); Register builds the matching Pin Control from it. A new enum/color/capture/mode tag
+--     is one Register call with no Pin Control code of its own.
+--   * Controls.RegisterPinControl(tag, module) — the explicit path for the composite bands
+--     (coordgrid, matcher) whose module can't be inferred from a widget kind alone.
 --
--- A "composite" widget (e.g. coordgrid) renders as a full-width band below the pin's own row
--- instead of the single value-column box scalars get (see Node.BuildGeometry's extraH-driven
--- cumulative row layout). Its Layout function receives the reserved band rect (graph-space,
--- relative to the node origin: {x, y, w, h}) and returns however many sub-rects it needs, each
--- tagged with a `kind` the Editor's click dispatcher branches on.
+-- This file used to also hold a parallel "Control Spec" table read at a distance by the Editor; the
+-- ADR-0005 sweep migrated every Control onto a Pin Control and #61 deleted that passive path — the
+-- Editor now delegates every data Control to its module through the host seam, with no kind switches.
 
-local Theme = require("ui/theme")
-local Color = require("ui/color")
-
--- Pin Control implementations wired in automatically by widget kind (see Register below). These
--- modules depend only on Widgets/Theme (never back on controls.lua), so requiring them here is
--- cycle-free. The sweep migrates a widget kind by giving it a Pin Control here; the composite
--- `object_marker.mode` (mode checkbox band) is the last kind without one yet — it stays on the
--- passive spec path until #61 finishes the sweep and deletes it.
 local ScalarControl  = require("ui/controls/scalar")
 local EnumControl    = require("ui/controls/enum")
 local SwatchControl  = require("ui/controls/swatch")
 local CaptureControl = require("ui/controls/capture")
+local ModeControl    = require("ui/controls/mode")
 local NumberField    = require("ui/widgets/number_field")
 local TextField      = require("ui/widgets/text_field")
 
 local Controls = {}
 
-local specs = {}
-
--- Registers/overrides the Control Spec for a Type Tag. Returns the spec.
---
--- ADR-0005 sweep: registering an editable widget kind ALSO wires its active Pin Control, so the
--- Node/Editor route that tag through the new seam (the passive spec is kept for the old code paths
--- still being deleted, and for tests that read it). This is what makes every enum Type Tag migrate
--- for free — a new enum is still one Register call with no Pin Control code of its own. The
--- composite tags (coordgrid, matcher) register their Pin Controls explicitly below instead, since
--- "composite" alone doesn't say which module (and object_marker.mode has none yet).
-function Controls.Register(tag, spec)
-    assert(type(tag) == "string" and tag ~= "", "control spec tag must be a non-empty string")
-    assert(type(spec) == "table" and spec.widget ~= nil, "control spec needs a widget")
-    specs[tag] = spec
-    if spec.widget == "number" then
-        Controls.RegisterPinControl(tag, ScalarControl.new({ codec = NumberField, filter = "NUMERIC" }))
-    elseif spec.widget == "text" then
-        Controls.RegisterPinControl(tag, ScalarControl.new({ codec = TextField, filter = "NONE" }))
-    elseif spec.widget == "enum" then
-        Controls.RegisterPinControl(tag, EnumControl.new(spec.choices or {}))
-    elseif spec.widget == "swatch" then
-        -- Every color pin edits the same way (the Color Popup), so the swatch takes no per-tag
-        -- config — but capture does (screen vs object, its placeholder, its summary format), so
-        -- both are threaded straight from the spec that declared them (#60).
-        Controls.RegisterPinControl(tag, SwatchControl.new())
-    elseif spec.widget == "capture" then
-        Controls.RegisterPinControl(tag, CaptureControl.new({
-            captureKind = spec.captureKind, placeholder = spec.placeholder, format = spec.format,
-        }))
-    end
-    return spec
-end
-
--- The spec for a Type Tag, or nil (tags with no spec — coord, any — get no Control editor).
-function Controls.For(tag)
-    if tag == nil then return nil end
-    return specs[tag]
-end
-
--- Pin Control registry (ADR-0005) --------------------------------------------------------
--- The active successor to the passive Control Spec above: a Pin Control is the per-Type-Tag
--- MODULE that owns its own band layout, display, hit dispatch, click behavior, and engine
--- binding (composing Widgets from ui/widgets/), reached by the Editor through a host seam. As
--- the migration sweeps control-by-control (coordgrid first), each tag moves from a `specs`
--- entry read at a distance to a `pinControls` module the Node and Editor delegate to; a tag
--- with a Pin Control is routed to it and never touches the old `kind` switches. The two tables
--- coexist only during that sweep — see ADR-0005's spike-then-sweep landing strategy.
-
 local pinControls = {}
 
 -- Registers the Pin Control module for a Type Tag. The module supplies ReservedHeight/Layout
--- (geometry the Node delegates to), Display (value projection), and Press (click behavior,
--- driven through the passed host). Returns the module.
+-- (geometry the Node delegates to), Display (value projection), and Press (click behavior, driven
+-- through the passed host). Returns the module.
 function Controls.RegisterPinControl(tag, module)
     assert(type(tag) == "string" and tag ~= "", "pin control tag must be a non-empty string")
     assert(type(module) == "table", "pin control must be a module table")
@@ -94,81 +39,50 @@ function Controls.RegisterPinControl(tag, module)
     return module
 end
 
--- The Pin Control module for a Type Tag, or nil (tags still on the old Control Spec path).
+-- The Pin Control module for a Type Tag, or nil (an unregistered tag gets no Control).
 function Controls.PinControlFor(tag)
     if tag == nil then return nil end
     return pinControls[tag]
 end
 
--- The display string for a control value under a spec (nil-safe). Enums show their label.
-function Controls.Format(spec, value)
-    if spec == nil then return "" end
-    if spec.format then
-        local ok, s = pcall(spec.format, value)
-        if ok and s ~= nil then return tostring(s) end
+-- Registers an auto-wired Pin Control for a Type Tag from a descriptor `{ widget = ..., ... }`.
+-- The descriptor's widget kind selects the Pin Control and its per-tag config threads straight in
+-- (an enum's choices, a capture's screen/object kind + placeholder + summary format, a mode's list).
+-- Returns the descriptor. The composite bands (coordgrid/matcher) register their modules directly
+-- with RegisterPinControl instead — "composite" alone doesn't say which module.
+function Controls.Register(tag, descriptor)
+    assert(type(tag) == "string" and tag ~= "", "control tag must be a non-empty string")
+    assert(type(descriptor) == "table" and descriptor.widget ~= nil, "control descriptor needs a widget")
+    if descriptor.widget == "number" then
+        Controls.RegisterPinControl(tag, ScalarControl.new({ codec = NumberField, filter = "NUMERIC" }))
+    elseif descriptor.widget == "text" then
+        Controls.RegisterPinControl(tag, ScalarControl.new({ codec = TextField, filter = "NONE" }))
+    elseif descriptor.widget == "enum" then
+        Controls.RegisterPinControl(tag, EnumControl.new(descriptor.choices or {}))
+    elseif descriptor.widget == "swatch" then
+        -- Every color pin edits the same way (the Color Popup), so the swatch takes no per-tag
+        -- config; capture and mode do (their kind/placeholder/format, their modes list), threaded
+        -- straight from the descriptor that declared them.
+        Controls.RegisterPinControl(tag, SwatchControl.new())
+    elseif descriptor.widget == "capture" then
+        Controls.RegisterPinControl(tag, CaptureControl.new({
+            captureKind = descriptor.captureKind, placeholder = descriptor.placeholder,
+            format = descriptor.format,
+        }))
+    elseif descriptor.widget == "mode" then
+        Controls.RegisterPinControl(tag, ModeControl.new(descriptor.modes or {}))
     end
-    if spec.widget == "enum" then
-        for _, c in ipairs(spec.choices or {}) do
-            if c.value == value then return c.label end
-        end
-    end
-    if value == nil then return "" end
-    return tostring(value)
+    return descriptor
 end
 
--- 1-based index of the choice whose value equals `value`, or nil. Used to pre-select the
--- ComboField entry that matches the current control value.
-function Controls.ChoiceIndex(spec, value)
-    if spec == nil or spec.choices == nil then return nil end
-    for i, c in ipairs(spec.choices) do
-        if c.value == value then return i end
-    end
-    return nil
-end
-
--- Parses a raw InputField string into the stored control value. On an unparsable number the
--- current value is kept rather than nuked to nil/0, so a mid-edit empty box doesn't clobber.
-function Controls.Parse(spec, raw, current)
-    if spec == nil then return raw end
-    if spec.parse then
-        local ok, v = pcall(spec.parse, raw, current)
-        if ok then return v end
-    end
-    if spec.widget == "number" then
-        local n = tonumber(raw)
-        if n ~= nil then return n end
-        return current
-    end
-    return raw
-end
-
--- Read-modify-write for one axis of a composite table Control (e.g. coordgrid's {x,z,level}).
--- Same empty-box guard as Parse: an empty/unparsable raw string leaves the WHOLE table
--- untouched (returns `current` unchanged, `changed = false`) so a mid-edit empty field can't
--- clobber sibling axes. `quantity` is the widget's own pre-parsed number (e.g. InputField's
--- contentQuantity, which honors suffixes like 1K/1M) and is preferred over re-parsing `raw`.
-function Controls.CommitAxis(current, axis, raw, quantity)
-    if type(raw) == "string" and raw:match("^%s*$") then return current, false end
-    local value = quantity
-    if value == nil then value = tonumber(raw) end
-    if value == nil then return current, false end
-    local t = {}
-    if type(current) == "table" then
-        for k, v in pairs(current) do t[k] = v end
-    end
-    t[axis] = value
-    return t, true
-end
-
--- Built-in specs (ADR-0004 decision 3). number/string map to fields; bool is the
--- demonstrator enum (true/false), so all three widget kinds exercise off existing pins with
--- no node-definition changes. coord/any are intentionally absent (composite/unknown).
+-- Built-in registrations. number/string map to scalar fields; bool is the demonstrator enum
+-- (true/false), so all three primitive Widget kinds exercise off existing pins with no node-
+-- definition changes. coord/any are intentionally absent (composite/unknown), so their pins get
+-- no Control. NOTE: ui.ComboField assigns each Add()'d entry an id by ALPHABETICAL rank of its
+-- label, not by declaration order here (ADR-0004's ComboField caveat) — but the Editor matches
+-- choices by label text, never id, so `choices` may be declared in whatever order reads best.
 Controls.Register("number", { widget = "number" })
 Controls.Register("string", { widget = "text" })
--- NOTE: ui.ComboField assigns each Add()'d entry an id by ALPHABETICAL rank of its label, not
--- by declaration order here or the id passed to Add (see ADR-0004's ComboField caveat). The
--- Editor never relies on that id — it matches choices by label text instead — so `choices`
--- below can be declared in whatever order reads best; it need not be alphabetical.
 Controls.Register("bool", {
     widget = "enum",
     choices = {
@@ -177,90 +91,21 @@ Controls.Register("bool", {
     },
 })
 
--- coordgrid (#25/#58): MIGRATED to a Pin Control module (ui/controls/coordgrid.lua, ADR-0005) —
--- the Node and Editor delegate its band layout, display, click behavior, and per-axis binding to
--- that module via Controls.PinControlFor. The passive spec just below is now VESTIGIAL: node.lua
--- prefers the Pin Control and never reads it, but it is kept registered so test_controls.lua's
--- TestCoordgridSpec stays green through the migration (it is deleted with the rest of the old
--- Control-Spec path when the sweep completes — ADR-0005's spike-then-sweep).
+-- coordgrid (#25) and matcher (#56) are composite BANDS — their Pin Control modules own the band
+-- layout, display, click, and per-axis/table binding. Registered explicitly (a "composite" widget
+-- kind doesn't say which module) via RegisterPinControl.
 Controls.RegisterPinControl("coordgrid", require("ui/controls/coordgrid"))
-Controls.Register("coordgrid", {
-    widget = "composite",
-    extraH = function(_pin) return Theme.COORDGRID_BAND_H end,
-    -- `band` is the reserved rect (graph-space, relative to the node origin): {x, y, w, h}.
-    Layout = function(band)
-        local fieldY = band.y + Theme.COORDGRID_TOP_GAP
-        local buttonY = fieldY + Theme.COORDGRID_FIELD_H + Theme.COORDGRID_MID_GAP
-        local gap = Theme.COORDGRID_FIELD_GAP
-        local fieldW = (band.w - gap * 2) / 3
-        local rects = {}
-        for i, axis in ipairs({ "x", "z", "level" }) do
-            rects[#rects + 1] = {
-                kind = "field", axis = axis,
-                x = band.x + (i - 1) * (fieldW + gap), y = fieldY,
-                w = fieldW, h = Theme.COORDGRID_FIELD_H,
-            }
-        end
-        rects[#rects + 1] = {
-            kind = "action",
-            x = band.x, y = buttonY, w = band.w, h = Theme.COORDGRID_BUTTON_H,
-        }
-        return rects
-    end,
-})
-
--- color (#30/#60): a {r, g, b, a} table Control (0..255 each), edited via a Canvas-drawn popup
--- (ui/color_popup.lua) opened from a checker-backed swatch chip. MIGRATED to a Pin Control module
--- (ui/controls/swatch.lua, ADR-0005) — auto-wired above by widget == "swatch" — which owns the
--- chip layout/display and opens the popup through the host, handing it the swatch Widget's own hex
--- codec. The passive spec below is now VESTIGIAL: node.lua/graph.lua prefer the Pin Control and
--- never read its format/parse (the popup gets the Widget's codec instead), but it stays registered
--- so the migration stays reversible until the old Control-Spec path is deleted (#61's sweep).
-Controls.Register("color", {
-    widget = "swatch",
-    format = function(value) return Color.FormatHex8(value) end,
-    parse  = function(raw, current) return Color.ParseHex8(raw, current) end,
-})
-
--- matcher (#56): the reusable Matcher's `{ needle, mode }` table Control, edited as a Control
--- Band with a text field (the needle) and a 2-way Substring/Pattern toggle after it on one row
--- (see CONTEXT.md *Matcher*). Follows the coordgrid composite-band + kind-discriminated sub-rect
--- pattern, but its two sub-rects are a "needle" text field and a "toggle" mode button (rather
--- than coordgrid's numeric "field"s + "action"), so both round-trip the whole table via
--- ui/graph.lua's needle/toggle branches rather than the numeric CommitAxis path.
--- matcher (#56/#59): MIGRATED to a Pin Control module (ui/controls/matcher.lua, ADR-0005), like
--- coordgrid. Registered explicitly (a composite tag doesn't auto-wire — Register can't tell which
--- module a "composite" wants). The passive spec just below is now VESTIGIAL: node.lua prefers the
--- Pin Control and never reads it, but it is kept registered so test_controls.lua's
--- TestMatcherControlSpec stays green until the old Control-Spec path is deleted (ADR-0005 sweep).
 Controls.RegisterPinControl("matcher", require("ui/controls/matcher"))
-Controls.Register("matcher", {
-    widget = "composite",
-    extraH = function(_pin) return Theme.MATCHER_BAND_H end,
-    -- `band` is the reserved rect (graph-space, relative to the node origin): {x, y, w, h}. The
-    -- empty-needle placeholder is a fixed generic hint — an empty Matcher matches every line,
-    -- regardless of which node it sits on, so one wording covers every case.
-    Layout = function(band)
-        local y = band.y + Theme.MATCHER_TOP_GAP
-        local h = Theme.MATCHER_FIELD_H
-        local toggleW = math.min(Theme.MATCHER_TOGGLE_W, band.w)
-        local fieldW = band.w - toggleW - Theme.MATCHER_GAP
-        if fieldW < 0 then fieldW = 0 end
-        return {
-            { kind = "needle", placeholder = "matches anything",
-              x = band.x, y = y, w = fieldW, h = h },
-            { kind = "toggle",
-              x = band.x + fieldW + Theme.MATCHER_GAP, y = y, w = toggleW, h = h },
-        }
-    end,
-})
 
--- toastIcon (#36): a curated sprite-id dropdown for the Toast action's `icon` config, plus
--- a "None" option (value = nil) since AddSprite is optional on the toast. Ids are the High-
--- confidence entries from docs/research/popup-frame-sprites.md's notification-icon set;
--- `id.Sprite` is absent under the bare interpreter, so ids are the literal numeric constants
--- (recorded in that research doc), not `id.Sprite.*` lookups, so this spec loads with no
--- client globals like every other one in this file.
+-- color (#30): a {r, g, b, a} table Control edited via the Canvas-drawn Color Popup, opened from a
+-- checker-backed swatch chip. The swatch Pin Control owns the chip and hands the popup its own hex
+-- codec, so the tag needs no per-tag config.
+Controls.Register("color", { widget = "swatch" })
+
+-- toastIcon (#36): a curated sprite-id dropdown for the Toast action's `icon` config, plus a "None"
+-- option (value = nil). Ids are the High-confidence entries from docs/research/popup-frame-
+-- sprites.md's notification-icon set; `id.Sprite` is absent under the bare interpreter, so ids are
+-- the literal numeric constants (recorded in that research doc), not `id.Sprite.*` lookups.
 Controls.Register("toastIcon", {
     widget = "enum",
     choices = {

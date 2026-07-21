@@ -15,8 +15,8 @@ local Theme  = require("ui/theme")
 local Swatch = require("ui/widgets/swatch")
 
 -- The codec the Color Popup round-trips its one hex field through: a plain table the popup consumes
--- via Controls.Format/Controls.Parse (both prefer a spec's own format/parse), so the popup keeps
--- working unchanged with no Control Spec. Module-shared — it closes over nothing per-instance.
+-- via its own :Format/:Parse (which call these hooks), so the popup keeps working with no Control
+-- Spec knowledge at all. Module-shared — it closes over nothing per-instance.
 local POPUP_CODEC = { widget = "swatch", format = Swatch.Format, parse = Swatch.Parse }
 
 ---@class SwatchPinControl

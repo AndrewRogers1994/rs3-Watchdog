@@ -205,24 +205,10 @@ function ObjectMarker.Register(registry, runtime)
                 return value.name or ""
             end,
         })
-        -- The 4-way mode multi-select: a composite band of one checkbox row per mode.
-        Controls.Register("object_marker.mode", {
-            widget = "composite",
-            modes = ObjectMarker.MODES,
-            extraH = function(_pin) return Theme.ModeBandH(#ObjectMarker.MODES) end,
-            Layout = function(band)
-                local rects = {}
-                local y = band.y + Theme.MODE_TOP_GAP
-                for _, m in ipairs(ObjectMarker.MODES) do
-                    rects[#rects + 1] = {
-                        kind = "mode", axis = m.key,
-                        x = band.x, y = y, w = band.w, h = Theme.MODE_ROW_H,
-                    }
-                    y = y + Theme.MODE_ROW_H + Theme.MODE_ROW_GAP
-                end
-                return rects
-            end,
-        })
+        -- The 4-way mode multi-select: a composite band of one checkbox row per mode. The mode Pin
+        -- Control (ui/controls/mode.lua) owns the band layout/display/toggle; the modes list is all
+        -- the per-tag config it needs.
+        Controls.Register("object_marker.mode", { widget = "mode", modes = ObjectMarker.MODES })
     end)
 
     registry:RegisterNodeType("action.object_marker", {

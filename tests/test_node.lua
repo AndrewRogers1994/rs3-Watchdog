@@ -281,6 +281,27 @@ function TestMigratedControlRouting:testCapturePinCarriesAPinControl()
     luaunit.assertEquals(geom.controls[1].kind, "capture")
 end
 
+function TestMigratedControlRouting:testModePinCarriesAPinControlBand()
+    -- #61: the object_marker mode multi-select is a band; register a stand-in mode tag so the
+    -- routing is proven without pulling the whole node module in. Each checkbox row carries the
+    -- Pin Control and its baked `enabled` flag, and never reaches the old kind == "mode" path.
+    Controls.Register("test.mode61", {
+        widget = "mode",
+        modes = {
+            { key = "tile", label = "Tile", enabled = true },
+            { key = "hull", label = "Hull", enabled = false, reason = "needs render API" },
+        },
+    })
+    local geom = Node.BuildGeometry({ inPin("mode", "test.mode61") }, 0, 0, Theme.NODE_WIDTH)
+    luaunit.assertEquals(#geom.controls, 2)  -- one row per mode
+    for _, c in ipairs(geom.controls) do
+        luaunit.assertNotNil(c.pinControl)
+        luaunit.assertEquals(c.kind, "mode")
+    end
+    luaunit.assertTrue(geom.controls[1].enabled)   -- tile
+    luaunit.assertFalse(geom.controls[2].enabled)  -- hull
+end
+
 function TestMigratedControlRouting:testInlineScalarsReserveNoBand()
     -- An inline Pin Control (scalar/enum) adds no reserved band, so a row of them collapses to the
     -- fixed PIN_ROW_HEIGHT stride exactly as the old scalar spec path did.
