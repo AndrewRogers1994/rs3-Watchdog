@@ -212,6 +212,40 @@ folds quick-chat into its parent channel. A Chat Trigger exposes only its own Gr
 **Any** means the union of that Trigger's Groups, never the whole enum.
 _Avoid_: Chat category, chat kind, chat class; "chat type" (that is the raw engine `ChatType`)
 
+**Webhook** (`action.webhook`):
+An Action Node that POSTs a JSON body to an HTTP endpoint when exec'd. The endpoint is a
+**Base** (chosen from the manifest's `Plugin.urls` allowlist — the client refuses any URL not
+declared at build time) plus a **Path**; the node is POST-only. Its body is a JSON template
+carrying **Injection Tokens**, and it is the graph's first **async** node — it does not
+complete inside the firing sweep but continues later, from the HTTP completion callback.
+_Avoid_: HTTP node, request node, "URL node" (the URL is not free-form — see Base);
+GET/PUT/DELETE (the node is POST-only and the API only exposes Get/Post)
+
+**Base** (webhook):
+The allowlisted host a Webhook targets, selected from the keys of `Plugin.urls` (declared in
+`plugin.json`). The client only permits requests to bases declared in the manifest, so a
+Webhook can reach any *path* under an allowlisted host but can never invent a new host without
+a redeploy. This is a hard client constraint, not a Watchdog choice.
+_Avoid_: URL, endpoint (those include the Path); domain
+
+**Injection Token**:
+A `{{N}}` placeholder in a Webhook's body template (`{{1}}`, `{{2}}`, `{{3}}`) that is replaced
+at send time by the value wired into the node's positional data-input pin `N`. Because the
+body is JSON-first, injected values are **JSON-escaped** before substitution, so arbitrary text
+(a chat line with quotes or newlines) can't break the payload. The token set is fixed at three
+because the engine has no dynamic pins.
+_Avoid_: variable, placeholder, `$1`/`%1%` (the syntax is `{{N}}`); "merge field"
+
+**Async Node**:
+A node whose downstream exec pins do **not** fire during the synchronous trigger→…→node sweep,
+but later, from an external callback. The Webhook is the first: its firing `run` starts the
+POST and returns, and `On Success` / `On Failure` fire when the HTTP completion callback
+arrives. Legal because the engine's `ctx` closure stays valid after `run` returns and the
+client is single-threaded, so a deferred `ctx:Fire` simply propagates downstream at callback
+time. See [ADR-0006](docs/adr/0006-async-continuation-node.md).
+_Avoid_: deferred node, callback node, promise; conflating with a Pure Node (that is about
+*pull* timing, not *push* timing)
+
 ## Testing node types
 
 Node behavior (a node type's `run`) is verified against a **real** `LibNodeGraph` Graph —

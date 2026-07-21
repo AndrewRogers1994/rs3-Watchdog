@@ -27,9 +27,9 @@ local function callOrLog(context, fn, ...)
 end
 
 local EffectRegistry = {}
+EffectRegistry.__index = EffectRegistry
 
 function EffectRegistry.new()
-    EffectRegistry.__index = EffectRegistry
     return setmetatable({
         canvas = nil,
         stacks = {}, -- owner -> { handle, ... }, oldest first

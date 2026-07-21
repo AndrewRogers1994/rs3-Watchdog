@@ -35,6 +35,7 @@ local ObjectMarkerCapture = require("ui/object_marker_capture")
 local Util = require("util")
 
 local Runtime = {}
+Runtime.__index = Runtime
 
 -- Wraps a node-authored (or persistence-hook) callback so one bad function can't break dispatch
 -- for every other binding — used by the transform/filter fan-out and the enable-persistence hook.
@@ -58,7 +59,6 @@ end
 -- mirroring `eventSource`'s seam: tests pass a fake exposing `IsAvailable()`/`GetPosition()`
 -- instead of relying on the real (test-environment-absent) client global.
 function Runtime.new(eventSource, mouseSource)
-    Runtime.__index = Runtime
     local self = setmetatable({
         eventSource = eventSource or Event,
         mouseSource = mouseSource or Mouse,
