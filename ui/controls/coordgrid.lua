@@ -94,7 +94,7 @@ end
 
 -- (d) Click behavior. A "field" mounts a transient numeric editor (through the host) that
 -- commits its own axis on every content change; the "action" button grabs the live position.
----@param host table
+---@param host ControlHost
 ---@param ctrl table
 function CoordGrid.Press(host, ctrl)
     if ctrl.kind == "action" then
@@ -107,7 +107,7 @@ end
 -- Mounts a numeric field over the clicked axis box, seeded from the value the box currently
 -- shows (default-resolved, in ctrl.value), and commits that axis on every change. The commit
 -- re-reads the stored table fresh from the host so concurrent edits to other axes are preserved.
----@param host table
+---@param host ControlHost
 ---@param ctrl table
 function CoordGrid.EditAxis(host, ctrl)
     local axisVal = (type(ctrl.value) == "table") and ctrl.value[ctrl.axis] or nil
@@ -123,7 +123,7 @@ end
 -- position is a plain client-API call (ADR-0005: not a host capability); only IsAvailable() is
 -- guarded — a documented state check, not a client-global existence check (Player is present at
 -- load; see the pcall-defensive-style convention). Silent no-op when the player is unavailable.
----@param host table
+---@param host ControlHost
 function CoordGrid.GrabCurrentPosition(host)
     if not Player.IsAvailable() then return end
     local entity = Player.GetEntity()

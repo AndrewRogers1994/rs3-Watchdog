@@ -20,15 +20,38 @@
 local Theme = require("ui/theme")
 local Color = require("ui/color")
 
+-- Pin Control implementations wired in automatically by widget kind (see Register below). These
+-- modules depend only on Widgets/Theme (never back on controls.lua), so requiring them here is
+-- cycle-free. The sweep migrates a widget kind by giving it a Pin Control here; kinds without one
+-- yet (swatch/capture, and the composite `object_marker.mode`) stay on the passive spec path.
+local ScalarControl = require("ui/controls/scalar")
+local EnumControl   = require("ui/controls/enum")
+local NumberField   = require("ui/widgets/number_field")
+local TextField     = require("ui/widgets/text_field")
+
 local Controls = {}
 
 local specs = {}
 
 -- Registers/overrides the Control Spec for a Type Tag. Returns the spec.
+--
+-- ADR-0005 sweep: registering an editable widget kind ALSO wires its active Pin Control, so the
+-- Node/Editor route that tag through the new seam (the passive spec is kept for the old code paths
+-- still being deleted, and for tests that read it). This is what makes every enum Type Tag migrate
+-- for free — a new enum is still one Register call with no Pin Control code of its own. The
+-- composite tags (coordgrid, matcher) register their Pin Controls explicitly below instead, since
+-- "composite" alone doesn't say which module (and object_marker.mode has none yet).
 function Controls.Register(tag, spec)
     assert(type(tag) == "string" and tag ~= "", "control spec tag must be a non-empty string")
     assert(type(spec) == "table" and spec.widget ~= nil, "control spec needs a widget")
     specs[tag] = spec
+    if spec.widget == "number" then
+        Controls.RegisterPinControl(tag, ScalarControl.new({ codec = NumberField, filter = "NUMERIC" }))
+    elseif spec.widget == "text" then
+        Controls.RegisterPinControl(tag, ScalarControl.new({ codec = TextField, filter = "NONE" }))
+    elseif spec.widget == "enum" then
+        Controls.RegisterPinControl(tag, EnumControl.new(spec.choices or {}))
+    end
     return spec
 end
 
@@ -192,6 +215,12 @@ Controls.Register("color", {
 -- pattern, but its two sub-rects are a "needle" text field and a "toggle" mode button (rather
 -- than coordgrid's numeric "field"s + "action"), so both round-trip the whole table via
 -- ui/graph.lua's needle/toggle branches rather than the numeric CommitAxis path.
+-- matcher (#56/#59): MIGRATED to a Pin Control module (ui/controls/matcher.lua, ADR-0005), like
+-- coordgrid. Registered explicitly (a composite tag doesn't auto-wire — Register can't tell which
+-- module a "composite" wants). The passive spec just below is now VESTIGIAL: node.lua prefers the
+-- Pin Control and never reads it, but it is kept registered so test_controls.lua's
+-- TestMatcherControlSpec stays green until the old Control-Spec path is deleted (ADR-0005 sweep).
+Controls.RegisterPinControl("matcher", require("ui/controls/matcher"))
 Controls.Register("matcher", {
     widget = "composite",
     extraH = function(_pin) return Theme.MATCHER_BAND_H end,

@@ -227,3 +227,42 @@ function TestSwatchGeometry:testConnectedPinReservesNoSwatchControl()
     local geom = Node.BuildGeometry(self.pins, 0, 0, Theme.NODE_WIDTH, { connected = { tint = true } })
     luaunit.assertEquals(#geom.controls, 0)
 end
+
+-- #59: the migrated editable tags (number/string scalars, the bool enum, the matcher) must route
+-- to their Pin Control — every geom.controls entry carries `pinControl` — so buildGeoms/beginPress
+-- delegate to the module and never reach the old `kind`/spec switches for these tags.
+TestMigratedControlRouting = {}
+
+local function inPin(name, dataType)
+    return { name = name, kind = "data", direction = "in", dataType = dataType, label = name }
+end
+
+function TestMigratedControlRouting:testScalarPinsCarryAPinControl()
+    for _, dt in ipairs({ "number", "string" }) do
+        local geom = Node.BuildGeometry({ inPin("v", dt) }, 0, 0, Theme.NODE_WIDTH)
+        luaunit.assertEquals(#geom.controls, 1)
+        luaunit.assertNotNil(geom.controls[1].pinControl)
+    end
+end
+
+function TestMigratedControlRouting:testEnumPinCarriesAPinControlAndCaretHint()
+    local geom = Node.BuildGeometry({ inPin("flag", "bool") }, 0, 0, Theme.NODE_WIDTH)
+    luaunit.assertEquals(#geom.controls, 1)
+    luaunit.assertNotNil(geom.controls[1].pinControl)
+    luaunit.assertEquals(geom.controls[1].widget, "enum")  -- draws the dropdown caret
+end
+
+function TestMigratedControlRouting:testMatcherPinCarriesAPinControlBand()
+    local geom = Node.BuildGeometry({ inPin("contains", "matcher") }, 0, 0, Theme.NODE_WIDTH)
+    luaunit.assertEquals(#geom.controls, 2)  -- needle + toggle
+    for _, c in ipairs(geom.controls) do luaunit.assertNotNil(c.pinControl) end
+end
+
+function TestMigratedControlRouting:testInlineScalarsReserveNoBand()
+    -- An inline Pin Control (scalar/enum) adds no reserved band, so a row of them collapses to the
+    -- fixed PIN_ROW_HEIGHT stride exactly as the old scalar spec path did.
+    local geom = Node.BuildGeometry({ inPin("a", "number"), inPin("b", "string") }, 0, 0, Theme.NODE_WIDTH)
+    local expected = Theme.HEADER_HEIGHT + Theme.BODY_PAD_TOP
+        + 2 * Theme.PIN_ROW_HEIGHT + Theme.BODY_PAD_BOTTOM
+    luaunit.assertAlmostEquals(geom.h, expected, 1e-9)
+end
