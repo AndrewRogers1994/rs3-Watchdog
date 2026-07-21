@@ -228,10 +228,13 @@ function TestSwatchGeometry:testConnectedPinReservesNoSwatchControl()
     luaunit.assertEquals(#geom.controls, 0)
 end
 
--- #59: the migrated editable tags (number/string scalars, the bool enum, the matcher) must route
--- to their Pin Control — every geom.controls entry carries `pinControl` — so buildGeoms/beginPress
--- delegate to the module and never reach the old `kind`/spec switches for these tags.
+-- #59/#60: the migrated tags (number/string scalars, the bool enum, the matcher, the color swatch,
+-- and the screen/object capture) must route to their Pin Control — every geom.controls entry carries
+-- `pinControl` — so buildGeoms/beginPress delegate to the module and never reach the old `kind`/spec
+-- switches for these tags.
 TestMigratedControlRouting = {}
+
+local Controls = require("ui/controls")
 
 local function inPin(name, dataType)
     return { name = name, kind = "data", direction = "in", dataType = dataType, label = name }
@@ -256,6 +259,26 @@ function TestMigratedControlRouting:testMatcherPinCarriesAPinControlBand()
     local geom = Node.BuildGeometry({ inPin("contains", "matcher") }, 0, 0, Theme.NODE_WIDTH)
     luaunit.assertEquals(#geom.controls, 2)  -- needle + toggle
     for _, c in ipairs(geom.controls) do luaunit.assertNotNil(c.pinControl) end
+end
+
+function TestMigratedControlRouting:testSwatchPinCarriesAPinControl()
+    -- The `color` tag is registered by ui/controls.lua itself (loaded via Node), so its swatch Pin
+    -- Control is already wired — the chip routes through the module, not the old kind == "swatch" path.
+    local geom = Node.BuildGeometry({ inPin("tint", "color") }, 0, 0, Theme.NODE_WIDTH)
+    luaunit.assertEquals(#geom.controls, 1)
+    luaunit.assertNotNil(geom.controls[1].pinControl)
+    luaunit.assertEquals(geom.controls[1].kind, "swatch")
+end
+
+function TestMigratedControlRouting:testCapturePinCarriesAPinControl()
+    -- Capture specs are registered by their node files; register a stand-in here so the routing is
+    -- proven without pulling a whole node module in. A widget == "capture" spec auto-wires its
+    -- Pin Control the same way (#60), so the box carries one and never reaches kind == "capture".
+    Controls.Register("test.capture60", { widget = "capture", placeholder = "Draw on screen" })
+    local geom = Node.BuildGeometry({ inPin("rect", "test.capture60") }, 0, 0, Theme.NODE_WIDTH)
+    luaunit.assertEquals(#geom.controls, 1)
+    luaunit.assertNotNil(geom.controls[1].pinControl)
+    luaunit.assertEquals(geom.controls[1].kind, "capture")
 end
 
 function TestMigratedControlRouting:testInlineScalarsReserveNoBand()

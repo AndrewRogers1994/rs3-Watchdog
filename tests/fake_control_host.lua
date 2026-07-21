@@ -5,6 +5,10 @@
 -- a test can "type" or "pick" and then assert the value COMMITTED, exercising a Pin Control through
 -- its real interface without ever reaching past it into its Widgets. Commit mirrors the real host
 -- (Graph:SetControl updates the store) so a subsequent read-modify-write reads back what it wrote.
+--
+-- The host-routed controls (#60) reach the Editor's own collaborators rather than committing a
+-- value: the swatch opens the Color Popup, the capture arms a marker overlay. The fake records those
+-- invocations (`openedPopup`, `armed`) so a press through the seam is asserted without a live Editor.
 
 local FakeHost = {}
 FakeHost.__index = FakeHost
@@ -12,7 +16,8 @@ FakeHost.__index = FakeHost
 ---@param stored any  -- the initial stored Control value (may be nil)
 function FakeHost.new(stored)
     return setmetatable(
-        { stored = stored, committed = nil, commits = {}, commitCount = 0, mounted = nil },
+        { stored = stored, committed = nil, commits = {}, commitCount = 0, mounted = nil,
+          openedPopup = nil, armed = nil },
         FakeHost)
 end
 
@@ -37,6 +42,18 @@ end
 
 function FakeHost:MountDropdown(ctrl, opts, onSelect)
     self.mounted = { ctrl = ctrl, opts = opts, onSelect = onSelect, kind = "dropdown" }
+end
+
+-- Records that the swatch opened the Color Popup, keeping the codec it handed over so a test can
+-- assert the popup got a working hex format/parse (the real host threads it straight into cp:Open).
+function FakeHost:OpenColorPopup(codec)
+    self.openedPopup = { codec = codec }
+end
+
+-- Records that a capture was armed and WHICH kind ("screen"/"object"), so a test can assert the
+-- correct overlay (drag vs MiniMenu) was triggered without a live runtime.
+function FakeHost:ArmCapture(kind)
+    self.armed = { kind = kind }
 end
 
 -- Drive a content change through the mounted field, as the real host does on ONCONTENTCHANGED:

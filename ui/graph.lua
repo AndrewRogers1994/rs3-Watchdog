@@ -1016,7 +1016,11 @@ local COLOR_DRAG_PARTS = { sv = true, hue = true, r = true, g = true, b = true, 
 -- so this never has to reopen over itself. Any node Control editor IS still a real scenario
 -- to guard against — it isn't gated by that same modal check — so it's closed first, same
 -- rule ADR-0004 already applies elsewhere.
-function Editor:openColorPopup(nodeId, ctrl)
+-- `codec` (#60) is the swatch Pin Control's hex format/parse table, what the popup round-trips its
+-- one hex field through (via Controls.Format/Parse, which prefer a spec's own hooks) — so the popup
+-- keeps working with no Control Spec. It falls back to ctrl.spec for the old bridge path (the
+-- vestigial `kind == "swatch"` branch, live until #61 deletes it), which still carries a spec.
+function Editor:openColorPopup(nodeId, ctrl, codec)
     if self.editing ~= nil then self:closeControlEditor() end
     local geom = self.geoms[nodeId]
     if geom == nil then return end
@@ -1024,7 +1028,7 @@ function Editor:openColorPopup(nodeId, ctrl)
     local sx, sy = self.view:ToScreen(geom.x + ctrl.x, geom.y + ctrl.y + ctrl.h)
     local current = self.graph:GetControl(nodeId, ctrl.pinName)
     if current == nil then current = ctrl.default end
-    cp:Open(nodeId, ctrl.pinName, ctrl.spec, current, sx, sy)
+    cp:Open(nodeId, ctrl.pinName, codec or ctrl.spec, current, sx, sy)
 end
 
 -- Tears down the transient hex field (if mounted) and closes the popup. Idempotent, so it's
@@ -1162,6 +1166,8 @@ end
 ---@field Commit fun(self: ControlHost, value: any)
 ---@field MountField fun(self: ControlHost, ctrl: table, opts: table, onChange: fun(raw: string, quantity: number|nil))
 ---@field MountDropdown fun(self: ControlHost, ctrl: table, opts: table, onSelect: fun(label: string))
+---@field OpenColorPopup fun(self: ControlHost, codec: table)
+---@field ArmCapture fun(self: ControlHost, kind: string)
 
 -- The `host` a Pin Control is handed on press: the Editor-only capabilities it needs, and no
 -- more. It exposes reading and committing the Pin's stored Control value (Commit runs the same
@@ -1169,8 +1175,9 @@ end
 -- dropdown over one of the control's boxes. The Editor does NO per-control branching — a Pin
 -- Control pushes work through this seam. Its test adapter is the fake host in
 -- tests/fake_control_host.lua, which is what makes a Pin Control's whole press->commit lifecycle
--- testable headless. (OpenColorPopup / arming a capture would join this seam when those controls
--- migrate; the editable controls need only these four.)
+-- testable headless. The host-routed controls (#60) reach two more Editor collaborators through it —
+-- the swatch opens the Color Popup, the capture arms a marker overlay — rather than committing a
+-- value directly; the overlay/popup commit for them through the same setControl path.
 ---@return ControlHost
 function Editor:controlHost(nodeId, ctrl)
     local editor = self
@@ -1193,6 +1200,21 @@ function Editor:controlHost(nodeId, ctrl)
         -- value and commits). Selection is by label, never id — ADR-0004's ComboField caveat.
         MountDropdown = function(_, mctrl, opts, onSelect)
             editor:mountControlDropdown(ctrl.pinControl, nodeId, mctrl, opts, onSelect)
+        end,
+        -- Opens the Color Popup over the swatch chip (#60). The popup keeps its own file/lifecycle;
+        -- the Pin Control passes the hex codec so the popup needs no Control Spec of its own.
+        OpenColorPopup = function(_, codec)
+            editor:openColorPopup(nodeId, ctrl, codec)
+        end,
+        -- Arms the marker capture the Pin Control asks for (#60): "object" -> the MiniMenu select
+        -- mode, anything else -> the Screen Marker drag overlay. Each overlay commits the finished
+        -- value back through setControl itself; a headless host with no runtime is a silent no-op.
+        ArmCapture = function(_, kind)
+            if kind == "object" then
+                editor:armObjectMarkerCapture(nodeId, ctrl.pinName)
+            else
+                editor:armScreenMarkerCapture(nodeId, ctrl.pinName)
+            end
         end,
     }
 end
