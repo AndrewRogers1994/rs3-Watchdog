@@ -1,0 +1,60 @@
+-- dropdown.lua — the dropdown Widget (ADR-0005): a generic, engine-agnostic input primitive that
+-- selects one value from a fixed list of {value, label} choices. It owns the choice list and the
+-- value<->label mapping, and NOTHING else — the transient real `ui.ComboField` that actually
+-- shows the menu is mounted by the host on the Widget's behalf (see MountDropdown in ui/graph.lua),
+-- and the enum Pin Control that composes this Widget owns how a pick becomes a stored Control value.
+--
+-- Selection is read and written by LABEL TEXT, never by index or id: ADR-0004 records that a
+-- ComboField reorders its entries alphabetically and reassigns ids, so the label is the one field
+-- it reports back reliably. LabelForValue/ValueForLabel are the two directions of that mapping.
+-- A choice's `value` may legitimately be nil (e.g. the toast icon's "None"), so ValueForLabel
+-- returns a second `found` boolean rather than overloading nil as "no match".
+--
+-- Like every Widget it knows nothing of Pins, Nodes, the Graph, the Store, or the engine, and may
+-- depend only on Theme/Color/`ui.*` — the mapping below needs none of those, so it requires nothing.
+
+---@class DropdownWidget
+---@field choices table[]  -- { { value = <any>, label = <string> }, ... }
+local Dropdown = {}
+Dropdown.__index = Dropdown
+
+-- A dropdown over a fixed choice list (declaration order preserved; it need not be alphabetical —
+-- the mount re-sorts for display but selection is by label, so order here is purely cosmetic).
+---@param choices table[]|nil
+---@return DropdownWidget
+function Dropdown.new(choices)
+    return setmetatable({ choices = choices or {} }, Dropdown)
+end
+
+-- The choice labels, in declaration order — what the host feeds ComboField:Add.
+---@return string[]
+function Dropdown:Labels()
+    local labels = {}
+    for i, c in ipairs(self.choices) do labels[i] = c.label end
+    return labels
+end
+
+-- The label for a stored value, or nil when no choice matches (the composing Pin Control decides
+-- what an unmatched value displays as). A nil value matches a nil-valued choice (e.g. "None").
+---@param value any
+---@return string|nil
+function Dropdown:LabelForValue(value)
+    for _, c in ipairs(self.choices) do
+        if c.value == value then return c.label end
+    end
+    return nil
+end
+
+-- The value a label maps to, plus a `found` flag. `found` is what lets a nil-valued choice
+-- ("None") round-trip: ValueForLabel("None") returns (nil, true), distinct from (nil, false) for
+-- a label that isn't a choice at all.
+---@param label string
+---@return any value, boolean found
+function Dropdown:ValueForLabel(label)
+    for _, c in ipairs(self.choices) do
+        if c.label == label then return c.value, true end
+    end
+    return nil, false
+end
+
+return Dropdown

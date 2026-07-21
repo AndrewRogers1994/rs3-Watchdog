@@ -1152,14 +1152,26 @@ end
 
 --- Pin Control host seam (ADR-0005) ------------------------------------------------------
 
+-- The typed contract every Pin Control reaches the Editor through — the seam's whole surface, so a
+-- Pin Control that calls a capability the host doesn't expose (or fat-fingers `host:Commmit`)
+-- surfaces as an undefined-field at check time, the same guard the RunContext class gives node
+-- run(ctx) code (CLAUDE.md typechecking note). Both the real host (Editor:controlHost) and the
+-- test adapter (tests/fake_control_host.lua) satisfy it. `ctrl` is a geom control sub-rect.
+---@class ControlHost
+---@field GetControl fun(self: ControlHost): any
+---@field Commit fun(self: ControlHost, value: any)
+---@field MountField fun(self: ControlHost, ctrl: table, opts: table, onChange: fun(raw: string, quantity: number|nil))
+---@field MountDropdown fun(self: ControlHost, ctrl: table, opts: table, onSelect: fun(label: string))
+
 -- The `host` a Pin Control is handed on press: the Editor-only capabilities it needs, and no
 -- more. It exposes reading and committing the Pin's stored Control value (Commit runs the same
--- Graph:SetControl + preload path every other Control edit uses) and mounting a transient field
--- over one of the control's boxes. The Editor does NO per-control branching — a Pin Control
--- pushes work through this seam. Its test adapter is the fake host in tests/test_coordgrid_control.lua,
--- which is what makes a Pin Control's whole press->commit lifecycle testable headless.
--- (OpenColorPopup / arming a capture would live here too; coordgrid needs neither, so the PoC
--- host carries only the three it exercises.)
+-- Graph:SetControl + preload path every other Control edit uses) and mounting a transient field or
+-- dropdown over one of the control's boxes. The Editor does NO per-control branching — a Pin
+-- Control pushes work through this seam. Its test adapter is the fake host in
+-- tests/fake_control_host.lua, which is what makes a Pin Control's whole press->commit lifecycle
+-- testable headless. (OpenColorPopup / arming a capture would join this seam when those controls
+-- migrate; the editable controls need only these four.)
+---@return ControlHost
 function Editor:controlHost(nodeId, ctrl)
     local editor = self
     return {
@@ -1175,6 +1187,12 @@ function Editor:controlHost(nodeId, ctrl)
         -- changes back to the Pin Control's own `onChange(raw, quantity)` commit callback.
         MountField = function(_, mctrl, opts, onChange)
             editor:mountControlField(ctrl.pinControl, nodeId, mctrl, opts, onChange)
+        end,
+        -- Mounts a transient dropdown over the given sub-rect from a list of labels, reporting the
+        -- picked label back to the Pin Control's `onSelect(label)` callback (which maps it to a
+        -- value and commits). Selection is by label, never id — ADR-0004's ComboField caveat.
+        MountDropdown = function(_, mctrl, opts, onSelect)
+            editor:mountControlDropdown(ctrl.pinControl, nodeId, mctrl, opts, onSelect)
         end,
     }
 end
@@ -1199,6 +1217,61 @@ function Editor:mountControlField(pinControl, nodeId, ctrl, opts, onChange)
         kind = ctrl.kind, axis = ctrl.axis, pinControl = pinControl, onChange = onChange }
     pcall(function() field:MoveToFront() end)
     pcall(function() field:SetFocus() end)
+end
+
+-- Mounts the host's transient DROPDOWN for a Pin Control edit (the enum path). Mirrors the enum
+-- branch of openControlEditor — a real ui.ComboField styled so it isn't invisible, entries Add'd by
+-- label, the current label pre-selected, and ONSELECTIONCHANGED wired to commit — but routes the
+-- pick back through the Pin Control's own `onSelect(label)` instead of the old spec/choice path.
+-- Like an enum's inline editor it commits ONLY on an actual selection change: the editing session
+-- records no `onChange`, so a plain close (commitField's Pin Control branch) is a no-op — merely
+-- mounting then unmounting the dropdown can't rewrite the value (the bool-flip bug ADR-0004 fixed).
+function Editor:mountControlDropdown(pinControl, nodeId, ctrl, opts, onSelect)
+    if self.editing ~= nil then self:closeControlEditor() end
+    if self.groupBox == nil or ui == nil then return end
+    local geom = self.geoms[nodeId]
+    if geom == nil then return end
+
+    local px, py, sw, sh = self:controlEditRect(geom, ctrl)
+    local field
+    local ok = pcall(function()
+        field = ui.ComboField.new(self.groupBox)
+        pcall(function() field.stylesheetID = safeComboStyle() end)
+        field.clickthrough = false
+        field:SetPos(px, py)
+        field:SetSize(sw, sh)
+        -- The `i` passed to Add only guarantees id uniqueness; ComboField re-sorts alphabetically
+        -- and reassigns ids, so selection is matched by label text, not id (see openControlEditor).
+        for i, label in ipairs(opts.labels or {}) do
+            field:Add(label, i)
+        end
+        local sel = 1
+        for i, e in ipairs(field.entries) do
+            if e.text == opts.initial then sel = i break end
+        end
+        field:Select(sel, false)
+        field:Subscribe(enumv(ui.Hook, "ONSELECTIONCHANGED"), function()
+            self:onControlDropdownSelect()
+        end)
+    end)
+    if not ok or field == nil then return end
+
+    self.editing = { nodeId = nodeId, pinName = ctrl.pinName, field = field,
+        kind = ctrl.kind, axis = ctrl.axis, pinControl = pinControl, onSelect = onSelect }
+    pcall(function() field:MoveToFront() end)
+    pcall(function() field:SetFocus() end)
+end
+
+-- ONSELECTIONCHANGED for a Pin Control dropdown: hand the picked label (the authoritative field —
+-- NOT selectedID) to the Pin Control's onSelect, then tear the dropdown down. A plain close commits
+-- nothing (the session has no onChange), so this is the only place an enum Pin Control commits.
+function Editor:onControlDropdownSelect()
+    local e = self.editing
+    if e == nil then return end
+    local label
+    pcall(function() label = e.field.selectedLabel end)
+    if label ~= nil and e.onSelect ~= nil then e.onSelect(label) end
+    self:closeControlEditor()
 end
 
 --- Inline Control editing ---------------------------------------------------------------

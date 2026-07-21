@@ -7,6 +7,9 @@
 local luaunit = require("luaunit")
 local NumberField = require("ui/widgets/number_field")
 local Button = require("ui/widgets/button")
+local TextField = require("ui/widgets/text_field")
+local Dropdown = require("ui/widgets/dropdown")
+local Toggle = require("ui/widgets/toggle")
 
 --- number_field Widget: the numeric codec ------------------------------------------------
 
@@ -74,6 +77,109 @@ function TestButton:testHitTestInsideAndOutside()
     luaunit.assertFalse(b:HitTest(rect, 60, 37))      -- below the box
 end
 
+--- text_field Widget: the text codec -----------------------------------------------------
+
+TestTextFieldFormat = {}
+
+function TestTextFieldFormat:testNilFormatsToEmptyString()
+    luaunit.assertEquals(TextField.Format(nil), "")
+end
+
+function TestTextFieldFormat:testStringFormatsToItself()
+    luaunit.assertEquals(TextField.Format("hello"), "hello")
+    luaunit.assertEquals(TextField.Format(""), "")
+end
+
+TestTextFieldParse = {}
+
+function TestTextFieldParse:testParsesTextVerbatim()
+    luaunit.assertEquals(TextField.Parse("zulrah", nil), "zulrah")
+end
+
+function TestTextFieldParse:testEmptyStringIsAMeaningfulValue()
+    -- Unlike the number codec (empty -> nil "leave alone"), an empty text box is how the user
+    -- clears a field, so it commits verbatim as "" rather than guarding.
+    luaunit.assertEquals(TextField.Parse("", nil), "")
+    luaunit.assertEquals(TextField.Parse("   ", nil), "   ")
+end
+
+function TestTextFieldParse:testQuantityIsIgnored()
+    luaunit.assertEquals(TextField.Parse("5 gp", 5), "5 gp")
+end
+
+--- dropdown Widget: choice list + value<->label mapping ----------------------------------
+
+TestDropdown = {}
+
+local function boolDropdown()
+    return Dropdown.new({ { value = true, label = "true" }, { value = false, label = "false" } })
+end
+
+function TestDropdown:testLabelsInDeclarationOrder()
+    luaunit.assertEquals(boolDropdown():Labels(), { "true", "false" })
+end
+
+function TestDropdown:testLabelForValueRoundTrips()
+    local d = boolDropdown()
+    luaunit.assertEquals(d:LabelForValue(true), "true")
+    luaunit.assertEquals(d:LabelForValue(false), "false")
+end
+
+function TestDropdown:testValueForLabelRoundTrips()
+    local d = boolDropdown()
+    local v, found = d:ValueForLabel("false")
+    luaunit.assertEquals(v, false)
+    luaunit.assertTrue(found)
+end
+
+function TestDropdown:testUnknownLabelIsNotFound()
+    local _, found = boolDropdown():ValueForLabel("maybe")
+    luaunit.assertFalse(found)
+end
+
+function TestDropdown:testNilValuedChoiceRoundTripsByLabel()
+    -- A "None" choice whose value is nil (e.g. the toast icon) must still round-trip: the found
+    -- flag distinguishes (nil, true) "the None choice" from (nil, false) "no such label".
+    local d = Dropdown.new({ { value = nil, label = "None" }, { value = 431, label = "Coins" } })
+    luaunit.assertEquals(d:LabelForValue(nil), "None")
+    local v, found = d:ValueForLabel("None")
+    luaunit.assertNil(v)
+    luaunit.assertTrue(found)
+end
+
+function TestDropdown:testUnmatchedValueHasNoLabel()
+    luaunit.assertNil(boolDropdown():LabelForValue(42))
+end
+
+--- toggle Widget: ordered mode cycle -----------------------------------------------------
+
+TestToggle = {}
+
+local function modeToggle()
+    return Toggle.new({ { value = "substring", label = "Substring" },
+        { value = "pattern", label = "Pattern" } })
+end
+
+function TestToggle:testLabelForCurrentMode()
+    local t = modeToggle()
+    luaunit.assertEquals(t:Label("substring"), "Substring")
+    luaunit.assertEquals(t:Label("pattern"), "Pattern")
+end
+
+function TestToggle:testUnknownModeFallsBackToFirstLabel()
+    luaunit.assertEquals(modeToggle():Label(nil), "Substring")
+end
+
+function TestToggle:testNextCyclesAndWraps()
+    local t = modeToggle()
+    luaunit.assertEquals(t:Next("substring"), "pattern")
+    luaunit.assertEquals(t:Next("pattern"), "substring")  -- wraps back
+end
+
+function TestToggle:testNextFromUnknownLandsOnFirst()
+    luaunit.assertEquals(modeToggle():Next(nil), "substring")
+end
+
 --- Dependency rule: ui/widgets/ files require only Theme/Color/ui.* -----------------------
 -- A Widget must not reach into a Pin Control, the Editor, the Store, the runtime, or the
 -- engine — that isolation is what keeps a future UI-library extraction a move, not a rewrite
@@ -92,7 +198,7 @@ end
 
 function TestWidgetDependencyRule:testNoWidgetRequiresAForbiddenModule()
     local forbidden = { "controls", "graph", "store", "runtime", "engine", "registry" }
-    for _, widget in ipairs({ "number_field", "button" }) do
+    for _, widget in ipairs({ "number_field", "button", "text_field", "dropdown", "toggle" }) do
         local src = widgetSource(widget)
         for req in src:gmatch("require%s*%(?%s*[\"']([^\"']+)[\"']") do
             local base = req:match("([^/]+)$")

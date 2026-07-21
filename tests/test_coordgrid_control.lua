@@ -10,39 +10,11 @@
 
 local luaunit = require("luaunit")
 local CoordGrid = require("ui/controls/coordgrid")
-
---- Fake host ------------------------------------------------------------------------------
--- Records every Commit and captures the mounted field's onChange so a test can "type" into it.
--- Commit mirrors the real host (Graph:SetControl updates the store), so a subsequent per-axis
--- read-modify-write reads back the value the previous commit wrote.
-
-local FakeHost = {}
-FakeHost.__index = FakeHost
-
-function FakeHost.new(stored)
-    return setmetatable({ stored = stored, committed = nil, commits = {}, mounted = nil }, FakeHost)
-end
-
-function FakeHost:GetControl()
-    return self.stored
-end
-
-function FakeHost:Commit(value)
-    self.committed = value
-    self.commits[#self.commits + 1] = value
-    self.stored = value
-end
-
-function FakeHost:MountField(ctrl, opts, onChange)
-    self.mounted = { ctrl = ctrl, opts = opts, onChange = onChange }
-end
-
--- Drive a keystroke's worth of edit through the mounted field, as the real host does when the
--- InputField's content changes: hand the Pin Control the raw text and the field's parsed quantity.
-function FakeHost:Type(raw, quantity)
-    assert(self.mounted ~= nil, "no field mounted")
-    self.mounted.onChange(raw, quantity)
-end
+-- The fake host is the Editor-side analogue of driving a node against a real Graph — a minimal,
+-- real-shaped stand-in for the Editor's few capabilities (read the stored Control, commit a new
+-- one, mount a transient field), so the interface the test drives is the same one the in-client
+-- Editor drives. Shared across all the Pin Control tests (tests/fake_control_host.lua).
+local FakeHost = require("fake_control_host")
 
 --- Editing an axis through press -> mount -> commit ---------------------------------------
 

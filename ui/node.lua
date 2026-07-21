@@ -146,17 +146,37 @@ function Node.BuildGeometry(pins, x, y, width, opts)
         local pinControl = pinControlFor(pin, connected)
         local spec = (pinControl == nil) and controlSpecFor(pin, connected) or nil
         if pinControl ~= nil then
-            local extraH = pinControl.ReservedHeight(pin) or 0
-            local band = {
-                x = Theme.PIN_MARGIN_X, y = rowTop[i + 1] - extraH,
-                w = width - Theme.PIN_MARGIN_X * 2, h = extraH,
-            }
-            local rects = pinControl.Layout(band) or {}
+            -- Two layout shapes, chosen by the Pin Control: an INLINE control (scalar, enum) fills
+            -- the single value-column box to the right of the label — the same label-aware geometry
+            -- a scalar spec box gets below; a BAND control (coordgrid, matcher) lays its Widgets out
+            -- in the full-width band reserved beneath the row. Either way the Pin Control's Layout
+            -- returns the sub-rects and the Editor routes display/click back through the module.
+            local rects
+            if pinControl.Inline then
+                local label = pin.label or pin.name or ""
+                local labelW = Theme.TextWidth(12, label) or (#label * Theme.CONTROL_LABEL_CHAR_W)
+                local left = labelStart + labelW + Theme.CONTROL_LABEL_GAP
+                local rightInset = (outputs[i] ~= nil) and Theme.CONTROL_OUT_RESERVE or Theme.CONTROL_PAD_X
+                local right = width - Theme.PIN_MARGIN_X - rightInset
+                if right < left + Theme.CONTROL_MIN_W then right = left + Theme.CONTROL_MIN_W end
+                local cy = rowTop[i] + Theme.PIN_ROW_HEIGHT * 0.5
+                rects = pinControl.Layout({
+                    x = left, y = cy - Theme.CONTROL_H * 0.5, w = right - left, h = Theme.CONTROL_H,
+                }) or {}
+            else
+                local extraH = pinControl.ReservedHeight(pin) or 0
+                local band = {
+                    x = Theme.PIN_MARGIN_X, y = rowTop[i + 1] - extraH,
+                    w = width - Theme.PIN_MARGIN_X * 2, h = extraH,
+                }
+                rects = pinControl.Layout(band) or {}
+            end
             for _, r in ipairs(rects) do
                 geom.controls[#geom.controls + 1] = {
                     pinName    = pin.name,
                     pinControl = pinControl,
                     default    = pin.default,
+                    widget = r.widget,   -- e.g. "enum" -> node draws a dropdown caret
                     kind = r.kind, axis = r.axis,
                     placeholder = r.placeholder,
                     x = r.x, y = r.y, w = r.w, h = r.h,
