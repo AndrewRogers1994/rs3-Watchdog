@@ -335,7 +335,12 @@ function Editor:buildGeoms()
             -- A nil stored Control (e.g. a graph saved before this pin had a default) shows
             -- the pin's default, so the box reflects the value the node would actually run with.
             if ctrl.value == nil then ctrl.value = ctrl.default end
-            if ctrl.kind == "field" then
+            -- A Pin Control (ADR-0005) owns its own display projection; the Editor just asks it
+            -- for each sub-rect's text and never branches on the control's kind. Every tag still
+            -- on the old Control-Spec path falls through to the kind switch below (the bridge).
+            if ctrl.pinControl ~= nil then
+                ctrl.display = ctrl.pinControl.Display(ctrl)
+            elseif ctrl.kind == "field" then
                 local axisVal = (type(ctrl.value) == "table") and ctrl.value[ctrl.axis] or nil
                 ctrl.display = (axisVal ~= nil) and tostring(axisVal) or ""
             elseif ctrl.kind == "action" then
@@ -570,7 +575,13 @@ function Editor:beginPress()
         self:positionCapture()
         self.selected = hitCtrl.nodeId
         self:bringToFront(hitCtrl.nodeId)
-        if hitCtrl.ctrl.kind == "action" then
+        -- A Pin Control (ADR-0005) owns its own click behavior: the Editor hands it a host and
+        -- the clicked sub-rect and does no per-control branching. Every other control still
+        -- falls through to the old `kind` switches below — the temporary bridge that keeps the
+        -- editor working control-by-control during the migration sweep.
+        if hitCtrl.ctrl.pinControl ~= nil then
+            hitCtrl.ctrl.pinControl.Press(self:controlHost(hitCtrl.nodeId, hitCtrl.ctrl), hitCtrl.ctrl)
+        elseif hitCtrl.ctrl.kind == "action" then
             self:setCoordgridToCurrentPosition(hitCtrl.nodeId, hitCtrl.ctrl.pinName)
         elseif hitCtrl.ctrl.kind == "swatch" then
             self:openColorPopup(hitCtrl.nodeId, hitCtrl.ctrl)
@@ -1122,6 +1133,74 @@ function Editor:onEscape()
     end
 end
 
+-- Screen rect for a transient editor field mounted over a Control box `ctrl`. The field's
+-- native font is a fixed pixel size (it can't scale with the View), so the component is sized
+-- in screen pixels: a fixed readable height, width tracking the box but never below the min,
+-- centered vertically on the box row so a taller-than-box field straddles it evenly. A GroupBox
+-- child positions in the SAME frame the Canvas draws in (both measured from the content-area
+-- origin), so the box's draw coords are the field's coords directly — no header offset (verified
+-- in-client: adding WINDOW_HEADER_H put the field a header-height too low). Shared by both mount
+-- paths — the inline editor (openControlEditor) and the Pin Control host (mountControlField).
+---@return number px, number py, number sw, number sh
+function Editor:controlEditRect(geom, ctrl)
+    local sx, sy = self.view:ToScreen(geom.x + ctrl.x, geom.y + ctrl.y)
+    local boxH = self.view:Scale(ctrl.h)
+    local sw = math.max(self.view:Scale(ctrl.w), Theme.CONTROL_EDIT_MIN_W)
+    local sh = Theme.CONTROL_EDIT_H
+    return sx, sy + (boxH - sh) * 0.5, sw, sh
+end
+
+--- Pin Control host seam (ADR-0005) ------------------------------------------------------
+
+-- The `host` a Pin Control is handed on press: the Editor-only capabilities it needs, and no
+-- more. It exposes reading and committing the Pin's stored Control value (Commit runs the same
+-- Graph:SetControl + preload path every other Control edit uses) and mounting a transient field
+-- over one of the control's boxes. The Editor does NO per-control branching — a Pin Control
+-- pushes work through this seam. Its test adapter is the fake host in tests/test_coordgrid_control.lua,
+-- which is what makes a Pin Control's whole press->commit lifecycle testable headless.
+-- (OpenColorPopup / arming a capture would live here too; coordgrid needs neither, so the PoC
+-- host carries only the three it exercises.)
+function Editor:controlHost(nodeId, ctrl)
+    local editor = self
+    return {
+        -- The raw stored Control value (no default fallback) — a per-axis read-modify-write
+        -- seeds a fresh table from nil exactly as the old commitAxisField path did.
+        GetControl = function(_)
+            return editor.graph:GetControl(nodeId, ctrl.pinName)
+        end,
+        Commit = function(_, value)
+            editor:setControl(nodeId, ctrl.pinName, value)
+        end,
+        -- Mounts a transient numeric/text field over the given sub-rect, wiring its content
+        -- changes back to the Pin Control's own `onChange(raw, quantity)` commit callback.
+        MountField = function(_, mctrl, opts, onChange)
+            editor:mountControlField(ctrl.pinControl, nodeId, mctrl, opts, onChange)
+        end,
+    }
+end
+
+-- Mounts the host's transient field for a Pin Control edit. Reuses the same real ui.InputField
+-- machinery and self.editing lifecycle as openControlEditor (re-fronted each frame in draw(),
+-- committed and torn down on click-away/submit), but records the Pin Control + its onChange
+-- callback so commitField routes back through the Pin Control instead of the old kind switches.
+function Editor:mountControlField(pinControl, nodeId, ctrl, opts, onChange)
+    if self.editing ~= nil then self:closeControlEditor() end
+    if self.groupBox == nil or ui == nil then return end
+    local geom = self.geoms[nodeId]
+    if geom == nil then return end
+
+    local px, py, sw, sh = self:controlEditRect(geom, ctrl)
+    local field = self:mountInputField(px, py, sw, sh, opts.filter or "NONE", opts.maxLen or 128,
+        opts.initial or "",
+        function(_, cause, _newContent) self:onControlContent(cause, _newContent) end)
+    if field == nil then return end
+
+    self.editing = { nodeId = nodeId, pinName = ctrl.pinName, field = field,
+        kind = ctrl.kind, axis = ctrl.axis, pinControl = pinControl, onChange = onChange }
+    pcall(function() field:MoveToFront() end)
+    pcall(function() field:SetFocus() end)
+end
+
 --- Inline Control editing ---------------------------------------------------------------
 
 -- Mounts a transient real ui.InputField as a child of the GroupBox (ADR-0004's mechanism):
@@ -1165,19 +1244,7 @@ function Editor:openControlEditor(nodeId, ctrl)
     if geom == nil then return end
     local pinName, kind, axis = ctrl.pinName, ctrl.kind, ctrl.axis
 
-    local sx, sy = self.view:ToScreen(geom.x + ctrl.x, geom.y + ctrl.y)
-    -- The field's native font is a fixed pixel size (it can't scale with the View), so the
-    -- component is sized in screen pixels: a fixed readable height, width tracking the box
-    -- but never below the min. Centered vertically on the box row so a taller-than-box field
-    -- straddles the row evenly instead of hanging below it.
-    local boxH = self.view:Scale(ctrl.h)
-    local sw = math.max(self.view:Scale(ctrl.w), Theme.CONTROL_EDIT_MIN_W)
-    local sh = Theme.CONTROL_EDIT_H
-    -- A GroupBox child positions in the SAME frame the Canvas draws in (both measured from
-    -- the content-area origin), so the Control box's draw coords are the field's coords
-    -- directly — no header offset. (Verified in-client: adding WINDOW_HEADER_H put the field
-    -- a header-height too low.)
-    local px, py = sx, sy + (boxH - sh) * 0.5
+    local px, py, sw, sh = self:controlEditRect(geom, ctrl)
 
     local spec = ctrl.spec
     -- Prefill from the stored Control, falling back to the pin's default so an unseeded pin
@@ -1270,6 +1337,17 @@ end
 function Editor:commitField()
     local e = self.editing
     if e == nil then return end
+    -- A Pin Control-mounted field (ADR-0005) commits through the Pin Control's OWN callback,
+    -- handed to it when the host mounted the field. Both the live-write (onControlContent) and
+    -- the close path (closeControlEditor) funnel here, so this one bridge covers both; the
+    -- Pin Control's callback does the read-modify-write and decides whether to commit at all.
+    if e.pinControl ~= nil then
+        if e.onChange ~= nil then
+            local raw, quantity = fieldContent(e.field)
+            e.onChange(raw, quantity)
+        end
+        return
+    end
     -- Enums commit ONLY from the ONSELECTIONCHANGED event (onControlSelect), never on a plain
     -- close. Committing an enum on close read the dropdown's `selectedID` unconditionally, so
     -- merely mounting then unmounting the field wrote whatever it happened to show — opening a
