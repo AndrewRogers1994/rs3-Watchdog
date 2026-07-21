@@ -22,12 +22,15 @@ local Color = require("ui/color")
 
 -- Pin Control implementations wired in automatically by widget kind (see Register below). These
 -- modules depend only on Widgets/Theme (never back on controls.lua), so requiring them here is
--- cycle-free. The sweep migrates a widget kind by giving it a Pin Control here; kinds without one
--- yet (swatch/capture, and the composite `object_marker.mode`) stay on the passive spec path.
-local ScalarControl = require("ui/controls/scalar")
-local EnumControl   = require("ui/controls/enum")
-local NumberField   = require("ui/widgets/number_field")
-local TextField     = require("ui/widgets/text_field")
+-- cycle-free. The sweep migrates a widget kind by giving it a Pin Control here; the composite
+-- `object_marker.mode` (mode checkbox band) is the last kind without one yet — it stays on the
+-- passive spec path until #61 finishes the sweep and deletes it.
+local ScalarControl  = require("ui/controls/scalar")
+local EnumControl    = require("ui/controls/enum")
+local SwatchControl  = require("ui/controls/swatch")
+local CaptureControl = require("ui/controls/capture")
+local NumberField    = require("ui/widgets/number_field")
+local TextField      = require("ui/widgets/text_field")
 
 local Controls = {}
 
@@ -51,6 +54,15 @@ function Controls.Register(tag, spec)
         Controls.RegisterPinControl(tag, ScalarControl.new({ codec = TextField, filter = "NONE" }))
     elseif spec.widget == "enum" then
         Controls.RegisterPinControl(tag, EnumControl.new(spec.choices or {}))
+    elseif spec.widget == "swatch" then
+        -- Every color pin edits the same way (the Color Popup), so the swatch takes no per-tag
+        -- config — but capture does (screen vs object, its placeholder, its summary format), so
+        -- both are threaded straight from the spec that declared them (#60).
+        Controls.RegisterPinControl(tag, SwatchControl.new())
+    elseif spec.widget == "capture" then
+        Controls.RegisterPinControl(tag, CaptureControl.new({
+            captureKind = spec.captureKind, placeholder = spec.placeholder, format = spec.format,
+        }))
     end
     return spec
 end
@@ -197,12 +209,13 @@ Controls.Register("coordgrid", {
     end,
 })
 
--- color (#30): a {r, g, b, a} table Control (0..255 each), edited via a Canvas-drawn popup
--- (ui/color_popup.lua) opened from a checker-backed swatch chip, not the composite band --
--- kind == "swatch" is a single value-column box like a scalar Control, just drawn as a color
--- fill instead of text (see Node.BuildGeometry/Draw's swatch branch). format/parse round-trip
--- the popup's one textual field, its hex8 box, to/from the stored table; the popup's own
--- sliders read/write the table directly and never go through these.
+-- color (#30/#60): a {r, g, b, a} table Control (0..255 each), edited via a Canvas-drawn popup
+-- (ui/color_popup.lua) opened from a checker-backed swatch chip. MIGRATED to a Pin Control module
+-- (ui/controls/swatch.lua, ADR-0005) — auto-wired above by widget == "swatch" — which owns the
+-- chip layout/display and opens the popup through the host, handing it the swatch Widget's own hex
+-- codec. The passive spec below is now VESTIGIAL: node.lua/graph.lua prefer the Pin Control and
+-- never read its format/parse (the popup gets the Widget's codec instead), but it stays registered
+-- so the migration stays reversible until the old Control-Spec path is deleted (#61's sweep).
 Controls.Register("color", {
     widget = "swatch",
     format = function(value) return Color.FormatHex8(value) end,

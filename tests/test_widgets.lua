@@ -10,6 +10,7 @@ local Button = require("ui/widgets/button")
 local TextField = require("ui/widgets/text_field")
 local Dropdown = require("ui/widgets/dropdown")
 local Toggle = require("ui/widgets/toggle")
+local Swatch = require("ui/widgets/swatch")
 
 --- number_field Widget: the numeric codec ------------------------------------------------
 
@@ -180,6 +181,48 @@ function TestToggle:testNextFromUnknownLandsOnFirst()
     luaunit.assertEquals(modeToggle():Next(nil), "substring")
 end
 
+--- swatch Widget: color-chip decomposition + hex codec ------------------------------------
+
+TestSwatch = {}
+
+function TestSwatch:testNilIsEmpty()
+    luaunit.assertTrue(Swatch.IsEmpty(nil))
+end
+
+function TestSwatch:testATableIsNotEmpty()
+    luaunit.assertFalse(Swatch.IsEmpty({ r = 0, g = 0, b = 0 }))
+end
+
+function TestSwatch:testFillReturnsChannelsWithOpaqueAlphaDefault()
+    local r, g, b, a = Swatch.Fill({ r = 10, g = 20, b = 30 })
+    luaunit.assertEquals({ r, g, b, a }, { 10, 20, 30, 255 })
+end
+
+function TestSwatch:testFillKeepsAnExplicitAlpha()
+    local _, _, _, a = Swatch.Fill({ r = 1, g = 2, b = 3, a = 128 })
+    luaunit.assertEquals(a, 128)
+end
+
+function TestSwatch:testFillOfEmptyIsNil()
+    luaunit.assertNil(Swatch.Fill(nil))
+end
+
+function TestSwatch:testFormatIsHex8WithNoHash()
+    luaunit.assertEquals(Swatch.Format({ r = 255, g = 0, b = 16, a = 255 }), "FF0010FF")
+    luaunit.assertEquals(Swatch.Format(nil), "")
+end
+
+function TestSwatch:testParseRoundTripsHex()
+    luaunit.assertEquals(Swatch.Parse("FF0010FF", nil), { r = 255, g = 0, b = 16, a = 255 })
+end
+
+function TestSwatch:testParseGuardsAgainstAMidTypedHex()
+    -- A too-short string leaves the working color untouched (the empty-box guard), so typing a
+    -- hex one digit at a time never nukes the color mid-edit.
+    local current = { r = 1, g = 2, b = 3, a = 4 }
+    luaunit.assertEquals(Swatch.Parse("FF", current), current)
+end
+
 --- Dependency rule: ui/widgets/ files require only Theme/Color/ui.* -----------------------
 -- A Widget must not reach into a Pin Control, the Editor, the Store, the runtime, or the
 -- engine — that isolation is what keeps a future UI-library extraction a move, not a rewrite
@@ -198,7 +241,7 @@ end
 
 function TestWidgetDependencyRule:testNoWidgetRequiresAForbiddenModule()
     local forbidden = { "controls", "graph", "store", "runtime", "engine", "registry" }
-    for _, widget in ipairs({ "number_field", "button", "text_field", "dropdown", "toggle" }) do
+    for _, widget in ipairs({ "number_field", "button", "text_field", "dropdown", "toggle", "swatch" }) do
         local src = widgetSource(widget)
         for req in src:gmatch("require%s*%(?%s*[\"']([^\"']+)[\"']") do
             local base = req:match("([^/]+)$")

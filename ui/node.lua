@@ -7,6 +7,7 @@
 local Theme    = require("ui/theme")
 local Controls = require("ui/controls")
 local Color    = require("ui/color")
+local Swatch   = require("ui/widgets/swatch")
 
 local Node = {}
 
@@ -393,14 +394,15 @@ function Node.Draw(canvas, view, geom, meta, opts)
                     -- Checker-backed so alpha reads visually; no value at all (nil Control
                     -- AND nil pin default, #30's "never fires until set") draws as a plain
                     -- empty box instead of implying a color that was never actually chosen.
-                    if ctrl.value == nil then
+                    -- The empty/fill decomposition is the swatch Widget's (ADR-0005 #60); the
+                    -- Canvas blit of it stays here.
+                    if Swatch.IsEmpty(ctrl.value) then
                         canvas:AddRectangle(bx, by, bw, bh, Theme.Vec4(Theme.COL_CONTROL_BG))
                     else
                         Color.DrawChecker(canvas, bx, by, bw, bh, view:Scale(Theme.SWATCH_CHECKER_CELL),
                             Theme.Vec4(Theme.COL_CHECKER_LIGHT), Theme.Vec4(Theme.COL_CHECKER_DARK))
-                        local v = ctrl.value
-                        local a = (v.a == nil) and 255 or v.a
-                        canvas:AddRectangle(bx, by, bw, bh, Vector4.new(v.r / 255, v.g / 255, v.b / 255, a / 255))
+                        local r, g, b, a = Swatch.Fill(ctrl.value)
+                        canvas:AddRectangle(bx, by, bw, bh, Vector4.new(r / 255, g / 255, b / 255, a / 255))
                     end
                     canvas:AddOutline(bx, by, bw, bh, math.max(1, view:Scale(1)),
                         Theme.Vec4(hot and Theme.COL_CONTROL_HOT or Theme.COL_CONTROL_BORDER))
