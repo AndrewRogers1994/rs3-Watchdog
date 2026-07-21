@@ -38,6 +38,33 @@ function Controls.For(tag)
     return specs[tag]
 end
 
+-- Pin Control registry (ADR-0005) --------------------------------------------------------
+-- The active successor to the passive Control Spec above: a Pin Control is the per-Type-Tag
+-- MODULE that owns its own band layout, display, hit dispatch, click behavior, and engine
+-- binding (composing Widgets from ui/widgets/), reached by the Editor through a host seam. As
+-- the migration sweeps control-by-control (coordgrid first), each tag moves from a `specs`
+-- entry read at a distance to a `pinControls` module the Node and Editor delegate to; a tag
+-- with a Pin Control is routed to it and never touches the old `kind` switches. The two tables
+-- coexist only during that sweep — see ADR-0005's spike-then-sweep landing strategy.
+
+local pinControls = {}
+
+-- Registers the Pin Control module for a Type Tag. The module supplies ReservedHeight/Layout
+-- (geometry the Node delegates to), Display (value projection), and Press (click behavior,
+-- driven through the passed host). Returns the module.
+function Controls.RegisterPinControl(tag, module)
+    assert(type(tag) == "string" and tag ~= "", "pin control tag must be a non-empty string")
+    assert(type(module) == "table", "pin control must be a module table")
+    pinControls[tag] = module
+    return module
+end
+
+-- The Pin Control module for a Type Tag, or nil (tags still on the old Control Spec path).
+function Controls.PinControlFor(tag)
+    if tag == nil then return nil end
+    return pinControls[tag]
+end
+
 -- The display string for a control value under a spec (nil-safe). Enums show their label.
 function Controls.Format(spec, value)
     if spec == nil then return "" end
@@ -115,10 +142,13 @@ Controls.Register("bool", {
     },
 })
 
--- coordgrid (#25): a {x, z, level} table Control, edited as 3 inline int fields + a
--- "Set to current position" button, all sharing the pin's Control value. The band always
--- reserves COORDGRID_BAND_H (Node.BuildGeometry's extraH); it's drawn/hit-tested only above
--- CONTROL_MIN_ZOOM, same gate as every other Control box.
+-- coordgrid (#25/#58): MIGRATED to a Pin Control module (ui/controls/coordgrid.lua, ADR-0005) —
+-- the Node and Editor delegate its band layout, display, click behavior, and per-axis binding to
+-- that module via Controls.PinControlFor. The passive spec just below is now VESTIGIAL: node.lua
+-- prefers the Pin Control and never reads it, but it is kept registered so test_controls.lua's
+-- TestCoordgridSpec stays green through the migration (it is deleted with the rest of the old
+-- Control-Spec path when the sweep completes — ADR-0005's spike-then-sweep).
+Controls.RegisterPinControl("coordgrid", require("ui/controls/coordgrid"))
 Controls.Register("coordgrid", {
     widget = "composite",
     extraH = function(_pin) return Theme.COORDGRID_BAND_H end,

@@ -23,6 +23,17 @@ local function controlSpecFor(pin, connected)
     return Controls.For(pin.dataType)
 end
 
+-- The Pin Control module for a Control-eligible data-input pin, or nil (ADR-0005). Same gate as
+-- controlSpecFor — unconnected data pin whose Type Tag is registered — but resolves the ACTIVE
+-- Pin Control registry rather than the passive Control Spec. A tag with a Pin Control is routed
+-- through it (band geometry, display, click) and never touches the old Control-Spec path; every
+-- other tag falls through to controlSpecFor. During the migration sweep both may resolve for the
+-- same tag (coordgrid), and the Pin Control wins — see ADR-0005's spike-then-sweep.
+local function pinControlFor(pin, connected)
+    if pin.kind ~= "data" or connected[pin.name] then return nil end
+    return Controls.PinControlFor(pin.dataType)
+end
+
 function Node.BuildGeometry(pins, x, y, width, opts)
     width = width or Theme.NODE_WIDTH
     local connected = (opts and opts.connected) or {}
@@ -56,9 +67,16 @@ function Node.BuildGeometry(pins, x, y, width, opts)
             local extraH = 0
             local pin = inputs[i]
             if pin ~= nil and not placeholder then
-                local spec = controlSpecFor(pin, connected)
-                if spec ~= nil and spec.extraH ~= nil then
-                    extraH = spec.extraH(pin) or 0
+                -- A Pin Control (ADR-0005) reports its own reserved band height; a tag still on
+                -- the old Control Spec reports it via spec.extraH. Same cumulative row push.
+                local pc = pinControlFor(pin, connected)
+                if pc ~= nil then
+                    extraH = pc.ReservedHeight(pin) or 0
+                else
+                    local spec = controlSpecFor(pin, connected)
+                    if spec ~= nil and spec.extraH ~= nil then
+                        extraH = spec.extraH(pin) or 0
+                    end
                 end
             end
             cy = cy + Theme.PIN_ROW_HEIGHT + extraH
@@ -121,8 +139,30 @@ function Node.BuildGeometry(pins, x, y, width, opts)
     -- reserved below the row (rowTop[i+1] - extraH .. rowTop[i+1]), via spec.Layout.
     local labelStart = Theme.PIN_MARGIN_X + Theme.PIN_GLYPH * 0.5 + Theme.PIN_LABEL_GAP
     for i, pin in ipairs(placeholder and {} or inputs) do
-        local spec = controlSpecFor(pin, connected)
-        if spec ~= nil then
+        -- A Pin Control (ADR-0005) owns its own band: the Node reserves the height it reports and
+        -- asks it to lay out its Widgets' sub-rects, tagging each geom.controls entry with the
+        -- module so the Editor routes display/click back to it. This is the temporary bridge —
+        -- every tag without a Pin Control falls through to the old Control-Spec path below.
+        local pinControl = pinControlFor(pin, connected)
+        local spec = (pinControl == nil) and controlSpecFor(pin, connected) or nil
+        if pinControl ~= nil then
+            local extraH = pinControl.ReservedHeight(pin) or 0
+            local band = {
+                x = Theme.PIN_MARGIN_X, y = rowTop[i + 1] - extraH,
+                w = width - Theme.PIN_MARGIN_X * 2, h = extraH,
+            }
+            local rects = pinControl.Layout(band) or {}
+            for _, r in ipairs(rects) do
+                geom.controls[#geom.controls + 1] = {
+                    pinName    = pin.name,
+                    pinControl = pinControl,
+                    default    = pin.default,
+                    kind = r.kind, axis = r.axis,
+                    placeholder = r.placeholder,
+                    x = r.x, y = r.y, w = r.w, h = r.h,
+                }
+            end
+        elseif spec ~= nil then
             local cy = rowTop[i] + Theme.PIN_ROW_HEIGHT * 0.5
 
             if spec.widget == "composite" then
