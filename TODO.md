@@ -3,19 +3,19 @@
 > (GitHub issue #1). The per-node feasibility notes below are the source of truth that map's
 > tickets design against.
 
-- [ ] 1. consolidate the comparison nodes into one with a dropdown selector for the operation. it's clutter to have 6 different nodes to just change the operation between two numbers.
-- [ ] 2. By default, exec pins should only allow one connection but can be configured to allow more than 1
+- [ ] 1. consolidate the comparison nodes into one with a dropdown selector for the operation. it's clutter to have 6 different nodes to just change the operation between two numbers. ([#64](https://github.com/adamk33n3r/rs3-Watchdog/issues/64))
+- [ ] 2. By default, exec IN pins allow more than one connection but can be configured to only allow a single connection ([#65](https://github.com/adamk33n3r/rs3-Watchdog/issues/65))
 - [x] 3. Right now you can create multiple duplicate connections. If you try to create a connection that already exists, treat that as the user wanting to remove that existing connection. _(Engine: `Connect` now returns `id` or `nil, reason` — uniform result contract, no asserts — and rejects exact-duplicate edges (`"duplicate"`, checked before `"data_input_occupied"`); new `Graph:FindConnection`. Editor `linkPins`: identical wire → toggle off (uniform exec+data); different-source data occupant → replace.)_
-- [ ] 4. checkbox control for booleans
-- [ ] 5. add prefix config to Log
-- [ ] 6. when drag-and-dropping a connection line and it opens the palette, can we keep rendering the connection line until the palette is closed either by dismissing or selecting a node?
-- [ ] 7. stateful nodes should display what state they are in. counter should display the current number, flipflop should display what side it will fire next, doonce and gate should display if it is open or closed
-- [ ] 8. ToString supporting enums somehow. Strength is just the number 2 so piping it to ToString just turns it into `"2"`. It can't know it is a skill. Could add a dropdown to ToString to select an enum to transform. Or maybe a new node.
+- [ ] 4. checkbox control for booleans ([#66](https://github.com/adamk33n3r/rs3-Watchdog/issues/66) — combined with #11)
+- [ ] 5. add prefix config to Log ([#67](https://github.com/adamk33n3r/rs3-Watchdog/issues/67))
+- [ ] 6. when drag-and-dropping a connection line and it opens the palette, can we keep rendering the connection line until the palette is closed either by dismissing or selecting a node? ([#68](https://github.com/adamk33n3r/rs3-Watchdog/issues/68))
+- [ ] 7. stateful nodes should display what state they are in. counter should display the current number, flipflop should display what side it will fire next, doonce and gate should display if it is open or closed ([#69](https://github.com/adamk33n3r/rs3-Watchdog/issues/69))
+- [ ] 8. ToString supporting enums somehow. Strength is just the number 2 so piping it to ToString just turns it into `"2"`. It can't know it is a skill. Could add a dropdown to ToString to select an enum to transform. Or maybe a new node. ([#22](https://github.com/adamk33n3r/rs3-Watchdog/issues/22))
 - [x] 9. Dragging text to the right side of the editor window causes it to wrap.
-- [ ] 10. Concat node to combine strings
-- [ ] 11. Make any dropdowns that have "Any" put "Any" at the top.
-- [ ] 12. Screen Marker and Object Marker need a "hold" control like Toast. They also need their "armed modes" to be more noticable with instructions. Screen marker should have a "dimming overlay" and when you drag a box, it's not dim inside. like how windows snipping tool works. And object marker needs to have some sort of indicator that it's enabled and that you need to examine an object. maybe just a big text notification type thing in the top of the screen.
-- [ ] 13. Location trigger node needs to not fire upon 1. load and 2. setting position
+- [ ] 10. Concat node to combine strings ([#70](https://github.com/adamk33n3r/rs3-Watchdog/issues/70))
+- [ ] 11. Make any dropdowns that have "Any" put "Any" at the top. ([#66](https://github.com/adamk33n3r/rs3-Watchdog/issues/66) — combined with #4)
+- [ ] 12. Screen Marker and Object Marker need a "hold" control like Toast. They also need their "armed modes" to be more noticable with instructions. Screen marker should have a "dimming overlay" and when you drag a box, it's not dim inside. like how windows snipping tool works. And object marker needs to have some sort of indicator that it's enabled and that you need to examine an object. maybe just a big text notification type thing in the top of the screen. ([#71](https://github.com/adamk33n3r/rs3-Watchdog/issues/71))
+- [ ] 13. Location trigger node needs to not fire upon 1. load and 2. setting position ([#72](https://github.com/adamk33n3r/rs3-Watchdog/issues/72))
 
 ## Node port backlog (mirroring runelite-watchdog)
 
