@@ -1,17 +1,10 @@
--- capture.lua — the capture Pin Control (ADR-0005 / #60): the per-Type-Tag module for a pin whose
--- value is authored by ARMING a capture rather than typed. Two flavors share this one module,
--- chosen by `captureKind`: Screen Marker's `rect` arms the full-screen drag overlay
--- (ui/screen_marker_capture.lua), Object Marker's `object` arms the MiniMenu select mode
--- (ui/object_marker_capture.lua). Both overlays keep their own files and lifecycles — this module
--- only TRIGGERS the right one through the host's ArmCapture capability, and the overlay commits the
--- finished value back through the normal setControl path.
---
--- Its box is a full-width value-column "button" (kind = "capture" routes the Node's draw to the
--- action-styled box and never to the transient text/combo editor). Display projects the captured
--- value to a short summary via the format hook the node supplied (a rect "x,y wxh" or the object's
--- name), falling back to the box's placeholder when nothing's been captured yet. Like the other
--- Pin Controls it is a plain module of DOT-functions reached through the host seam, whose test
--- adapter records the ArmCapture call so the press is asserted headless.
+-- capture.lua — the capture Pin Control (ADR-0005 / #60): the inline Control for a pin whose value is
+-- authored by ARMING a capture rather than typed. Two flavors share this module, chosen by
+-- `captureKind`: "screen" arms the drag overlay (ui/screen_marker_capture.lua), "object" the MiniMenu
+-- select mode (ui/object_marker_capture.lua). This module only TRIGGERS the right one through the
+-- host's ArmCapture; the overlay keeps its own lifecycle and commits the finished value itself.
+
+local Inline = require("ui/controls/inline")
 
 ---@class CapturePinControl
 local Capture = {}
@@ -27,13 +20,7 @@ function Capture.new(opts)
     local captureKind = opts.captureKind or "screen"
     local placeholder = opts.placeholder or "Draw on screen"
     local format = opts.format
-    local M = {}
-
-    -- INLINE: a single value-column box on the pin's own row, like a scalar — no reserved band.
-    M.Inline = true
-
-    ---@return number
-    function M.ReservedHeight(_pin) return 0 end
+    local M = Inline.apply({})
 
     -- One full-width action box across the value column. `kind = "capture"` marks it a click-to-arm
     -- button (action background, never the transient editor); `placeholder` is its empty-state text.

@@ -1,19 +1,10 @@
--- scalar.lua — the scalar Pin Control factory (ADR-0005): the per-Type-Tag module for a Control
--- that edits a single, whole value through one field Widget — the `number` and `string` Type Tags.
--- Unlike coordgrid's composite band, a scalar renders INLINE in the value column to the right of
--- the pin label (Inline = true, so the Node lays it out as a single value-column box rather than a
--- reserved band), and its binding is a straight pass-through: the whole Control value IS the field
--- value, no read-modify-write. The only thing that varies between `number` and `string` is the
--- value CODEC and the field filter, so one factory builds both:
---   number -> the numeric codec (NumberField) + a NUMERIC filter; an empty box is guarded
---             (Parse returns nil), so opening then clearing a field leaves the stored value alone.
---   string -> the text codec (TextField) + a NONE filter; an empty box is a real value (clearing
---             the field), committed verbatim (TextField.Parse never returns nil).
--- The guard difference lives entirely in the codec — this module just commits whatever non-nil
--- value the codec yields, so the two tags share one press/commit path.
---
--- A Pin Control reaches the Editor only through the passed `host` (mount a field, commit); its
--- test adapter is the fake host in tests/test_scalar_control.lua, driving press->commit headless.
+-- scalar.lua — the scalar Pin Control factory (ADR-0005): the inline `number`/`string` Control that
+-- edits one whole value through a single field Widget. The Control value IS the field value (no
+-- read-modify-write); the only difference between number and string is the codec + filter, so one
+-- factory builds both. The number codec's empty-box guard (Parse -> nil) is what lets a cleared
+-- number field leave the stored value alone, while an empty text field commits verbatim.
+
+local Inline = require("ui/controls/inline")
 
 ---@class ScalarPinControl
 local Scalar = {}
@@ -27,13 +18,7 @@ function Scalar.new(opts)
     local codec = opts.codec
     local filter = opts.filter or "NONE"
 
-    local M = {}
-    -- Inline: the Node reserves no band, laying this out as one value-column box (see node.lua's
-    -- Inline branch). ReservedHeight is still answered (0) so the shared row-height math is uniform.
-    M.Inline = true
-
-    ---@return number
-    function M.ReservedHeight(_pin) return 0 end
+    local M = Inline.apply({})
 
     -- One sub-rect: the value-column box the Node computed, tagged "field". A scalar has exactly
     -- one Widget, so there is no internal layout to do — it fills the box it was handed.

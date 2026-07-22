@@ -1,18 +1,9 @@
--- enum.lua — the enum Pin Control factory (ADR-0005): the per-Type-Tag module for a Control that
--- picks one value from a fixed choice list — the `bool` demonstrator and every domain enum Type
--- Tag (chat groups, toast icon, skill, …). Like a scalar it renders INLINE in the value column
--- (Inline = true), but drawn with a dropdown caret (the "enum" widget hint) and edited through a
--- transient ComboField the host mounts rather than a text field. One factory serves every enum
--- tag: it is built from that tag's registered choice list, so a new enum is still one
--- Controls.Register call with no Pin Control code of its own (controls.lua wires this factory in
--- automatically — see its auto-registration).
---
--- Selection round-trips by LABEL, never id (ADR-0004): the Widget maps value<->label, the host
--- reports back the picked label, and this module maps it home. A nil-valued choice ("None") is a
--- real selection, distinguished from "no match" by the Widget's `found` flag. A Pin Control reaches
--- the Editor only through the passed `host` (mount a dropdown, commit); its test adapter is the
--- fake host in tests/test_enum_control.lua, driving press->pick->commit headless.
+-- enum.lua — the enum Pin Control factory (ADR-0005): the inline Control that picks one value from a
+-- fixed choice list (the `bool` demonstrator and every domain enum tag). Drawn with a dropdown caret
+-- and edited through a host-mounted ComboField. Selection round-trips by LABEL, never id (ADR-0004),
+-- so a nil-valued choice ("None") is distinguished from "no match" by the Widget's `found` flag.
 
+local Inline   = require("ui/controls/inline")
 local Dropdown = require("ui/widgets/dropdown")
 
 ---@class EnumPinControl
@@ -26,11 +17,7 @@ local Enum = {}
 function Enum.new(choices)
     local dropdown = Dropdown.new(choices)
 
-    local M = {}
-    M.Inline = true
-
-    ---@return number
-    function M.ReservedHeight(_pin) return 0 end
+    local M = Inline.apply({})
 
     -- One sub-rect: the value-column box, tagged with the "enum" widget hint so node.lua draws the
     -- dropdown caret (the box is otherwise a plain text box).

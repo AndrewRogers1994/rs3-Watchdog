@@ -20,6 +20,9 @@ local Node = {}
 -- The Pin Control module for a data-input pin eligible for a Control box: unconnected, kind
 -- "data", and its Type Tag is registered (ADR-0005). Returns nil for anything else (exec pins,
 -- connected inputs, tags with no Pin Control — which then get no Control, ADR-0004).
+---@param pin table
+---@param connected table<string, boolean>
+---@return table|nil
 local function pinControlFor(pin, connected)
     if pin.kind ~= "data" or connected[pin.name] then return nil end
     return Controls.PinControlFor(pin.dataType)

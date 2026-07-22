@@ -1,18 +1,12 @@
--- mode.lua — the mode multi-select Pin Control (ADR-0005 / #61): the per-Type-Tag module for a
--- composite BAND of one checkbox row per mode (object_marker's #40 Tile/Hull/Outline/Clickbox).
--- Only ENABLED rows toggle; disabled rows are the unavailable-node idiom — shown but inert, with a
--- "needs render API" reason appended to the label. The stored Control is a `{ [key] = boolean }`
--- table; a click flips one key read-modify-write so the other rows survive.
---
--- Built from the tag's `modes` list ({ { key, label, enabled, reason? }, ... }), so a new mode
--- multi-select is one Controls.Register(tag, { widget = "mode", modes = ... }) call with no Pin
--- Control code of its own (controls.lua wires this factory in automatically). Like coordgrid/matcher
--- it is a composite band (not Inline); each Layout sub-rect bakes its row's `enabled` flag so the
--- Node's checkbox draw needs no descriptor lookup. It reaches the Editor only through the passed
--- `host` (read + commit the stored table); its test adapter is the fake host in
--- tests/test_mode_control.lua, driving the toggle through press->commit headless.
+-- mode.lua — the mode multi-select Pin Control (ADR-0005 / #61): a composite BAND of one checkbox row
+-- per mode (object_marker's #40 Tile/Hull/Outline/Clickbox). Only ENABLED rows toggle; disabled rows
+-- are the unavailable-node idiom — shown but inert, with a "needs render API" reason appended. The
+-- stored Control is a `{ [key] = boolean }` table; a click flips one key read-modify-write so the
+-- other rows survive. Built from the tag's `modes` list, each Layout sub-rect baking its `enabled`
+-- flag so the Node's checkbox draw needs no descriptor lookup.
 
 local Theme = require("ui/theme")
+local Util  = require("util")
 
 ---@class ModePinControl
 local Mode = {}
@@ -26,6 +20,8 @@ function Mode.new(modes)
     local M = {}
 
     -- The mode descriptor for a row's key, or nil. Drives the label/enabled/reason projection.
+    ---@param key string
+    ---@return { key: string, label: string, enabled: boolean, reason: string|nil }|nil
     local function descriptor(key)
         for _, m in ipairs(modes) do
             if m.key == key then return m end
@@ -81,12 +77,8 @@ function Mode.new(modes)
     function M.Press(host, ctrl)
         local m = descriptor(ctrl.axis)
         if m == nil or not m.enabled then return end
-        local updated = {}
-        if type(ctrl.value) == "table" then
-            for k, v in pairs(ctrl.value) do updated[k] = v end
-        end
-        updated[ctrl.axis] = not (updated[ctrl.axis] == true)
-        host:Commit(updated)
+        local current = type(ctrl.value) == "table" and ctrl.value[ctrl.axis] == true
+        host:Commit(Util.CopyWithField(ctrl.value, ctrl.axis, not current))
     end
 
     return M

@@ -1,15 +1,8 @@
--- matcher.lua — the matcher Pin Control (ADR-0005): the per-Type-Tag module for the reusable
--- Matcher's `{ needle, mode }` table Control (#56). Like coordgrid it is a composite BAND (not
--- inline): a needle text field beside a Substring/Pattern mode toggle, on one row below the pin.
--- It composes two Widgets — a text field (the needle codec) and a two-mode toggle — and binds
--- them to the table read-modify-write, so writing the needle preserves the mode and flipping the
--- mode preserves the needle. Unlike coordgrid's numeric axes, an EMPTY needle is a meaningful
--- value (an empty Matcher matches every line), so it commits verbatim — there is no empty-box
--- guard on the needle.
---
--- A Pin Control reaches the Editor only through the passed `host` (mount a field, read + commit
--- the stored value); its test adapter is the fake host in tests/test_matcher_control.lua, driving
--- the needle edit and the mode toggle through press->commit headless.
+-- matcher.lua — the matcher Pin Control (ADR-0005): the composite BAND for the reusable Matcher's
+-- `{ needle, mode }` table Control (#56) — a needle text field beside a Substring/Pattern toggle on
+-- one row below the pin. It binds both Widgets to the table read-modify-write, so writing the needle
+-- preserves the mode and vice versa. Unlike coordgrid's numeric axes, an EMPTY needle is meaningful
+-- (an empty Matcher matches every line), so it commits verbatim — no empty-box guard on the needle.
 
 local Theme     = require("ui/theme")
 local TextField = require("ui/widgets/text_field")
@@ -25,12 +18,16 @@ local toggle = Toggle.new({
 })
 
 -- The needle string of a stored value, or nil when unset/not-a-table.
+---@param value any
+---@return string|nil
 local function needleOf(value)
     return (type(value) == "table" and type(value.needle) == "string") and value.needle or nil
 end
 
 -- The mode of a stored value, normalized to a defined mode (defaults to substring). Never nil, so
 -- the toggle Widget always cycles from a real mode.
+---@param value any
+---@return string  -- "substring" | "pattern"
 local function modeOf(value)
     if type(value) == "table" and (value.mode == "pattern" or value.mode == "substring") then
         return value.mode
@@ -41,6 +38,9 @@ end
 -- Read-modify-write base for the {needle, mode} table: starts from the stored value (or the pin
 -- default when unseeded), yielding a fresh table with BOTH keys present so a caller can set one
 -- without dropping the other. Same shape as the old Editor:matcherRMW this replaces.
+---@param stored any
+---@param default any
+---@return { needle: string, mode: string }
 local function rmw(stored, default)
     local updated = { needle = "", mode = "substring" }
     local base = (type(stored) == "table") and stored

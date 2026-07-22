@@ -1,12 +1,6 @@
--- toggle.lua — the toggle Widget (ADR-0005): a generic, engine-agnostic input primitive that
--- cycles one value through a fixed, ordered list of {value, label} modes on each press. It owns
--- the mode list, the current-mode LABEL, and the NEXT mode in the cycle — and nothing else; the
--- composing Pin Control (the matcher's Substring/Pattern switch) decides where that mode lives in
--- the stored Control value and commits the flip. A two-mode list is the common case, but the
--- cycle wraps for any length.
---
--- Like every Widget it knows nothing of Pins, Nodes, the Graph, the Store, or the engine, and may
--- depend only on Theme/Color/`ui.*` — the cycle below needs none of those, so it requires nothing.
+-- toggle.lua — the toggle Widget (ADR-0005): a generic input primitive that cycles one value through
+-- a fixed, ordered list of {value, label} modes on each press. It owns the current-mode LABEL and the
+-- NEXT mode (wrapping for any length); the composing Pin Control decides where that mode lives.
 
 ---@class ToggleWidget
 ---@field modes table[]  -- { { value = <any>, label = <string> }, ... }, in cycle order

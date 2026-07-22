@@ -1,17 +1,8 @@
--- dropdown.lua — the dropdown Widget (ADR-0005): a generic, engine-agnostic input primitive that
--- selects one value from a fixed list of {value, label} choices. It owns the choice list and the
--- value<->label mapping, and NOTHING else — the transient real `ui.ComboField` that actually
--- shows the menu is mounted by the host on the Widget's behalf (see MountDropdown in ui/graph.lua),
--- and the enum Pin Control that composes this Widget owns how a pick becomes a stored Control value.
---
--- Selection is read and written by LABEL TEXT, never by index or id: ADR-0004 records that a
--- ComboField reorders its entries alphabetically and reassigns ids, so the label is the one field
--- it reports back reliably. LabelForValue/ValueForLabel are the two directions of that mapping.
--- A choice's `value` may legitimately be nil (e.g. the toast icon's "None"), so ValueForLabel
--- returns a second `found` boolean rather than overloading nil as "no match".
---
--- Like every Widget it knows nothing of Pins, Nodes, the Graph, the Store, or the engine, and may
--- depend only on Theme/Color/`ui.*` — the mapping below needs none of those, so it requires nothing.
+-- dropdown.lua — the dropdown Widget (ADR-0005): a generic input primitive selecting one value from
+-- a fixed list of {value, label} choices. It owns only the value<->label mapping (the real
+-- ui.ComboField is host-mounted). Selection round-trips by LABEL TEXT, never id — a ComboField
+-- reorders alphabetically and reassigns ids (ADR-0004). A choice's `value` may legitimately be nil
+-- (e.g. "None"), so ValueForLabel returns a `found` boolean rather than overloading nil as no-match.
 
 ---@class DropdownWidget
 ---@field choices table[]  -- { { value = <any>, label = <string> }, ... }

@@ -903,6 +903,9 @@ local COLOR_DRAG_PARTS = { sv = true, hue = true, r = true, g = true, b = true, 
 -- `codec` (#60) is the swatch Pin Control's hex format/parse table, what the popup round-trips its
 -- one hex field through — so the popup keeps its own file/lifecycle and needs no Control knowledge:
 -- the swatch Pin Control hands its Widget's hex codec straight in through the host's OpenColorPopup.
+---@param nodeId integer
+---@param ctrl table
+---@param codec table
 function Editor:openColorPopup(nodeId, ctrl, codec)
     if self.editing ~= nil then self:closeControlEditor() end
     local geom = self.geoms[nodeId]
@@ -1027,6 +1030,8 @@ end
 -- origin), so the box's draw coords are the field's coords directly — no header offset (verified
 -- in-client: adding WINDOW_HEADER_H put the field a header-height too low). Shared by both mount
 -- paths — the inline editor (openControlEditor) and the Pin Control host (mountControlField).
+---@param geom table
+---@param ctrl table
 ---@return number px, number py, number sw, number sh
 function Editor:controlEditRect(geom, ctrl)
     local sx, sy = self.view:ToScreen(geom.x + ctrl.x, geom.y + ctrl.y)
@@ -1105,6 +1110,11 @@ end
 -- machinery and self.editing lifecycle as openControlEditor (re-fronted each frame in draw(),
 -- committed and torn down on click-away/submit), but records the Pin Control + its onChange
 -- callback so commitField routes back through the Pin Control instead of the old kind switches.
+---@param pinControl table
+---@param nodeId integer
+---@param ctrl table
+---@param opts { filter: string|nil, maxLen: integer|nil, initial: string|nil }
+---@param onChange fun(raw: string, quantity: number|nil)
 function Editor:mountControlField(pinControl, nodeId, ctrl, opts, onChange)
     if self.editing ~= nil then self:closeControlEditor() end
     if self.groupBox == nil or ui == nil then return end
@@ -1130,6 +1140,11 @@ end
 -- Like an enum's inline editor it commits ONLY on an actual selection change: the editing session
 -- records no `onChange`, so a plain close (commitField's Pin Control branch) is a no-op — merely
 -- mounting then unmounting the dropdown can't rewrite the value (the bool-flip bug ADR-0004 fixed).
+---@param pinControl table
+---@param nodeId integer
+---@param ctrl table
+---@param opts { labels: string[]|nil, initial: string|nil }
+---@param onSelect fun(label: string)
 function Editor:mountControlDropdown(pinControl, nodeId, ctrl, opts, onSelect)
     if self.editing ~= nil then self:closeControlEditor() end
     if self.groupBox == nil or ui == nil then return end

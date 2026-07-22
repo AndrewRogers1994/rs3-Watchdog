@@ -1,21 +1,10 @@
--- controls.lua — the Type-Tag → Pin Control registry (ADR-0005). For an unconnected data-input
--- Pin whose Type Tag is registered here, this maps the tag to the Pin Control MODULE that owns how
--- that Control is laid out, displayed, clicked, and bound to the engine (ui/controls/*.lua). It is
--- purely the registry: LibNodeGraph stays tag-agnostic, so which Control a tag uses lives here,
--- parallel to Theme.TypeColor. A Pin whose tag has no Pin Control gets no Control (ADR-0004).
+-- controls.lua — the Type-Tag → Pin Control registry (ADR-0005). Maps an unconnected data-input
+-- Pin's Type Tag to the Pin Control MODULE (ui/controls/*.lua) that owns how its Control is laid out,
+-- displayed, clicked, and bound to the engine. A tag with no Pin Control gets no Control (ADR-0004).
 --
--- Two ways a tag is registered:
---   * Controls.Register(tag, descriptor) — the convenience path for the auto-wired Widget kinds
---     (number/text/enum/swatch/capture/mode). The descriptor names the widget kind and its per-tag
---     config (an enum's `choices`, a capture's `captureKind`/`placeholder`/`format`, a mode's
---     `modes`); Register builds the matching Pin Control from it. A new enum/color/capture/mode tag
---     is one Register call with no Pin Control code of its own.
---   * Controls.RegisterPinControl(tag, module) — the explicit path for the composite bands
---     (coordgrid, matcher) whose module can't be inferred from a widget kind alone.
---
--- This file used to also hold a parallel "Control Spec" table read at a distance by the Editor; the
--- ADR-0005 sweep migrated every Control onto a Pin Control and #61 deleted that passive path — the
--- Editor now delegates every data Control to its module through the host seam, with no kind switches.
+-- Two registration paths: Controls.Register(tag, descriptor) auto-wires a Widget kind
+-- (number/text/enum/swatch/capture/mode) from its per-tag config; Controls.RegisterPinControl(tag,
+-- module) is the explicit path for composite bands (coordgrid, matcher) a widget kind can't name.
 
 local ScalarControl  = require("ui/controls/scalar")
 local EnumControl    = require("ui/controls/enum")
@@ -32,6 +21,9 @@ local pinControls = {}
 -- Registers the Pin Control module for a Type Tag. The module supplies ReservedHeight/Layout
 -- (geometry the Node delegates to), Display (value projection), and Press (click behavior, driven
 -- through the passed host). Returns the module.
+---@param tag string
+---@param module table
+---@return table
 function Controls.RegisterPinControl(tag, module)
     assert(type(tag) == "string" and tag ~= "", "pin control tag must be a non-empty string")
     assert(type(module) == "table", "pin control must be a module table")
@@ -40,16 +32,29 @@ function Controls.RegisterPinControl(tag, module)
 end
 
 -- The Pin Control module for a Type Tag, or nil (an unregistered tag gets no Control).
+---@param tag string|nil
+---@return table|nil
 function Controls.PinControlFor(tag)
     if tag == nil then return nil end
     return pinControls[tag]
 end
+
+---@class ControlDescriptor
+---@field widget string  -- "number"|"text"|"enum"|"swatch"|"capture"|"mode"
+---@field choices table[]|nil  -- enum: { { value, label }, ... }
+---@field captureKind string|nil  -- capture: "screen"|"object"
+---@field placeholder string|nil  -- capture: empty-state prompt
+---@field format (fun(value: any): string)|nil  -- capture: value -> summary text
+---@field modes table[]|nil  -- mode: { { key, label, enabled, reason? }, ... }
 
 -- Registers an auto-wired Pin Control for a Type Tag from a descriptor `{ widget = ..., ... }`.
 -- The descriptor's widget kind selects the Pin Control and its per-tag config threads straight in
 -- (an enum's choices, a capture's screen/object kind + placeholder + summary format, a mode's list).
 -- Returns the descriptor. The composite bands (coordgrid/matcher) register their modules directly
 -- with RegisterPinControl instead — "composite" alone doesn't say which module.
+---@param tag string
+---@param descriptor ControlDescriptor
+---@return ControlDescriptor
 function Controls.Register(tag, descriptor)
     assert(type(tag) == "string" and tag ~= "", "control tag must be a non-empty string")
     assert(type(descriptor) == "table" and descriptor.widget ~= nil, "control descriptor needs a widget")

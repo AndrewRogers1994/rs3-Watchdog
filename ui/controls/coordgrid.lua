@@ -1,23 +1,12 @@
--- coordgrid.lua — the coordgrid Pin Control (ADR-0005): the per-Type-Tag module that composes
--- Widgets and binds them to a `coordgrid` Pin's stored `{x, z, level}` Control value. It is the
--- proof-of-concept for the whole new Control machinery — it exercises the most mechanics at
--- once: a composite band, self-owned internal layout, multiple Widgets (three number fields +
--- a button), per-axis read-modify-write, a host-mounted transient field, and a one-shot action.
---
--- A Pin Control owns, for its Type Tag:
---   (a) ReservedHeight — the extra band height its Control reserves below the Pin's row;
---   (b) Layout        — its Widgets' sub-rects within that reserved band;
---   (c) Display       — the projection of the stored value onto each sub-rect's text;
---   (d) Press         — click behavior, reached through the passed host (mount a field, commit);
---   (e) the ENGINE BINDING (CommitAxis) — the read-modify-write mapping a Widget's natural
---       number to one axis of the stored table while preserving the others.
--- It reaches the few Editor-only capabilities it needs — mount a transient numeric field, read
--- and write the stored Control value — through the `host` seam the Editor passes in, whose test
--- adapter is a fake host (tests/test_coordgrid_control.lua) that drives press->commit headless.
--- Reading the live player position for the grab button is a plain client-API call this module
--- makes itself; per ADR-0005 that is NOT a host capability.
+-- coordgrid.lua — the coordgrid Pin Control (ADR-0005): the composite BAND that binds three number
+-- fields + a grab button to a `coordgrid` Pin's stored `{x, z, level}` value. The ADR-0005
+-- proof-of-concept — it exercises the most mechanics at once: composite band, self-owned layout,
+-- multiple Widgets, per-axis read-modify-write, a host-mounted field, and a one-shot action. Reading
+-- the live player position for the grab button is a plain client-API call (per ADR-0005 not a host
+-- capability); everything Editor-side goes through the passed `host`.
 
 local Theme       = require("ui/theme")
+local Util        = require("util")
 local NumberField = require("ui/widgets/number_field")
 local Button      = require("ui/widgets/button")
 
@@ -84,12 +73,7 @@ end
 function CoordGrid.CommitAxis(current, axis, raw, quantity)
     local value = NumberField.Parse(raw, quantity)
     if value == nil then return current, false end
-    local t = {}
-    if type(current) == "table" then
-        for k, v in pairs(current) do t[k] = v end
-    end
-    t[axis] = value
-    return t, true
+    return Util.CopyWithField(current, axis, value), true
 end
 
 -- (d) Click behavior. A "field" mounts a transient numeric editor (through the host) that

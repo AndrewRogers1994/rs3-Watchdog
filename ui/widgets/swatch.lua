@@ -1,16 +1,7 @@
--- swatch.lua — the swatch Widget (ADR-0005): a generic color-chip input primitive that turns a
--- stored `{ r, g, b, a }` Control value into the two things an editor needs to render and edit a
--- color: the chip's VISUAL decomposition (is it empty, and if not what fill does it draw) and the
--- textual CODEC the Color Popup's one hex field round-trips through. It owns nothing else — the
--- checker/fill drawing itself is a Canvas call the composing Node makes from Fill()/IsEmpty(), and
--- the popup that actually edits the color is opened by the swatch Pin Control through the host.
---
--- A never-set color (nil Control AND nil pin default) is EMPTY: the chip draws as a plain empty box
--- rather than implying a color that was never chosen (#30), so IsEmpty is the draw's first branch.
---
--- Like every Widget it knows nothing of Pins, Nodes, the Graph, the Store, or the engine, and may
--- depend only on Theme/Color/`ui.*` — the codec here is Color's hex8 round-trip, so it requires
--- only Color.
+-- swatch.lua — the swatch Widget (ADR-0005): a generic color-chip primitive that turns a stored
+-- `{ r, g, b, a }` value into what an editor needs to render/edit a color: its VISUAL decomposition
+-- (IsEmpty/Fill, which the Node blits to Canvas) and the hex CODEC the Color Popup round-trips
+-- through. A never-set color (nil value) is EMPTY — drawn as a plain box, not a phantom color (#30).
 
 local Color = require("ui/color")
 

@@ -1,10 +1,5 @@
--- button.lua — the button Widget (ADR-0005): a generic, engine-agnostic input primitive whose
--- "value" is a one-shot press rather than an edited scalar. It owns its label (the text an
--- editor draws on it) and its hit-test (whether a local point lands on it); a Pin Control
--- composes it and decides what the press DOES (coordgrid's "Set to current position" grabs the
--- live player location). Like every Widget it knows nothing of Pins, Nodes, the Graph, the
--- Store, or the engine, and may depend only on Theme/Color/`ui.*` — the label + hit-test below
--- need none of those, so this file requires nothing at all.
+-- button.lua — the button Widget (ADR-0005): a generic input primitive whose "value" is a one-shot
+-- press. It owns only its label and hit-test; the composing Pin Control decides what the press DOES.
 
 ---@class ButtonWidget
 ---@field label string
