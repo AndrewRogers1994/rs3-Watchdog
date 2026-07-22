@@ -6,7 +6,7 @@
 
 local Theme    = require("ui/theme")
 local Controls = require("ui/controls")
-local Color    = require("ui/color")
+local Box      = require("ui/widgets/box")
 
 local Node = {}
 
@@ -15,12 +15,16 @@ local Node = {}
 -- Draw, PinAt and HitBody. `pins` is the list from graph:GetPins(nodeId). `opts.connected`
 -- is a set { [pinName] = true } of input pins that already have an incoming Connection —
 -- those get a wire, not a Control box (ADR-0004).
--- The Control Spec for a data-input pin eligible for a Control box: unconnected, kind
--- "data", and its Type Tag has a spec. Returns nil for anything else (exec pins, connected
--- inputs, tags with no spec).
-local function controlSpecFor(pin, connected)
+
+-- The Pin Control module for a data-input pin eligible for a Control box: unconnected, kind
+-- "data", and its Type Tag is registered (ADR-0005). Returns nil for anything else (exec pins,
+-- connected inputs, tags with no Pin Control — which then get no Control, ADR-0004).
+---@param pin table
+---@param connected table<string, boolean>
+---@return table|nil
+local function pinControlFor(pin, connected)
     if pin.kind ~= "data" or connected[pin.name] then return nil end
-    return Controls.For(pin.dataType)
+    return Controls.PinControlFor(pin.dataType)
 end
 
 function Node.BuildGeometry(pins, x, y, width, opts)
@@ -56,9 +60,11 @@ function Node.BuildGeometry(pins, x, y, width, opts)
             local extraH = 0
             local pin = inputs[i]
             if pin ~= nil and not placeholder then
-                local spec = controlSpecFor(pin, connected)
-                if spec ~= nil and spec.extraH ~= nil then
-                    extraH = spec.extraH(pin) or 0
+                -- A Pin Control (ADR-0005) reports the extra band height its Control reserves below
+                -- the pin row (0 for an inline scalar/enum). Same cumulative row push either way.
+                local pc = pinControlFor(pin, connected)
+                if pc ~= nil then
+                    extraH = pc.ReservedHeight(pin) or 0
                 end
             end
             cy = cy + Theme.PIN_ROW_HEIGHT + extraH
@@ -114,88 +120,53 @@ function Node.BuildGeometry(pins, x, y, width, opts)
         end
     end
 
-    -- Control boxes: one group per unconnected data-input Pin whose Type Tag has a spec.
-    -- A scalar spec contributes one box in the "value column" to the right of the pin label
-    -- (stopping short of an output glyph sharing the row via CONTROL_OUT_RESERVE); a composite
-    -- spec (widget == "composite") instead lays out its own sub-rects in the full-width band
-    -- reserved below the row (rowTop[i+1] - extraH .. rowTop[i+1]), via spec.Layout.
+    -- Control boxes: one group per unconnected data-input Pin whose Type Tag has a Pin Control
+    -- (ADR-0005). The Node reserves the band height the module reports and asks it to lay out its
+    -- Widgets' sub-rects, tagging each geom.controls entry with the module so the Editor routes
+    -- display/click back to it. Two layout shapes, chosen by the Pin Control: an INLINE control
+    -- (scalar, enum, swatch, capture) fills the single value-column box to the right of the label;
+    -- a BAND control (coordgrid, matcher, mode) lays its Widgets out in the full-width band reserved
+    -- beneath the row (rowTop[i+1] - extraH .. rowTop[i+1]).
     local labelStart = Theme.PIN_MARGIN_X + Theme.PIN_GLYPH * 0.5 + Theme.PIN_LABEL_GAP
     for i, pin in ipairs(placeholder and {} or inputs) do
-        local spec = controlSpecFor(pin, connected)
-        if spec ~= nil then
-            local cy = rowTop[i] + Theme.PIN_ROW_HEIGHT * 0.5
-
-            if spec.widget == "composite" then
-                local extraH = (spec.extraH ~= nil) and (spec.extraH(pin) or 0) or 0
-                local band = {
-                    x = Theme.PIN_MARGIN_X, y = rowTop[i + 1] - extraH,
-                    w = width - Theme.PIN_MARGIN_X * 2, h = extraH,
-                }
-                local rects = spec.Layout and spec.Layout(band) or {}
-                for _, r in ipairs(rects) do
-                    geom.controls[#geom.controls + 1] = {
-                        pinName = pin.name,
-                        widget  = spec.widget,
-                        spec    = spec,
-                        default = pin.default,
-                        kind = r.kind, axis = r.axis,
-                        placeholder = r.placeholder,  -- e.g. the matcher needle's empty-state hint
-                        x = r.x, y = r.y, w = r.w, h = r.h,
-                    }
-                end
-            else
-                -- Start the box past the label instead of at a fixed reserve, so it can't
-                -- cover long labels like "contains"/"soundId". Measured with real font
-                -- metrics (Theme.TextWidth) at the zoom-1 label size — geometry is Graph-
-                -- space at zoom 1 — falling back to a per-char estimate when unavailable.
+        local pinControl = pinControlFor(pin, connected)
+        if pinControl ~= nil then
+            local rects
+            if pinControl.Inline then
+                -- Start the box past the label instead of at a fixed reserve, so it can't cover long
+                -- labels like "contains"/"soundId". Measured with real font metrics (Theme.TextWidth)
+                -- at the zoom-1 label size — geometry is Graph-space at zoom 1 — falling back to a
+                -- per-char estimate when unavailable.
                 local label = pin.label or pin.name or ""
                 local labelW = Theme.TextWidth(12, label) or (#label * Theme.CONTROL_LABEL_CHAR_W)
                 local left = labelStart + labelW + Theme.CONTROL_LABEL_GAP
                 local rightInset = (outputs[i] ~= nil) and Theme.CONTROL_OUT_RESERVE or Theme.CONTROL_PAD_X
                 local right = width - Theme.PIN_MARGIN_X - rightInset
                 if right < left + Theme.CONTROL_MIN_W then right = left + Theme.CONTROL_MIN_W end
-
-                if spec.widget == "swatch" then
-                    -- A fixed-width chip flush against the value column's right edge (#30),
-                    -- not a full-width text box — narrower reads as a color swatch. `kind`
-                    -- discriminates it from a scalar text/enum/number box the same way a
-                    -- composite Control's sub-rects do, even though there's only ever one.
-                    local swW = math.min(Theme.SWATCH_W, right - left)
-                    geom.controls[#geom.controls + 1] = {
-                        pinName = pin.name,
-                        widget  = spec.widget,
-                        spec    = spec,
-                        default = pin.default,
-                        kind = "swatch",
-                        x = right - swW, y = cy - Theme.CONTROL_H * 0.5,
-                        w = swW, h = Theme.CONTROL_H,
-                    }
-                elseif spec.widget == "capture" then
-                    -- Screen Marker's "Draw on screen" button (#39): a full-width value-
-                    -- column box like a scalar field, but `kind` marks it as a click-to-arm
-                    -- action rather than an editable text field (ui/graph.lua's beginPress
-                    -- dispatch branches on it the same way it does for a composite "action"
-                    -- box) — it never opens the transient InputField/ComboField editor.
-                    geom.controls[#geom.controls + 1] = {
-                        pinName = pin.name,
-                        widget  = spec.widget,
-                        spec    = spec,
-                        default = pin.default,
-                        kind = "capture",
-                        placeholder = spec.placeholder or "Draw on screen",
-                        x = left, y = cy - Theme.CONTROL_H * 0.5,
-                        w = right - left, h = Theme.CONTROL_H,
-                    }
-                else
-                    geom.controls[#geom.controls + 1] = {
-                        pinName = pin.name,
-                        widget  = spec.widget,
-                        spec    = spec,
-                        default = pin.default,  -- shown/edited when the stored Control is nil
-                        x = left, y = cy - Theme.CONTROL_H * 0.5,
-                        w = right - left, h = Theme.CONTROL_H,
-                    }
-                end
+                local cy = rowTop[i] + Theme.PIN_ROW_HEIGHT * 0.5
+                rects = pinControl.Layout({
+                    x = left, y = cy - Theme.CONTROL_H * 0.5, w = right - left, h = Theme.CONTROL_H,
+                }) or {}
+            else
+                local extraH = pinControl.ReservedHeight(pin) or 0
+                local band = {
+                    x = Theme.PIN_MARGIN_X, y = rowTop[i + 1] - extraH,
+                    w = width - Theme.PIN_MARGIN_X * 2, h = extraH,
+                }
+                rects = pinControl.Layout(band) or {}
+            end
+            for _, r in ipairs(rects) do
+                geom.controls[#geom.controls + 1] = {
+                    pinName    = pin.name,
+                    pinControl = pinControl,
+                    default    = pin.default,
+                    -- `kind`/`axis` name the sub-rect for the Editor's press + isEditingThis skip;
+                    -- how it PAINTS is the Pin Control's Draw, not a discriminator the Node reads.
+                    kind = r.kind, axis = r.axis,
+                    enabled = r.enabled,          -- a mode checkbox row's toggle-ability
+                    placeholder = r.placeholder,  -- e.g. the matcher needle's / capture's empty-state hint
+                    x = r.x, y = r.y, w = r.w, h = r.h,
+                }
             end
         end
     end
@@ -210,19 +181,10 @@ function Node.PinCenter(geom, pinName)
     return geom.x + p.cx, geom.y + p.cy
 end
 
----@param font Int
----@param color Vector4
----@return ui.TextDataConfig
-local function createTextDataConfig(font, color)
-    ---@type ui.TextDataConfig
-    local textData = ui.TextDataConfig.new()
-    textData.font = font
-    textData.colour = color
-    textData.isShadowed = true
-    textData.shadowRGBA = Color.ToRGBA(0, 0, 0, 1)
-    textData.maxLines = 1
-    return textData
-end
+-- The node's own title/pin labels build the same 1-line shadowed TextDataConfig the control-box
+-- Widgets do, so both share Box.TextData (a Node → Widget-helper dependency is allowed; the reverse
+-- is not — ADR-0005). Aliased locally so the call sites below read unchanged.
+local createTextDataConfig = Box.TextData
 
 -- Draws the node body, header, title, and pin glyphs/labels through the View.
 -- meta = { title, category }; opts = { selected = bool, mouseX, mouseY } — the local-space
@@ -317,8 +279,15 @@ function Node.Draw(canvas, view, geom, meta, opts)
     -- composite Control (#25) contributes several boxes sharing one pinName, so the "is this
     -- the one being edited" check also matches kind/axis — otherwise opening the editor on
     -- one coordgrid field would blank out its whole band.
+    --
+    -- Each box's paint is the Widget's own (ADR-0005 #63 render seam): the Node projects the
+    -- graph-space rect to screen, computes `hot`, and hands both to the Pin Control's Draw with a
+    -- small draw-context (dctx) — there is NO `kind`/`widget` branch here. The Node keeps only what
+    -- is genuinely its own: the row/View transform and the isEditingThis skip (the transient editor
+    -- overlay is an Editor concern, not the control's). The Widget never sees `view`/ToScreen/Scale.
     if view.zoom >= Theme.CONTROL_MIN_ZOOM then
         local ctrlFont = Theme.Font(11 * view.zoom)
+        local scale = function(n) return view:Scale(n) end
         for _, ctrl in ipairs(geom.controls) do
             local isEditingThis = ctrl.pinName == opts.editingPin
                 and ctrl.kind == opts.editingKind and ctrl.axis == opts.editingAxis
@@ -328,81 +297,8 @@ function Node.Draw(canvas, view, geom, meta, opts)
                 local hot = opts.mouseX ~= nil
                     and opts.mouseX >= bx and opts.mouseX <= bx + bw
                     and opts.mouseY >= by and opts.mouseY <= by + bh
-
-                if ctrl.kind == "swatch" then
-                    -- Checker-backed so alpha reads visually; no value at all (nil Control
-                    -- AND nil pin default, #30's "never fires until set") draws as a plain
-                    -- empty box instead of implying a color that was never actually chosen.
-                    if ctrl.value == nil then
-                        canvas:AddRectangle(bx, by, bw, bh, Theme.Vec4(Theme.COL_CONTROL_BG))
-                    else
-                        Color.DrawChecker(canvas, bx, by, bw, bh, view:Scale(Theme.SWATCH_CHECKER_CELL),
-                            Theme.Vec4(Theme.COL_CHECKER_LIGHT), Theme.Vec4(Theme.COL_CHECKER_DARK))
-                        local v = ctrl.value
-                        local a = (v.a == nil) and 255 or v.a
-                        canvas:AddRectangle(bx, by, bw, bh, Vector4.new(v.r / 255, v.g / 255, v.b / 255, a / 255))
-                    end
-                    canvas:AddOutline(bx, by, bw, bh, math.max(1, view:Scale(1)),
-                        Theme.Vec4(hot and Theme.COL_CONTROL_HOT or Theme.COL_CONTROL_BORDER))
-                elseif ctrl.kind == "mode" then
-                    -- A mode row (#40): a label plus a real, right-aligned checkbox glyph. No
-                    -- full control-box backing (it reads as a toggle list, not a value field).
-                    -- Disabled rows (Hull/Outline/Clickbox — "needs render API") dim both parts.
-                    local labelCol = ctrl.disabled and Theme.COL_CONTROL_EMPTY or Theme.COL_CONTROL_TEXT
-                    if ctrlFont ~= nil then
-                        local text = ctrl.display or ""
-                        local tw = Theme.TextWidth(11 * view.zoom, text) or (#text * view:Scale(7))
-                        canvas:AddText(bx + view:Scale(Theme.CONTROL_PAD_X), by + bh * 0.5 - view:Scale(6),
-                            tw, 0, text, createTextDataConfig(ctrlFont, Theme.Vec4(labelCol)))
-                    end
-                    -- The checkbox: a small square right-aligned in the row, with a gold tick when
-                    -- checked. Box border tracks hot (unless disabled) so it reads as clickable.
-                    local boxSz = bh * 0.72
-                    local boxX = bx + bw - view:Scale(Theme.CONTROL_PAD_X) - boxSz
-                    local boxY = by + (bh - boxSz) * 0.5
-                    local borderCol = (hot and not ctrl.disabled) and Theme.COL_CONTROL_HOT or Theme.COL_CONTROL_BORDER
-                    canvas:AddRectangle(boxX, boxY, boxSz, boxSz, Theme.Vec4(Theme.COL_CHECK_BOX_BG))
-                    canvas:AddOutline(boxX, boxY, boxSz, boxSz, math.max(1, view:Scale(1)), Theme.Vec4(borderCol))
-                    if ctrl.checked then
-                        local tick = math.max(1, view:Scale(1.5))
-                        local markCol = Theme.Vec4(ctrl.disabled and Theme.COL_CONTROL_EMPTY or Theme.COL_CHECK_MARK)
-                        canvas:AddLine(boxX + boxSz * 0.20, boxY + boxSz * 0.52,
-                            boxX + boxSz * 0.42, boxY + boxSz * 0.74, tick, markCol)
-                        canvas:AddLine(boxX + boxSz * 0.42, boxY + boxSz * 0.74,
-                            boxX + boxSz * 0.80, boxY + boxSz * 0.26, tick, markCol)
-                    end
-                else
-                    local bg = (ctrl.kind == "action" or ctrl.kind == "capture" or ctrl.kind == "toggle")
-                        and Theme.COL_CONTROL_ACTION_BG or Theme.COL_CONTROL_BG
-                    canvas:AddRectangle(bx, by, bw, bh, Theme.Vec4(bg))
-                    canvas:AddOutline(bx, by, bw, bh, math.max(1, view:Scale(1)),
-                        Theme.Vec4(hot and Theme.COL_CONTROL_HOT or Theme.COL_CONTROL_BORDER))
-
-                    if ctrlFont ~= nil then
-                        local text = ctrl.display
-                        local col = Theme.Vec4(Theme.COL_CONTROL_TEXT)
-                        if text == nil or text == "" then
-                            text, col = ctrl.placeholder or "…", Theme.Vec4(Theme.COL_CONTROL_EMPTY)
-                        elseif ctrl.disabled then
-                            -- A disabled mode row (#40, the unavailable-node idiom): shown, but
-                            -- dimmed so it reads as inert (Hull/Outline/Clickbox "needs render API").
-                            col = Theme.Vec4(Theme.COL_CONTROL_EMPTY)
-                        end
-                        local tw = Theme.TextWidth(11 * view.zoom, text) or (#text * view:Scale(7))
-                        local textData = createTextDataConfig(ctrlFont, col)
-                        canvas:AddText(bx + view:Scale(Theme.CONTROL_PAD_X), by + bh * 0.5 - view:Scale(6),
-                            tw, 0, text, textData)
-                    end
-
-                    -- Enum dropdown indicator: a small ▾ drawn as a filled triangle at the right.
-                    if ctrl.widget == "enum" then
-                        local cxr = bx + bw - view:Scale(7)
-                        local cyr = by + bh * 0.5
-                        local a = view:Scale(3)
-                        canvas:AddTriangle(cxr - a, cyr - a, cxr + a, cyr - a, cxr, cyr + a,
-                            Theme.Vec4(Theme.COL_CONTROL_CARET))
-                    end
-                end
+                ctrl.pinControl.Draw(canvas, { x = bx, y = by, w = bw, h = bh }, ctrl,
+                    { hot = hot, font = ctrlFont, zoom = view.zoom, scale = scale })
             end
         end
 

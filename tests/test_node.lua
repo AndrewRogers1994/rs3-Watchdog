@@ -188,7 +188,8 @@ function TestSwatchGeometry:testOneSwatchControlIsProduced()
     luaunit.assertEquals(#self.geom.controls, 1)
     local ctrl = self.geom.controls[1]
     luaunit.assertEquals(ctrl.pinName, "tint")
-    luaunit.assertEquals(ctrl.widget, "swatch")
+    -- `kind` names the row for press/hit-test; how the chip PAINTS is the swatch Widget's Draw
+    -- (#63), routed through the Pin Control — no separate "widget" hint on the sub-rect anymore.
     luaunit.assertEquals(ctrl.kind, "swatch")
 end
 
@@ -226,4 +227,89 @@ end
 function TestSwatchGeometry:testConnectedPinReservesNoSwatchControl()
     local geom = Node.BuildGeometry(self.pins, 0, 0, Theme.NODE_WIDTH, { connected = { tint = true } })
     luaunit.assertEquals(#geom.controls, 0)
+end
+
+-- #59/#60: the migrated tags (number/string scalars, the bool enum, the matcher, the color swatch,
+-- and the screen/object capture) must route to their Pin Control — every geom.controls entry carries
+-- `pinControl` — so buildGeoms/beginPress delegate to the module and never reach the old `kind`/spec
+-- switches for these tags.
+TestMigratedControlRouting = {}
+
+local Controls = require("ui/controls")
+
+local function inPin(name, dataType)
+    return { name = name, kind = "data", direction = "in", dataType = dataType, label = name }
+end
+
+function TestMigratedControlRouting:testScalarPinsCarryAPinControl()
+    for _, dt in ipairs({ "number", "string" }) do
+        local geom = Node.BuildGeometry({ inPin("v", dt) }, 0, 0, Theme.NODE_WIDTH)
+        luaunit.assertEquals(#geom.controls, 1)
+        luaunit.assertNotNil(geom.controls[1].pinControl)
+    end
+end
+
+function TestMigratedControlRouting:testEnumPinCarriesAPinControl()
+    -- The dropdown caret is the dropdown Widget's own draw (#63), not a "widget" hint on the sub-rect,
+    -- so the enum box carries only a Pin Control the Node routes its Draw/Press through.
+    local geom = Node.BuildGeometry({ inPin("flag", "bool") }, 0, 0, Theme.NODE_WIDTH)
+    luaunit.assertEquals(#geom.controls, 1)
+    luaunit.assertNotNil(geom.controls[1].pinControl)
+    luaunit.assertEquals(geom.controls[1].kind, "field")
+end
+
+function TestMigratedControlRouting:testMatcherPinCarriesAPinControlBand()
+    local geom = Node.BuildGeometry({ inPin("contains", "matcher") }, 0, 0, Theme.NODE_WIDTH)
+    luaunit.assertEquals(#geom.controls, 2)  -- needle + toggle
+    for _, c in ipairs(geom.controls) do luaunit.assertNotNil(c.pinControl) end
+end
+
+function TestMigratedControlRouting:testSwatchPinCarriesAPinControl()
+    -- The `color` tag is registered by ui/controls.lua itself (loaded via Node), so its swatch Pin
+    -- Control is already wired — the chip routes through the module, not the old kind == "swatch" path.
+    local geom = Node.BuildGeometry({ inPin("tint", "color") }, 0, 0, Theme.NODE_WIDTH)
+    luaunit.assertEquals(#geom.controls, 1)
+    luaunit.assertNotNil(geom.controls[1].pinControl)
+    luaunit.assertEquals(geom.controls[1].kind, "swatch")
+end
+
+function TestMigratedControlRouting:testCapturePinCarriesAPinControl()
+    -- Capture specs are registered by their node files; register a stand-in here so the routing is
+    -- proven without pulling a whole node module in. A widget == "capture" spec auto-wires its
+    -- Pin Control the same way (#60), so the box carries one and never reaches kind == "capture".
+    Controls.Register("test.capture60", { widget = "capture", placeholder = "Draw on screen" })
+    local geom = Node.BuildGeometry({ inPin("rect", "test.capture60") }, 0, 0, Theme.NODE_WIDTH)
+    luaunit.assertEquals(#geom.controls, 1)
+    luaunit.assertNotNil(geom.controls[1].pinControl)
+    luaunit.assertEquals(geom.controls[1].kind, "capture")
+end
+
+function TestMigratedControlRouting:testModePinCarriesAPinControlBand()
+    -- #61: the object_marker mode multi-select is a band; register a stand-in mode tag so the
+    -- routing is proven without pulling the whole node module in. Each checkbox row carries the
+    -- Pin Control and its baked `enabled` flag, and never reaches the old kind == "mode" path.
+    Controls.Register("test.mode61", {
+        widget = "mode",
+        modes = {
+            { key = "tile", label = "Tile", enabled = true },
+            { key = "hull", label = "Hull", enabled = false, reason = "needs render API" },
+        },
+    })
+    local geom = Node.BuildGeometry({ inPin("mode", "test.mode61") }, 0, 0, Theme.NODE_WIDTH)
+    luaunit.assertEquals(#geom.controls, 2)  -- one row per mode
+    for _, c in ipairs(geom.controls) do
+        luaunit.assertNotNil(c.pinControl)
+        luaunit.assertEquals(c.kind, "mode")
+    end
+    luaunit.assertTrue(geom.controls[1].enabled)   -- tile
+    luaunit.assertFalse(geom.controls[2].enabled)  -- hull
+end
+
+function TestMigratedControlRouting:testInlineScalarsReserveNoBand()
+    -- An inline Pin Control (scalar/enum) adds no reserved band, so a row of them collapses to the
+    -- fixed PIN_ROW_HEIGHT stride exactly as the old scalar spec path did.
+    local geom = Node.BuildGeometry({ inPin("a", "number"), inPin("b", "string") }, 0, 0, Theme.NODE_WIDTH)
+    local expected = Theme.HEADER_HEIGHT + Theme.BODY_PAD_TOP
+        + 2 * Theme.PIN_ROW_HEIGHT + Theme.BODY_PAD_BOTTOM
+    luaunit.assertAlmostEquals(geom.h, expected, 1e-9)
 end

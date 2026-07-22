@@ -26,21 +26,10 @@ local Node     = require("ui/node")
 local Placeholder = require("ui/placeholder")
 local Wire     = require("ui/wire")
 local Palette  = require("ui/palette")
-local Controls = require("ui/controls")
 local ColorPopup = require("ui/color_popup")
 
 local Editor = {}
 Editor.__index = Editor
-
--- The mode descriptor (from an object_marker.mode composite spec's `modes` list, #40) for a given
--- checkbox row's key, or nil. Drives the row's label / enabled-dim / "needs render API" reason.
-local function modeDescriptor(spec, key)
-    if spec == nil or spec.modes == nil then return nil end
-    for _, m in ipairs(spec.modes) do
-        if m.key == key then return m end
-    end
-    return nil
-end
 
 -- graph, registry: the live LibNodeGraph objects. layout: optional saved node positions.
 -- runtime: optional (see runtime.lua) — only reached for its `screenMarkerCapture` (#39), the
@@ -158,31 +147,14 @@ local function dataCompatible(a, b)
 end
 
 -- An InputField's raw text content / pre-parsed numeric quantity (honors suffixes like
--- 1K/1M), read defensively since a field can be mid-teardown when these are read. Shared by
--- commitField and commitAxisField's field-extraction step.
+-- 1K/1M), read defensively since a field can be mid-teardown when these are read. Handed to a
+-- Pin Control's own onChange commit callback when the host-mounted field changes.
 local function fieldContent(field)
     local raw = ""
     pcall(function() raw = field.content or "" end)
     local quantity
     pcall(function() quantity = field.contentQuantity end)
     return raw, quantity
-end
-
--- Enum choice lookups, by value or by label. Kept as the ONE place both directions of the
--- ComboField <-> Control value mapping happen — see the id caveat on Editor:openControlEditor's
--- enum branch for why label, not id, is the only field ComboField lets us trust.
-local function choiceByValue(spec, value)
-    for _, c in ipairs(spec.choices or {}) do
-        if c.value == value then return c end
-    end
-    return nil
-end
-
-local function choiceByLabel(spec, label)
-    for _, c in ipairs(spec.choices or {}) do
-        if c.label == label then return c end
-    end
-    return nil
 end
 
 local function clampv(v, lo, hi)
@@ -335,38 +307,11 @@ function Editor:buildGeoms()
             -- A nil stored Control (e.g. a graph saved before this pin had a default) shows
             -- the pin's default, so the box reflects the value the node would actually run with.
             if ctrl.value == nil then ctrl.value = ctrl.default end
-            if ctrl.kind == "field" then
-                local axisVal = (type(ctrl.value) == "table") and ctrl.value[ctrl.axis] or nil
-                ctrl.display = (axisVal ~= nil) and tostring(axisVal) or ""
-            elseif ctrl.kind == "action" then
-                ctrl.display = "Set to current position"
-            elseif ctrl.kind == "needle" then
-                -- The matcher needle text field (#56): shows just the `needle` string; an empty
-                -- needle falls back to the sub-rect's placeholder (drawn dimmed in node.lua).
-                local m = (type(ctrl.value) == "table") and ctrl.value or nil
-                ctrl.display = (m ~= nil and type(m.needle) == "string") and m.needle or ""
-            elseif ctrl.kind == "toggle" then
-                -- The matcher mode toggle (#56): a button labelled with the current mode, flipped
-                -- on click. Defaults to Substring when the stored matcher has no explicit mode.
-                local m = (type(ctrl.value) == "table") and ctrl.value or nil
-                local mode = (m ~= nil and m.mode) or "substring"
-                ctrl.display = (mode == "pattern") and "Pattern" or "Substring"
-            elseif ctrl.kind == "mode" then
-                -- An object_marker mode checkbox row (#40): a real checkbox glyph (drawn in
-                -- node.lua from ctrl.checked) plus a left-aligned label. Disabled rows are
-                -- dimmed and carry their "needs render API" reason (the unavailable-node idiom).
-                local mode = modeDescriptor(ctrl.spec, ctrl.axis)
-                local enabled = mode ~= nil and mode.enabled
-                local label = (mode ~= nil and mode.label) or tostring(ctrl.axis)
-                if mode ~= nil and not enabled and mode.reason then
-                    label = label .. " — " .. mode.reason
-                end
-                ctrl.display = label
-                ctrl.checked = enabled and type(ctrl.value) == "table" and ctrl.value[ctrl.axis] == true
-                ctrl.disabled = not enabled
-            else
-                ctrl.display = Controls.Format(ctrl.spec, ctrl.value)
-            end
+            -- Every data Control is a Pin Control (ADR-0005): the Editor just asks the module for
+            -- each sub-rect's display text and never branches on the control's kind. A mode row's
+            -- checkbox tick/dim is derived at draw time from the baked `enabled` flag + the stored
+            -- value (node.lua), so nothing else needs stamping here.
+            ctrl.display = ctrl.pinControl.Display(ctrl)
         end
         self.geoms[n.id] = geom
     end
@@ -559,36 +504,18 @@ function Editor:beginPress()
         return
     end
 
-    -- A Control box opens its inline editor. Not a drag, so unwind the gesture setup the way
-    -- the close-button branch does (the box sits in the value column, clear of the pin glyph).
-    -- A composite Control's "action" box (#25, e.g. coordgrid's "set to current position") is
-    -- not an editable field — the dispatcher branches on `kind` and fires it immediately
-    -- instead of opening the transient InputField.
+    -- A Control box hands the click to its Pin Control (ADR-0005): the Editor passes a host and the
+    -- clicked sub-rect and does NO per-control branching — the module decides whether to mount an
+    -- editor, fire an action, toggle, or open a popup/overlay. Not a drag, so unwind the gesture
+    -- setup the way the close-button branch does (the box sits in the value column, clear of the
+    -- pin glyph).
     local hitCtrl = self:controlAt(lx, ly)
     if hitCtrl ~= nil then
         self.pressed = false
         self:positionCapture()
         self.selected = hitCtrl.nodeId
         self:bringToFront(hitCtrl.nodeId)
-        if hitCtrl.ctrl.kind == "action" then
-            self:setCoordgridToCurrentPosition(hitCtrl.nodeId, hitCtrl.ctrl.pinName)
-        elseif hitCtrl.ctrl.kind == "swatch" then
-            self:openColorPopup(hitCtrl.nodeId, hitCtrl.ctrl)
-        elseif hitCtrl.ctrl.kind == "mode" then
-            self:toggleMode(hitCtrl.nodeId, hitCtrl.ctrl)
-        elseif hitCtrl.ctrl.kind == "toggle" then
-            self:toggleMatcherMode(hitCtrl.nodeId, hitCtrl.ctrl)
-        elseif hitCtrl.ctrl.kind == "capture" then
-            -- The capture widget is shared: Screen Marker's rect uses the drag overlay, Object
-            -- Marker's object uses the MiniMenu select mode (spec.captureKind == "object").
-            if hitCtrl.ctrl.spec ~= nil and hitCtrl.ctrl.spec.captureKind == "object" then
-                self:armObjectMarkerCapture(hitCtrl.nodeId, hitCtrl.ctrl.pinName)
-            else
-                self:armScreenMarkerCapture(hitCtrl.nodeId, hitCtrl.ctrl.pinName)
-            end
-        else
-            self:openControlEditor(hitCtrl.nodeId, hitCtrl.ctrl)
-        end
+        hitCtrl.ctrl.pinControl.Press(self:controlHost(hitCtrl.nodeId, hitCtrl.ctrl), hitCtrl.ctrl)
         return
     end
 
@@ -929,19 +856,6 @@ function Editor:fireTestPin(nodeId, pinName)
     end
 end
 
---- Composite Control actions ------------------------------------------------------------
-
--- coordgrid's "set to current position" button (#25): overwrites the whole {x,z,level}
--- Control in one shot from the live player position. Silent no-op when unavailable. Only
--- IsAvailable() is guarded — a documented state check, not a client-global existence check
--- (see pcall-defensive-style: Player is guaranteed present at load).
-function Editor:setCoordgridToCurrentPosition(nodeId, pinName)
-    if not Player.IsAvailable() then return end
-    local entity = Player.GetEntity()
-    self:setControl(nodeId, pinName,
-        { x = entity.coordGrid.x, z = entity.coordGrid.z, level = entity.coordGrid.level })
-end
-
 --- Screen Marker capture (#39) -----------------------------------------------------------
 
 -- Arms the shared full-screen "Draw on screen" capture overlay (runtime.screenMarkerCapture,
@@ -972,25 +886,6 @@ function Editor:armObjectMarkerCapture(nodeId, pinName)
     end)
 end
 
---- Object Marker mode multi-select (#40) --------------------------------------------------
-
--- Toggles one enabled mode checkbox (only Tile is enabled today) in the composite `mode` table
--- Control, read-modify-write against the whole stored table. A disabled row ("needs render API")
--- is inert — clicking it does nothing.
-function Editor:toggleMode(nodeId, ctrl)
-    local mode = modeDescriptor(ctrl.spec, ctrl.axis)
-    if mode == nil or not mode.enabled then return end
-    -- Base the flip on the value the row actually shows (ctrl.value, already default-resolved
-    -- in the geometry rebuild) rather than the raw stored Control — otherwise the first click on
-    -- a checkbox that reads as ticked only because of the pin default would re-tick it (nil ->
-    -- true) instead of clearing it.
-    local updated = {}
-    if type(ctrl.value) == "table" then
-        for k, v in pairs(ctrl.value) do updated[k] = v end
-    end
-    updated[ctrl.axis] = not (updated[ctrl.axis] == true)
-    self:setControl(nodeId, ctrl.pinName, updated)
-end
 
 --- Color popup (#30) ----------------------------------------------------------------------
 
@@ -1005,7 +900,13 @@ local COLOR_DRAG_PARTS = { sv = true, hue = true, r = true, g = true, b = true, 
 -- so this never has to reopen over itself. Any node Control editor IS still a real scenario
 -- to guard against — it isn't gated by that same modal check — so it's closed first, same
 -- rule ADR-0004 already applies elsewhere.
-function Editor:openColorPopup(nodeId, ctrl)
+-- `codec` (#60) is the swatch Pin Control's hex format/parse table, what the popup round-trips its
+-- one hex field through — so the popup keeps its own file/lifecycle and needs no Control knowledge:
+-- the swatch Pin Control hands its Widget's hex codec straight in through the host's OpenColorPopup.
+---@param nodeId integer
+---@param ctrl table
+---@param codec table
+function Editor:openColorPopup(nodeId, ctrl, codec)
     if self.editing ~= nil then self:closeControlEditor() end
     local geom = self.geoms[nodeId]
     if geom == nil then return end
@@ -1013,7 +914,7 @@ function Editor:openColorPopup(nodeId, ctrl)
     local sx, sy = self.view:ToScreen(geom.x + ctrl.x, geom.y + ctrl.y + ctrl.h)
     local current = self.graph:GetControl(nodeId, ctrl.pinName)
     if current == nil then current = ctrl.default end
-    cp:Open(nodeId, ctrl.pinName, ctrl.spec, current, sx, sy)
+    cp:Open(nodeId, ctrl.pinName, codec, current, sx, sy)
 end
 
 -- Tears down the transient hex field (if mounted) and closes the popup. Idempotent, so it's
@@ -1067,9 +968,8 @@ end
 
 -- Mounts a transient InputField over the popup's hex row (ADR-0004's mechanism, reused here
 -- for the one textual field the popup has). Filter is NONE rather than ALPHANUMERIC/NUMERIC
--- — the color spec's parse hook (Color.ParseHex8, via Controls.Parse below) already strips
--- non-hex characters on commit, so the field just needs to accept whatever's typed and let
--- the parse sort it out, same latitude a "text" widget gets in openControlEditor.
+-- — the swatch codec's parse hook (Color.ParseHex8) already strips non-hex characters on commit,
+-- so the field just needs to accept whatever's typed and let the parse sort it out.
 function Editor:openColorHexEditor()
     self:closeColorHexEditor()
     if self.groupBox == nil or ui == nil then return end
@@ -1079,9 +979,9 @@ function Editor:openColorHexEditor()
 
     -- The popup lives in the same fixed GroupBox-local frame the Canvas draws in (like the
     -- Palette), so its rect's coords are the field's coords directly — no View scaling, no
-    -- header offset (mirrors openControlEditor's own no-offset finding).
+    -- header offset (mirrors the node control editor's own no-offset finding).
     local field = self:mountInputField(r.x, r.y, r.w, r.h, "NONE", 8,
-        Controls.Format(cp.spec, cp:Value()),
+        cp:Format(cp:Value()),
         function(_, cause, newContent) self:onColorHexContent(cause, newContent) end)
     if field == nil then return end
     self.colorHexField = field
@@ -1090,15 +990,15 @@ function Editor:openColorHexEditor()
 end
 
 -- ONCONTENTCHANGED: live-parse every keystroke into the popup's working value through the
--- spec's own parse hook (Controls.Parse -> Color.ParseHex8's guard, so a too-short/
--- unparsable string is a no-op and a mid-typed hex never nukes the color); close just the
--- hex field (not the whole popup) on a submit/focus-loss cause.
+-- codec's own parse hook (Color.ParseHex8's guard, so a too-short/unparsable string is a no-op
+-- and a mid-typed hex never nukes the color); close just the hex field (not the whole popup) on
+-- a submit/focus-loss cause.
 function Editor:onColorHexContent(cause, _newContent)
     if self.colorHexField == nil then return end
     local raw = ""
     pcall(function() raw = self.colorHexField.content or "" end)
     local cp = self.colorPopup
-    cp:SetValue(Controls.Parse(cp.spec, raw, cp:Value()))
+    cp:SetValue(cp:Parse(raw, cp:Value()))
     self:commitColorPopupValue()
     if isSubmitCause(cause) then self:closeColorHexEditor() end
 end
@@ -1120,6 +1020,177 @@ function Editor:onEscape()
     if self.runtime ~= nil and self.runtime.objectMarkerCapture ~= nil then
         self.runtime.objectMarkerCapture:Cancel()
     end
+end
+
+-- Screen rect for a transient editor field mounted over a Control box `ctrl`. The field's
+-- native font is a fixed pixel size (it can't scale with the View), so the component is sized
+-- in screen pixels: a fixed readable height, width tracking the box but never below the min,
+-- centered vertically on the box row so a taller-than-box field straddles it evenly. A GroupBox
+-- child positions in the SAME frame the Canvas draws in (both measured from the content-area
+-- origin), so the box's draw coords are the field's coords directly — no header offset (verified
+-- in-client: adding WINDOW_HEADER_H put the field a header-height too low). Shared by both mount
+-- paths — the inline editor (openControlEditor) and the Pin Control host (mountControlField).
+---@param geom table
+---@param ctrl table
+---@return number px, number py, number sw, number sh
+function Editor:controlEditRect(geom, ctrl)
+    local sx, sy = self.view:ToScreen(geom.x + ctrl.x, geom.y + ctrl.y)
+    local boxH = self.view:Scale(ctrl.h)
+    local sw = math.max(self.view:Scale(ctrl.w), Theme.CONTROL_EDIT_MIN_W)
+    local sh = Theme.CONTROL_EDIT_H
+    return sx, sy + (boxH - sh) * 0.5, sw, sh
+end
+
+--- Pin Control host seam (ADR-0005) ------------------------------------------------------
+
+-- The typed contract every Pin Control reaches the Editor through — the seam's whole surface, so a
+-- Pin Control that calls a capability the host doesn't expose (or fat-fingers `host:Commmit`)
+-- surfaces as an undefined-field at check time, the same guard the RunContext class gives node
+-- run(ctx) code (CLAUDE.md typechecking note). Both the real host (Editor:controlHost) and the
+-- test adapter (tests/fake_control_host.lua) satisfy it. `ctrl` is a geom control sub-rect.
+---@class ControlHost
+---@field GetControl fun(self: ControlHost): any
+---@field Commit fun(self: ControlHost, value: any)
+---@field MountField fun(self: ControlHost, ctrl: table, opts: table, onChange: fun(raw: string, quantity: number|nil))
+---@field MountDropdown fun(self: ControlHost, ctrl: table, opts: table, onSelect: fun(label: string))
+---@field OpenColorPopup fun(self: ControlHost, codec: table)
+---@field ArmCapture fun(self: ControlHost, kind: string)
+
+-- The `host` a Pin Control is handed on press: the Editor-only capabilities it needs, and no
+-- more. It exposes reading and committing the Pin's stored Control value (Commit runs the same
+-- Graph:SetControl + preload path every other Control edit uses) and mounting a transient field or
+-- dropdown over one of the control's boxes. The Editor does NO per-control branching — a Pin
+-- Control pushes work through this seam. Its test adapter is the fake host in
+-- tests/fake_control_host.lua, which is what makes a Pin Control's whole press->commit lifecycle
+-- testable headless. The host-routed controls (#60) reach two more Editor collaborators through it —
+-- the swatch opens the Color Popup, the capture arms a marker overlay — rather than committing a
+-- value directly; the overlay/popup commit for them through the same setControl path.
+---@return ControlHost
+function Editor:controlHost(nodeId, ctrl)
+    local editor = self
+    return {
+        -- The raw stored Control value (no default fallback) — a per-axis read-modify-write
+        -- seeds a fresh table from nil exactly as the old commitAxisField path did.
+        GetControl = function(_)
+            return editor.graph:GetControl(nodeId, ctrl.pinName)
+        end,
+        Commit = function(_, value)
+            editor:setControl(nodeId, ctrl.pinName, value)
+        end,
+        -- Mounts a transient numeric/text field over the given sub-rect, wiring its content
+        -- changes back to the Pin Control's own `onChange(raw, quantity)` commit callback.
+        MountField = function(_, mctrl, opts, onChange)
+            editor:mountControlField(ctrl.pinControl, nodeId, mctrl, opts, onChange)
+        end,
+        -- Mounts a transient dropdown over the given sub-rect from a list of labels, reporting the
+        -- picked label back to the Pin Control's `onSelect(label)` callback (which maps it to a
+        -- value and commits). Selection is by label, never id — ADR-0004's ComboField caveat.
+        MountDropdown = function(_, mctrl, opts, onSelect)
+            editor:mountControlDropdown(ctrl.pinControl, nodeId, mctrl, opts, onSelect)
+        end,
+        -- Opens the Color Popup over the swatch chip (#60). The popup keeps its own file/lifecycle;
+        -- the Pin Control passes the hex codec so the popup needs no Control Spec of its own.
+        OpenColorPopup = function(_, codec)
+            editor:openColorPopup(nodeId, ctrl, codec)
+        end,
+        -- Arms the marker capture the Pin Control asks for (#60): "object" -> the MiniMenu select
+        -- mode, anything else -> the Screen Marker drag overlay. Each overlay commits the finished
+        -- value back through setControl itself; a headless host with no runtime is a silent no-op.
+        ArmCapture = function(_, kind)
+            if kind == "object" then
+                editor:armObjectMarkerCapture(nodeId, ctrl.pinName)
+            else
+                editor:armScreenMarkerCapture(nodeId, ctrl.pinName)
+            end
+        end,
+    }
+end
+
+-- Mounts the host's transient field for a Pin Control edit. Reuses the same real ui.InputField
+-- machinery and self.editing lifecycle as openControlEditor (re-fronted each frame in draw(),
+-- committed and torn down on click-away/submit), but records the Pin Control + its onChange
+-- callback so commitField routes back through the Pin Control instead of the old kind switches.
+---@param pinControl table
+---@param nodeId integer
+---@param ctrl table
+---@param opts { filter: string|nil, maxLen: integer|nil, initial: string|nil }
+---@param onChange fun(raw: string, quantity: number|nil)
+function Editor:mountControlField(pinControl, nodeId, ctrl, opts, onChange)
+    if self.editing ~= nil then self:closeControlEditor() end
+    if self.groupBox == nil or ui == nil then return end
+    local geom = self.geoms[nodeId]
+    if geom == nil then return end
+
+    local px, py, sw, sh = self:controlEditRect(geom, ctrl)
+    local field = self:mountInputField(px, py, sw, sh, opts.filter or "NONE", opts.maxLen or 128,
+        opts.initial or "",
+        function(_, cause, _newContent) self:onControlContent(cause, _newContent) end)
+    if field == nil then return end
+
+    self.editing = { nodeId = nodeId, pinName = ctrl.pinName, field = field,
+        kind = ctrl.kind, axis = ctrl.axis, pinControl = pinControl, onChange = onChange }
+    pcall(function() field:MoveToFront() end)
+    pcall(function() field:SetFocus() end)
+end
+
+-- Mounts the host's transient DROPDOWN for a Pin Control edit (the enum path). Mirrors the enum
+-- branch of openControlEditor — a real ui.ComboField styled so it isn't invisible, entries Add'd by
+-- label, the current label pre-selected, and ONSELECTIONCHANGED wired to commit — but routes the
+-- pick back through the Pin Control's own `onSelect(label)` instead of the old spec/choice path.
+-- Like an enum's inline editor it commits ONLY on an actual selection change: the editing session
+-- records no `onChange`, so a plain close (commitField's Pin Control branch) is a no-op — merely
+-- mounting then unmounting the dropdown can't rewrite the value (the bool-flip bug ADR-0004 fixed).
+---@param pinControl table
+---@param nodeId integer
+---@param ctrl table
+---@param opts { labels: string[]|nil, initial: string|nil }
+---@param onSelect fun(label: string)
+function Editor:mountControlDropdown(pinControl, nodeId, ctrl, opts, onSelect)
+    if self.editing ~= nil then self:closeControlEditor() end
+    if self.groupBox == nil or ui == nil then return end
+    local geom = self.geoms[nodeId]
+    if geom == nil then return end
+
+    local px, py, sw, sh = self:controlEditRect(geom, ctrl)
+    local field
+    local ok = pcall(function()
+        field = ui.ComboField.new(self.groupBox)
+        pcall(function() field.stylesheetID = safeComboStyle() end)
+        field.clickthrough = false
+        field:SetPos(px, py)
+        field:SetSize(sw, sh)
+        -- The `i` passed to Add only guarantees id uniqueness; ComboField re-sorts alphabetically
+        -- and reassigns ids, so selection is matched by label text, not id (see openControlEditor).
+        for i, label in ipairs(opts.labels or {}) do
+            field:Add(label, i)
+        end
+        local sel = 1
+        for i, e in ipairs(field.entries) do
+            if e.text == opts.initial then sel = i break end
+        end
+        field:Select(sel, false)
+        field:Subscribe(enumv(ui.Hook, "ONSELECTIONCHANGED"), function()
+            self:onControlDropdownSelect()
+        end)
+    end)
+    if not ok or field == nil then return end
+
+    self.editing = { nodeId = nodeId, pinName = ctrl.pinName, field = field,
+        kind = ctrl.kind, axis = ctrl.axis, pinControl = pinControl, onSelect = onSelect }
+    pcall(function() field:MoveToFront() end)
+    pcall(function() field:SetFocus() end)
+end
+
+-- ONSELECTIONCHANGED for a Pin Control dropdown: hand the picked label (the authoritative field —
+-- NOT selectedID) to the Pin Control's onSelect, then tear the dropdown down. A plain close commits
+-- nothing (the session has no onChange), so this is the only place an enum Pin Control commits.
+function Editor:onControlDropdownSelect()
+    local e = self.editing
+    if e == nil then return end
+    local label
+    pcall(function() label = e.field.selectedLabel end)
+    if label ~= nil and e.onSelect ~= nil then e.onSelect(label) end
+    self:closeControlEditor()
 end
 
 --- Inline Control editing ---------------------------------------------------------------
@@ -1149,210 +1220,19 @@ function Editor:mountInputField(px, py, sw, sh, filterMode, maxLen, initialConte
     return field
 end
 
--- Mounts the transient editor component over a Control box. One at a time; any previous
--- editor is committed and torn down first. The component is a child of the GroupBox, so it
--- rides the Window; its position adds WINDOW_HEADER_H because the Canvas content origin sits
--- that far below the GroupBox top (see toLocal / the coordinate-model note). It's re-fronted
--- each frame in draw() since canvas:MoveToFront() would otherwise bury it.
--- `ctrl` is the clicked Control box from this frame's geometry cache (as returned by
--- controlAt) — for a composite Control (#25) it's one of several sharing `ctrl.pinName`,
--- distinguished by `ctrl.kind`/`ctrl.axis` (nil for a scalar Control's single box).
-function Editor:openControlEditor(nodeId, ctrl)
-    if self.editing ~= nil then self:closeControlEditor() end
-    if self.groupBox == nil or ui == nil then return end
-
-    local geom = self.geoms[nodeId]
-    if geom == nil then return end
-    local pinName, kind, axis = ctrl.pinName, ctrl.kind, ctrl.axis
-
-    local sx, sy = self.view:ToScreen(geom.x + ctrl.x, geom.y + ctrl.y)
-    -- The field's native font is a fixed pixel size (it can't scale with the View), so the
-    -- component is sized in screen pixels: a fixed readable height, width tracking the box
-    -- but never below the min. Centered vertically on the box row so a taller-than-box field
-    -- straddles the row evenly instead of hanging below it.
-    local boxH = self.view:Scale(ctrl.h)
-    local sw = math.max(self.view:Scale(ctrl.w), Theme.CONTROL_EDIT_MIN_W)
-    local sh = Theme.CONTROL_EDIT_H
-    -- A GroupBox child positions in the SAME frame the Canvas draws in (both measured from
-    -- the content-area origin), so the Control box's draw coords are the field's coords
-    -- directly — no header offset. (Verified in-client: adding WINDOW_HEADER_H put the field
-    -- a header-height too low.)
-    local px, py = sx, sy + (boxH - sh) * 0.5
-
-    local spec = ctrl.spec
-    -- Prefill from the stored Control, falling back to the pin's default so an unseeded pin
-    -- opens showing its default rather than an empty box (which would then commit 0/"").
-    -- A "field" box (#25) prefills from just its own axis of the whole composite table.
-    local current
-    if kind == "field" then
-        local whole = self.graph:GetControl(nodeId, pinName)
-        if whole == nil then whole = ctrl.default end
-        current = (type(whole) == "table") and whole[axis] or nil
-    elseif kind == "needle" then
-        -- The matcher's text field edits just the `needle` string of the whole {needle, mode}
-        -- table (committed back read-modify-write in commitNeedleField, so the mode survives).
-        local whole = self.graph:GetControl(nodeId, pinName)
-        if whole == nil then whole = ctrl.default end
-        current = (type(whole) == "table") and whole.needle or nil
-    else
-        current = self.graph:GetControl(nodeId, pinName)
-        if current == nil then current = ctrl.default end
-    end
-    local field
-
-    if spec.widget == "enum" then
-        local ok = pcall(function()
-            field = ui.ComboField.new(self.groupBox)
-            -- Without a stylesheet the field has no background sprite and renders invisibly
-            -- (mirrors MenuInterface's addInput, which styles its InputField the same way).
-            pcall(function() field.stylesheetID = safeComboStyle() end)
-            field.clickthrough = false
-            field:SetPos(px, py)
-            field:SetSize(sw, sh)
-            -- DISCOVERED IN-CLIENT (contradicts the docs' implication that Add's id param is
-            -- caller-controlled): the id passed to Add is checked only for uniqueness (a
-            -- collision is rejected/no-op'd) — it does NOT control storage order or the id the
-            -- entry ends up with. ComboField always sorts its entries alphabetically by label
-            -- and reassigns them sequential IDs 1..N in THAT sorted order: Add("Z", 0) then
-            -- Add("A", 99) ends up A=1, Z=2, not 99/0. The `i` passed below only guarantees no
-            -- collision. Since id is unreliable, the Editor never trusts one: selection is
-            -- read and written entirely by LABEL TEXT (choiceByValue/choiceByLabel above,
-            -- selectedChoice below), which is the one thing ComboField reports accurately.
-            for i, choice in ipairs(spec.choices or {}) do
-                field:Add(choice.label, i)
-            end
-            local currentChoice = choiceByValue(spec, current)
-            local sel = 1
-            if currentChoice ~= nil then
-                for i, e in ipairs(field.entries) do
-                    if e.text == currentChoice.label then
-                        sel = i
-                        break
-                    end
-                end
-            end
-            field:Select(sel, false)
-            field:Subscribe(enumv(ui.Hook, "ONSELECTIONCHANGED"), function()
-                self:onControlSelect()
-            end)
-        end)
-        if not ok or field == nil then return end
-    else
-        -- A composite "field" box (#25, e.g. coordgrid's x/z/level) is a numeric field
-        -- exactly like the "number" widget; it just commits into one axis, not the whole
-        -- Control (see commitField's axis branch).
-        local filter = (spec.widget == "number" or kind == "field") and "NUMERIC" or "NONE"
-        field = self:mountInputField(px, py, sw, sh, filter, 128,
-            (current ~= nil) and tostring(current) or "",
-            function(_, cause, newContent) self:onControlContent(cause, newContent) end)
-        if field == nil then return end
-    end
-
-    self.editing = { nodeId = nodeId, pinName = pinName, spec = spec,
-        widget = spec.widget, field = field, kind = kind, axis = axis, default = ctrl.default }
-    pcall(function() field:MoveToFront() end)
-    -- No focus API is exposed (no SetFocus/RequestFocus on Component or InputField in the
-    -- docs), so the user clicks the freshly-mounted field once to focus it. Kept as a
-    -- best-effort in case a future client adds one; harmless (pcall'd) when absent.
-    pcall(function() field:SetFocus() end)
-end
-
--- The choice a ComboField currently shows, read from `selectedLabel` — NOT `selectedID`,
--- which is just the widget's alphabetical sort rank and carries no information about which
--- choice it was (see the Add note in openControlEditor). Returns the choice table or nil.
-function Editor:selectedChoice(e)
-    local label
-    pcall(function() label = e.field.selectedLabel end)
-    if label == nil then return nil end
-    return choiceByLabel(e.spec, label)
-end
-
+-- Drives the active Pin Control-mounted field's commit (ADR-0005). Both the live-write
+-- (onControlContent) and the close path (closeControlEditor) funnel here; the Pin Control's own
+-- onChange callback — handed to it when the host mounted the field — does the read-modify-write
+-- and decides whether to commit at all. A dropdown editing session records no onChange (an enum
+-- commits only from its ONSELECTIONCHANGED pick, via mountControlDropdown), so a plain close of a
+-- dropdown is a no-op here — merely mounting then unmounting can't rewrite the value.
 function Editor:commitField()
     local e = self.editing
     if e == nil then return end
-    -- Enums commit ONLY from the ONSELECTIONCHANGED event (onControlSelect), never on a plain
-    -- close. Committing an enum on close read the dropdown's `selectedID` unconditionally, so
-    -- merely mounting then unmounting the field wrote whatever it happened to show — opening a
-    -- `false` bool would flip it to `true`. Re-picking the already-selected value needs no
-    -- commit (the value is already that), so there is no close case an enum must cover here.
-    if e.widget == "enum" then return end
-    -- The matcher needle (#56) commits into just the `needle` key of the whole {needle, mode}
-    -- table (read-modify-write), so flipping the toggle and typing don't clobber each other.
-    -- Unlike a numeric axis field, an empty needle is a MEANINGFUL value (matches everything),
-    -- so it has its own commit rather than the empty-box-guarded coordgrid path below.
-    if e.kind == "needle" then
-        self:commitNeedleField()
-        return
+    if e.onChange ~= nil then
+        local raw, quantity = fieldContent(e.field)
+        e.onChange(raw, quantity)
     end
-    -- A composite Control's "field" box (#25) commits into just its own axis, read-modify-
-    -- write against the whole stored table — see Controls.CommitAxis.
-    if e.axis ~= nil then
-        self:commitAxisField()
-        return
-    end
-    local raw, quantity = fieldContent(e.field)
-    -- An empty box means "leave the Control alone" — but ONLY for numeric widgets, where
-    -- opening then closing a field without typing must not overwrite the stored value (or a
-    -- nil default) with 0 (a numeric field reports contentQuantity == 0 for empty content,
-    -- which is what nuked soundID). For a TEXT widget an empty/whitespace box is a MEANINGFUL
-    -- value — it's how the user clears the field (e.g. InfoBox `title`) — so it must commit
-    -- verbatim rather than snap back to the previous text. (Same principle as commitNeedleField.)
-    if e.widget ~= "text" and type(raw) == "string" and raw:match("^%s*$") then return end
-
-    -- Prefer the field's own parsed integer (honors quantity suffixes like 1K/1M).
-    local value = (e.widget == "number") and quantity or nil
-    if value == nil then
-        value = Controls.Parse(e.spec, raw, self.graph:GetControl(e.nodeId, e.pinName))
-    end
-    self:setControl(e.nodeId, e.pinName, value)
-end
-
--- Commits a composite Control's single axis (#25) via Controls.CommitAxis's pure
--- read-modify-write + empty-box guard, then writes the (possibly unchanged) table back.
-function Editor:commitAxisField()
-    local e = self.editing
-    local raw, quantity = fieldContent(e.field)
-    local current = self.graph:GetControl(e.nodeId, e.pinName)
-    local value, changed = Controls.CommitAxis(current, e.axis, raw, quantity)
-    if changed then
-        self:setControl(e.nodeId, e.pinName, value)
-    end
-end
-
--- Read-modify-write helper for the matcher's {needle, mode} table Control (#56): starts from the
--- stored value (or the pin default when unseeded), copies it, and returns the copy so a caller
--- can mutate one key without dropping the other. Always yields a table with both keys present.
-local function matcherRMW(stored, default)
-    local updated = { needle = "", mode = "substring" }
-    local base = (type(stored) == "table") and stored or ((type(default) == "table") and default or nil)
-    if base ~= nil then
-        if type(base.needle) == "string" then updated.needle = base.needle end
-        if base.mode == "pattern" or base.mode == "substring" then updated.mode = base.mode end
-    end
-    return updated
-end
-
--- Commits the matcher needle (#56): writes the field's text into the `needle` key, preserving the
--- stored `mode`. Empty text is committed verbatim (an empty needle is a valid "match everything"
--- filter), unlike the coordgrid axis path which guards empty as "leave alone".
-function Editor:commitNeedleField()
-    local e = self.editing
-    if e == nil then return end
-    local raw = fieldContent(e.field)
-    if type(raw) ~= "string" then raw = "" end
-    local updated = matcherRMW(self.graph:GetControl(e.nodeId, e.pinName), e.default)
-    updated.needle = raw
-    self:setControl(e.nodeId, e.pinName, updated)
-end
-
--- Flips the matcher's Substring <-> Pattern mode (#56), read-modify-write against the whole
--- {needle, mode} table so the needle text survives the toggle. Bases the flip on ctrl.value
--- (already default-resolved in the geometry rebuild) so the first flip off a default-only
--- matcher toggles from the shown mode rather than re-deriving nil.
-function Editor:toggleMatcherMode(nodeId, ctrl)
-    local updated = matcherRMW(ctrl.value, ctrl.default)
-    updated.mode = (updated.mode == "pattern") and "substring" or "pattern"
-    self:setControl(nodeId, ctrl.pinName, updated)
 end
 
 -- ONCONTENTCHANGED: live-write every keystroke; close on a submit/focus-loss cause.
@@ -1362,21 +1242,7 @@ function Editor:onControlContent(cause, _newContent)
     if isSubmitCause(cause) then self:closeControlEditor() end
 end
 
--- ONSELECTIONCHANGED: a dropdown pick is a complete edit. This event fires only on an actual
--- selection change, so it's the ONLY place an enum commits — writing the just-picked value
--- (read from the authoritative selectedID), then tearing the field down. A plain close
--- commits nothing (commitField no-ops enums), so opening/closing without a pick can't mutate.
-function Editor:onControlSelect()
-    local e = self.editing
-    if e == nil then return end
-    local choice = self:selectedChoice(e)
-    if choice ~= nil then
-        self:setControl(e.nodeId, e.pinName, choice.value)
-    end
-    self:closeControlEditor()
-end
-
--- Commits (for text/number) and destroys the transient editor.
+-- Commits the active edit and destroys the transient editor.
 function Editor:closeControlEditor()
     local e = self.editing
     if e == nil then return end

@@ -13,4 +13,19 @@ function Util.CallOrLog(label, context, fn, ...)
     return ok, result
 end
 
+-- Shallow-copies `tbl` (or `{}` when it isn't a table) into a fresh table, then sets one field.
+-- The read-modify-write a table Control uses to change one key without dropping its siblings.
+---@param tbl table|nil
+---@param key any
+---@param value any
+---@return table
+function Util.CopyWithField(tbl, key, value)
+    local out = {}
+    if type(tbl) == "table" then
+        for k, v in pairs(tbl) do out[k] = v end
+    end
+    out[key] = value
+    return out
+end
+
 return Util

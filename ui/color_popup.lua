@@ -14,7 +14,6 @@
 
 local Theme = require("ui/theme")
 local Color = require("ui/color")
-local Controls = require("ui/controls")
 
 local ColorPopup = {}
 ColorPopup.__index = ColorPopup
@@ -36,7 +35,7 @@ function ColorPopup.new()
         open = false,
         nodeId = nil,
         pinName = nil,
-        spec = nil,
+        codec = nil,
         value = { r = 255, g = 255, b = 255, a = 255 },  -- working {r,g,b,a}, 0..255 each
         prevValue = nil,   -- the value at Open, for the "prev" chip
         h = 0, s = 0, v = 1,   -- HSV source of truth for the SV field + hue strip
@@ -48,15 +47,14 @@ end
 -- Opens the popup anchored near (anchorX, anchorY) (the clicked chip's screen position),
 -- seeded from `value` (falls back to opaque white when there's no stored Control or pin
 -- default to show — an arbitrary but harmless starting point, since nothing commits until
--- the user actually drags or types something). `spec` is the Control Spec the chip resolved
--- to (Controls.For("color")) — kept so the hex field's commit path can go through
--- Controls.Format/Controls.Parse like every other widget's editor, instead of hard-coding
--- which conversion function applies.
-function ColorPopup:Open(nodeId, pinName, spec, value, anchorX, anchorY)
+-- the user actually drags or types something). `codec` is the hex format/parse table the swatch
+-- Pin Control hands in (its Widget's Color hex8 round-trip), so the hex field's display and commit
+-- go through it without the popup knowing anything about Controls.
+function ColorPopup:Open(nodeId, pinName, codec, value, anchorX, anchorY)
     self.open = true
     self.nodeId = nodeId
     self.pinName = pinName
-    self.spec = spec
+    self.codec = codec
     self.screenX, self.screenY = anchorX, anchorY
     local seed = value or { r = 255, g = 255, b = 255, a = 255 }
     self.value = {
@@ -72,12 +70,32 @@ function ColorPopup:Close()
     self.open = false
     self.nodeId = nil
     self.pinName = nil
-    self.spec = nil
+    self.codec = nil
     self.rect = nil
 end
 
--- A fresh copy of the working color (never the live internal table — mirrors
--- Controls.CommitAxis's own care about not handing back an aliased table).
+-- The hex text for a {r,g,b,a} value, via the codec's format hook ("RRGGBBAA", no '#'). Guarded
+-- and nil-safe (empty string when no codec / the hook errors) the way the old Controls.Format was.
+function ColorPopup:Format(value)
+    local c = self.codec
+    if c == nil or c.format == nil then return "" end
+    local ok, s = pcall(c.format, value)
+    if ok and s ~= nil then return tostring(s) end
+    return ""
+end
+
+-- Parses edited hex text back into a {r,g,b,a} through the codec's parse hook, keeping `current`
+-- on an unparsable/too-short string (Color.ParseHex8's own guard). Nil-safe like Controls.Parse was.
+function ColorPopup:Parse(raw, current)
+    local c = self.codec
+    if c == nil or c.parse == nil then return current end
+    local ok, v = pcall(c.parse, raw, current)
+    if ok then return v end
+    return current
+end
+
+-- A fresh copy of the working color (never the live internal table — a caller must not be able
+-- to mutate the popup's state through the returned value).
 function ColorPopup:Value()
     return { r = self.value.r, g = self.value.g, b = self.value.b, a = self.value.a }
 end
@@ -299,10 +317,9 @@ function ColorPopup:drawHex(canvas, r)
     canvas:AddOutline(r.x, r.y, r.w, r.h, 1, Theme.Vec4(Theme.COL_CONTROL_BORDER))
     local font = Theme.Font(11)
     if font ~= nil then
-        -- Goes through the Control Spec's own format hook (Controls.Format), the same path
-        -- every other widget's display text takes, rather than hard-coding Color.FormatHex8
-        -- here and separately in the commit path below.
-        canvas:AddText(r.x + 4, r.y + r.h * 0.5 - 6, "#" .. Controls.Format(self.spec, self.value), font,
+        -- Goes through the swatch codec's own format hook, the same round-trip the hex field's
+        -- commit path uses, rather than hard-coding Color.FormatHex8 here and separately below.
+        canvas:AddText(r.x + 4, r.y + r.h * 0.5 - 6, "#" .. self:Format(self.value), font,
             Theme.Vec4(Theme.COL_CONTROL_TEXT))
     end
 end
