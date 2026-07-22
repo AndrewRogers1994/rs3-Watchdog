@@ -5,8 +5,9 @@
 -- other rows survive. Built from the tag's `modes` list, each Layout sub-rect baking its `enabled`
 -- flag so the Node's checkbox draw needs no descriptor lookup.
 
-local Theme = require("ui/theme")
-local Util  = require("util")
+local Theme    = require("ui/theme")
+local Util     = require("util")
+local Checkbox = require("ui/widgets/checkbox")
 
 ---@class ModePinControl
 local Mode = {}
@@ -79,6 +80,17 @@ function Mode.new(modes)
         if m == nil or not m.enabled then return end
         local current = type(ctrl.value) == "table" and ctrl.value[ctrl.axis] == true
         host:Commit(Util.CopyWithField(ctrl.value, ctrl.axis, not current))
+    end
+
+    -- (e) Draw one checkbox row: route to the checkbox Widget (label + tick, dimmed when the row's
+    -- baked `enabled` flag is false). The Node calls this once per row with an already-projected
+    -- screen rect + draw context; the enabled/checked logic lives in the Widget now (#63).
+    ---@param canvas any
+    ---@param rect { x: number, y: number, w: number, h: number }
+    ---@param ctrl table
+    ---@param dctx DrawContext
+    function M.Draw(canvas, rect, ctrl, dctx)
+        Checkbox.Draw(canvas, rect, ctrl, dctx)
     end
 
     return M

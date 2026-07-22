@@ -58,8 +58,7 @@ function TestSwatchLayout:testInlineChipFlushRightAtFixedWidth()
     local rects = swatch.Layout({ x = 10, y = 4, w = 100, h = 16 })
     luaunit.assertEquals(#rects, 1)
     local r = rects[1]
-    luaunit.assertEquals(r.kind, "swatch")
-    luaunit.assertEquals(r.widget, "swatch")
+    luaunit.assertEquals(r.kind, "swatch")             -- names the row; the paint is the Widget's Draw (#63)
     luaunit.assertEquals(r.w, Theme.SWATCH_W)          -- fixed chip width
     luaunit.assertEquals(r.x + r.w, 110)               -- flush against the box's right edge
 end

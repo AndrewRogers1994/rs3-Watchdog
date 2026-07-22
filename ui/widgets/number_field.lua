@@ -1,7 +1,11 @@
--- number_field.lua — the number-field Widget (ADR-0005): a generic input primitive that owns only
--- the value CODEC — how a number renders as text (Format) and how typed text becomes a number
--- (Parse). The real ui.InputField that captures keystrokes is host-mounted; this supplies only the
--- codec that seeds it and interprets its result.
+-- number_field.lua — the number-field Widget (ADR-0005): a generic input primitive that owns its
+-- value CODEC — how a number renders as text (Format) and how typed text becomes a number (Parse) —
+-- and its box DRAW. The real ui.InputField that captures keystrokes is host-mounted; this supplies
+-- the codec that seeds it and interprets its result, and the plain value box the coordgrid fields
+-- and the number scalar route their Draw through.
+
+local Theme = require("ui/theme")
+local Box   = require("ui/widgets/box")
 
 ---@class NumberField
 local NumberField = {}
@@ -30,6 +34,17 @@ function NumberField.Parse(raw, quantity)
     if type(raw) == "string" and raw:match("^%s*$") then return nil end
     if quantity ~= nil then return quantity end
     return tonumber(raw)
+end
+
+-- Draws the field as a plain value box at an already-projected screen `rect`: the display text,
+-- or a dimmed placeholder when empty (ctrl.display / ctrl.placeholder). Identical box to the text
+-- field — the codec is what differs, not the chrome. `dctx` carries the projected draw context.
+---@param canvas any
+---@param rect { x: number, y: number, w: number, h: number }
+---@param ctrl table
+---@param dctx DrawContext
+function NumberField.Draw(canvas, rect, ctrl, dctx)
+    Box.Draw(canvas, rect, ctrl.display, ctrl.placeholder, Theme.COL_CONTROL_BG, dctx)
 end
 
 return NumberField

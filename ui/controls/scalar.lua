@@ -50,6 +50,16 @@ function Scalar.new(opts)
         end)
     end
 
+    -- Draw: the codec IS the field Widget, so drawing delegates to it (number/text draw the same
+    -- plain box). The Node hands an already-projected screen rect + draw context, never `view`.
+    ---@param canvas any
+    ---@param rect { x: number, y: number, w: number, h: number }
+    ---@param ctrl table
+    ---@param dctx DrawContext
+    function M.Draw(canvas, rect, ctrl, dctx)
+        codec.Draw(canvas, rect, ctrl, dctx)
+    end
+
     return M
 end
 

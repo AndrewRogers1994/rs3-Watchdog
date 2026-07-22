@@ -4,6 +4,8 @@
 -- through. A never-set color (nil value) is EMPTY — drawn as a plain box, not a phantom color (#30).
 
 local Color = require("ui/color")
+local Theme = require("ui/theme")
+local Box   = require("ui/widgets/box")
 
 ---@class SwatchWidget
 local Swatch = {}
@@ -45,6 +47,29 @@ end
 ---@return any
 function Swatch.Parse(raw, current)
     return Color.ParseHex8(raw, current)
+end
+
+-- Draws the chip at an already-projected screen `rect`: an empty value (#30) is a plain box; any
+-- color paints the checkerboard (so alpha reads) under its fill. A hot-aware outline frames both.
+-- The empty/fill decomposition is this Widget's own (IsEmpty/Fill); here it emits the Canvas
+-- primitives too (ADR-0005 render seam). `dctx.scale` projects the checker cell + outline
+-- thickness, `dctx.hot` drives the border color — the Widget never sees the View itself.
+---@param canvas any
+---@param rect { x: number, y: number, w: number, h: number }
+---@param ctrl table
+---@param dctx DrawContext
+function Swatch.Draw(canvas, rect, ctrl, dctx)
+    local scale = dctx.scale
+    if Swatch.IsEmpty(ctrl.value) then
+        canvas:AddRectangle(rect.x, rect.y, rect.w, rect.h, Theme.Vec4(Theme.COL_CONTROL_BG))
+    else
+        Color.DrawChecker(canvas, rect.x, rect.y, rect.w, rect.h, scale(Theme.SWATCH_CHECKER_CELL),
+            Theme.Vec4(Theme.COL_CHECKER_LIGHT), Theme.Vec4(Theme.COL_CHECKER_DARK))
+        local r, g, b, a = Swatch.Fill(ctrl.value)
+        canvas:AddRectangle(rect.x, rect.y, rect.w, rect.h,
+            Vector4.new(r / 255, g / 255, b / 255, a / 255))
+    end
+    Box.Outline(canvas, rect.x, rect.y, rect.w, rect.h, scale, dctx.hot)
 end
 
 return Swatch

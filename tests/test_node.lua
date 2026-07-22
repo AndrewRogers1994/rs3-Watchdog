@@ -188,7 +188,8 @@ function TestSwatchGeometry:testOneSwatchControlIsProduced()
     luaunit.assertEquals(#self.geom.controls, 1)
     local ctrl = self.geom.controls[1]
     luaunit.assertEquals(ctrl.pinName, "tint")
-    luaunit.assertEquals(ctrl.widget, "swatch")
+    -- `kind` names the row for press/hit-test; how the chip PAINTS is the swatch Widget's Draw
+    -- (#63), routed through the Pin Control — no separate "widget" hint on the sub-rect anymore.
     luaunit.assertEquals(ctrl.kind, "swatch")
 end
 
@@ -248,11 +249,13 @@ function TestMigratedControlRouting:testScalarPinsCarryAPinControl()
     end
 end
 
-function TestMigratedControlRouting:testEnumPinCarriesAPinControlAndCaretHint()
+function TestMigratedControlRouting:testEnumPinCarriesAPinControl()
+    -- The dropdown caret is the dropdown Widget's own draw (#63), not a "widget" hint on the sub-rect,
+    -- so the enum box carries only a Pin Control the Node routes its Draw/Press through.
     local geom = Node.BuildGeometry({ inPin("flag", "bool") }, 0, 0, Theme.NODE_WIDTH)
     luaunit.assertEquals(#geom.controls, 1)
     luaunit.assertNotNil(geom.controls[1].pinControl)
-    luaunit.assertEquals(geom.controls[1].widget, "enum")  -- draws the dropdown caret
+    luaunit.assertEquals(geom.controls[1].kind, "field")
 end
 
 function TestMigratedControlRouting:testMatcherPinCarriesAPinControlBand()

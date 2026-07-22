@@ -241,7 +241,8 @@ end
 
 function TestWidgetDependencyRule:testNoWidgetRequiresAForbiddenModule()
     local forbidden = { "controls", "graph", "store", "runtime", "engine", "registry" }
-    for _, widget in ipairs({ "number_field", "button", "text_field", "dropdown", "toggle", "swatch" }) do
+    for _, widget in ipairs({ "number_field", "button", "text_field", "dropdown", "toggle", "swatch",
+        "box", "checkbox" }) do
         local src = widgetSource(widget)
         for req in src:gmatch("require%s*%(?%s*[\"']([^\"']+)[\"']") do
             local base = req:match("([^/]+)$")

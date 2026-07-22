@@ -6,8 +6,7 @@
 
 local Theme    = require("ui/theme")
 local Controls = require("ui/controls")
-local Color    = require("ui/color")
-local Swatch   = require("ui/widgets/swatch")
+local Box      = require("ui/widgets/box")
 
 local Node = {}
 
@@ -161,7 +160,8 @@ function Node.BuildGeometry(pins, x, y, width, opts)
                     pinName    = pin.name,
                     pinControl = pinControl,
                     default    = pin.default,
-                    widget = r.widget,   -- e.g. "enum" -> node draws a dropdown caret
+                    -- `kind`/`axis` name the sub-rect for the Editor's press + isEditingThis skip;
+                    -- how it PAINTS is the Pin Control's Draw, not a discriminator the Node reads.
                     kind = r.kind, axis = r.axis,
                     enabled = r.enabled,          -- a mode checkbox row's toggle-ability
                     placeholder = r.placeholder,  -- e.g. the matcher needle's / capture's empty-state hint
@@ -181,19 +181,10 @@ function Node.PinCenter(geom, pinName)
     return geom.x + p.cx, geom.y + p.cy
 end
 
----@param font Int
----@param color Vector4
----@return ui.TextDataConfig
-local function createTextDataConfig(font, color)
-    ---@type ui.TextDataConfig
-    local textData = ui.TextDataConfig.new()
-    textData.font = font
-    textData.colour = color
-    textData.isShadowed = true
-    textData.shadowRGBA = Color.ToRGBA(0, 0, 0, 1)
-    textData.maxLines = 1
-    return textData
-end
+-- The node's own title/pin labels build the same 1-line shadowed TextDataConfig the control-box
+-- Widgets do, so both share Box.TextData (a Node → Widget-helper dependency is allowed; the reverse
+-- is not — ADR-0005). Aliased locally so the call sites below read unchanged.
+local createTextDataConfig = Box.TextData
 
 -- Draws the node body, header, title, and pin glyphs/labels through the View.
 -- meta = { title, category }; opts = { selected = bool, mouseX, mouseY } — the local-space
@@ -288,8 +279,15 @@ function Node.Draw(canvas, view, geom, meta, opts)
     -- composite Control (#25) contributes several boxes sharing one pinName, so the "is this
     -- the one being edited" check also matches kind/axis — otherwise opening the editor on
     -- one coordgrid field would blank out its whole band.
+    --
+    -- Each box's paint is the Widget's own (ADR-0005 #63 render seam): the Node projects the
+    -- graph-space rect to screen, computes `hot`, and hands both to the Pin Control's Draw with a
+    -- small draw-context (dctx) — there is NO `kind`/`widget` branch here. The Node keeps only what
+    -- is genuinely its own: the row/View transform and the isEditingThis skip (the transient editor
+    -- overlay is an Editor concern, not the control's). The Widget never sees `view`/ToScreen/Scale.
     if view.zoom >= Theme.CONTROL_MIN_ZOOM then
         local ctrlFont = Theme.Font(11 * view.zoom)
+        local scale = function(n) return view:Scale(n) end
         for _, ctrl in ipairs(geom.controls) do
             local isEditingThis = ctrl.pinName == opts.editingPin
                 and ctrl.kind == opts.editingKind and ctrl.axis == opts.editingAxis
@@ -299,84 +297,8 @@ function Node.Draw(canvas, view, geom, meta, opts)
                 local hot = opts.mouseX ~= nil
                     and opts.mouseX >= bx and opts.mouseX <= bx + bw
                     and opts.mouseY >= by and opts.mouseY <= by + bh
-
-                if ctrl.kind == "swatch" then
-                    -- Checker-backed so alpha reads visually; no value at all (nil Control
-                    -- AND nil pin default, #30's "never fires until set") draws as a plain
-                    -- empty box instead of implying a color that was never actually chosen.
-                    -- The empty/fill decomposition is the swatch Widget's (ADR-0005 #60); the
-                    -- Canvas blit of it stays here.
-                    if Swatch.IsEmpty(ctrl.value) then
-                        canvas:AddRectangle(bx, by, bw, bh, Theme.Vec4(Theme.COL_CONTROL_BG))
-                    else
-                        Color.DrawChecker(canvas, bx, by, bw, bh, view:Scale(Theme.SWATCH_CHECKER_CELL),
-                            Theme.Vec4(Theme.COL_CHECKER_LIGHT), Theme.Vec4(Theme.COL_CHECKER_DARK))
-                        local r, g, b, a = Swatch.Fill(ctrl.value)
-                        canvas:AddRectangle(bx, by, bw, bh, Vector4.new(r / 255, g / 255, b / 255, a / 255))
-                    end
-                    canvas:AddOutline(bx, by, bw, bh, math.max(1, view:Scale(1)),
-                        Theme.Vec4(hot and Theme.COL_CONTROL_HOT or Theme.COL_CONTROL_BORDER))
-                elseif ctrl.kind == "mode" then
-                    -- A mode row (#40): a label plus a real, right-aligned checkbox glyph. No
-                    -- full control-box backing (it reads as a toggle list, not a value field).
-                    -- Disabled rows (Hull/Outline/Clickbox — "needs render API") dim both parts.
-                    -- The mode Pin Control bakes each row's `enabled` flag into ctrl; the tick state
-                    -- is that row's key in the stored table, gated on enabled (the decorated label
-                    -- text itself is the Pin Control's Display, already in ctrl.display).
-                    local disabled = not ctrl.enabled
-                    local checked = ctrl.enabled and type(ctrl.value) == "table"
-                        and ctrl.value[ctrl.axis] == true
-                    local labelCol = disabled and Theme.COL_CONTROL_EMPTY or Theme.COL_CONTROL_TEXT
-                    if ctrlFont ~= nil then
-                        local text = ctrl.display or ""
-                        local tw = Theme.TextWidth(11 * view.zoom, text) or (#text * view:Scale(7))
-                        canvas:AddText(bx + view:Scale(Theme.CONTROL_PAD_X), by + bh * 0.5 - view:Scale(6),
-                            tw, 0, text, createTextDataConfig(ctrlFont, Theme.Vec4(labelCol)))
-                    end
-                    -- The checkbox: a small square right-aligned in the row, with a gold tick when
-                    -- checked. Box border tracks hot (unless disabled) so it reads as clickable.
-                    local boxSz = bh * 0.72
-                    local boxX = bx + bw - view:Scale(Theme.CONTROL_PAD_X) - boxSz
-                    local boxY = by + (bh - boxSz) * 0.5
-                    local borderCol = (hot and not disabled) and Theme.COL_CONTROL_HOT or Theme.COL_CONTROL_BORDER
-                    canvas:AddRectangle(boxX, boxY, boxSz, boxSz, Theme.Vec4(Theme.COL_CHECK_BOX_BG))
-                    canvas:AddOutline(boxX, boxY, boxSz, boxSz, math.max(1, view:Scale(1)), Theme.Vec4(borderCol))
-                    if checked then
-                        local tick = math.max(1, view:Scale(1.5))
-                        local markCol = Theme.Vec4(disabled and Theme.COL_CONTROL_EMPTY or Theme.COL_CHECK_MARK)
-                        canvas:AddLine(boxX + boxSz * 0.20, boxY + boxSz * 0.52,
-                            boxX + boxSz * 0.42, boxY + boxSz * 0.74, tick, markCol)
-                        canvas:AddLine(boxX + boxSz * 0.42, boxY + boxSz * 0.74,
-                            boxX + boxSz * 0.80, boxY + boxSz * 0.26, tick, markCol)
-                    end
-                else
-                    local bg = (ctrl.kind == "action" or ctrl.kind == "capture" or ctrl.kind == "toggle")
-                        and Theme.COL_CONTROL_ACTION_BG or Theme.COL_CONTROL_BG
-                    canvas:AddRectangle(bx, by, bw, bh, Theme.Vec4(bg))
-                    canvas:AddOutline(bx, by, bw, bh, math.max(1, view:Scale(1)),
-                        Theme.Vec4(hot and Theme.COL_CONTROL_HOT or Theme.COL_CONTROL_BORDER))
-
-                    if ctrlFont ~= nil then
-                        local text = ctrl.display
-                        local col = Theme.Vec4(Theme.COL_CONTROL_TEXT)
-                        if text == nil or text == "" then
-                            text, col = ctrl.placeholder or "…", Theme.Vec4(Theme.COL_CONTROL_EMPTY)
-                        end
-                        local tw = Theme.TextWidth(11 * view.zoom, text) or (#text * view:Scale(7))
-                        local textData = createTextDataConfig(ctrlFont, col)
-                        canvas:AddText(bx + view:Scale(Theme.CONTROL_PAD_X), by + bh * 0.5 - view:Scale(6),
-                            tw, 0, text, textData)
-                    end
-
-                    -- Enum dropdown indicator: a small ▾ drawn as a filled triangle at the right.
-                    if ctrl.widget == "enum" then
-                        local cxr = bx + bw - view:Scale(7)
-                        local cyr = by + bh * 0.5
-                        local a = view:Scale(3)
-                        canvas:AddTriangle(cxr - a, cyr - a, cxr + a, cyr - a, cxr, cyr + a,
-                            Theme.Vec4(Theme.COL_CONTROL_CARET))
-                    end
-                end
+                ctrl.pinControl.Draw(canvas, { x = bx, y = by, w = bw, h = bh }, ctrl,
+                    { hot = hot, font = ctrlFont, zoom = view.zoom, scale = scale })
             end
         end
 

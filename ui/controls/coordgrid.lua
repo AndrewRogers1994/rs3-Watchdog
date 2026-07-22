@@ -116,4 +116,19 @@ function CoordGrid.GrabCurrentPosition(host)
     })
 end
 
+-- (f) Draw one sub-rect: a "field" is a plain number box (NumberField), the "action" an action
+-- button (Button). Same kind discriminator Display/Press use, now internal to this composite —
+-- the Node calls this once per sub-rect with an already-projected screen rect + draw context.
+---@param canvas any
+---@param rect { x: number, y: number, w: number, h: number }
+---@param ctrl table
+---@param dctx DrawContext
+function CoordGrid.Draw(canvas, rect, ctrl, dctx)
+    if ctrl.kind == "action" then
+        Button.Draw(canvas, rect, ctrl, dctx)
+    else
+        NumberField.Draw(canvas, rect, ctrl, dctx)
+    end
+end
+
 return CoordGrid

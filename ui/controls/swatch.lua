@@ -23,14 +23,15 @@ function SwatchControl.new()
     local M = Inline.apply({})
 
     -- A fixed-width chip flush against the value column's right edge (#30) — narrower than the full
-    -- box so it reads as a color swatch, not a text field. `kind`/`widget` = "swatch" route the
-    -- Node's draw to its checker+fill branch (via the swatch Widget) and the Editor's press here.
+    -- box so it reads as a color swatch, not a text field. `kind = "swatch"` names the row for the
+    -- Editor's press/hit-test; the checker+fill paint is the swatch Widget's own draw (#63), routed
+    -- through this module's Draw — no separate "widget" hint for the Node to branch on.
     ---@param box { x: number, y: number, w: number, h: number }
     ---@return table[]
     function M.Layout(box)
         local swW = math.min(Theme.SWATCH_W, box.w)
         return { {
-            kind = "swatch", widget = "swatch",
+            kind = "swatch",
             x = box.x + box.w - swW, y = box.y, w = swW, h = box.h,
         } }
     end
@@ -50,6 +51,16 @@ function SwatchControl.new()
     ---@param _ctrl table
     function M.Press(host, _ctrl)
         host:OpenColorPopup(POPUP_CODEC)
+    end
+
+    -- Draw: route to the swatch Widget (checker+fill / empty box + outline). The Node hands an
+    -- already-projected screen rect + draw context; the Widget owns the Canvas blit now (#63).
+    ---@param canvas any
+    ---@param rect { x: number, y: number, w: number, h: number }
+    ---@param ctrl table
+    ---@param dctx DrawContext
+    function M.Draw(canvas, rect, ctrl, dctx)
+        Swatch.Draw(canvas, rect, ctrl, dctx)
     end
 
     return M

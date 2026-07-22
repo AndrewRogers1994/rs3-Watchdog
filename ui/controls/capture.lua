@@ -5,6 +5,7 @@
 -- host's ArmCapture; the overlay keeps its own lifecycle and commits the finished value itself.
 
 local Inline = require("ui/controls/inline")
+local Button = require("ui/widgets/button")
 
 ---@class CapturePinControl
 local Capture = {}
@@ -23,12 +24,13 @@ function Capture.new(opts)
     local M = Inline.apply({})
 
     -- One full-width action box across the value column. `kind = "capture"` marks it a click-to-arm
-    -- button (action background, never the transient editor); `placeholder` is its empty-state text.
+    -- button (the button Widget's action background, never the transient editor); `placeholder` is
+    -- its empty-state text. The action-box paint is routed through this module's Draw (#63).
     ---@param box { x: number, y: number, w: number, h: number }
     ---@return table[]
     function M.Layout(box)
         return { {
-            kind = "capture", widget = "capture", placeholder = placeholder,
+            kind = "capture", placeholder = placeholder,
             x = box.x, y = box.y, w = box.w, h = box.h,
         } }
     end
@@ -54,6 +56,17 @@ function Capture.new(opts)
     ---@param _ctrl table
     function M.Press(host, _ctrl)
         host:ArmCapture(captureKind)
+    end
+
+    -- Draw: route to the button Widget (action box showing the captured summary, or the placeholder
+    -- prompt when nothing is captured). The Node hands an already-projected screen rect + draw
+    -- context; the empty-state fallback is Box.Draw's own (ctrl.placeholder), set in Layout.
+    ---@param canvas any
+    ---@param rect { x: number, y: number, w: number, h: number }
+    ---@param ctrl table
+    ---@param dctx DrawContext
+    function M.Draw(canvas, rect, ctrl, dctx)
+        Button.Draw(canvas, rect, ctrl, dctx)
     end
 
     return M

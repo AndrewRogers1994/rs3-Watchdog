@@ -1,6 +1,10 @@
 -- toggle.lua — the toggle Widget (ADR-0005): a generic input primitive that cycles one value through
--- a fixed, ordered list of {value, label} modes on each press. It owns the current-mode LABEL and the
--- NEXT mode (wrapping for any length); the composing Pin Control decides where that mode lives.
+-- a fixed, ordered list of {value, label} modes on each press. It owns the current-mode LABEL, the
+-- NEXT mode (wrapping for any length), and its action-button DRAW; the composing Pin Control decides
+-- where that mode lives. matcher's Substring/Pattern toggle routes its Draw here.
+
+local Theme = require("ui/theme")
+local Box   = require("ui/widgets/box")
 
 ---@class ToggleWidget
 ---@field modes table[]  -- { { value = <any>, label = <string> }, ... }, in cycle order
@@ -37,6 +41,18 @@ function Toggle:Next(value)
     end
     local first = self.modes[1]
     return (first ~= nil) and first.value or nil
+end
+
+-- Draws the toggle at an already-projected screen `rect`: an action-tinted value box showing the
+-- current mode's label (ctrl.display, always a defined mode — never the placeholder). Static — the
+-- drawn text is the Pin Control's ctrl.display, matching how the other action boxes draw. `dctx` is
+-- the projected draw context.
+---@param canvas any
+---@param rect { x: number, y: number, w: number, h: number }
+---@param ctrl table
+---@param dctx DrawContext
+function Toggle.Draw(canvas, rect, ctrl, dctx)
+    Box.Draw(canvas, rect, ctrl.display, ctrl.placeholder, Theme.COL_CONTROL_ACTION_BG, dctx)
 end
 
 return Toggle

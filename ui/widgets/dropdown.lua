@@ -3,6 +3,10 @@
 -- ui.ComboField is host-mounted). Selection round-trips by LABEL TEXT, never id — a ComboField
 -- reorders alphabetically and reassigns ids (ADR-0004). A choice's `value` may legitimately be nil
 -- (e.g. "None"), so ValueForLabel returns a `found` boolean rather than overloading nil as no-match.
+-- Draws itself as a plain value box plus a ▾ caret (the only visual difference from a text field).
+
+local Theme = require("ui/theme")
+local Box   = require("ui/widgets/box")
 
 ---@class DropdownWidget
 ---@field choices table[]  -- { { value = <any>, label = <string> }, ... }
@@ -46,6 +50,23 @@ function Dropdown:ValueForLabel(label)
         if c.label == label then return c.value, true end
     end
     return nil, false
+end
+
+-- Draws the dropdown at an already-projected screen `rect`: a plain value box (the current label
+-- as ctrl.display, dimmed placeholder when empty) plus a filled ▾ caret at the right edge — the
+-- one mark that distinguishes it from a text field. `dctx` carries the projected draw context.
+---@param canvas any
+---@param rect { x: number, y: number, w: number, h: number }
+---@param ctrl table
+---@param dctx DrawContext
+function Dropdown:Draw(canvas, rect, ctrl, dctx)
+    Box.Draw(canvas, rect, ctrl.display, ctrl.placeholder, Theme.COL_CONTROL_BG, dctx)
+    local scale = dctx.scale
+    local cxr = rect.x + rect.w - scale(7)
+    local cyr = rect.y + rect.h * 0.5
+    local a = scale(3)
+    canvas:AddTriangle(cxr - a, cyr - a, cxr + a, cyr - a, cxr, cyr + a,
+        Theme.Vec4(Theme.COL_CONTROL_CARET))
 end
 
 return Dropdown

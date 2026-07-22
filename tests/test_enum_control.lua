@@ -80,12 +80,14 @@ end
 
 TestEnumLayout = {}
 
-function TestEnumLayout:testInlineWithACaretHint()
+function TestEnumLayout:testInlineSingleFieldRect()
     luaunit.assertTrue(boolEnum.Inline)
     luaunit.assertEquals(boolEnum.ReservedHeight({}), 0)
     local rects = boolEnum.Layout({ x = 0, y = 0, w = 60, h = 16 })
     luaunit.assertEquals(#rects, 1)
-    luaunit.assertEquals(rects[1].widget, "enum")  -- node.lua draws the dropdown caret from this
+    -- The dropdown caret is the dropdown Widget's own draw (#63), so the sub-rect is a plain field —
+    -- it carries no "enum" hint for node.lua to branch on.
+    luaunit.assertEquals(rects[1].kind, "field")
 end
 
 return {}

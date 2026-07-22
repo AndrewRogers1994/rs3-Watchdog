@@ -19,12 +19,12 @@ function Enum.new(choices)
 
     local M = Inline.apply({})
 
-    -- One sub-rect: the value-column box, tagged with the "enum" widget hint so node.lua draws the
-    -- dropdown caret (the box is otherwise a plain text box).
+    -- One sub-rect: the value-column box. The dropdown caret is the dropdown Widget's own draw
+    -- (#63), so the box carries no "enum" hint for the Node to branch on — it is a plain field rect.
     ---@param box { x: number, y: number, w: number, h: number }
     ---@return table[]
     function M.Layout(box)
-        return { { kind = "field", widget = "enum", x = box.x, y = box.y, w = box.w, h = box.h } }
+        return { { kind = "field", x = box.x, y = box.y, w = box.w, h = box.h } }
     end
 
     -- The label for the current value. An unmatched non-nil value falls back to its raw string
@@ -50,6 +50,16 @@ function Enum.new(choices)
             local value, found = dropdown:ValueForLabel(label)
             if found then host:Commit(value) end
         end)
+    end
+
+    -- Draw: route to the dropdown Widget (box + ▾ caret). The Node hands an already-projected
+    -- screen rect + draw context; the caret is the Widget's own, so the Node needs no "enum" branch.
+    ---@param canvas any
+    ---@param rect { x: number, y: number, w: number, h: number }
+    ---@param ctrl table
+    ---@param dctx DrawContext
+    function M.Draw(canvas, rect, ctrl, dctx)
+        dropdown:Draw(canvas, rect, ctrl, dctx)
     end
 
     return M
