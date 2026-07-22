@@ -30,17 +30,17 @@ Target: mirror the trigger/notification list from https://github.com/adamk33n3r/
   - `Event.ChatMessage` (same event) → filter `chatType` to player-typed lines: PUBLIC=2, FRIEND_CHAT=9, CLANCHANNEL\_\*, GROUP\_\*, PRIVATE_INCOMING/OUTGOING, and their QUICKCHAT variants.
 - [ ] Overhead Text
   - NO EVENT. The API has no overhead-text event and `PlayerEntity`/`NPCEntity` expose no overhead/chat-text field (only uid, displayName, position, coordGrid, facing). Not achievable with the current API — needs a Jagex-side event.
-- [ ] Stat Changed — boosts/drains
+- [x] Stat Changed — boosts/drains
   - `Event.SkillTransmit` → `skill` (SkillType), `oldXP`, `newXP`, `oldGameplayLevel`, `newGameplayLevel`. Boost/drain = `newGameplayLevel != oldGameplayLevel` (temporary level move). Also `Event.RunEnergyTransmit` (`old/newRunEnergy`) and `Event.RunWeightTransmit` (`old/newRunWeight`) if we expand beyond skills.
-- [ ] XP Drop
+- [x] XP Drop
   - `Event.SkillTransmit` (same event) → an XP drop is `newXP > oldXP`; delta = `newXP - oldXP`, skill = `skill`. Note: fires per-skill on any XP change.
 - [ ] Sound Fired — when a sound effect plays
   - NO EVENT. The `audio` module is output-only (`audio.Play`, `SoundInstance:Start/Stop/...`); there is no hook for game-played sounds. Not achievable with the current API.
-- [ ] Spawned Object — object/player/npc spawn or despawn
+- [x] Spawned Object — object/player/npc spawn or despawn
   - `Event.NPCEntityAdded` / `Event.NPCEntityRemoved` (`npcEntity`), `Event.PlayerEntityAdded` / `Event.PlayerEntityRemoved` (`playerEntity`), `Event.ObjStackEntityAdded` / `Event.ObjStackEntityRemoved` / `Event.ObjStackEntityChanged` (`objStackEntity`, `objType`, `count`/`old+newCount`). One node likely fans out over all three entity kinds + add/remove.
 - [ ] Inventory — full, empty, or contains certain items
   - NO DIRECT API. No inventory/container-contents read and no inventory-change event exist (`InvType` is config only — id/size/stockCount). Partial signals may be derivable from `Event.VarTransmit` for specific inventory-related varbits (`var`, `oldValue`, `newValue`), but there is no general "what's in my inventory" query. Needs investigation / likely blocked on a Jagex-side container API.
-- [ ] Location — near a set location
+- [x] Location — near a set location
   - NO EVENT, but POLLABLE. No position-change event; poll `Player.GetEntity().coordGrid` (CoordGrid) or `.position` (Vector3) on `Event.Logic` (~50/s) and test distance against the target coord. `Player.IsAvailable()` guards logged-out state.
 
 ### Actions
@@ -63,7 +63,7 @@ Target: mirror the trigger/notification list from https://github.com/adamk33n3r/
   - SELF-DRAWN. No native popup API (confirmed vs docs); emulated with a Canvas-drawn banner on the always-on overlay Canvas (#29), animated in->hold->out over Logic ticks and auto-expiring (only HOLD is configurable, ~4s default). Queue-only. Single `body` data pin; `title`/`icon`/`theme`/`hold` are node-config (Control-only pins). Two themes behind a dropdown — Parchment (primitive, default) + Leagues (multi-part `RS3_RIBBON_LEAGUES_GOLD_*` sprites) — with a `Popup.RegisterTheme` seam; curated icon dropdown reuses the enum Control. See `nodes/actions/popup.lua`.
 - [x] Screen Marker — `action.screen_marker`
   - SELF-DRAWN dismiss-only EffectRegistry effect (#29 overlay Canvas): a persistent border box drawn via Canvas `AddOutline`, `thickness` + `color` data pins. The rect is draw-only — a "Draw on screen" button (`ui/screen_marker_capture.lua`) arms a transient full-screen capture overlay (drag corner→corner writes one `{x,y,w,h}` param, pixels, no clamp; Esc cancels), not a typed field and not #18's composite-control framework. Nil rect never fires; concurrency idempotent/Replace (one marker per node, Stack capped at 1; different nodes stack). Done (#39).
-- [ ] Object Marker
+- [x] Object Marker
   - SELF-DRAWN via `ScreenConvert`. Each `Event.Draw`, project a world tile/entity to screen — `entity.position`/`.coordGrid` (from `Player.GetEntity()`, `NPCList`/`ObjStackList`, or a fixed `CoordGrid`) → `ScreenConvert.CoordGridToScreen(coordGrid, heightAboveGround)` (or `Vector3ToScreen`) → draw on Canvas. Exactly the `DevTools/overlay.lua` tile-marker pattern; must re-project every frame since the camera moves.
 - [ ] Counter — increment a counter (may just reuse `LibNodeGraphStd`'s `std.counter` instead of a dedicated node)
   - INTERNAL, no API. Value via `LibNodeGraphStd` `std.counter`; optional on-screen display is a self-drawn `ui.Text`.
