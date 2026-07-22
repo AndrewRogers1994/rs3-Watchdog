@@ -14,7 +14,8 @@
 - [x] 9. Dragging text to the right side of the editor window causes it to wrap.
 - [ ] 10. Concat node to combine strings
 - [ ] 11. Make any dropdowns that have "Any" put "Any" at the top.
-- [ ] 12. Screen Marker and Object Marker need a "hold" control like Toast.
+- [ ] 12. Screen Marker and Object Marker need a "hold" control like Toast. They also need their "armed modes" to be more noticable with instructions. Screen marker should have a "dimming overlay" and when you drag a box, it's not dim inside. like how windows snipping tool works. And object marker needs to have some sort of indicator that it's enabled and that you need to examine an object. maybe just a big text notification type thing in the top of the screen.
+- [ ] 13. Location trigger node needs to not fire upon 1. load and 2. setting position
 
 ## Node port backlog (mirroring runelite-watchdog)
 

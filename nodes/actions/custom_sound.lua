@@ -23,10 +23,10 @@ local CustomSound = {}
 local loaded = setmetatable({}, { __mode = "k" })
 
 local function resolveResource(name)
-    if name == nil or Plugin == nil or Plugin.resources == nil then
+    if name == nil or Plugin == nil or Plugin.resources == nil or Plugin.resources.audio == nil then
         return nil
     end
-    return Plugin.resources[name]
+    return Plugin.resources.audio[name]
 end
 
 local function preloadResource(resource)
@@ -45,9 +45,10 @@ end
 -- set that doesn't change at runtime.
 function CustomSound.ResourceChoices()
     local names = {}
-    if Plugin ~= nil and Plugin.resources ~= nil then
+    if Plugin ~= nil and Plugin.resources ~= nil and Plugin.resources.audio ~= nil then
         pcall(function()
-            for name, _ in pairs(Plugin.resources) do
+            for name, _ in pairs(Plugin.resources.audio) do
+                print(name, Plugin.resources.audio[name])
                 names[#names + 1] = name
             end
         end)
@@ -75,7 +76,7 @@ function CustomSound.Register(registry)
             { name = "in", kind = "exec", direction = "in" },
             { name = "resource", kind = "data", direction = "in", dataType = "customSoundResource",
               default = nil },
-            { name = "volume", kind = "data", direction = "in", dataType = "number", default = 1.0 },
+            { name = "volume", kind = "data", direction = "in", dataType = "number", default = 100 },
             { name = "loops", kind = "data", direction = "in", dataType = "number", default = 0 },
         },
         -- Runtime-called node-type hook (graph-restore / control-commit, see runtime.lua):
@@ -91,12 +92,12 @@ function CustomSound.Register(registry)
             end
             preloadResource(resource) -- on-demand backstop
             local volume = ctx:In("volume")
-            if type(volume) ~= "number" then volume = 1.0 end
+            if type(volume) ~= "number" then volume = 100 end
             local loops = ctx:In("loops")
             if type(loops) ~= "number" then loops = 0 end
             ---@type SoundPlaybackParams
             local params = audio.SoundPlaybackParams.new()
-            params.volume = volume
+            params.volume = volume / 100
             params.numLoops = loops
             params.audioBus = audio.AudioBus.SFX
             audio.Play(resource, params)
