@@ -39,7 +39,7 @@ function Swatch.Fill(value)
 end
 
 -- Renders a stored color as the "RRGGBBAA" hex text the popup's hex field shows (no '#'; nil -> "").
--- The popup composes this through Controls.Format, so a plain codec table { format = Swatch.Format,
+-- The popup composes this through its own :Format, so a plain codec table { format = Swatch.Format,
 -- parse = Swatch.Parse } is all the popup needs from the swatch Pin Control — no Control Spec.
 ---@param value any
 ---@return string

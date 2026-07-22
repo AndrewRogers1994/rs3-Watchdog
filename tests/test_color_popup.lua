@@ -9,8 +9,12 @@ end }) }
 
 local luaunit = require("luaunit")
 local ColorPopup = require("ui/color_popup")
-local Controls = require("ui/controls")
+local Swatch = require("ui/widgets/swatch")
 local Theme = require("ui/theme")
+
+-- The hex codec the swatch Pin Control hands the popup (its Widget's Color hex8 round-trip) — the
+-- popup's only knowledge of how a color turns into text and back, replacing the old Control Spec.
+local CODEC = { format = Swatch.Format, parse = Swatch.Parse }
 
 local function mockCanvas()
     local canvas = { textCalls = {} }
@@ -65,17 +69,15 @@ function TestColorPopupOpenClose:testValueReturnsAFreshCopyEachTime()
     luaunit.assertEquals(self.cp:Value().r, 1)
 end
 
-function TestColorPopupOpenClose:testOpenRecordsTheGivenSpec()
-    local spec = Controls.For("color")
-    self.cp:Open("node1", "tint", spec, nil, 0, 0)
-    luaunit.assertIs(self.cp.spec, spec)
+function TestColorPopupOpenClose:testOpenRecordsTheGivenCodec()
+    self.cp:Open("node1", "tint", CODEC, nil, 0, 0)
+    luaunit.assertIs(self.cp.codec, CODEC)
 end
 
--- The hex row's display text goes through the spec's own format hook (Controls.Format),
--- the same path every other widget's on-Canvas text takes — not a hard-coded Color.FormatHex8
--- call independent of the registered "color" Control Spec.
-function TestColorPopupOpenClose:testHexRowTextGoesThroughTheRegisteredSpec()
-    self.cp:Open("node1", "tint", Controls.For("color"), { r = 60, g = 200, b = 255, a = 180 }, 0, 0)
+-- The hex row's display text goes through the swatch codec's own format hook, the same round-trip
+-- the hex field's commit path uses — not a hard-coded Color.FormatHex8 call.
+function TestColorPopupOpenClose:testHexRowTextGoesThroughTheCodec()
+    self.cp:Open("node1", "tint", CODEC, { r = 60, g = 200, b = 255, a = 180 }, 0, 0)
     local canvas = mockCanvas()
     self.cp:Draw(canvas, 0, 0, 800, 600, -1, -1)
     local found = false
