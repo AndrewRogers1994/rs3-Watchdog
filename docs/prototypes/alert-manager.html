@@ -1,0 +1,410 @@
+<title>Watchdog — Alert Manager Prototype (native ui.Panel structure)</title>
+<!--
+  PROTOTYPE — throwaway. Answers wayfinder ticket #76 (rendering approach) by making the
+  Alert Manager's interactions concrete: drag-reorder, drag-into-group, expand/collapse,
+  multi-select. Decision was native `ui.Panel` (ADR-0007), so the DOM here is built to MIRROR
+  that structure, not fight it:
+
+      ui.Panel (isVertical)         -> <div class="panel">        (a vertical stack of rows)
+      row (horizontal ui.Panel)     -> <div class="row">          (flex row of child components)
+        ui.Check  (enable toggle)   ->   <button class="tgl">
+        chevron / icon / label      ->   spans
+        scope badge                 ->   <span class="badge">
+        ui.Button (edit / delete)   ->   <button class="rowbtn">
+      a group's children            -> a nested <div class="panel"> (native auto-layout + relayout)
+
+  So "expand/collapse" = toggle a child panel's visibility (native relayout); "drag-into-group"
+  = reparent a row under another panel; "reorder" = reinsert among siblings. Multi-select and
+  drop-target resolution are the two bits that stay bespoke in EITHER paradigm — they're modelled
+  here so ticket #78 (interaction spec) has something to react to.
+
+  NOT production code. No persistence. Open the file in a browser.
+-->
+<style>
+  :root{
+    /* Real Watchdog editor theme (ui/theme.lua) */
+    --viewport:#1a1a1e;
+    --panel:#202026; --panel-header:#30303a; --panel-header-tx:#96bee6;
+    --row:#2b2b30; --row-border:#0f0f12; --row-hot:#33333c;
+    --row-sel:#3a3320; --row-sel-border:#f0a020;
+    --title:#f0f0f4;
+    --accent:#f0a020;
+    --cat-action:#2f5f9b; --cat-trigger:#9b2f2f;
+    --ink:#e4e6ec; --ink-dim:#9a9ca8;
+    --ok:#5fb35f; --off:#787a84;
+    --font-ui:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    --font-mono:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#141418;color:var(--ink);font-family:var(--font-ui);
+    -webkit-font-smoothing:antialiased;user-select:none}
+  .wrap{max-width:1180px;margin:0 auto;padding:22px 20px 60px}
+  header.page h1{font-size:19px;margin:0 0 4px;font-weight:650;letter-spacing:.2px}
+  header.page p{margin:0 0 16px;color:var(--ink-dim);font-size:13px;line-height:1.55;max-width:78ch}
+  header.page code{font-family:var(--font-mono);font-size:12px;color:var(--panel-header-tx)}
+  .layout{display:grid;grid-template-columns:1fr 320px;gap:20px;align-items:start}
+  @media(max-width:900px){.layout{grid-template-columns:1fr}}
+
+  /* The Alert Manager window (native ui.GroupBox chrome + ui.Panel body) */
+  .window{background:var(--viewport);border:1px solid var(--row-border);border-radius:5px;
+    overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.45)}
+  .titlebar{display:flex;align-items:center;gap:8px;height:34px;padding:0 8px 0 12px;
+    background:var(--panel-header);border-bottom:1px solid var(--row-border)}
+  .titlebar h2{font-size:13px;margin:0;font-weight:600;color:var(--title);flex:1}
+  .titlebar .tb-btn{height:22px;padding:0 9px;font-size:12px;border-radius:4px;cursor:pointer;
+    background:var(--row);border:1px solid var(--row-border);color:var(--ink)}
+  .titlebar .tb-btn:hover{background:var(--row-hot);border-color:var(--accent)}
+
+  .toolbar{display:flex;align-items:center;gap:8px;padding:8px 12px;font-size:12px;
+    color:var(--ink-dim);border-bottom:1px solid var(--row-border);background:#1d1d22}
+  .toolbar .spacer{flex:1}
+  .toolbar button{height:24px;padding:0 10px;font-size:12px;border-radius:4px;cursor:pointer;
+    background:var(--row);border:1px solid var(--row-border);color:var(--ink)}
+  .toolbar button:hover{background:var(--row-hot);border-color:var(--accent)}
+
+  /* ui.Panel body — the scroll region (ui.ComponentCollection.scrollable) */
+  .body{max-height:430px;overflow-y:auto;padding:8px}
+  .body::-webkit-scrollbar{width:10px}
+  .body::-webkit-scrollbar-thumb{background:#3a3a44;border-radius:5px}
+
+  .panel{display:flex;flex-direction:column;gap:4px}
+  .children{margin-left:20px;padding-left:8px;border-left:1px dashed #3a3a44;
+    display:flex;flex-direction:column;gap:4px;margin-top:4px}
+  .children.collapsed{display:none}
+
+  /* a row = a horizontal ui.Panel */
+  .row{display:flex;align-items:center;gap:8px;height:34px;padding:0 8px;border-radius:4px;
+    background:var(--row);border:1px solid var(--row-border);cursor:default;position:relative}
+  .row:hover{background:var(--row-hot)}
+  .row.sel{background:var(--row-sel);border-color:var(--row-sel-border)}
+  .row.group{background:#26262e}
+  .row.group.sel{background:var(--row-sel)}
+  .row.dragging{opacity:.35}
+  .row.drop-into{outline:2px solid var(--accent);outline-offset:-2px}
+
+  .handle{cursor:grab;color:var(--off);font-size:14px;width:12px;text-align:center;
+    letter-spacing:-2px}
+  .handle:active{cursor:grabbing}
+  .chev{width:14px;text-align:center;color:var(--ink-dim);font-size:10px;cursor:pointer;
+    transition:transform .12s}
+  .chev.collapsed{transform:rotate(-90deg)}
+  .chev.leaf{visibility:hidden}
+  .tgl{width:30px;height:18px;border-radius:9px;border:1px solid var(--row-border);
+    background:#3a3a44;position:relative;cursor:pointer;flex:none}
+  .tgl .knob{position:absolute;top:1px;left:1px;width:14px;height:14px;border-radius:50%;
+    background:var(--off);transition:.12s}
+  .tgl.on{background:#2d4a2d}
+  .tgl.on .knob{left:13px;background:var(--ok)}
+  .tgl.inherit-off{opacity:.4}
+  .icon{width:16px;height:16px;border-radius:3px;flex:none}
+  .icon.trigger{background:var(--cat-trigger)}
+  .icon.action{background:var(--cat-action)}
+  .icon.group{background:linear-gradient(135deg,#6a6a3a,#4a4a2a)}
+  .name{font-size:13px;color:var(--title);flex:1;white-space:nowrap;overflow:hidden;
+    text-overflow:ellipsis}
+  .name.dim{color:var(--off)}
+  .badge{font-size:10px;padding:2px 7px;border-radius:10px;font-weight:600;letter-spacing:.3px}
+  .badge.global{background:#26323f;color:#8fb6df;border:1px solid #34506e}
+  .badge.player{background:#2f2438;color:#c79fe0;border:1px solid #573a6e}
+  .rowbtn{width:24px;height:24px;border-radius:4px;border:1px solid transparent;background:none;
+    color:var(--ink-dim);cursor:pointer;font-size:13px;flex:none}
+  .rowbtn:hover{background:#1c1c21;border-color:var(--row-border);color:var(--ink)}
+  .rowbtn.del:hover{border-color:var(--cat-trigger);color:#e08a8a}
+
+  /* drop indicator between siblings (reorder) */
+  #dropline{position:fixed;height:3px;background:var(--accent);border-radius:2px;
+    pointer-events:none;display:none;z-index:50;box-shadow:0 0 6px var(--accent)}
+  #ghost{position:fixed;pointer-events:none;z-index:60;opacity:.9;display:none;
+    box-shadow:0 6px 18px rgba(0,0,0,.5)}
+
+  /* selection / bulk-action bar */
+  .bulkbar{display:flex;align-items:center;gap:8px;padding:8px 12px;font-size:12px;
+    background:#2a2618;border-top:1px solid var(--row-sel-border);color:var(--accent)}
+  .bulkbar.hidden{display:none}
+  .bulkbar .count{font-weight:600}
+  .bulkbar .spacer{flex:1}
+  .bulkbar button{height:24px;padding:0 10px;font-size:12px;border-radius:4px;cursor:pointer;
+    background:#39310f;border:1px solid #6b5a1a;color:#f2d98a}
+  .bulkbar button:hover{background:#4a4114}
+
+  /* live state readout (prototype rule: surface the state) */
+  aside.state h3{font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:var(--ink-dim);
+    margin:0 0 8px}
+  aside.state pre{background:#0e0e12;border:1px solid var(--row-border);border-radius:6px;
+    padding:12px;font-family:var(--font-mono);font-size:11px;line-height:1.5;color:#c6c8d0;
+    overflow:auto;max-height:480px;margin:0}
+  .hint{margin-top:14px;font-size:12px;color:var(--ink-dim);line-height:1.6}
+  .hint b{color:var(--ink)}
+  kbd{font-family:var(--font-mono);font-size:11px;background:#26262e;border:1px solid #3a3a44;
+    border-radius:3px;padding:1px 5px}
+</style>
+
+<div class="wrap">
+  <header class="page">
+    <h1>Alert Manager — interaction prototype</h1>
+    <p>Throwaway mock for wayfinder ticket #76. The decision is <b>native <code>ui.Panel</code></b>
+      (ADR-0007), so this DOM mirrors Panels: groups are nested vertical panels, each row a
+      horizontal panel of child components. Try: <b>drag the ⠿ handle</b> to reorder, drop
+      <b>onto a group row</b> to nest, click the <b>chevron</b> to collapse, click rows
+      (<kbd>Ctrl</kbd>/<kbd>Shift</kbd> for multi) to select and reveal bulk actions. The panel on
+      the right is the live tree + selection state.</p>
+  </header>
+
+  <div class="layout">
+    <div class="window">
+      <div class="titlebar">
+        <h2>⚙ Alert Manager</h2>
+        <button class="tb-btn" onclick="addAlert()">+ Alert</button>
+        <button class="tb-btn" onclick="addGroup()">+ Group</button>
+        <button class="tb-btn" title="close">✕</button>
+      </div>
+      <div class="toolbar">
+        <span>Scope shown as a badge; a child inherits enable + scope from its group unless it sets its own.</span>
+        <span class="spacer"></span>
+        <button onclick="expandAll(true)">Expand all</button>
+        <button onclick="expandAll(false)">Collapse all</button>
+      </div>
+      <div class="body" id="body"></div>
+      <div class="bulkbar hidden" id="bulkbar">
+        <span class="count" id="bulkcount"></span>
+        <span class="spacer"></span>
+        <button onclick="bulk('enable')">Enable</button>
+        <button onclick="bulk('disable')">Disable</button>
+        <button onclick="bulk('group')">Move to new group</button>
+        <button onclick="bulk('delete')">Delete</button>
+        <button onclick="clearSel()">Clear</button>
+      </div>
+    </div>
+
+    <aside class="state">
+      <h3>Live state</h3>
+      <pre id="state"></pre>
+      <div class="hint">
+        <b>What's native vs bespoke here</b><br>
+        Native <code>ui.Panel</code> gives: the vertical stack + auto-relayout, scroll, per-control
+        clicks, the drag gesture, caret text for renames.<br><br>
+        Bespoke in <b>either</b> paradigm (→ ticket #78): <b>multi-select</b> highlighting and
+        <b>drop-target resolution</b> (reorder-between vs drop-into) — both modelled above.
+      </div>
+    </aside>
+  </div>
+</div>
+
+<div id="dropline"></div>
+<div id="ghost"></div>
+
+<script>
+// ---- model: a nestable tree of alerts and groups -----------------------------------------
+let uid = 0;
+const nid = () => ++uid;
+function alert(name, kind, scope){ return {id:nid(), type:'alert', name, kind, enabled:true, scope}; }
+function group(name, scope, children){ return {id:nid(), type:'group', name, enabled:true, scope, collapsed:false, children:children||[]}; }
+
+// seed tree (scope null on a child == inherit from parent)
+let tree = [
+  alert('Low HP flash', 'trigger', 'global'),
+  group('Bossing — Zuk', 'player', [
+    alert('Jad phase — screen flash', 'action', null),
+    alert('Igneous stun warning', 'trigger', null),
+    group('Sub-phase overlays', null, [
+      alert('Shield tile marker', 'action', null),
+    ]),
+  ]),
+  group('Skilling', 'global', [
+    alert('Inventory full toast', 'action', null),
+    alert('Aura expired', 'trigger', 'player'),
+  ]),
+  alert('Webhook: rare drop', 'action', 'global'),
+];
+
+let selected = new Set();        // ids (bespoke multi-select state)
+let lastClicked = null;          // for shift-range
+
+// ---- helpers over the tree ---------------------------------------------------------------
+function walk(nodes, fn, parent){ for(const n of nodes){ fn(n, parent); if(n.children) walk(n.children, fn, n); } }
+function findNode(id){ let r=null; walk(tree, n=>{ if(n.id===id) r=n; }); return r; }
+function findParentList(id){ // returns the array that directly contains id, + index
+  let res=null;
+  const scan=(list)=>{ for(let i=0;i<list.length;i++){ if(list[i].id===id){res={list,i};return;} if(list[i].children) scan(list[i].children); } };
+  scan(tree); return res;
+}
+function effScope(node){ // resolved scope walking up
+  let cur=node, chain=[];
+  const parentOf=(id)=>{ let p=null; walk(tree,(n,par)=>{ if(n.id===id) p=par; }); return p; };
+  while(cur){ if(cur.scope) return {scope:cur.scope, own:cur===node}; cur=parentOf(cur.id); }
+  return {scope:'global', own:false};
+}
+function effEnabled(node){ let cur=node; const parentOf=(id)=>{let p=null;walk(tree,(n,par)=>{if(n.id===id)p=par;});return p;};
+  while(cur){ if(!cur.enabled) return false; cur=parentOf(cur.id); } return true; }
+
+// ---- render ------------------------------------------------------------------------------
+function render(){
+  const body = document.getElementById('body');
+  body.innerHTML='';
+  body.appendChild(renderPanel(tree));
+  renderBulk();
+  renderState();
+}
+function renderPanel(nodes){
+  const p=document.createElement('div'); p.className='panel';
+  for(const n of nodes) p.appendChild(renderRowTree(n));
+  return p;
+}
+function renderRowTree(n){
+  const wrap=document.createElement('div');
+  wrap.appendChild(renderRow(n));
+  if(n.type==='group'){
+    const kids=document.createElement('div');
+    kids.className='children'+(n.collapsed?' collapsed':'');
+    for(const c of n.children) kids.appendChild(renderRowTree(c));
+    wrap.appendChild(kids);
+  }
+  return wrap;
+}
+function renderRow(n){
+  const isGroup=n.type==='group';
+  const row=document.createElement('div');
+  row.className='row'+(isGroup?' group':'')+(selected.has(n.id)?' sel':'');
+  row.dataset.id=n.id;
+
+  const es=effScope(n), en=effEnabled(n);
+
+  row.innerHTML =
+    `<span class="handle" title="drag to reorder / into a group">⠿</span>`+
+    `<span class="chev ${isGroup?'':'leaf'} ${n.collapsed?'collapsed':''}">▾</span>`+
+    `<span class="tgl ${n.enabled?'on':''} ${!en&&n.enabled?'inherit-off':''}" title="enable"><span class="knob"></span></span>`+
+    `<span class="icon ${isGroup?'group':n.kind}"></span>`+
+    `<span class="name ${en?'':'dim'}">${n.name}${isGroup?` <span style="color:var(--ink-dim);font-size:11px">(${n.children.length})</span>`:''}</span>`+
+    `<span class="badge ${es.scope}" title="${es.own?'set on this item':'inherited'}">${es.scope}${es.own?'':' ⤴'}</span>`+
+    `<button class="rowbtn" title="rename">✎</button>`+
+    `<button class="rowbtn del" title="delete">🗑</button>`;
+
+  // wiring
+  row.querySelector('.chev').onclick = e=>{ e.stopPropagation(); if(isGroup){ n.collapsed=!n.collapsed; render(); } };
+  row.querySelector('.tgl').onclick  = e=>{ e.stopPropagation(); n.enabled=!n.enabled; render(); };
+  row.querySelector('.rowbtn[title=rename]').onclick = e=>{ e.stopPropagation(); rename(n); };
+  row.querySelector('.rowbtn.del').onclick = e=>{ e.stopPropagation(); del(n.id); };
+  row.onclick = e=> selectRow(n.id, e);
+  row.querySelector('.handle').addEventListener('pointerdown', e=> startDrag(e, n.id));
+  return row;
+}
+
+// ---- selection (bespoke) -----------------------------------------------------------------
+function flatVisibleIds(){ const out=[]; const rec=(list)=>{ for(const n of list){ out.push(n.id); if(n.type==='group'&&!n.collapsed) rec(n.children); } }; rec(tree); return out; }
+function selectRow(id, e){
+  if(e.shiftKey && lastClicked!=null){
+    const order=flatVisibleIds(); const a=order.indexOf(lastClicked), b=order.indexOf(id);
+    if(a>-1&&b>-1){ selected.clear(); for(let i=Math.min(a,b);i<=Math.max(a,b);i++) selected.add(order[i]); }
+  } else if(e.ctrlKey||e.metaKey){
+    selected.has(id)?selected.delete(id):selected.add(id); lastClicked=id;
+  } else { selected.clear(); selected.add(id); lastClicked=id; }
+  render();
+}
+function clearSel(){ selected.clear(); render(); }
+function renderBulk(){
+  const bar=document.getElementById('bulkbar');
+  if(selected.size===0){ bar.classList.add('hidden'); return; }
+  bar.classList.remove('hidden');
+  document.getElementById('bulkcount').textContent = selected.size+' selected';
+}
+function bulk(op){
+  const ids=[...selected];
+  if(op==='enable'||op==='disable') ids.forEach(id=>{ const n=findNode(id); if(n) n.enabled=(op==='enable'); });
+  if(op==='delete') ids.forEach(id=>del(id,true));
+  if(op==='group'){ const g=group('New group', null, []);
+    // move selected top-most nodes into the new group (skip any whose ancestor is also selected)
+    const keep=ids.filter(id=>!ids.some(o=>o!==id && isAncestor(o,id)));
+    keep.forEach(id=>{ const pl=findParentList(id); const node=pl.list.splice(pl.i,1)[0]; g.children.push(node); });
+    tree.push(g);
+  }
+  selected.clear(); render();
+}
+function isAncestor(aid, bid){ const a=findNode(aid); if(!a||!a.children) return false; let hit=false; walk(a.children,n=>{ if(n.id===bid) hit=true; }); return hit; }
+
+// ---- edits -------------------------------------------------------------------------------
+function rename(n){ const v=prompt('Rename (native ui.InputField in-client):', n.name); if(v!=null&&v.trim()){ n.name=v.trim(); render(); } }
+function del(id, silent){ if(!silent){ const n=findNode(id); if(!confirm('Delete "'+n.name+'"'+(n.children&&n.children.length?' and its '+n.children.length+' children':'')+'?')) return; }
+  const pl=findParentList(id); if(pl){ pl.list.splice(pl.i,1); selected.delete(id);} if(!silent) render(); }
+function addAlert(){ tree.push(alert('New alert','action','global')); render(); }
+function addGroup(){ tree.push(group('New group','global',[])); render(); }
+function expandAll(open){ walk(tree,n=>{ if(n.type==='group') n.collapsed=!open; }); render(); }
+
+// ---- drag: reorder + drop-into-group (bespoke drop-target resolution) ---------------------
+let drag=null;
+function startDrag(e, id){
+  e.preventDefault();
+  const node=findNode(id);
+  drag={id, node};
+  const ghost=document.getElementById('ghost');
+  const src=[...document.querySelectorAll('.row')].find(r=>+r.dataset.id===id);
+  ghost.innerHTML=src.outerHTML; ghost.firstChild.style.width=src.offsetWidth+'px';
+  ghost.style.display='block';
+  src.classList.add('dragging');
+  moveGhost(e);
+  window.addEventListener('pointermove', onDragMove);
+  window.addEventListener('pointerup', endDrag, {once:true});
+}
+function moveGhost(e){ const g=document.getElementById('ghost'); g.style.left=(e.clientX+12)+'px'; g.style.top=(e.clientY-14)+'px'; }
+function onDragMove(e){
+  moveGhost(e);
+  const line=document.getElementById('dropline');
+  document.querySelectorAll('.row.drop-into').forEach(r=>r.classList.remove('drop-into'));
+  line.style.display='none';
+  const tgt=resolveDrop(e);
+  drag.drop=tgt;
+  if(!tgt) return;
+  if(tgt.kind==='into'){
+    const r=[...document.querySelectorAll('.row')].find(x=>+x.dataset.id===tgt.groupId);
+    if(r) r.classList.add('drop-into');
+  } else {
+    const rect=tgt.rect; line.style.display='block';
+    line.style.left=rect.left+'px'; line.style.width=rect.width+'px';
+    line.style.top=(tgt.after?rect.bottom:rect.top)+'px';
+  }
+}
+function resolveDrop(e){
+  const rows=[...document.querySelectorAll('.row')].filter(r=>+r.dataset.id!==drag.id);
+  let best=null, bestDist=1e9;
+  for(const r of rows){
+    const rect=r.getBoundingClientRect();
+    const cy=rect.top+rect.height/2, d=Math.abs(e.clientY-cy);
+    if(d<bestDist){ bestDist=d; best={r,rect}; }
+  }
+  if(!best) return null;
+  const id=+best.r.dataset.id, node=findNode(id);
+  const rect=best.rect, rel=(e.clientY-rect.top)/rect.height;
+  // middle band of a group row => drop INTO it (unless that would be a cycle)
+  if(node.type==='group' && rel>0.25 && rel<0.75 && !wouldCycle(id)){
+    return {kind:'into', groupId:id};
+  }
+  return {kind:'sibling', refId:id, after: rel>=0.5, rect};
+}
+function wouldCycle(targetGroupId){ return targetGroupId===drag.id || isAncestor(drag.id, targetGroupId); }
+function endDrag(e){
+  window.removeEventListener('pointermove', onDragMove);
+  document.getElementById('ghost').style.display='none';
+  document.getElementById('dropline').style.display='none';
+  document.querySelectorAll('.row.drop-into').forEach(r=>r.classList.remove('drop-into'));
+  const tgt=drag.drop;
+  if(tgt){
+    const pl=findParentList(drag.id); const node=pl.list.splice(pl.i,1)[0];
+    if(tgt.kind==='into'){ const g=findNode(tgt.groupId); g.collapsed=false; g.children.push(node); }
+    else { const ref=findParentList(tgt.refId); ref.list.splice(ref.i+(tgt.after?1:0),0,node); }
+  }
+  drag=null; render();
+}
+
+// ---- live state readout ------------------------------------------------------------------
+function renderState(){
+  const strip=(nodes)=>nodes.map(n=>{
+    const es=effScope(n);
+    const o={name:n.name, enabled:n.enabled, scope:(n.scope||`(inherit→${es.scope})`)};
+    if(n.type==='alert') o.kind=n.kind; else { o.collapsed=n.collapsed; o.children=strip(n.children); }
+    return o;
+  });
+  document.getElementById('state').textContent = JSON.stringify(
+    { tree: strip(tree), selected:[...selected].map(id=>findNode(id)?.name) }, null, 2);
+}
+
+render();
+</script>

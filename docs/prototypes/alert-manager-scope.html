@@ -1,0 +1,416 @@
+<title>Watchdog — Alert Manager Prototype v2 (scope buckets)</title>
+<!--
+  PROTOTYPE — throwaway. Follow-up to alert-manager.html after ticket #75 fixed the data model.
+  KEY CHANGE: scope is NOT a per-entry field — it's a top-level PERSISTENCE BUCKET. Exactly two
+  buckets are ever loaded: `global` and the current character `<displayName>`. Each bucket is its
+  own nestable tree of alerts + groups. Changing an entry's scope == MOVING its subtree across
+  buckets. So: no per-row scope badge; instead the manager shows two buckets, global on top.
+
+  This file offers THREE switchable layouts for presenting the two buckets (top bar / ?variant=):
+    1. sections  — one scroll, two sticky section headers (global, then character)
+    2. cards     — each bucket a framed, collapsible card with its own + Alert / + Group
+    3. split     — two independently-scrolling panes so global stays anchored above a long char list
+
+  Shared across all three: nested-Panel rows (mirrors native ui.Panel), drag-reorder,
+  drag-into-group, drag ACROSS buckets = change scope, expand/collapse, multi-select + bulk bar
+  (incl. "Move to other scope"). NOT production code. No persistence. Open in a browser.
+-->
+<style>
+  :root{
+    --viewport:#1a1a1e;
+    --panel:#202026; --panel-header:#30303a; --panel-header-tx:#96bee6;
+    --row:#2b2b30; --row-border:#0f0f12; --row-hot:#33333c;
+    --row-sel:#3a3320; --row-sel-border:#f0a020;
+    --title:#f0f0f4; --accent:#f0a020;
+    --cat-action:#2f5f9b; --cat-trigger:#9b2f2f;
+    --ink:#e4e6ec; --ink-dim:#9a9ca8; --ok:#5fb35f; --off:#787a84;
+    --global:#8fb6df; --global-bg:#20303f; --global-bd:#34506e;
+    --char:#c79fe0; --char-bg:#2b2338; --char-bd:#573a6e;
+    --font-ui:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    --font-mono:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#141418;color:var(--ink);font-family:var(--font-ui);
+    -webkit-font-smoothing:antialiased;user-select:none}
+  .wrap{max-width:1180px;margin:0 auto;padding:22px 20px 60px}
+  header.page h1{font-size:19px;margin:0 0 4px;font-weight:650}
+  header.page p{margin:0 0 14px;color:var(--ink-dim);font-size:13px;line-height:1.55;max-width:80ch}
+  header.page code{font-family:var(--font-mono);font-size:12px;color:var(--panel-header-tx)}
+
+  /* variant switcher */
+  .variants{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center}
+  .variants .lbl{font-size:12px;color:var(--ink-dim);margin-right:2px}
+  .variants button{padding:7px 13px;font-size:12px;border-radius:6px;cursor:pointer;
+    background:var(--row);border:1px solid var(--row-border);color:var(--ink-dim)}
+  .variants button.active{background:#2a2618;border-color:var(--accent);color:var(--accent);font-weight:600}
+  .variants .desc{font-size:12px;color:var(--ink-dim);margin-left:6px}
+
+  .layout{display:grid;grid-template-columns:1fr 320px;gap:20px;align-items:start}
+  @media(max-width:900px){.layout{grid-template-columns:1fr}}
+
+  .window{background:var(--viewport);border:1px solid var(--row-border);border-radius:5px;
+    overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.45)}
+  .titlebar{display:flex;align-items:center;gap:8px;height:34px;padding:0 8px 0 12px;
+    background:var(--panel-header);border-bottom:1px solid var(--row-border)}
+  .titlebar h2{font-size:13px;margin:0;font-weight:600;color:var(--title);flex:1}
+  .titlebar .who{font-size:11px;color:var(--char);background:var(--char-bg);border:1px solid var(--char-bd);
+    padding:2px 8px;border-radius:10px}
+  .titlebar .tb-btn{height:22px;padding:0 9px;font-size:12px;border-radius:4px;cursor:pointer;
+    background:var(--row);border:1px solid var(--row-border);color:var(--ink)}
+  .titlebar .tb-btn:hover{background:var(--row-hot);border-color:var(--accent)}
+
+  /* bucket header shared bits */
+  .bkt-title{display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px}
+  .bkt-dot{width:9px;height:9px;border-radius:50%}
+  .bkt-dot.global{background:var(--global)} .bkt-dot.char{background:var(--char)}
+  .bkt-count{font-size:11px;color:var(--ink-dim);font-weight:400}
+  .bkt-add{margin-left:auto;display:flex;gap:6px}
+  .bkt-add button{height:22px;padding:0 8px;font-size:11px;border-radius:4px;cursor:pointer;
+    background:var(--row);border:1px solid var(--row-border);color:var(--ink)}
+  .bkt-add button:hover{background:var(--row-hot);border-color:var(--accent)}
+
+  /* ---- variant 1: sections ---- */
+  .sections .body{max-height:470px;overflow-y:auto}
+  .section-hd{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:8px;
+    padding:9px 12px;background:#191920;border-bottom:1px solid var(--row-border);
+    border-top:1px solid var(--row-border)}
+  .section-hd.global{box-shadow:inset 3px 0 0 var(--global)}
+  .section-hd.char{box-shadow:inset 3px 0 0 var(--char)}
+  .section-body{padding:8px}
+
+  /* ---- variant 2: cards ---- */
+  .cards .body{padding:12px;display:flex;flex-direction:column;gap:12px;max-height:470px;overflow-y:auto}
+  .card{border:1px solid var(--row-border);border-radius:6px;overflow:hidden}
+  .card.global{border-color:var(--global-bd)} .card.char{border-color:var(--char-bd)}
+  .card-hd{display:flex;align-items:center;gap:8px;padding:9px 12px;cursor:pointer}
+  .card.global .card-hd{background:var(--global-bg)} .card.char .card-hd{background:var(--char-bg)}
+  .card-body{padding:8px;background:var(--viewport)}
+  .card-body.collapsed{display:none}
+
+  /* ---- variant 3: split ---- */
+  .split .body{display:flex;flex-direction:column;height:480px}
+  .pane{display:flex;flex-direction:column;min-height:0}
+  .pane.global{flex:0 0 auto;max-height:45%}
+  .pane.char{flex:1 1 auto;border-top:2px solid var(--row-border)}
+  .pane-hd{display:flex;align-items:center;gap:8px;padding:9px 12px;background:#191920;flex:none}
+  .pane.global .pane-hd{box-shadow:inset 3px 0 0 var(--global)}
+  .pane.char .pane-hd{box-shadow:inset 3px 0 0 var(--char)}
+  .pane-body{overflow-y:auto;padding:8px;flex:1 1 auto}
+
+  /* rows / tree (shared) */
+  .panel{display:flex;flex-direction:column;gap:4px;min-height:24px}
+  .panel.empty::after{content:"drop here to move to this scope";display:block;color:var(--off);
+    font-size:11px;font-style:italic;padding:8px;text-align:center;border:1px dashed #3a3a44;border-radius:4px}
+  .children{margin-left:20px;padding-left:8px;border-left:1px dashed #3a3a44;
+    display:flex;flex-direction:column;gap:4px;margin-top:4px}
+  .children.collapsed{display:none}
+  .row{display:flex;align-items:center;gap:8px;height:34px;padding:0 8px;border-radius:4px;
+    background:var(--row);border:1px solid var(--row-border);position:relative}
+  .row:hover{background:var(--row-hot)}
+  .row.sel{background:var(--row-sel);border-color:var(--row-sel-border)}
+  .row.group{background:#26262e}
+  .row.group.sel{background:var(--row-sel)}
+  .row.dragging{opacity:.35}
+  .row.drop-into{outline:2px solid var(--accent);outline-offset:-2px}
+  .handle{cursor:grab;color:var(--off);font-size:14px;width:12px;text-align:center;letter-spacing:-2px}
+  .chev{width:14px;text-align:center;color:var(--ink-dim);font-size:10px;cursor:pointer;transition:transform .12s}
+  .chev.collapsed{transform:rotate(-90deg)} .chev.leaf{visibility:hidden}
+  .tgl{width:30px;height:18px;border-radius:9px;border:1px solid var(--row-border);background:#3a3a44;
+    position:relative;cursor:pointer;flex:none}
+  .tgl .knob{position:absolute;top:1px;left:1px;width:14px;height:14px;border-radius:50%;background:var(--off);transition:.12s}
+  .tgl.on{background:#2d4a2d} .tgl.on .knob{left:13px;background:var(--ok)}
+  .tgl.inherit-off{opacity:.4}
+  .icon{width:16px;height:16px;border-radius:3px;flex:none}
+  .icon.trigger{background:var(--cat-trigger)} .icon.action{background:var(--cat-action)}
+  .icon.group{background:linear-gradient(135deg,#6a6a3a,#4a4a2a)}
+  .name{font-size:13px;color:var(--title);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .name.dim{color:var(--off)}
+  .rowbtn{width:24px;height:24px;border-radius:4px;border:1px solid transparent;background:none;
+    color:var(--ink-dim);cursor:pointer;font-size:13px;flex:none}
+  .rowbtn:hover{background:#1c1c21;border-color:var(--row-border);color:var(--ink)}
+  .rowbtn.del:hover{border-color:var(--cat-trigger);color:#e08a8a}
+
+  #dropline{position:fixed;height:3px;background:var(--accent);border-radius:2px;pointer-events:none;
+    display:none;z-index:50;box-shadow:0 0 6px var(--accent)}
+  #ghost{position:fixed;pointer-events:none;z-index:60;opacity:.9;display:none;box-shadow:0 6px 18px rgba(0,0,0,.5)}
+
+  .bulkbar{display:flex;align-items:center;gap:8px;padding:8px 12px;font-size:12px;
+    background:#2a2618;border-top:1px solid var(--row-sel-border);color:var(--accent);flex-wrap:wrap}
+  .bulkbar.hidden{display:none}
+  .bulkbar .count{font-weight:600} .bulkbar .spacer{flex:1}
+  .bulkbar button{height:24px;padding:0 10px;font-size:12px;border-radius:4px;cursor:pointer;
+    background:#39310f;border:1px solid #6b5a1a;color:#f2d98a}
+  .bulkbar button:hover{background:#4a4114}
+
+  aside.state h3{font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:var(--ink-dim);margin:0 0 8px}
+  aside.state pre{background:#0e0e12;border:1px solid var(--row-border);border-radius:6px;padding:12px;
+    font-family:var(--font-mono);font-size:11px;line-height:1.5;color:#c6c8d0;overflow:auto;max-height:520px;margin:0}
+  .hint{margin-top:14px;font-size:12px;color:var(--ink-dim);line-height:1.6}
+  .hint b{color:var(--ink)} kbd{font-family:var(--font-mono);font-size:11px;background:#26262e;
+    border:1px solid #3a3a44;border-radius:3px;padding:1px 5px}
+</style>
+
+<div class="wrap">
+  <header class="page">
+    <h1>Alert Manager — scope buckets (v2)</h1>
+    <p>Per <b>#75</b>: scope is a top-level <b>persistence bucket</b>, not a per-row field. Only
+      <code>global</code> + the current character load. So the manager shows <b>two buckets, global on
+      top</b>; dragging a row <b>into the other bucket changes its scope</b>. Rows no longer carry a scope
+      badge. Pick a layout below — same data, three presentations.</p>
+  </header>
+
+  <div class="variants">
+    <span class="lbl">Layout:</span>
+    <button data-v="sections" onclick="setVariant('sections')">1 · Sticky sections</button>
+    <button data-v="cards" onclick="setVariant('cards')">2 · Collapsible cards</button>
+    <button data-v="split" onclick="setVariant('split')">3 · Split panes</button>
+    <span class="desc" id="vdesc"></span>
+  </div>
+
+  <div class="layout">
+    <div class="window">
+      <div class="titlebar">
+        <h2>⚙ Alert Manager</h2>
+        <span class="who">👤 Zezima · logged in</span>
+        <button class="tb-btn" title="close">✕</button>
+      </div>
+      <div class="body" id="body"></div>
+      <div class="bulkbar hidden" id="bulkbar">
+        <span class="count" id="bulkcount"></span>
+        <span class="spacer"></span>
+        <button onclick="bulk('enable')">Enable</button>
+        <button onclick="bulk('disable')">Disable</button>
+        <button onclick="bulk('group')">Move to new group</button>
+        <button onclick="bulk('scope')">Move to other scope ⇄</button>
+        <button onclick="bulk('delete')">Delete</button>
+        <button onclick="clearSel()">Clear</button>
+      </div>
+    </div>
+
+    <aside class="state">
+      <h3>Live state — two buckets</h3>
+      <pre id="state"></pre>
+      <div class="hint">
+        <b>Scope is the bucket.</b> There's no <code>scope</code> field on an entry — an entry's scope
+        is <i>which bucket it sits in</i>. Moving it between <b>Global</b> and <b>Zezima</b> (drag across,
+        or the bulk button) is the only way to change scope. On disk that's a move across
+        <code>PersistentDB</code> keys.<br><br>
+        <b>enabled</b> ANDs up the chain (a disabled group greys its subtree). Try dragging an alert from
+        Global down into the character bucket.
+      </div>
+    </aside>
+  </div>
+</div>
+
+<div id="dropline"></div>
+<div id="ghost"></div>
+
+<script>
+const CHAR='Zezima';
+const VDESC={
+  sections:'One scroll; sticky headers keep each scope labelled as you pass it. Compact, both scopes inline.',
+  cards:'Each scope is a framed card you can collapse and add into independently. Strongest visual separation.',
+  split:'Two independent scroll panes — Global stays pinned on top no matter how long the character list grows.'
+};
+let variant = new URLSearchParams(location.search).get('variant') || 'sections';
+
+let uid=0; const nid=()=>++uid;
+const alert=(name,kind,enabled=true)=>({id:nid(),type:'alert',name,kind,enabled});
+const group=(name,children=[],enabled=true)=>({id:nid(),type:'group',name,enabled,collapsed:false,children});
+
+// two buckets, each a TreeEntry[]
+let buckets = {
+  global: [
+    alert('Low HP flash','trigger'),
+    alert('Aura expired warning','trigger'),
+    group('Loot',[ alert('Rare drop toast','action'), alert('Webhook: rare drop','action') ]),
+  ],
+  char: [
+    group('Zuk — Igneous',[
+      alert('Jad phase — screen flash','action'),
+      alert('Stun warning','trigger'),
+      group('Sub-phase overlays',[ alert('Shield tile marker','action') ]),
+    ], true),
+    alert('Slayer task done','action'),
+    alert('Inventory full','action', false),
+  ]
+};
+const bucketMeta={ global:{cls:'global',label:'Global',dot:'global',sub:'shared across all characters'},
+                   char:{cls:'char',label:CHAR,dot:'char',sub:'this character only'} };
+
+let selected=new Set(); let lastClicked=null;
+let collapsedBucket={global:false,char:false};
+
+// ---- tree helpers over BOTH buckets ------------------------------------------------------
+function eachRoot(fn){ fn(buckets.global,'global'); fn(buckets.char,'char'); }
+function walk(nodes,fn,parent){ for(const n of nodes){ fn(n,parent); if(n.children) walk(n.children,fn,n); } }
+function findNode(id){ let r=null; eachRoot(list=>walk(list,n=>{if(n.id===id)r=n;})); return r; }
+function findParentList(id){ let res=null;
+  const scan=(list)=>{ for(let i=0;i<list.length;i++){ if(list[i].id===id){res={list,i};return;} if(list[i].children) scan(list[i].children); } };
+  eachRoot(list=>{ if(!res) scan(list); }); return res; }
+function bucketOf(id){ let b=null; eachRoot((list,key)=>walk(list,n=>{ if(n.id===id) b=key; })); return b; }
+function isAncestor(aid,bid){ const a=findNode(aid); if(!a||!a.children) return false; let hit=false; walk(a.children,n=>{if(n.id===bid)hit=true;}); return hit; }
+function effEnabled(node){ let cur=node; const parentOf=id=>{let p=null;eachRoot(list=>walk(list,(n,par)=>{if(n.id===id)p=par;}));return p;};
+  while(cur){ if(!cur.enabled) return false; cur=parentOf(cur.id); } return true; }
+
+// ---- render ------------------------------------------------------------------------------
+function render(){
+  document.querySelectorAll('.variants button').forEach(b=>b.classList.toggle('active',b.dataset.v===variant));
+  document.getElementById('vdesc').textContent = VDESC[variant];
+  const body=document.getElementById('body');
+  body.className='body'; document.querySelector('.window').classList.remove('sections','cards','split');
+  document.querySelector('.window').classList.add(variant);
+  body.innerHTML='';
+  if(variant==='sections') body.append(section('global'),section('char'));
+  else if(variant==='cards') body.append(card('global'),card('char'));
+  else { body.append(pane('global'),pane('char')); }
+  renderBulk(); renderState();
+}
+function bucketHead(key,withAdd){
+  const m=bucketMeta[key];
+  const h=document.createElement('div'); h.className='bkt-title';
+  h.innerHTML=`<span class="bkt-dot ${m.dot}"></span><span>${m.label}</span>`+
+    `<span class="bkt-count">· ${buckets[key].length} top-level · ${m.sub}</span>`;
+  if(withAdd){ const a=document.createElement('span'); a.className='bkt-add';
+    a.innerHTML=`<button>+ Alert</button><button>+ Group</button>`;
+    a.children[0].onclick=e=>{e.stopPropagation();buckets[key].push(alert('New alert','action'));render();};
+    a.children[1].onclick=e=>{e.stopPropagation();buckets[key].push(group('New group'));render();};
+    h.appendChild(a); }
+  return h;
+}
+function section(key){
+  const wrap=document.createElement('div');
+  const hd=document.createElement('div'); hd.className='section-hd '+key; hd.appendChild(bucketHead(key,true));
+  const bd=document.createElement('div'); bd.className='section-body'; bd.appendChild(renderPanel(buckets[key],key));
+  wrap.append(hd,bd); return wrap;
+}
+function card(key){
+  const c=document.createElement('div'); c.className='card '+key;
+  const hd=document.createElement('div'); hd.className='card-hd';
+  const chev=document.createElement('span'); chev.className='chev'+(collapsedBucket[key]?' collapsed':''); chev.textContent='▾';
+  hd.appendChild(chev); hd.appendChild(bucketHead(key,true));
+  hd.onclick=()=>{ collapsedBucket[key]=!collapsedBucket[key]; render(); };
+  const bd=document.createElement('div'); bd.className='card-body'+(collapsedBucket[key]?' collapsed':'');
+  bd.appendChild(renderPanel(buckets[key],key));
+  c.append(hd,bd); return c;
+}
+function pane(key){
+  const p=document.createElement('div'); p.className='pane '+key;
+  const hd=document.createElement('div'); hd.className='pane-hd'; hd.appendChild(bucketHead(key,true));
+  const bd=document.createElement('div'); bd.className='pane-body'; bd.appendChild(renderPanel(buckets[key],key));
+  p.append(hd,bd); return p;
+}
+function renderPanel(nodes,bucketKey){
+  const p=document.createElement('div'); p.className='panel'+(nodes.length?'':' empty'); p.dataset.bucket=bucketKey;
+  for(const n of nodes) p.appendChild(renderRowTree(n,bucketKey));
+  return p;
+}
+function renderRowTree(n,bucketKey){
+  const wrap=document.createElement('div'); wrap.appendChild(renderRow(n,bucketKey));
+  if(n.type==='group'){ const kids=document.createElement('div');
+    kids.className='children'+(n.collapsed?' collapsed':'');
+    for(const c of n.children) kids.appendChild(renderRowTree(c,bucketKey));
+    wrap.appendChild(kids); }
+  return wrap;
+}
+function renderRow(n,bucketKey){
+  const isGroup=n.type==='group';
+  const row=document.createElement('div');
+  row.className='row'+(isGroup?' group':'')+(selected.has(n.id)?' sel':'');
+  row.dataset.id=n.id; row.dataset.bucket=bucketKey;
+  const en=effEnabled(n);
+  row.innerHTML=
+    `<span class="handle" title="drag to reorder, into a group, or across to change scope">⠿</span>`+
+    `<span class="chev ${isGroup?'':'leaf'} ${n.collapsed?'collapsed':''}">▾</span>`+
+    `<span class="tgl ${n.enabled?'on':''} ${!en&&n.enabled?'inherit-off':''}" title="enable"><span class="knob"></span></span>`+
+    `<span class="icon ${isGroup?'group':n.kind}"></span>`+
+    `<span class="name ${en?'':'dim'}">${n.name}${isGroup?` <span style="color:var(--ink-dim);font-size:11px">(${n.children.length})</span>`:''}</span>`+
+    `<button class="rowbtn" title="rename">✎</button>`+
+    `<button class="rowbtn del" title="delete">🗑</button>`;
+  row.querySelector('.chev').onclick=e=>{e.stopPropagation(); if(isGroup){n.collapsed=!n.collapsed;render();}};
+  row.querySelector('.tgl').onclick=e=>{e.stopPropagation(); n.enabled=!n.enabled; render();};
+  row.querySelector('.rowbtn[title=rename]').onclick=e=>{e.stopPropagation(); const v=prompt('Rename:',n.name); if(v&&v.trim()){n.name=v.trim();render();}};
+  row.querySelector('.rowbtn.del').onclick=e=>{e.stopPropagation(); del(n.id);};
+  row.onclick=e=>selectRow(n.id,e);
+  row.querySelector('.handle').addEventListener('pointerdown',e=>startDrag(e,n.id));
+  return row;
+}
+
+// ---- selection ---------------------------------------------------------------------------
+function flatVisibleIds(){ const out=[]; const rec=list=>{for(const n of list){out.push(n.id); if(n.type==='group'&&!n.collapsed)rec(n.children);}};
+  rec(buckets.global); rec(buckets.char); return out; }
+function selectRow(id,e){
+  if(e.shiftKey&&lastClicked!=null){ const o=flatVisibleIds(),a=o.indexOf(lastClicked),b=o.indexOf(id);
+    if(a>-1&&b>-1){selected.clear(); for(let i=Math.min(a,b);i<=Math.max(a,b);i++)selected.add(o[i]);} }
+  else if(e.ctrlKey||e.metaKey){ selected.has(id)?selected.delete(id):selected.add(id); lastClicked=id; }
+  else { selected.clear(); selected.add(id); lastClicked=id; }
+  render();
+}
+function clearSel(){ selected.clear(); render(); }
+function renderBulk(){ const bar=document.getElementById('bulkbar');
+  if(!selected.size){bar.classList.add('hidden');return;} bar.classList.remove('hidden');
+  document.getElementById('bulkcount').textContent=selected.size+' selected'; }
+function topMost(ids){ return ids.filter(id=>!ids.some(o=>o!==id&&isAncestor(o,id))); }
+function bulk(op){
+  const ids=[...selected];
+  if(op==='enable'||op==='disable') ids.forEach(id=>{const n=findNode(id); if(n)n.enabled=(op==='enable');});
+  if(op==='delete') ids.forEach(id=>del(id,true));
+  if(op==='group'){ // group within each item's own bucket root; keep it simple: new group in global
+    const g=group('New group'); topMost(ids).forEach(id=>{const pl=findParentList(id); g.children.push(pl.list.splice(pl.i,1)[0]);}); buckets.global.push(g); }
+  if(op==='scope'){ topMost(ids).forEach(id=>{ const from=bucketOf(id); const to=from==='global'?'char':'global';
+    const pl=findParentList(id); buckets[to].push(pl.list.splice(pl.i,1)[0]); }); }
+  selected.clear(); render();
+}
+function del(id,silent){ if(!silent){const n=findNode(id); if(!confirm('Delete "'+n.name+'"'+(n.children&&n.children.length?' + '+n.children.length+' children':'')+'?'))return;}
+  const pl=findParentList(id); if(pl)pl.list.splice(pl.i,1); selected.delete(id); if(!silent)render(); }
+
+// ---- drag: reorder + into-group + ACROSS buckets (scope change) ---------------------------
+let drag=null;
+function startDrag(e,id){ e.preventDefault(); drag={id,fromBucket:bucketOf(id)};
+  const g=document.getElementById('ghost'); const src=[...document.querySelectorAll('.row')].find(r=>+r.dataset.id===id);
+  g.innerHTML=src.outerHTML; g.firstChild.style.width=src.offsetWidth+'px'; g.style.display='block'; src.classList.add('dragging');
+  moveGhost(e); window.addEventListener('pointermove',onDragMove); window.addEventListener('pointerup',endDrag,{once:true}); }
+function moveGhost(e){ const g=document.getElementById('ghost'); g.style.left=(e.clientX+12)+'px'; g.style.top=(e.clientY-14)+'px'; }
+function onDragMove(e){ moveGhost(e);
+  const line=document.getElementById('dropline'); line.style.display='none';
+  document.querySelectorAll('.row.drop-into').forEach(r=>r.classList.remove('drop-into'));
+  const t=resolveDrop(e); drag.drop=t; if(!t) return;
+  if(t.kind==='into'){ const r=[...document.querySelectorAll('.row')].find(x=>+x.dataset.id===t.groupId); if(r)r.classList.add('drop-into'); }
+  else if(t.kind==='sibling'){ const rect=t.rect; line.style.display='block'; line.style.left=rect.left+'px'; line.style.width=rect.width+'px'; line.style.top=(t.after?rect.bottom:rect.top)+'px'; }
+  else if(t.kind==='bucket-root'){ const pl=document.querySelector('.panel[data-bucket="'+t.bucket+'"]'); if(pl){const rect=pl.getBoundingClientRect(); line.style.display='block'; line.style.left=rect.left+'px'; line.style.width=rect.width+'px'; line.style.top=rect.bottom+'px';} }
+}
+function resolveDrop(e){
+  // nearest row across both buckets
+  const rows=[...document.querySelectorAll('.row')].filter(r=>+r.dataset.id!==drag.id);
+  let best=null,bd=1e9;
+  for(const r of rows){ const rect=r.getBoundingClientRect(); const cy=rect.top+rect.height/2,d=Math.abs(e.clientY-cy);
+    if(d<bd){bd=d;best={r,rect};} }
+  // if pointer is over a bucket panel with no nearby row, drop at that bucket root
+  const panelEl=[...document.querySelectorAll('.panel[data-bucket]')].find(p=>{const rc=p.getBoundingClientRect(); return e.clientY>=rc.top-4&&e.clientY<=rc.bottom+4&&e.clientX>=rc.left&&e.clientX<=rc.right;});
+  if(!best){ return panelEl?{kind:'bucket-root',bucket:panelEl.dataset.bucket}:null; }
+  const id=+best.r.dataset.id, node=findNode(id), rect=best.rect, rel=(e.clientY-rect.top)/rect.height;
+  if(node.type==='group'&&rel>0.25&&rel<0.75&&!(id===drag.id||isAncestor(drag.id,id))) return {kind:'into',groupId:id};
+  return {kind:'sibling',refId:id,after:rel>=0.5,rect};
+}
+function endDrag(){ window.removeEventListener('pointermove',onDragMove);
+  document.getElementById('ghost').style.display='none'; document.getElementById('dropline').style.display='none';
+  document.querySelectorAll('.row.drop-into').forEach(r=>r.classList.remove('drop-into'));
+  const t=drag.drop;
+  if(t){ const pl=findParentList(drag.id); const node=pl.list.splice(pl.i,1)[0];
+    if(t.kind==='into'){ const gp=findNode(t.groupId); gp.collapsed=false; gp.children.push(node); }
+    else if(t.kind==='bucket-root'){ buckets[t.bucket].push(node); }
+    else { const ref=findParentList(t.refId); ref.list.splice(ref.i+(t.after?1:0),0,node); } }
+  drag=null; render();
+}
+
+// ---- live state --------------------------------------------------------------------------
+function renderState(){
+  const strip=nodes=>nodes.map(n=>{ const o={name:n.name,enabled:n.enabled};
+    if(n.type==='alert')o.kind=n.kind; else{o.collapsed=n.collapsed;o.children=strip(n.children);} return o; });
+  document.getElementById('state').textContent=JSON.stringify(
+    { buckets:{ global:strip(buckets.global), [CHAR]:strip(buckets.char) },
+      loaded:['global',CHAR], selected:[...selected].map(id=>findNode(id)?.name) }, null, 2);
+}
+function setVariant(v){ variant=v; const u=new URL(location); u.searchParams.set('variant',v); history.replaceState(null,'',u); render(); }
+render();
+</script>
