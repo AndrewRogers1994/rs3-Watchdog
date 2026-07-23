@@ -26,10 +26,19 @@ local Store = require("store")
 local Registry = require("registry")
 
 -- A minimal in-memory stand-in for the client PersistentDB (string key/value store).
+-- `failWriteKey` / `failDeleteKey` let a test force SetString/Delete to raise for one key,
+-- standing in for the client refusing a write (migration-failure paths in #87).
 local function newFakePersistentDB()
     local db = { data = {} }
     function db:GetString(key) return self.data[key] end
-    function db:SetString(key, value) self.data[key] = value end
+    function db:SetString(key, value)
+        if self.failWriteKey == key then error("fake PersistentDB: write refused for " .. key) end
+        self.data[key] = value
+    end
+    function db:Delete(key)
+        if self.failDeleteKey == key then error("fake PersistentDB: delete refused for " .. key) end
+        self.data[key] = nil
+    end
     return db
 end
 
@@ -488,6 +497,175 @@ function TestStore:testInfoBoxAnchorSurvivesSaveAndLoad()
     local reloaded = saveAndReload(doc)
     local x, y = Store.GetInfoBoxAnchor(reloaded)
     luaunit.assertEquals({ x, y }, { 12, 34 })
+end
+
+--- One-shot legacy migration (#87) -------------------------------------------------------
+-- The pre-Bucket flat document lived under `watchdog_graphs` as
+--   { version, current = <name|nil>, graphs = { { name, graph, layout, enabled }, ... }, infoboxAnchor }
+-- The migration carries it into the `global` bucket on the first load after upgrade, keyed on
+-- the *absence* of `global` (never a version int). These tests drive the seam through the public
+-- Store.Load, which returns `doc, migrationFailed`.
+
+local LEGACY_KEY = "watchdog_graphs"
+
+-- A serialized (on-disk) graph, exactly what the legacy document held per entry — the migration
+-- carries this verbatim without ever calling Deserialize.
+local function serializedGraph(registry)
+    return LibNodeGraph.Serialize(graphWithOneNode(registry))
+end
+
+-- Writes an encoded legacy flat document straight into the fake DB's watchdog_graphs key.
+local function seedLegacyDoc(legacy)
+    PersistentDB.data[LEGACY_KEY] = LibNodeGraph.Json.Default.encode(legacy)
+end
+
+function TestStore:testLegacyMigratesFlatDocIntoGlobalOrderPreservedIdsMinted()
+    seedLegacyDoc({
+        version = 1,
+        current = "beta", -- dropped by the migration (#80)
+        infoboxAnchor = { x = 7, y = 8 },
+        graphs = {
+            { name = "alpha", graph = serializedGraph(self.registry), layout = {}, enabled = true },
+            { name = "beta",  graph = serializedGraph(self.registry), enabled = false }, -- no layout
+            { name = "gamma", graph = serializedGraph(self.registry) },                  -- no enabled ⇒ true
+        },
+    })
+
+    local doc, migrationFailed = Store.Load()
+
+    luaunit.assertNil(migrationFailed)
+    luaunit.assertEquals(doc.version, 2)
+    -- Order preserved, one root-level alert Entry per legacy entry.
+    luaunit.assertEquals(#doc.entries, 3)
+    luaunit.assertEquals(doc.entries[1].name, "alpha")
+    luaunit.assertEquals(doc.entries[2].name, "beta")
+    luaunit.assertEquals(doc.entries[3].name, "gamma")
+    for _, e in ipairs(doc.entries) do luaunit.assertEquals(e.kind, "alert") end
+    -- Ids minted, unique.
+    luaunit.assertNotNil(doc.entries[1].id)
+    luaunit.assertNotEquals(doc.entries[1].id, doc.entries[2].id)
+    luaunit.assertNotEquals(doc.entries[2].id, doc.entries[3].id)
+    -- enabled normalized: explicit true/false carried, missing ⇒ true.
+    luaunit.assertEquals(doc.entries[1].enabled, true)
+    luaunit.assertEquals(doc.entries[2].enabled, false)
+    luaunit.assertEquals(doc.entries[3].enabled, true)
+    -- infoboxAnchor carried across.
+    local x, y = Store.GetInfoBoxAnchor(doc)
+    luaunit.assertEquals({ x, y }, { 7, 8 })
+    -- `current` dropped — no such field survives on the bucket or any entry. Cast through `any`:
+    -- the whole point is that `current` isn't in the typed Bucket/Entry, so a direct read would
+    -- (correctly) trip undefined-field.
+    local anyBucket = doc --[[@as table<string, any>]]
+    luaunit.assertNil(anyBucket.current)
+    local anyEntry = doc.entries[1] --[[@as table<string, any>]]
+    luaunit.assertNil(anyEntry.current)
+end
+
+function TestStore:testLegacyMigratedAlertsRestoreLive()
+    seedLegacyDoc({
+        graphs = { { name = "alpha", graph = serializedGraph(self.registry), enabled = true } },
+    })
+
+    local doc = Store.Load()
+    local restored = Store.RestoreAll(doc, self.registry)
+
+    luaunit.assertEquals(#restored, 1)
+    luaunit.assertEquals(restored[1].name, "alpha")
+    luaunit.assertEquals(#restored[1].graph:GetNodes(), 1)
+end
+
+function TestStore:testLegacyMigrationWritesGlobalAndDeletesLegacyKey()
+    seedLegacyDoc({ graphs = { { name = "alpha", graph = serializedGraph(self.registry), enabled = true } } })
+
+    Store.Load()
+
+    -- `global` written, legacy key removed only after that succeeded.
+    luaunit.assertNotNil(PersistentDB.data["global"])
+    luaunit.assertNil(PersistentDB.data[LEGACY_KEY])
+end
+
+function TestStore:testLegacyMigrationPersistsAcrossReload()
+    -- After migration the legacy key is gone, so a second Load reads the authoritative `global`.
+    seedLegacyDoc({ graphs = {
+        { name = "alpha", graph = serializedGraph(self.registry), enabled = true },
+        { name = "beta",  graph = serializedGraph(self.registry), enabled = false },
+    } })
+
+    Store.Load()
+    local reloaded, migrationFailed = Store.Load()
+
+    luaunit.assertNil(migrationFailed)
+    luaunit.assertEquals(#reloaded.entries, 2)
+    luaunit.assertEquals(reloaded.entries[1].name, "alpha")
+    luaunit.assertEquals(reloaded.entries[2].enabled, false)
+end
+
+function TestStore:testFreshInstallDoesNotMigrateOrFlag()
+    -- No legacy key, no global: a genuine fresh install is untouched and never flags failure.
+    local doc, migrationFailed = Store.Load()
+
+    luaunit.assertNil(migrationFailed)
+    luaunit.assertEquals(doc.version, 2)
+    luaunit.assertEquals(doc.entries, {})
+    luaunit.assertNil(PersistentDB.data["global"])
+end
+
+function TestStore:testGlobalPresentIsAuthoritativeAndLegacyIgnored()
+    -- Trigger is absence of `global`, not version: if `global` exists it wins outright and the
+    -- legacy key is neither read nor deleted (rule 2 — migration cannot run twice).
+    local existing = Store.Empty()
+    seedAlert(self, existing, "kept", true)
+    Store.Save(existing)
+    seedLegacyDoc({ graphs = { { name = "should-not-appear", graph = serializedGraph(self.registry) } } })
+
+    local doc, migrationFailed = Store.Load()
+
+    luaunit.assertNil(migrationFailed)
+    luaunit.assertEquals(#doc.entries, 1)
+    luaunit.assertEquals(doc.entries[1].name, "kept")
+    -- Legacy key untouched (not deleted), never migrated in.
+    luaunit.assertNotNil(PersistentDB.data[LEGACY_KEY])
+end
+
+function TestStore:testWriteFailureAbortsKeepsLegacyAndFlags()
+    seedLegacyDoc({ graphs = { { name = "alpha", graph = serializedGraph(self.registry), enabled = true } } })
+    PersistentDB.failWriteKey = "global" -- client refuses the `global` write
+
+    local doc, migrationFailed = Store.Load()
+
+    -- Aborts: flag set, `global` unwritten, legacy key kept intact for the next retry.
+    luaunit.assertTrue(migrationFailed)
+    luaunit.assertNil(PersistentDB.data["global"])
+    luaunit.assertNotNil(PersistentDB.data[LEGACY_KEY])
+    -- Caller still gets a usable (empty) bucket.
+    luaunit.assertEquals(doc.entries, {})
+end
+
+function TestStore:testUnreadableLegacyJsonAbortsAndFlags()
+    -- Corrupt legacy JSON must abort (distinct from a fresh install) so the demo seed is suppressed.
+    PersistentDB.data[LEGACY_KEY] = "{ this is not valid json"
+
+    local doc, migrationFailed = Store.Load()
+
+    luaunit.assertTrue(migrationFailed)
+    luaunit.assertNil(PersistentDB.data["global"])
+    luaunit.assertNotNil(PersistentDB.data[LEGACY_KEY])
+    luaunit.assertEquals(doc.entries, {})
+end
+
+function TestStore:testFailedLegacyDeleteIsNotMigrationFailure()
+    -- `global` is written and authoritative; a failed delete of the stale legacy key is inert.
+    seedLegacyDoc({ graphs = { { name = "alpha", graph = serializedGraph(self.registry), enabled = true } } })
+    PersistentDB.failDeleteKey = LEGACY_KEY
+
+    local doc, migrationFailed = Store.Load()
+
+    luaunit.assertNil(migrationFailed)
+    luaunit.assertNotNil(PersistentDB.data["global"])
+    luaunit.assertEquals(#doc.entries, 1)
+    luaunit.assertEquals(doc.entries[1].name, "alpha")
+    -- The stale key survives (delete refused) but that's harmless — rule 2 keeps `global` winning.
+    luaunit.assertNotNil(PersistentDB.data[LEGACY_KEY])
 end
 
 return TestStore

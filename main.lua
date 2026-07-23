@@ -165,7 +165,11 @@ local function seedDemo()
     return graph, layout
 end
 
-local document = Store.Load()
+-- `migrationFailed` is set only when the one-shot legacy hop (#87) was attempted and failed:
+-- `global` was left unwritten and the legacy key kept for a retry next startup. It gates the demo
+-- seed below — seeding would write `global`, permanently closing the retry window and disguising
+-- the failure as a fresh install (#81 §7). One-shot: dies with the migration in the #10 follow-up.
+local document, migrationFailed = Store.Load()
 
 -- Instantiate *every* saved graph as a live alert (#27): triggers in all enabled alerts fire,
 -- not just the one the editor is viewing. `Store.RestoreAll` returns one live Graph per saved
@@ -179,8 +183,10 @@ do
     elseif log ~= nil then
         log("Watchdog: RestoreAll failed, seeding demo — " .. tostring(all))
     end
-    if #restored == 0 then
+    if #restored == 0 and not migrationFailed then
         -- Fresh install (empty `global` bucket): seed the demo as a single root-level alert Entry.
+        -- Suppressed when a legacy migration failed (#87): the Manager stays visibly empty and the
+        -- next startup retries from the intact legacy key, instead of the seed papering over it.
         local graph, layout = seedDemo()
         local id = Store.MintId(document)
         Store.InsertEntry(document, Store.NewAlertEntry(id, "default", graph, layout, true))
@@ -199,11 +205,16 @@ end
 -- The editor opens the *first* alert (there is no persisted `current` pointer under the Bucket
 -- model — that's #80). Its live Graph instance is the very one the runtime holds for it, so edits
 -- and trigger firing stay in sync. `currentId` is the Entry id every autosave writes back under.
+--
+-- `restored` can be empty on exactly one path: a failed legacy migration (#87) that suppressed the
+-- demo seed to keep the retry window open. The plugin then loads *dormant* — no editor Window, but
+-- effects/InfoBox/etc. still mount — rather than crash indexing a nil alert; the next startup
+-- retries the intact legacy key. `editor`/`currentId` stay nil and every use of them is guarded.
 local currentAlert = restored[1]
-local currentId = currentAlert.id
+local currentId = currentAlert and currentAlert.id
 
-local graph = currentAlert.graph
-local editor = Editor.new(graph, registry, currentAlert.layout, runtime)
+local graph = currentAlert and currentAlert.graph
+local editor = currentAlert and Editor.new(graph, registry, currentAlert.layout, runtime)
 
 -- Persistence hook for the alert enable/disable API: SetEnabled/Toggle write the flag straight
 -- to the saved document and flush, so an alert toggled off (by the user or an Alert Toggle node,
@@ -269,6 +280,7 @@ local SAVE_INTERVAL_TICKS = 100
 local saveState = { tick = 0, wasOpen = false, lastEncoded = Store.Encode(document) }
 
 local function persistNow()
+    if editor == nil then return end -- dormant load (failed migration, no alert to edit)
     Store.UpdateAlertGraph(document, currentId, editor.graph, editor:GetLayout())
     local encoded = Store.Encode(document)
     if encoded ~= nil and encoded ~= saveState.lastEncoded then
@@ -335,7 +347,7 @@ local function onLogic()
                 pcall(function() runtime.screenMarkerCapture:Mount(parent) end)
                 state.screenMarkerMounted = runtime.screenMarkerCapture:IsMounted()
             end
-            if not state.mounted then
+            if not state.mounted and editor ~= nil then
                 local ok, err = pcall(function() editor:Mount(parent) end)
                 if ok then
                     state.mounted = true

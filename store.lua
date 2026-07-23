@@ -375,16 +375,103 @@ function Store.Encode(doc)
     return nil
 end
 
+--- One-shot legacy migration (#87) -------------------------------------------------------
+-- >>> ONE-SHOT. Not a migration-chain template. This carries the author's single pre-release
+-- >>> `watchdog_graphs` document into the `global` Bucket exactly once, then is deleted whole
+-- >>> in a follow-up commit (#10) after it has actually run in-client. A future 2 → 3 schema
+-- >>> change is an ordinary version-gated migration on `global`'s contents and shares nothing
+-- >>> with this. Do NOT grow it into a general framework.
+--
+-- The pre-Bucket flat document (schema 1) lived under `watchdog_graphs` as
+--   { version, current, graphs = { { name, graph, layout, enabled }, ... }, infoboxAnchor }
+-- The hop is an *opaque structural copy*: order preserved, each flat entry → a root-level `alert`
+-- Entry with a minted id, `enabled` normalized, `graph`/`layout`/`infoboxAnchor` carried verbatim,
+-- `current` dropped (#80). `Deserialize` is never called — leniency already lives in RestoreAll
+-- (#53), so a garbage `graph` migrates cleanly here and fails leniently at restore.
+local LEGACY_KEY = "watchdog_graphs"
+
+-- Attempts the one-shot legacy hop. Called by Store.Load only when `global` is absent. Returns:
+--   bucket, false  — a legacy document was migrated and already persisted under `global`
+--   nil,    false  — no legacy key: a genuine fresh install (caller seeds the demo)
+--   nil,    true   — legacy key present but the hop failed: caller must keep `global` unwritten
+--                    AND suppress the demo seed, else the seed writes `global` and permanently
+--                    closes the retry window, disguising the failure as a fresh install (#81 §7).
+---@return Watchdog.Bucket|nil migrated
+---@return boolean failed
+local function migrateLegacy()
+    -- Aborts the hop as a *failure* (flag set): logs a line kept distinct from Load's generic
+    -- "unreadable" — so the user's "alerts vanished after upgrade" is separable from ordinary
+    -- corruption — and leaves `global` unwritten with the legacy key intact for the next retry
+    -- (#81 §6). Every failure exit routes through here so that contract can't drift between them.
+    ---@return nil, boolean
+    local function abort(reason)
+        if log ~= nil then log("Watchdog: LEGACY MIGRATION ABORTED — " .. reason .. "; watchdog_graphs kept, global unwritten") end
+        return nil, true
+    end
+
+    local text
+    pcall(function() text = PersistentDB:GetString(LEGACY_KEY) end)
+    if type(text) ~= "string" or text == "" then
+        return nil, false -- no legacy data: fresh install
+    end
+    local c = codec()
+    if c == nil then
+        return abort("no JSON codec")
+    end
+    local ok, legacy = pcall(function() return c.decode(text) end)
+    if not ok or type(legacy) ~= "table" then
+        return abort("watchdog_graphs unreadable — " .. tostring(legacy))
+    end
+
+    local doc = Store.Empty()
+    if type(legacy.infoboxAnchor) == "table" then
+        doc.infoboxAnchor = { x = legacy.infoboxAnchor.x, y = legacy.infoboxAnchor.y }
+    end
+    -- Built inline rather than via Store.NewAlertEntry (its sibling): NewAlertEntry re-Serializes
+    -- a *live* graph and layoutToArrays the layout, but the migration must carry the already-on-disk
+    -- `graph`/`layout` verbatim (opaque copy — no Deserialize/Serialize round-trip). If the alert
+    -- Entry schema gains a field, update both.
+    for _, g in ipairs(legacy.graphs or {}) do
+        Store.InsertEntry(doc, {
+            id = Store.MintId(doc),
+            kind = "alert",
+            name = g.name,
+            enabled = normalizeEnabled(g.enabled),
+            graph = g.graph,   -- carried verbatim; not deserialized/validated here
+            layout = g.layout, -- already the on-disk LayoutArray form
+        })
+    end
+
+    -- Write `global` first; only a *successful* Save may delete the legacy key. A failed delete
+    -- is not a migration failure — `global` is already authoritative and the stale key is inert.
+    if not Store.Save(doc) then
+        return abort("global write failed")
+    end
+    pcall(function() PersistentDB:Delete(LEGACY_KEY) end)
+    if log ~= nil then log("Watchdog: legacy watchdog_graphs migrated into global (" .. tostring(#doc.entries) .. " alerts)") end
+    return doc, false
+end
+
 -- Reads the saved `global` bucket, or an empty one when there's nothing saved / it can't be
--- parsed. Never returns nil, so callers always get a document to work on. An absent key is a
--- fresh install here; the #87 migration slots its legacy `watchdog_graphs` hop in ahead of the
--- empty fallback.
----@return Watchdog.Bucket  # the same shape Store.Save persists (the round-trip contract)
+-- parsed. Never returns nil, so callers always get a document to work on. When `global` is absent
+-- the one-shot #87 migration runs first, carrying a legacy `watchdog_graphs` document across; its
+-- second return value tells `main.lua` a migration *failed* so the demo seed is suppressed (a seed
+-- would write `global` and permanently close the retry window — #81 §7).
+---@return Watchdog.Bucket doc  # the same shape Store.Save persists (the round-trip contract)
+---@return boolean|nil migrationFailed  # true only when a legacy hop was attempted and failed
 function Store.Load()
     if PersistentDB == nil then return Store.Empty() end
     local text
     pcall(function() text = PersistentDB:GetString(DB_KEY) end)
-    if type(text) ~= "string" or text == "" then return Store.Empty() end
+    if type(text) ~= "string" or text == "" then
+        -- `global` absent — trigger the one-shot legacy hop (never a version check: there is no
+        -- version int to read from a key that doesn't exist). If `global` DID exist it would be
+        -- authoritative below, so the hop can never run twice.
+        local migrated, failed = migrateLegacy()
+        if migrated ~= nil then return migrated end
+        if failed then return Store.Empty(), true end
+        return Store.Empty()
+    end
     local c = codec()
     if c == nil then return Store.Empty() end
     local ok, doc = pcall(function() return c.decode(text) end)
