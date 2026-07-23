@@ -4,7 +4,7 @@
 -- channels. It rides the #24 event dispatcher (not the poll model): each channel is one
 -- `{ event = "..." }` binding whose `transform` shapes the raw event into a shared
 -- `Watchdog.Payload.EntitySpawn`, and a shared `filter` gates every node by its `kind` dropdown
--- and `nameMatch` contains-filter.
+-- and `nameMatch` Matcher (Substring/Pattern).
 --
 -- Pipeline split (why the work lives where it does):
 --   * transform (once/event, per channel) — reads the channel's own raw fields and produces the
@@ -13,8 +13,9 @@
 --     → Spawned, `< 0` → Despawned; a mid-stack restock counts as Spawned, by design). A zero
 --     delta yields a nil transition, which the filter rejects (no fire).
 --   * filter (per node, shared) — the `kind` match (NPC / Player / Object / Any) and the
---     `nameMatch` plain-substring contains-filter, both read from the node's own controls. Also
---     the nil-transition guard for a degenerate ObjStackEntityChanged.
+--     `nameMatch` Matcher (Substring/Pattern, shared with the chat triggers via `Matcher.Test`),
+--     both read from the node's own controls. Also the nil-transition guard for a degenerate
+--     ObjStackEntityChanged.
 --   * run (per matched node) — surfaces kind/name/coordGrid/count/entity on the data outs and
 --     fires the resolved transition's exec pin (Spawned or Despawned).
 --
@@ -23,6 +24,8 @@
 -- and all 7 event bindings are declared here, so no dispatcher or main.lua edits are needed
 -- beyond that require (the #24 self-contained-trigger architecture). Each distinct channel is
 -- subscribed exactly once no matter how many entity_spawn nodes exist (dispatcher reverse-index).
+
+local Matcher = require("matcher")
 
 local EntitySpawn = {}
 
@@ -124,12 +127,8 @@ local function passesFilter(payload, node)
     if wantKind ~= nil and wantKind ~= "any" and wantKind ~= payload.kind then
         return false
     end
-    local needle = node.GetControl("nameMatch")
-    if needle ~= nil and needle ~= "" then
-        local name = payload.name
-        if type(name) ~= "string" or string.find(name, needle) == nil then
-            return false
-        end
+    if not Matcher.Test(node.GetControl("nameMatch"), payload.name) then
+        return false
     end
     return true
 end
@@ -150,9 +149,10 @@ function EntitySpawn.Register(registry, runtime)
         description = "Fires when an NPC / player / object spawns or despawns near you",
         pins = {
             -- Both gate in `filter`. `kind` is a config dropdown (enum widget); `nameMatch` is a
-            -- plain contains-filter ("" => match every name).
+            -- reusable Matcher (Substring/Pattern toggle, #55), empty needle => match every name.
             { name = "kind", kind = "data", direction = "in", dataType = "entity_spawn.kind", default = "any" },
-            { name = "nameMatch", kind = "data", direction = "in", dataType = "string", default = "" },
+            { name = "nameMatch", kind = "data", direction = "in", dataType = "matcher",
+              default = { needle = "", mode = "substring" } },
             { name = "Spawned", kind = "exec", direction = "out" },
             { name = "Despawned", kind = "exec", direction = "out" },
             -- Shaped conveniences plus the raw entity, for downstream nodes. The kind output is

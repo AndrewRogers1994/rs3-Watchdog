@@ -27,10 +27,20 @@ local function stubResource(loaded)
     }
 end
 
+-- Fake of the client `audio` global the node calls: `SoundPlaybackParams.new()` returns a
+-- plain params table, `AudioBus.SFX` is the hardcoded bus, and `Play` records the call.
+local function makeFakeAudio(calls)
+    return {
+        AudioBus = { SFX = "sfx" },
+        SoundPlaybackParams = { new = function() return {} end },
+        Play = function(res, params) calls[#calls + 1] = { res = res, params = params } end,
+    }
+end
+
 TestCustomSoundRegistration = {}
 
 function TestCustomSoundRegistration:setUp()
-    _G.Plugin = { resources = { beep = stubResource({}), boop = stubResource({}) } }
+    _G.Plugin = { resources = { audio = { beep = stubResource({}), boop = stubResource({}) } } }
     self.reg = makeFakeRegistry()
     CustomSound.Register(self.reg)
     self.desc = self.reg.types["action.custom_sound"]
@@ -48,7 +58,7 @@ function TestCustomSoundRegistration:testRegistersActionCustomSoundPins()
     luaunit.assertEquals(byName["in"].kind, "exec")
     luaunit.assertEquals(byName.resource.dataType, "customSoundResource")
     luaunit.assertEquals(byName.volume.dataType, "number")
-    luaunit.assertEquals(byName.volume.default, 1.0)
+    luaunit.assertEquals(byName.volume.default, 100)
     luaunit.assertEquals(byName.loops.dataType, "number")
     luaunit.assertEquals(byName.loops.default, 0)
 end
@@ -73,12 +83,12 @@ TestCustomSoundRun = {}
 
 function TestCustomSoundRun:setUp()
     self.resources = { beep = stubResource({}) }
-    _G.Plugin = { resources = self.resources }
+    _G.Plugin = { resources = { audio = self.resources } }
     self.reg = makeFakeRegistry()
     CustomSound.Register(self.reg)
     self.desc = self.reg.types["action.custom_sound"]
     self.calls = {}
-    _G.audio = { Play = function(res, params) self.calls[#self.calls + 1] = { res = res, params = params } end }
+    _G.audio = makeFakeAudio(self.calls)
 end
 
 function TestCustomSoundRun:tearDown()
@@ -91,14 +101,15 @@ function TestCustomSoundRun:testPlaysChosenResourceWithDefaultsAndBusHardcodedTo
     luaunit.assertEquals(#self.calls, 1)
     luaunit.assertEquals(self.calls[1].res, self.resources.beep)
     luaunit.assertEquals(self.calls[1].params.volume, 1.0)
-    luaunit.assertEquals(self.calls[1].params.loops, 0)
-    luaunit.assertEquals(self.calls[1].params.bus, "sfx")
+    luaunit.assertEquals(self.calls[1].params.numLoops, 0)
+    luaunit.assertEquals(self.calls[1].params.audioBus, "sfx")
 end
 
 function TestCustomSoundRun:testHonorsVolumeAndLoopsPins()
-    self.desc.run(makeCtx({ resource = "beep", volume = 0.5, loops = 3 }))
+    -- volume is a 0-100 pin, scaled to the client's 0-1 float bus volume (50 -> 0.5).
+    self.desc.run(makeCtx({ resource = "beep", volume = 50, loops = 3 }))
     luaunit.assertEquals(self.calls[1].params.volume, 0.5)
-    luaunit.assertEquals(self.calls[1].params.loops, 3)
+    luaunit.assertEquals(self.calls[1].params.numLoops, 3)
 end
 
 function TestCustomSoundRun:testNilResourceIsASilentNoop()
@@ -122,7 +133,7 @@ TestCustomSoundPreload = {}
 
 function TestCustomSoundPreload:setUp()
     self.resources = { beep = stubResource({}) }
-    _G.Plugin = { resources = self.resources }
+    _G.Plugin = { resources = { audio = self.resources } }
     self.reg = makeFakeRegistry()
     CustomSound.Register(self.reg)
     self.desc = self.reg.types["action.custom_sound"]

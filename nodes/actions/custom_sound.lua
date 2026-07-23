@@ -48,7 +48,6 @@ function CustomSound.ResourceChoices()
     if Plugin ~= nil and Plugin.resources ~= nil and Plugin.resources.audio ~= nil then
         pcall(function()
             for name, _ in pairs(Plugin.resources.audio) do
-                print(name, Plugin.resources.audio[name])
                 names[#names + 1] = name
             end
         end)

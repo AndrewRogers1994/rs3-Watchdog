@@ -165,34 +165,48 @@ function TestEntitySpawn:testKindObjectMatchesAddedRemovedAndChanged()
     luaunit.assertEquals(self.counts.despawned, 1)
 end
 
---- nameMatch contains-filter gates in filter --------------------------------------------
+--- nameMatch Matcher gates in filter (shared Matcher.Test, #55) --------------------------
 
 function TestEntitySpawn:testNameMatchFiltersBySubstring()
-    self:addTrigger({ nameMatch = "Gob" })
+    self:addTrigger({ nameMatch = { needle = "Gob", mode = "substring" } })
     self.source:Push("NPCEntityAdded", npcAdded("Cow", { x = 0, z = 0, level = 0 }))
     luaunit.assertEquals(self.counts.spawned, 0)
     self.source:Push("NPCEntityAdded", npcAdded("Goblin", { x = 0, z = 0, level = 0 }))
     luaunit.assertEquals(self.counts.spawned, 1)
 end
 
+function TestEntitySpawn:testSubstringModeIsCaseInsensitive()
+    -- Substring mode lowercases both sides, so a mixed-case needle still matches.
+    self:addTrigger({ nameMatch = { needle = "gob", mode = "substring" } })
+    self.source:Push("NPCEntityAdded", npcAdded("Goblin", { x = 0, z = 0, level = 0 }))
+    luaunit.assertEquals(self.counts.spawned, 1)
+end
+
 function TestEntitySpawn:testEmptyNameMatchMatchesEverything()
-    self:addTrigger({ nameMatch = "" })
+    self:addTrigger({ nameMatch = { needle = "", mode = "substring" } })
     self.source:Push("NPCEntityAdded", npcAdded("Cow", { x = 0, z = 0, level = 0 }))
     luaunit.assertEquals(self.counts.spawned, 1)
 end
 
-function TestEntitySpawn:testNameMatchIsPlainSubstringNotPattern()
-    -- A Lua pattern metacharacter in the needle must be treated literally: "a.b" matches the
-    -- literal string, not "a<any>b".
-    self:addTrigger({ nameMatch = "a.b" })
+function TestEntitySpawn:testSubstringModeTreatsMetacharsLiterally()
+    -- In Substring mode a Lua pattern metacharacter is literal: "a.b" matches the literal
+    -- string, not "a<any>b".
+    self:addTrigger({ nameMatch = { needle = "a.b", mode = "substring" } })
     self.source:Push("NPCEntityAdded", npcAdded("axb", { x = 0, z = 0, level = 0 }))
     luaunit.assertEquals(self.counts.spawned, 0)
     self.source:Push("NPCEntityAdded", npcAdded("a.b thing", { x = 0, z = 0, level = 0 }))
     luaunit.assertEquals(self.counts.spawned, 1)
 end
 
+function TestEntitySpawn:testPatternModeUsesLuaPatterns()
+    -- Pattern mode activates Lua magic characters: "a.b" matches "axb".
+    self:addTrigger({ nameMatch = { needle = "a.b", mode = "pattern" } })
+    self.source:Push("NPCEntityAdded", npcAdded("axb", { x = 0, z = 0, level = 0 }))
+    luaunit.assertEquals(self.counts.spawned, 1)
+end
+
 function TestEntitySpawn:testKindAndNameMatchBothGate()
-    self:addTrigger({ kind = "object", nameMatch = "Coins" })
+    self:addTrigger({ kind = "object", nameMatch = { needle = "Coins", mode = "substring" } })
     self.source:Push("NPCEntityAdded", npcAdded("Coins", { x = 0, z = 0, level = 0 })) -- name ok, kind wrong
     self.source:Push("ObjStackEntityAdded", objAdded("Bones", { x = 0, z = 0, level = 0 }, 1)) -- kind ok, name wrong
     luaunit.assertEquals(self.counts.spawned, 0)

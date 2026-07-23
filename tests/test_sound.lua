@@ -44,7 +44,11 @@ function TestSoundRun:setUp()
     Sound.Register(self.reg)
     self.desc = self.reg.types["action.sound"]
     self.calls = {}
-    _G.audio = { Play = function(id, params) self.calls[#self.calls + 1] = { id = id, params = params } end }
+    _G.audio = {
+        AudioBus = { SFX = "sfx" },
+        SoundPlaybackParams = { new = function() return {} end },
+        Play = function(id, params) self.calls[#self.calls + 1] = { id = id, params = params } end,
+    }
 end
 
 function TestSoundRun:tearDown()
@@ -55,7 +59,7 @@ function TestSoundRun:testPlaysWithBusHardcodedToSfx()
     self.desc.run(makeCtx({ soundId = 1234 }))
     luaunit.assertEquals(#self.calls, 1)
     luaunit.assertEquals(self.calls[1].id, 1234)
-    luaunit.assertEquals(self.calls[1].params.bus, "sfx")
+    luaunit.assertEquals(self.calls[1].params.audioBus, "sfx")
 end
 
 function TestSoundRun:testNonNumberSoundIdIsASilentNoop()
