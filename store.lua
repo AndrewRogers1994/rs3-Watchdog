@@ -1,63 +1,73 @@
--- store.lua — Watchdog's graph persistence backend: saves and restores graphs.
+-- store.lua — Watchdog's persistence backend: the `global` Bucket and the Entry tree it holds.
 --
 -- LibNodeGraph deliberately never touches persistentdb (ADR-0007): the library only
 -- produces/consumes tables + strings, and the *consumer* owns actual persistence. This
--- module is that consumer half for Watchdog. It bundles the two things a saved graph
--- needs — the engine's serialized structure (nodes + Connections), plus the one piece
--- of UI-only state the engine has no concept of: the Layout (nodeId -> Graph-space
--- position) — into one document, and stores it under a single persistentdb key as one
--- JSON string (SetString/GetString), the flat-scalar shape persistentdb is happiest with.
--- (The View — pan/zoom — is deliberately NOT persisted: the editor resets it to a default
--- origin on every open, so there's nothing worth carrying across sessions.)
+-- module is that consumer half for Watchdog.
 --
--- Multi-graph from day one: the document holds an *array* of named graph entries plus a
--- `current` pointer, even though the editor only shows one today. Adding the "new graph /
--- switch graph" UI later is purely additive — the backend already keys everything by name.
+-- ## The Bucket model (#75, #81)
 --
---   { version, current = <name|nil>, graphs = { { name, graph, layout, enabled }, ... } }
+-- Persistence is a per-Scope **Bucket**: one `PersistentDB` key holding one Scope's tree as
+-- `{ version, entries, infoboxAnchor }`. This ticket (#86) delivers the `global` Bucket only —
+-- per-character `player_<normalized>` buckets are #89. Keys carry **no `watchdog_` prefix**:
+-- `PersistentDB` is already plugin-scoped, so the old `watchdog_graphs` key becomes plain
+-- `global`. (The pre-Bucket `watchdog_graphs` document is carried across by the one-shot
+-- migration in #87 — this module treats an absent `global` key as a fresh install and starts
+-- empty; #87 slots its legacy hop into Store.Load ahead of that.)
 --
--- Each entry also carries a persistent `enabled` flag (#27): a saved graph *is* an "alert", and
--- disabling one silences its triggers without deleting it. The flag defaults to true and is
--- carried additively — old documents (written before it existed) load with a missing flag, which
--- Restore/RestoreAll treat as enabled so a pre-#27 save keeps firing after upgrade.
+-- ## The Entry tree (#75)
 --
--- `graph` is exactly what LibNodeGraph.Serialize produces (the same shareable structure a
--- user would export), so there is no separate saved-vs-shared representation. Layout is
--- stored as an array of { id, x, y } rather than an id-keyed map because JSON object keys
--- must be strings; it round-trips back to a nodeId-keyed map on load. That mapping only
--- stays valid because LibNodeGraph.Deserialize preserves node ids.
+-- `entries` is a tree of **Entry** records. Every Entry has a minted `id`, a `kind`
+-- (`"alert" | "group"`), a `name`, and an `enabled` flag. An **alert** leaf also carries its
+-- serialized `graph` + `layout`; a **group** branch carries a `children` array of Entries.
+-- This ticket's fresh-install / restore paths produce only root-level alerts (groups are #88),
+-- but the schema and every helper here are already tree-shaped so groups drop in additively.
+--
+-- **`id` is the identity.** Names carry *no* uniqueness constraint, so every Store operation
+-- keys on `id`, never name (a name is display text and may repeat across entries). Ordering is
+-- array position within a parent's `children` (root order for top-level entries).
+--
+-- `graph` is exactly what LibNodeGraph.Serialize produces (the same shareable structure a user
+-- would export), so there is no separate saved-vs-shared representation. Layout is stored as an
+-- array of { id, x, y } rather than an id-keyed map because JSON object keys must be strings; it
+-- round-trips back to a nodeId-keyed map on load. That mapping only stays valid because
+-- LibNodeGraph.Deserialize preserves node ids.
 
 local Store = {}
 
-local DB_KEY = "watchdog_graphs"
-local DOC_VERSION = 1
+-- The Bucket key is un-prefixed — PersistentDB is already plugin-scoped (#81).
+local DB_KEY = "global"
+local DOC_VERSION = 2
 
 --- Persisted schema -----------------------------------------------------------------------
--- These describe exactly what lives under the DB_KEY JSON string. `Watchdog.StoreDocument` is
--- the single shape that round-trips: it's what `Store.Load` returns and what `Store.Save`,
--- `Store.Encode`, and `Store.UpsertCurrent` consume — so the type *is* the persistence contract.
+-- These describe exactly what lives under the DB_KEY JSON string. `Watchdog.Bucket` is the
+-- single shape that round-trips: it's what `Store.Load` returns and what `Store.Save`/`Encode`
+-- consume — so the type *is* the persistence contract.
 
----One saved graph == one "alert" (#27). This is the on-disk form: the graph is the flat
----`LibNodeGraph.SerializedGraph` (not a live Graph), the layout is the array form (not the
----id-keyed map), and `enabled` is always a strict boolean once written.
----@class Watchdog.StoredGraphEntry
----@field name string                              # unique key within the document
----@field graph LibNodeGraph.SerializedGraph       # LibNodeGraph.Serialize output
----@field layout Watchdog.LayoutArray              # node positions, on-disk array form
----@field enabled boolean                          # whether this alert's triggers fire
+---One node of a Scope's persisted tree (#75). Identity is `id`; `name` is non-unique display
+---text. An **alert** (`kind == "alert"`) carries `graph` + `layout` and is a leaf; a **group**
+---(`kind == "group"`) carries `children` and is a branch. The alert-only / group-only fields are
+---absent on the other kind.
+---@class Watchdog.Entry
+---@field id integer                               # minted identity — the key every op uses
+---@field kind "alert"|"group"                     # leaf (alert) vs branch (group)
+---@field name string                              # display text; NOT unique
+---@field enabled boolean                          # whether this entry fires (alert) / its subtree (group)
+---@field graph LibNodeGraph.SerializedGraph|nil   # alert only: LibNodeGraph.Serialize output
+---@field layout Watchdog.LayoutArray|nil          # alert only: node positions, on-disk array form
+---@field children Watchdog.Entry[]|nil            # group only: nested entries, in order
 
----The whole persisted document: an array of named graph entries plus a `current` pointer and
----the shared InfoBox anchor. The one type that survives a save -> load round-trip intact.
----@class Watchdog.StoreDocument
+---One Scope's whole persisted document: a `version`, the Entry tree, and (for the `global`
+---bucket) the shared InfoBox anchor. The one type that survives a save -> load round-trip intact.
+---@class Watchdog.Bucket
 ---@field version integer                          # schema version (DOC_VERSION), for migrations
----@field current string|nil                       # name of the entry the editor last showed
----@field graphs Watchdog.StoredGraphEntry[]       # every saved alert, in stored order
+---@field entries Watchdog.Entry[]                 # root-level entries, in order
 ---@field infoboxAnchor Watchdog.Point|nil         # shared InfoBox strip position (#41); nil until moved
 
----A saved entry rebuilt into live objects (the return shape of Restore/RestoreAll). Mirrors a
----StoredGraphEntry but with the runtime forms: a live `LibNodeGraph.Graph` and the id-keyed
----`Watchdog.Layout`.
+---A saved alert rebuilt into live objects (the return shape of RestoreAll). Mirrors an alert
+---Entry but with the runtime forms: a live `LibNodeGraph.Graph` and the id-keyed
+---`Watchdog.Layout`. Carries the entry `id` so the runtime can persist enable/disable by id.
 ---@class Watchdog.RestoredAlert
+---@field id integer
 ---@field name string
 ---@field graph LibNodeGraph.Graph
 ---@field layout Watchdog.Layout
@@ -84,8 +94,8 @@ end
 
 ---The editor's Layout: where each node sits on the canvas, keyed by its LibNodeGraph node id.
 ---Purely UI state — the engine has no concept of node position, so Watchdog owns this and
----persists it alongside the serialized graph (see store.lua's module comment). A node id with
----no entry falls back to a default placement when first drawn.
+---persists it alongside the serialized graph. A node id with no entry falls back to a default
+---placement when first drawn.
 ---@alias Watchdog.Layout table<integer, Watchdog.Point>
 
 ---The on-disk form of a Layout: an array of { id, x, y } records. JSON object keys must be
@@ -116,22 +126,224 @@ local function layoutFromArray(arr)
     return layout
 end
 
+-- Normalizes any stored/passed enabled value to a strict boolean, treating nil (an entry
+-- written before the flag existed, or an omitted argument) as enabled.
+---@param enabled boolean|nil
+---@return boolean
+local function normalizeEnabled(enabled)
+    return enabled ~= false
+end
+
 --- Document construction ------------------------------------------------------------------
 
----@return Watchdog.StoreDocument
+---@return Watchdog.Bucket
 function Store.Empty()
-    return { version = DOC_VERSION, current = nil, graphs = {}, infoboxAnchor = nil }
+    return { version = DOC_VERSION, entries = {}, infoboxAnchor = nil }
+end
+
+--- Entry-tree helpers (all id-keyed, name-agnostic) ---------------------------------------
+-- The tree is walked depth-first, pre-order (a parent before its children), so `Leaves`,
+-- `MintId`, and `FindById` all see entries in the same stable order the UI renders them.
+
+---Applies `fn(entry, siblings, index)` to every entry in the tree, depth-first pre-order.
+---`siblings` is the array the entry lives in and `index` its position, so a visitor can splice.
+---@param entries Watchdog.Entry[]|nil
+---@param fn fun(entry: Watchdog.Entry, siblings: Watchdog.Entry[], index: integer)
+local function walk(entries, fn)
+    for i, entry in ipairs(entries or {}) do
+        fn(entry, entries, i)
+        if entry.children ~= nil then
+            walk(entry.children, fn)
+        end
+    end
+end
+
+-- Mints an id not used by any entry anywhere in the tree (max existing id + 1, starting at 1).
+-- Mint one id and insert its entry before minting the next — two mints against the same tree
+-- state return the same id.
+---@param doc Watchdog.Bucket
+---@return integer
+function Store.MintId(doc)
+    local max = 0
+    walk((doc or {}).entries, function(e)
+        if type(e.id) == "number" and e.id > max then max = e.id end
+    end)
+    return max + 1
+end
+
+-- Every alert leaf (`kind == "alert"`) in the tree, in depth-first pre-order — what the runtime
+-- restores as live alerts. Group branches are walked into but not themselves returned.
+---@param doc Watchdog.Bucket
+---@return Watchdog.Entry[]
+function Store.Leaves(doc)
+    local leaves = {}
+    walk((doc or {}).entries, function(e)
+        if e.kind == "alert" then leaves[#leaves + 1] = e end
+    end)
+    return leaves
+end
+
+-- Finds the entry with `id` anywhere in the tree, returning it plus the array it lives in and
+-- its index there (so the caller can reorder/splice without re-searching). Lone nil if absent.
+---@param doc Watchdog.Bucket
+---@param id integer
+---@return Watchdog.Entry|nil entry
+---@return Watchdog.Entry[]|nil siblings
+---@return integer|nil index
+function Store.FindById(doc, id)
+    local found, foundSiblings, foundIndex
+    walk((doc or {}).entries, function(e, siblings, index)
+        if e.id == id then
+            found, foundSiblings, foundIndex = e, siblings, index
+        end
+    end)
+    return found, foundSiblings, foundIndex
+end
+
+-- Appends `entry` to the end of `parentId`'s children (a group), or to the root when `parentId`
+-- is nil. Returns true on success; false if `parentId` names an entry that doesn't exist or isn't
+-- a group. Mutates `doc` in place.
+---@param doc Watchdog.Bucket
+---@param entry Watchdog.Entry
+---@param parentId integer|nil                     # nil ⇒ root; else a group entry's id
+---@return boolean
+function Store.InsertEntry(doc, entry, parentId)
+    doc.entries = doc.entries or {}
+    if parentId == nil then
+        doc.entries[#doc.entries + 1] = entry
+        return true
+    end
+    local parent = Store.FindById(doc, parentId)
+    if parent == nil or parent.kind ~= "group" then
+        return false
+    end
+    parent.children = parent.children or {}
+    parent.children[#parent.children + 1] = entry
+    return true
+end
+
+-- Removes the entry with `id` from wherever it sits in the tree (its whole subtree goes with it).
+-- Returns the removed entry, or nil if no entry had that id.
+---@param doc Watchdog.Bucket
+---@param id integer
+---@return Watchdog.Entry|nil
+function Store.DeleteById(doc, id)
+    local entry, siblings, index = Store.FindById(doc, id)
+    if entry == nil then return nil end
+    table.remove(siblings, index)
+    return entry
+end
+
+--- Entry construction ---------------------------------------------------------------------
+
+-- Builds an alert Entry from a *live* graph (serialized here) + its Layout. `enabled` defaults
+-- to true. The caller mints `id` (Store.MintId) and inserts the result (Store.InsertEntry).
+---@param id integer
+---@param name string
+---@param graph LibNodeGraph.Graph                 # a live graph; serialized into the entry here
+---@param layout Watchdog.Layout|nil
+---@param enabled boolean|nil
+---@return Watchdog.Entry
+function Store.NewAlertEntry(id, name, graph, layout, enabled)
+    return {
+        id = id,
+        kind = "alert",
+        name = name,
+        enabled = normalizeEnabled(enabled),
+        graph = LibNodeGraph.Serialize(graph),
+        layout = layoutToArray(layout),
+    }
+end
+
+-- Builds a group Entry. Groups aren't produced by this ticket's fresh-install / restore paths
+-- (that's #88) — this exists so the tree helpers have a group to nest into and so the schema
+-- demonstrably doesn't preclude them.
+---@param id integer
+---@param name string
+---@param enabled boolean|nil
+---@param children Watchdog.Entry[]|nil
+---@return Watchdog.Entry
+function Store.NewGroupEntry(id, name, enabled, children)
+    return {
+        id = id,
+        kind = "group",
+        name = name,
+        enabled = normalizeEnabled(enabled),
+        children = children or {},
+    }
+end
+
+--- Mutation by id -------------------------------------------------------------------------
+
+-- Flips an entry's enabled flag in place, keyed by `id` (the runtime's persistence hook for
+-- SetEnabled/Toggle). Returns true if an entry with that id existed, false otherwise. Does not
+-- persist; the caller runs Store.Save.
+---@param doc Watchdog.Bucket
+---@param id integer
+---@param enabled boolean
+---@return boolean
+function Store.SetEnabled(doc, id, enabled)
+    local entry = Store.FindById(doc, id)
+    if entry == nil then return false end
+    entry.enabled = normalizeEnabled(enabled)
+    return true
+end
+
+-- Re-serializes a *live* graph + Layout back into the alert Entry with `id` (the editor autosave
+-- path). Returns true if an alert with that id existed and was updated, false otherwise. Does not
+-- persist; the caller runs Store.Save.
+---@param doc Watchdog.Bucket
+---@param id integer
+---@param graph LibNodeGraph.Graph
+---@param layout Watchdog.Layout|nil
+---@return boolean
+function Store.UpdateAlertGraph(doc, id, graph, layout)
+    local entry = Store.FindById(doc, id)
+    if entry == nil or entry.kind ~= "alert" then return false end
+    entry.graph = LibNodeGraph.Serialize(graph)
+    entry.layout = layoutToArray(layout)
+    return true
+end
+
+--- Restore --------------------------------------------------------------------------------
+
+-- Rebuilds *every* alert leaf into a live instance (#27: all saved alerts instantiate live at
+-- startup, not just the one the editor is viewing, so triggers in every enabled alert fire).
+-- Returns an array of { id, name, graph, layout, enabled } in tree order. Deserialize is lenient
+-- (#53): an unregistered node type loads as an inert placeholder rather than dropping the alert.
+-- The pcall stays as a backstop for a genuinely corrupt entry (e.g. `graph`/`nodes` not a table),
+-- so one malformed alert can't take the others down.
+---@param doc Watchdog.Bucket
+---@param registry LibNodeGraph.Registry
+---@return Watchdog.RestoredAlert[]  # one live alert per restorable leaf, in tree order
+function Store.RestoreAll(doc, registry)
+    local restored = {}
+    for _, entry in ipairs(Store.Leaves(doc)) do
+        local ok, graph = pcall(function()
+            return LibNodeGraph.Deserialize(entry.graph, registry, { onUnknown = "placeholder" })
+        end)
+        if ok and graph ~= nil then
+            restored[#restored + 1] = {
+                id = entry.id,
+                name = entry.name,
+                graph = graph,
+                layout = layoutFromArray(entry.layout),
+                enabled = normalizeEnabled(entry.enabled),
+            }
+        elseif log ~= nil then
+            log("Watchdog: skipping unrestorable alert '" .. tostring(entry.name) .. "' — " .. tostring(graph))
+        end
+    end
+    return restored
 end
 
 --- InfoBox Area anchor (#41) --------------------------------------------------------------
--- The shared InfoBox strip's draggable anchor lives at the document's top level (it's not
--- per-graph state, unlike an alert's `enabled` flag) — one strip position for the whole
--- plugin, the same way runtime.lua's persistence hook already wires a per-alert flag through
--- Store.SetEnabled. Not persisted through Store.UpsertCurrent's autosave loop; the InfoBox
--- Area's own EndDrag calls this hook directly (main.lua wires it), same seam shape as
--- Runtime:SetPersistence.
+-- The shared InfoBox strip's draggable anchor lives at the bucket's top level (it's not
+-- per-entry state, unlike an alert's `enabled` flag) — one strip position for the whole plugin.
+-- The InfoBox Area's own EndDrag calls SetInfoBoxAnchor directly (main.lua wires it), same seam
+-- shape as runtime.lua's SetEnabled persistence hook.
 
----@param doc Watchdog.StoreDocument
+---@param doc Watchdog.Bucket
 ---@param x number
 ---@param y number
 function Store.SetInfoBoxAnchor(doc, x, y)
@@ -140,7 +352,7 @@ end
 
 -- Returns x, y, or nil, nil if no anchor was ever saved (a fresh install; the caller keeps
 -- ui/infobox.lua's own default top-left anchor).
----@param doc Watchdog.StoreDocument
+---@param doc Watchdog.Bucket
 ---@return number|nil x
 ---@return number|nil y
 function Store.GetInfoBoxAnchor(doc)
@@ -149,147 +361,11 @@ function Store.GetInfoBoxAnchor(doc)
     return a.x, a.y
 end
 
----@param doc Watchdog.StoreDocument
----@param name string
----@return integer|nil  # array index of the entry with that name, or nil if absent
-local function indexOf(doc, name)
-    for i, entry in ipairs(doc.graphs or {}) do
-        if entry.name == name then return i end
-    end
-    return nil
-end
-
--- Normalizes any stored/passed enabled value to a strict boolean, treating nil (a pre-#27
--- entry, or an omitted argument already resolved by the caller) as enabled.
----@param enabled boolean|nil
----@return boolean
-local function normalizeEnabled(enabled)
-    return enabled ~= false
-end
-
----@param name string
----@param graph LibNodeGraph.Graph            # a live graph; serialized into the entry here
----@param layout Watchdog.Layout|nil
----@param enabled boolean|nil
----@return Watchdog.StoredGraphEntry
-local function buildEntry(name, graph, layout, enabled)
-    return {
-        name = name,
-        graph = LibNodeGraph.Serialize(graph),
-        layout = layoutToArray(layout),
-        enabled = normalizeEnabled(enabled),
-    }
-end
-
--- Inserts or replaces the named graph entry and marks it the current one. Mutates and
--- returns `doc`. `enabled` is optional: when omitted (nil) an existing entry keeps its current
--- flag — so the editor autosave loop, which re-upserts the current graph without knowing its
--- enabled state, never silently re-arms an alert the user disabled — and a brand-new entry
--- defaults to enabled.
----@param doc Watchdog.StoreDocument
----@param name string
----@param graph LibNodeGraph.Graph
----@param layout Watchdog.Layout|nil
----@param enabled boolean|nil                 # omit to preserve an existing entry's flag
----@return Watchdog.StoreDocument doc          # the same doc, mutated in place
-function Store.UpsertCurrent(doc, name, graph, layout, enabled)
-    doc.graphs = doc.graphs or {}
-    local i = indexOf(doc, name)
-    if enabled == nil then
-        -- Preserve the existing flag (may be false — can't use `x and y or z` here), default
-        -- true for a new entry.
-        if i ~= nil then enabled = doc.graphs[i].enabled else enabled = true end
-    end
-    local entry = buildEntry(name, graph, layout, enabled)
-    if i ~= nil then
-        doc.graphs[i] = entry
-    else
-        doc.graphs[#doc.graphs + 1] = entry
-    end
-    doc.current = name
-    return doc
-end
-
--- Flips a saved entry's enabled flag in place (the runtime's persistence hook for
--- SetEnabled/Toggle). Returns true if the named entry existed, false otherwise (a stale name,
--- e.g. after a rename — accepted per #27). Does not persist; the caller runs Store.Save.
----@param doc Watchdog.StoreDocument
----@param name string
----@param enabled boolean
----@return boolean  # true if an entry with that name existed and was updated
-function Store.SetEnabled(doc, name, enabled)
-    local i = indexOf(doc, name)
-    if i == nil then return false end
-    doc.graphs[i].enabled = normalizeEnabled(enabled)
-    return true
-end
-
--- Rebuilds a live Graph + Layout from the named entry (defaults to doc.current).
--- Returns graph, layout, name, enabled — or a lone nil if there's no such entry to restore.
----@param doc Watchdog.StoreDocument
----@param registry LibNodeGraph.Registry
----@param name string|nil                    # entry to restore; defaults to doc.current
----@return LibNodeGraph.Graph|nil graph       # nil (and nothing else) when no entry matched
----@return Watchdog.Layout|nil layout
----@return string|nil name
----@return boolean|nil enabled
-function Store.Restore(doc, registry, name)
-    name = name or doc.current
-    if name == nil then return nil end
-    local i = indexOf(doc, name)
-    if i == nil then return nil end
-    local entry = doc.graphs[i]
-    -- Lenient deserialize (#53): an unregistered node type — usually a dependency plugin that
-    -- didn't load — becomes an inert `__unknown__` placeholder that round-trips losslessly and
-    -- restores once the type returns, instead of taking down the whole alert.
-    local graph = LibNodeGraph.Deserialize(entry.graph, registry, { onUnknown = "placeholder" })
-    return graph, layoutFromArray(entry.layout), entry.name, normalizeEnabled(entry.enabled)
-end
-
--- Rebuilds *every* saved graph into a live instance (#27: all saved graphs instantiate live at
--- startup, not just the current one, so triggers in every enabled alert fire). Returns an array
--- of { name, graph, layout, enabled } in stored order. Deserialize is lenient (#53): an
--- unregistered node type no longer drops the alert — it loads as an inert placeholder (see
--- Store.Restore). The pcall stays purely as a backstop for a genuinely corrupt document (e.g.
--- `graphs`/`nodes` not a table), so one malformed entry can't take the others down.
----@param doc Watchdog.StoreDocument
----@param registry LibNodeGraph.Registry
----@return Watchdog.RestoredAlert[]  # one live alert per restorable entry, in stored order
-function Store.RestoreAll(doc, registry)
-    local restored = {}
-    for _, entry in ipairs((doc or {}).graphs or {}) do
-        local ok, graph = pcall(function()
-            return LibNodeGraph.Deserialize(entry.graph, registry, { onUnknown = "placeholder" })
-        end)
-        if ok and graph ~= nil then
-            restored[#restored + 1] = {
-                name = entry.name,
-                graph = graph,
-                layout = layoutFromArray(entry.layout),
-                enabled = normalizeEnabled(entry.enabled),
-            }
-        elseif log ~= nil then
-            log("Watchdog: skipping unrestorable graph '" .. tostring(entry.name) .. "' — " .. tostring(graph))
-        end
-    end
-    return restored
-end
-
----@param doc Watchdog.StoreDocument
----@return string[]  # every saved graph's name, in stored order
-function Store.ListNames(doc)
-    local names = {}
-    for _, entry in ipairs((doc or {}).graphs or {}) do
-        names[#names + 1] = entry.name
-    end
-    return names
-end
-
 --- persistentdb I/O -----------------------------------------------------------------------
 
--- Encodes the whole document to its JSON string. Exposed so a caller can cheaply diff the
--- current document against the last-saved string before deciding to persist.
----@param doc Watchdog.StoreDocument
+-- Encodes the whole bucket to its JSON string. Exposed so a caller can cheaply diff the current
+-- document against the last-saved string before deciding to persist.
+---@param doc Watchdog.Bucket
 ---@return string|nil  # the JSON text, or nil if no codec is available / encoding failed
 function Store.Encode(doc)
     local c = codec()
@@ -299,9 +375,11 @@ function Store.Encode(doc)
     return nil
 end
 
--- Reads the saved document, or an empty one if there's nothing saved / it can't be parsed.
--- Never returns nil, so callers always get a document to upsert into.
----@return Watchdog.StoreDocument  # the same shape Store.Save persists (the round-trip contract)
+-- Reads the saved `global` bucket, or an empty one when there's nothing saved / it can't be
+-- parsed. Never returns nil, so callers always get a document to work on. An absent key is a
+-- fresh install here; the #87 migration slots its legacy `watchdog_graphs` hop in ahead of the
+-- empty fallback.
+---@return Watchdog.Bucket  # the same shape Store.Save persists (the round-trip contract)
 function Store.Load()
     if PersistentDB == nil then return Store.Empty() end
     local text
@@ -311,22 +389,22 @@ function Store.Load()
     if c == nil then return Store.Empty() end
     local ok, doc = pcall(function() return c.decode(text) end)
     if not ok or type(doc) ~= "table" then
-        if log ~= nil then log("Watchdog: saved graphs unreadable, starting fresh — " .. tostring(doc)) end
+        if log ~= nil then log("Watchdog: saved bucket unreadable, starting fresh — " .. tostring(doc)) end
         return Store.Empty()
     end
     doc.version = doc.version or DOC_VERSION
-    doc.graphs = doc.graphs or {}
+    doc.entries = doc.entries or {}
     return doc
 end
 
--- Persists the document as one JSON string. Returns true on success.
----@param doc Watchdog.StoreDocument  # the same shape Store.Load returns (the round-trip contract)
+-- Persists the bucket as one JSON string under the `global` key. Returns true on success.
+---@param doc Watchdog.Bucket  # the same shape Store.Load returns (the round-trip contract)
 ---@return boolean  # true if the document was encoded and written
 function Store.Save(doc)
     if PersistentDB == nil then return false end
     local text = Store.Encode(doc)
     if text == nil then
-        if log ~= nil then log("Watchdog: failed to encode graphs for save") end
+        if log ~= nil then log("Watchdog: failed to encode bucket for save") end
         return false
     end
     local ok = pcall(function() PersistentDB:SetString(DB_KEY, text) end)

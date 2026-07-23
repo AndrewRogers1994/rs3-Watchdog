@@ -1,7 +1,7 @@
--- Exercises store.lua's document (de)serialization, focused on the alert-model change (#27):
--- each saved graph entry carries a persistent `enabled` flag that survives a serialize ->
--- persist -> load round-trip, defaults to true when absent (older saves), and is preserved by
--- UpsertCurrent when the caller (the editor autosave path) doesn't pass one.
+-- Exercises store.lua's `global` Bucket + Entry-tree model (#86): the tree helpers (mint id,
+-- walk leaves, find/insert/delete by id — all id-keyed, name-agnostic), the id-keyed mutators
+-- (SetEnabled, UpdateAlertGraph), RestoreAll over alert leaves, and the persistence round-trip
+-- under the un-prefixed `global` key.
 --
 -- store.lua reaches its dependencies as globals — `LibNodeGraph` (Serialize/Deserialize/Json)
 -- and `PersistentDB`. Neither exists under the bare interpreter, so this suite stands both up:
@@ -56,105 +56,298 @@ local function graphWithOneNode(registry)
     return graph
 end
 
--- Full round-trip helper: build a doc, save it through the fake DB, then Load a fresh copy.
+-- Mints an id, builds an alert Entry from a fresh one-node graph, and inserts it at `parentId`
+-- (root when nil). Returns the minted id so a test can target the entry afterwards.
+local function seedAlert(self, doc, name, enabled, parentId)
+    local id = Store.MintId(doc)
+    Store.InsertEntry(doc, Store.NewAlertEntry(id, name, graphWithOneNode(self.registry), {}, enabled), parentId)
+    return id
+end
+
+-- Full round-trip helper: save a doc through the fake DB, then Load a fresh copy.
 local function saveAndReload(doc)
     luaunit.assertTrue(Store.Save(doc))
     return Store.Load()
 end
 
---- enabled flag: default, persistence, and both explicit values ---------------------------
+--- Bucket shape: version 2, un-prefixed `global` key --------------------------------------
 
-function TestStore:testNewEntryDefaultsEnabledTrue()
+function TestStore:testEmptyBucketIsVersion2WithNoEntries()
     local doc = Store.Empty()
-    Store.UpsertCurrent(doc, "alpha", graphWithOneNode(self.registry), {})
-    luaunit.assertEquals(doc.graphs[1].enabled, true)
+    luaunit.assertEquals(doc.version, 2)
+    luaunit.assertEquals(doc.entries, {})
+    luaunit.assertNil(doc.infoboxAnchor)
 end
 
-function TestStore:testEnabledTrueSurvivesRoundTrip()
+function TestStore:testSaveWritesUnderUnprefixedGlobalKey()
     local doc = Store.Empty()
-    Store.UpsertCurrent(doc, "alpha", graphWithOneNode(self.registry), {}, true)
+    seedAlert(self, doc, "alpha", true)
+    Store.Save(doc)
+
+    -- The key is plain `global` — no `watchdog_` prefix (PersistentDB is already plugin-scoped).
+    luaunit.assertNotNil(PersistentDB.data["global"])
+    luaunit.assertNil(PersistentDB.data["watchdog_graphs"])
+end
+
+function TestStore:testLoadOnFreshInstallIsEmptyBucket()
+    -- No `global` key written yet: a fresh install loads an empty version-2 bucket.
+    local doc = Store.Load()
+    luaunit.assertEquals(doc.version, 2)
+    luaunit.assertEquals(doc.entries, {})
+end
+
+function TestStore:testBucketRoundTripsVersionEntriesAndAnchor()
+    local doc = Store.Empty()
+    seedAlert(self, doc, "alpha", true)
+    Store.SetInfoBoxAnchor(doc, 12, 34)
 
     local reloaded = saveAndReload(doc)
 
-    luaunit.assertEquals(reloaded.graphs[1].name, "alpha")
-    luaunit.assertEquals(reloaded.graphs[1].enabled, true)
+    luaunit.assertEquals(reloaded.version, 2)
+    luaunit.assertEquals(#reloaded.entries, 1)
+    luaunit.assertEquals(reloaded.entries[1].name, "alpha")
+    local x, y = Store.GetInfoBoxAnchor(reloaded)
+    luaunit.assertEquals({ x, y }, { 12, 34 })
 end
 
-function TestStore:testEnabledFalseSurvivesRoundTrip()
-    local doc = Store.Empty()
-    Store.UpsertCurrent(doc, "alpha", graphWithOneNode(self.registry), {}, false)
+--- Entry-tree helpers: MintId ------------------------------------------------------------
 
-    local reloaded = saveAndReload(doc)
-
-    luaunit.assertEquals(reloaded.graphs[1].enabled, false)
+function TestStore:testMintIdStartsAtOneOnEmptyTree()
+    luaunit.assertEquals(Store.MintId(Store.Empty()), 1)
 end
 
--- Older saves predate the flag; Restore/RestoreAll must treat a missing `enabled` as true so a
--- pre-#27 document keeps firing after upgrade rather than loading silently disabled.
-function TestStore:testMissingEnabledRestoresAsTrue()
+function TestStore:testMintIdIsMaxPlusOneAcrossTheWholeTree()
     local doc = Store.Empty()
-    Store.UpsertCurrent(doc, "alpha", graphWithOneNode(self.registry), {})
-    doc.graphs[1].enabled = nil -- simulate a document written before the flag existed
+    -- Nest so the max id lives inside a group, proving mint walks the whole tree, not just root.
+    local group = Store.NewGroupEntry(5, "g", true, {})
+    Store.InsertEntry(doc, group)
+    Store.InsertEntry(doc, Store.NewAlertEntry(9, "deep", graphWithOneNode(self.registry), {}, true), 5)
+    Store.InsertEntry(doc, Store.NewAlertEntry(3, "shallow", graphWithOneNode(self.registry), {}, true))
 
-    local restored = Store.RestoreAll(doc, self.registry)
-
-    luaunit.assertEquals(#restored, 1)
-    luaunit.assertEquals(restored[1].enabled, true)
+    luaunit.assertEquals(Store.MintId(doc), 10)
 end
 
---- UpsertCurrent preserves the flag when the caller doesn't pass one ----------------------
-
--- The editor autosave path (main.lua persistNow) re-upserts the current graph every couple of
--- seconds without knowing its enabled state. That must not silently re-arm an alert the user
--- disabled — an omitted `enabled` preserves whatever the entry already had.
-function TestStore:testUpsertPreservesExistingEnabledWhenOmitted()
+function TestStore:testMintThenInsertYieldsUniqueIds()
     local doc = Store.Empty()
-    Store.UpsertCurrent(doc, "alpha", graphWithOneNode(self.registry), {}, false)
-
-    -- Re-save the same graph as the autosave loop would, passing no enabled argument.
-    Store.UpsertCurrent(doc, "alpha", graphWithOneNode(self.registry), {})
-
-    luaunit.assertEquals(doc.graphs[1].enabled, false)
+    local a = seedAlert(self, doc, "a", true)
+    local b = seedAlert(self, doc, "b", true)
+    luaunit.assertNotEquals(a, b)
 end
 
---- SetEnabled: the runtime's persistence hook --------------------------------------------
+--- Entry-tree helpers: Leaves (alert leaves, tree order) ----------------------------------
 
-function TestStore:testSetEnabledFlipsExistingEntry()
+function TestStore:testLeavesReturnsOnlyAlertsInTreeOrder()
     local doc = Store.Empty()
-    Store.UpsertCurrent(doc, "alpha", graphWithOneNode(self.registry), {}, true)
+    seedAlert(self, doc, "root-alert", true)
+    local groupId = Store.MintId(doc)
+    Store.InsertEntry(doc, Store.NewGroupEntry(groupId, "group", true, {}))
+    seedAlert(self, doc, "nested-alert", true, groupId)
 
-    luaunit.assertTrue(Store.SetEnabled(doc, "alpha", false))
-    luaunit.assertEquals(doc.graphs[1].enabled, false)
+    local leaves = Store.Leaves(doc)
+
+    -- Pre-order: root alert, then the group's nested alert. The group itself is not a leaf.
+    luaunit.assertEquals(#leaves, 2)
+    luaunit.assertEquals(leaves[1].name, "root-alert")
+    luaunit.assertEquals(leaves[2].name, "nested-alert")
 end
 
-function TestStore:testSetEnabledReturnsFalseForUnknownName()
+--- Entry-tree helpers: FindById ----------------------------------------------------------
+
+function TestStore:testFindByIdLocatesEntryWithSiblingsAndIndex()
     local doc = Store.Empty()
-    luaunit.assertFalse(Store.SetEnabled(doc, "ghost", true))
+    local a = seedAlert(self, doc, "a", true)
+    local b = seedAlert(self, doc, "b", true)
+
+    local entry, siblings, index = Store.FindById(doc, b)
+    luaunit.assertEquals(entry.name, "b")
+    luaunit.assertEquals(siblings, doc.entries)
+    luaunit.assertEquals(index, 2)
+    luaunit.assertEquals(a, doc.entries[1].id) -- sanity: a is first
+end
+
+function TestStore:testFindByIdReachesNestedEntries()
+    local doc = Store.Empty()
+    local groupId = Store.MintId(doc)
+    Store.InsertEntry(doc, Store.NewGroupEntry(groupId, "group", true, {}))
+    local nestedId = seedAlert(self, doc, "nested", true, groupId)
+
+    local entry, siblings, index = Store.FindById(doc, nestedId)
+    luaunit.assertEquals(entry.name, "nested")
+    luaunit.assertEquals(index, 1)
+    luaunit.assertEquals(siblings, doc.entries[1].children)
+end
+
+function TestStore:testFindByIdReturnsNilForUnknownId()
+    luaunit.assertNil(Store.FindById(Store.Empty(), 999))
+end
+
+--- Entry-tree helpers: InsertEntry -------------------------------------------------------
+
+function TestStore:testInsertAtRootAppends()
+    local doc = Store.Empty()
+    seedAlert(self, doc, "first", true)
+    seedAlert(self, doc, "second", true)
+    luaunit.assertEquals(doc.entries[1].name, "first")
+    luaunit.assertEquals(doc.entries[2].name, "second")
+end
+
+function TestStore:testInsertIntoGroupNestsUnderIt()
+    local doc = Store.Empty()
+    local groupId = Store.MintId(doc)
+    Store.InsertEntry(doc, Store.NewGroupEntry(groupId, "group", true, {}))
+
+    local childId = Store.MintId(doc)
+    luaunit.assertTrue(Store.InsertEntry(doc,
+        Store.NewAlertEntry(childId, "child", graphWithOneNode(self.registry), {}, true), groupId))
+    luaunit.assertEquals(#doc.entries, 1)
+    luaunit.assertEquals(doc.entries[1].children[1].name, "child")
+end
+
+function TestStore:testInsertIntoMissingParentFails()
+    local doc = Store.Empty()
+    local ok = Store.InsertEntry(doc, Store.NewAlertEntry(1, "x", graphWithOneNode(self.registry), {}, true), 999)
+    luaunit.assertFalse(ok)
+    luaunit.assertEquals(#doc.entries, 0)
+end
+
+function TestStore:testInsertIntoAlertFails()
+    -- An alert leaf is not a container; inserting into one must be refused, not silently nest.
+    local doc = Store.Empty()
+    local alertId = seedAlert(self, doc, "leaf", true)
+    local ok = Store.InsertEntry(doc, Store.NewAlertEntry(50, "x", graphWithOneNode(self.registry), {}, true), alertId)
+    luaunit.assertFalse(ok)
+end
+
+--- Entry-tree helpers: DeleteById --------------------------------------------------------
+
+function TestStore:testDeleteByIdRemovesRootEntry()
+    local doc = Store.Empty()
+    local a = seedAlert(self, doc, "a", true)
+    seedAlert(self, doc, "b", true)
+
+    local removed = Store.DeleteById(doc, a)
+    luaunit.assertEquals(removed.name, "a")
+    luaunit.assertEquals(#doc.entries, 1)
+    luaunit.assertEquals(doc.entries[1].name, "b")
+end
+
+function TestStore:testDeleteByIdRemovesNestedEntry()
+    local doc = Store.Empty()
+    local groupId = Store.MintId(doc)
+    Store.InsertEntry(doc, Store.NewGroupEntry(groupId, "group", true, {}))
+    local nestedId = seedAlert(self, doc, "nested", true, groupId)
+
+    luaunit.assertNotNil(Store.DeleteById(doc, nestedId))
+    luaunit.assertEquals(#doc.entries[1].children, 0)
+end
+
+function TestStore:testDeleteByIdTakesTheWholeSubtree()
+    local doc = Store.Empty()
+    local groupId = Store.MintId(doc)
+    Store.InsertEntry(doc, Store.NewGroupEntry(groupId, "group", true, {}))
+    seedAlert(self, doc, "nested", true, groupId)
+
+    -- Deleting the group removes its child alert with it — the leaf count drops to zero.
+    Store.DeleteById(doc, groupId)
+    luaunit.assertEquals(#doc.entries, 0)
+    luaunit.assertEquals(#Store.Leaves(doc), 0)
+end
+
+function TestStore:testDeleteByIdReturnsNilForUnknownId()
+    luaunit.assertNil(Store.DeleteById(Store.Empty(), 999))
+end
+
+--- Alert Entry construction: enabled default + shape -------------------------------------
+
+function TestStore:testNewAlertEntryDefaultsEnabledTrue()
+    local entry = Store.NewAlertEntry(1, "a", graphWithOneNode(self.registry), {})
+    luaunit.assertEquals(entry.kind, "alert")
+    luaunit.assertEquals(entry.enabled, true)
+    luaunit.assertNotNil(entry.graph)
+end
+
+function TestStore:testNewAlertEntryHonoursExplicitDisabled()
+    local entry = Store.NewAlertEntry(1, "a", graphWithOneNode(self.registry), {}, false)
+    luaunit.assertEquals(entry.enabled, false)
+end
+
+--- SetEnabled by id ----------------------------------------------------------------------
+
+function TestStore:testSetEnabledFlipsById()
+    local doc = Store.Empty()
+    local id = seedAlert(self, doc, "alpha", true)
+
+    luaunit.assertTrue(Store.SetEnabled(doc, id, false))
+    luaunit.assertEquals(Store.FindById(doc, id).enabled, false)
+end
+
+function TestStore:testSetEnabledIsNameAgnosticAcrossDuplicateNames()
+    -- Two alerts share a name; SetEnabled keys on id, so it touches only the targeted one.
+    local doc = Store.Empty()
+    local a = seedAlert(self, doc, "dup", true)
+    local b = seedAlert(self, doc, "dup", true)
+
+    Store.SetEnabled(doc, a, false)
+    luaunit.assertEquals(Store.FindById(doc, a).enabled, false)
+    luaunit.assertEquals(Store.FindById(doc, b).enabled, true)
+end
+
+function TestStore:testSetEnabledReturnsFalseForUnknownId()
+    luaunit.assertFalse(Store.SetEnabled(Store.Empty(), 999, true))
 end
 
 function TestStore:testSetEnabledPersistsThroughRoundTrip()
     local doc = Store.Empty()
-    Store.UpsertCurrent(doc, "alpha", graphWithOneNode(self.registry), {}, true)
-    Store.SetEnabled(doc, "alpha", false)
+    local id = seedAlert(self, doc, "alpha", true)
+    Store.SetEnabled(doc, id, false)
 
     local reloaded = saveAndReload(doc)
-
-    luaunit.assertEquals(reloaded.graphs[1].enabled, false)
+    luaunit.assertEquals(Store.FindById(reloaded, id).enabled, false)
 end
 
---- RestoreAll: every saved graph comes back live, in order, with its flag -----------------
+--- UpdateAlertGraph by id (the editor autosave path) -------------------------------------
 
-function TestStore:testRestoreAllReturnsEveryGraphLiveWithFlag()
+function TestStore:testUpdateAlertGraphRewritesGraphById()
     local doc = Store.Empty()
-    Store.UpsertCurrent(doc, "alpha", graphWithOneNode(self.registry), {}, true)
-    Store.UpsertCurrent(doc, "beta", graphWithOneNode(self.registry), {}, false)
+    local id = seedAlert(self, doc, "alpha", true)
+
+    -- Rebuild with a two-node graph and push it back under the same id.
+    local graph = graphWithOneNode(self.registry)
+    graph:AddNode("fixture.trigger")
+    luaunit.assertTrue(Store.UpdateAlertGraph(doc, id, graph, {}))
+
+    local reloaded = saveAndReload(doc)
+    local restored = Store.RestoreAll(reloaded, self.registry)
+    luaunit.assertEquals(#restored[1].graph:GetNodes(), 2)
+end
+
+function TestStore:testUpdateAlertGraphPreservesEnabled()
+    -- Autosave must not re-arm an alert the user disabled — it only touches graph + layout.
+    local doc = Store.Empty()
+    local id = seedAlert(self, doc, "alpha", false)
+    Store.UpdateAlertGraph(doc, id, graphWithOneNode(self.registry), {})
+    luaunit.assertEquals(Store.FindById(doc, id).enabled, false)
+end
+
+function TestStore:testUpdateAlertGraphReturnsFalseForUnknownId()
+    luaunit.assertFalse(Store.UpdateAlertGraph(Store.Empty(), 999, graphWithOneNode(self.registry), {}))
+end
+
+--- RestoreAll: every alert leaf comes back live, in tree order, with id + flag ------------
+
+function TestStore:testRestoreAllReturnsEveryLeafLiveWithIdAndFlag()
+    local doc = Store.Empty()
+    local a = seedAlert(self, doc, "alpha", true)
+    local b = seedAlert(self, doc, "beta", false)
 
     local reloaded = saveAndReload(doc)
     local restored = Store.RestoreAll(reloaded, self.registry)
 
     luaunit.assertEquals(#restored, 2)
+    luaunit.assertEquals(restored[1].id, a)
     luaunit.assertEquals(restored[1].name, "alpha")
     luaunit.assertEquals(restored[1].enabled, true)
+    luaunit.assertEquals(restored[2].id, b)
     luaunit.assertEquals(restored[2].name, "beta")
     luaunit.assertEquals(restored[2].enabled, false)
     -- Each entry carries a live, usable Graph (not the serialized table).
@@ -162,17 +355,39 @@ function TestStore:testRestoreAllReturnsEveryGraphLiveWithFlag()
     luaunit.assertEquals(#restored[2].graph:GetNodes(), 1)
 end
 
---- Unknown-node preservation (#53): a saved alert with an unregistered type loads as a -----
+function TestStore:testRestoreAllWalksNestedAlertLeaves()
+    local doc = Store.Empty()
+    local groupId = Store.MintId(doc)
+    Store.InsertEntry(doc, Store.NewGroupEntry(groupId, "group", true, {}))
+    seedAlert(self, doc, "nested", true, groupId)
+
+    local restored = Store.RestoreAll(doc, self.registry)
+    luaunit.assertEquals(#restored, 1)
+    luaunit.assertEquals(restored[1].name, "nested")
+end
+
+-- Older/hand-built entries may omit `enabled`; RestoreAll must treat a missing flag as enabled.
+function TestStore:testMissingEnabledRestoresAsTrue()
+    local doc = Store.Empty()
+    local id = seedAlert(self, doc, "alpha", true)
+    Store.FindById(doc, id).enabled = nil -- simulate an entry written without the flag
+
+    local restored = Store.RestoreAll(doc, self.registry)
+    luaunit.assertEquals(restored[1].enabled, true)
+end
+
+--- Unknown-node preservation (#53): an alert with an unregistered type loads as a ---------
 --- placeholder rather than being skipped, and round-trips losslessly while the type is absent.
 
--- A stored entry whose graph references a type the reload registry won't have: a known trigger
--- (node 1) wired into an unknown `action.overlay` (node 2). Built as the on-disk serialized
--- shape directly, since the point is that node 2's type is never registered.
-local function docWithUnknownNode()
+-- A stored bucket whose one alert references a type the reload registry won't have: a known
+-- trigger (node 1) wired into an unknown `action.overlay` (node 2). Built as the on-disk shape
+-- directly, since the point is that node 2's type is never registered.
+local function bucketWithUnknownNode()
     return {
-        version = 1,
-        current = "alpha",
-        graphs = { {
+        version = 2,
+        entries = { {
+            id = 1,
+            kind = "alert",
             name = "alpha",
             enabled = true,
             layout = {},
@@ -191,52 +406,45 @@ local function docWithUnknownNode()
 end
 
 function TestStore:testUnknownNodeLoadsAsPlaceholderNotSkipped()
-    local doc = docWithUnknownNode()
+    local restored = Store.RestoreAll(bucketWithUnknownNode(), self.registry)
 
-    local restored = Store.RestoreAll(doc, self.registry)
-
-    -- The alert is preserved, not dropped for its one unknown node.
     luaunit.assertEquals(#restored, 1)
     luaunit.assertEquals(restored[1].name, "alpha")
-    -- Both nodes come back: the known trigger and the placeholder standing in for the unknown.
     local nodes = restored[1].graph:GetNodes()
     luaunit.assertEquals(#nodes, 2)
     local byId = {}
     for _, n in ipairs(nodes) do byId[n.id] = n.typeKey end
     luaunit.assertEquals(byId[1], "fixture.trigger")
     luaunit.assertEquals(byId[2], LibNodeGraph.UNKNOWN_TYPE)
-    -- The wire into the placeholder survives (preserved verbatim).
     luaunit.assertEquals(#restored[1].graph:GetConnections(), 1)
 end
 
-function TestStore:testKnownNodesStillFireAlongsideAPlaceholder()
-    local doc = docWithUnknownNode()
-    local restored = Store.RestoreAll(doc, self.registry)
-    -- Firing the known trigger runs through the graph without the placeholder aborting it.
-    luaunit.assertEquals(restored[1].graph:Fire(1), nil)
-end
-
 function TestStore:testPlaceholderRoundTripsLosslesslyWhileTypeAbsent()
-    local first = Store.RestoreAll(docWithUnknownNode(), self.registry)[1]
+    local first = Store.RestoreAll(bucketWithUnknownNode(), self.registry)[1]
 
-    -- Re-persist the restored (placeholder-bearing) graph and reload it, exactly as the editor
-    -- autosave loop would — the unknown node must re-emit its ORIGINAL type + controls verbatim.
+    -- Re-persist the restored (placeholder-bearing) graph exactly as the editor autosave loop
+    -- would — the unknown node must re-emit its ORIGINAL type + controls verbatim.
     local doc = Store.Empty()
-    Store.UpsertCurrent(doc, first.name, first.graph, first.layout, first.enabled)
+    Store.InsertEntry(doc, Store.NewAlertEntry(first.id, first.name, first.graph, first.layout, first.enabled))
     local reloaded = saveAndReload(doc)
 
-    local entry = reloaded.graphs[1]
+    local entry = reloaded.entries[1]
     luaunit.assertEquals(entry.graph.nodes[2].type, "action.overlay")
     luaunit.assertEquals(entry.graph.nodes[2].controls.text, "hi")
 
-    -- And it still restores to a placeholder (regression: no double-wrapping / drift).
     local second = Store.RestoreAll(reloaded, self.registry)
     luaunit.assertEquals(#second[1].graph:GetNodes(), 2)
     luaunit.assertEquals(#second[1].graph:GetConnections(), 1)
 end
 
--- Once the missing type is registered again, the same saved document loads the REAL node with
--- its original controls + wiring — no placeholder remains.
+function TestStore:testKnownNodesStillFireAlongsideAPlaceholder()
+    local restored = Store.RestoreAll(bucketWithUnknownNode(), self.registry)
+    -- Firing the known trigger runs through the graph without the placeholder aborting it.
+    luaunit.assertEquals(restored[1].graph:Fire(1), nil)
+end
+
+-- Once the missing type is registered again, the same saved bucket loads the REAL node with its
+-- original controls + wiring — no placeholder remains.
 function TestStore:testPlaceholderRestoresToRealNodeWhenTypeReturns()
     self.registry:RegisterNodeType("action.overlay", {
         category = "action",
@@ -247,7 +455,7 @@ function TestStore:testPlaceholderRestoresToRealNodeWhenTypeReturns()
         run = function() end,
     })
 
-    local restored = Store.RestoreAll(docWithUnknownNode(), self.registry)
+    local restored = Store.RestoreAll(bucketWithUnknownNode(), self.registry)
 
     local nodes = restored[1].graph:GetNodes()
     luaunit.assertEquals(#nodes, 2)
@@ -260,9 +468,8 @@ end
 
 --- InfoBox Area anchor (#41) --------------------------------------------------------------
 
-function TestStore:testGetInfoBoxAnchorNilOnFreshDocument()
-    local doc = Store.Empty()
-    local x, y = Store.GetInfoBoxAnchor(doc)
+function TestStore:testGetInfoBoxAnchorNilOnFreshBucket()
+    local x, y = Store.GetInfoBoxAnchor(Store.Empty())
     luaunit.assertNil(x)
     luaunit.assertNil(y)
 end
@@ -271,8 +478,7 @@ function TestStore:testSetInfoBoxAnchorRoundTrips()
     local doc = Store.Empty()
     Store.SetInfoBoxAnchor(doc, 12, 34)
     local x, y = Store.GetInfoBoxAnchor(doc)
-    luaunit.assertEquals(x, 12)
-    luaunit.assertEquals(y, 34)
+    luaunit.assertEquals({ x, y }, { 12, 34 })
 end
 
 function TestStore:testInfoBoxAnchorSurvivesSaveAndLoad()
@@ -280,10 +486,8 @@ function TestStore:testInfoBoxAnchorSurvivesSaveAndLoad()
     Store.SetInfoBoxAnchor(doc, 12, 34)
 
     local reloaded = saveAndReload(doc)
-
     local x, y = Store.GetInfoBoxAnchor(reloaded)
-    luaunit.assertEquals(x, 12)
-    luaunit.assertEquals(y, 34)
+    luaunit.assertEquals({ x, y }, { 12, 34 })
 end
 
 return TestStore

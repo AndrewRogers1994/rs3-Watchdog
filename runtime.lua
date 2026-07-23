@@ -15,6 +15,12 @@
 -- `Runtime:SetEnabled`/`Toggle` flip it in O(1) without tearing down the graph, and persist it
 -- through the injected persistence hook (`Runtime:SetPersistence`, wired to the Store).
 --
+-- Each alert carries an Entry `id` (its persistence identity, #86) and a `name` (free-text, and
+-- *not* unique). The Alert Toggle node targets by name, so `SetEnabled`/`Toggle` map a name to
+-- *every* matching alert and act on all of them: SetEnabled sets each match to the given state;
+-- Toggle flips each match independently (a mixed set stays mixed-but-inverted — there is no shared
+-- per-name state). Persistence is keyed by the entry `id`, one write per affected alert.
+--
 -- The event source is injectable (`Runtime.new(eventSource)`, defaults to the client `Event`
 -- global) so tests can feed synthetic events through a fake source instead.
 --
@@ -64,7 +70,9 @@ function Runtime.new(eventSource, mouseSource)
         mouseSource = mouseSource or Mouse,
         -- Every saved graph instantiates live as an "alert" (#27); the dispatcher fans out over
         -- *all* of them, not just the one the editor is viewing. `alerts` is the ordered list of
-        -- { name, graph, enabled }; `_alertsByName` indexes it for O(1) SetEnabled/Toggle.
+        -- { id, name, graph, enabled }. `_alertsByName` indexes it for name-targeted
+        -- SetEnabled/Toggle — but names aren't unique (#86), so each value is a *list* of every
+        -- alert sharing that name, and both APIs act on the whole list.
         alerts = {},
         _alertsByName = {},
         _persistence = nil,
@@ -159,18 +167,29 @@ end
 
 -- Registers a live graph as an alert the dispatcher fans out over. `enabled` defaults to true;
 -- a disabled alert stays live (its nodes are never torn down) but has its triggers suppressed at
--- fire time, so toggling it back on is O(1) and lossless. `name` may be nil for an anonymous
--- alert (it just can't be targeted by SetEnabled/Toggle then). A duplicate name replaces the
--- prior entry's index binding (last wins), matching the Store's name-keyed model.
+-- fire time, so toggling it back on is O(1) and lossless. `id` is the Entry identity persistence
+-- keys on (#86); `name` is free-text display used only for name-targeted SetEnabled/Toggle and
+-- may be nil (anonymous — untargetable) or shared with other alerts (names aren't unique, so a
+-- duplicate name *appends* to that name's match list rather than replacing).
 --
 -- Also runs the generalized `preload(node)` node-type hook (#33) over every node already in the
 -- graph — this is the "graph-restore" call site: main.lua adds every restored alert exactly
 -- once at startup, through this same method, so no separate restore-time pass is needed.
-function Runtime:AddAlert(name, graph, enabled)
-    local alert = { name = name, graph = graph, enabled = enabled ~= false }
+---@param id integer|nil
+---@param name string|nil
+---@param graph LibNodeGraph.Graph|nil
+---@param enabled boolean|nil
+---@return { id: integer|nil, name: string|nil, graph: LibNodeGraph.Graph|nil, enabled: boolean }
+function Runtime:AddAlert(id, name, graph, enabled)
+    local alert = { id = id, name = name, graph = graph, enabled = enabled ~= false }
     self.alerts[#self.alerts + 1] = alert
     if name ~= nil then
-        self._alertsByName[name] = alert
+        local matches = self._alertsByName[name]
+        if matches == nil then
+            matches = {}
+            self._alertsByName[name] = matches
+        end
+        matches[#matches + 1] = alert
     end
     self:PreloadGraph(graph)
     return alert
@@ -230,45 +249,67 @@ function Runtime:SetGraph(graph)
     self.alerts = {}
     self._alertsByName = {}
     if graph ~= nil then
-        self:AddAlert(nil, graph, true)
+        self:AddAlert(nil, nil, graph, true)
     end
 end
 
 -- Injects the persistence hook the alert-enable API writes through: an object exposing
--- `SetEnabled(name, enabled)` (main.lua wires it to Store.SetEnabled + Store.Save; tests pass a
--- fake that records calls). Kept as a seam so the runtime's dispatch logic never touches the
--- client PersistentDB directly.
+-- `SetEnabled(id, enabled)` (main.lua wires it to Store.SetEnabled + Store.Save; tests pass a
+-- fake that records calls). Keyed by the Entry `id` (#86), since names aren't unique. Kept as a
+-- seam so the runtime's dispatch logic never touches the client PersistentDB directly.
 function Runtime:SetPersistence(persistence)
     self._persistence = persistence
 end
 
--- Enables or disables the named alert and persists the flag. Targets by free-text name (any
--- graph may toggle any alert, including itself; a stale name after a rename is an accepted no-op
--- on the in-memory side, #27). Returns true if a live alert of that name existed. Persistence is
--- attempted regardless, so the on-disk flag can be corrected even if no live alert matches.
-function Runtime:SetEnabled(name, enabled)
-    enabled = enabled and true or false
-    local alert = self._alertsByName[name]
-    if alert ~= nil then
-        alert.enabled = enabled
-    end
+-- Persists one alert's enabled flag through the injected hook, keyed by its Entry id. A no-op for
+-- an anonymous alert (id nil) or when no persistence is wired. Called once per affected alert, so
+-- a multi-match SetEnabled/Toggle writes each matching alert's flag exactly like a single one does.
+---@param id integer|nil
+---@param enabled boolean
+function Runtime:_persistEnabled(id, enabled)
+    if id == nil then return end
     if self._persistence ~= nil and self._persistence.SetEnabled ~= nil then
-        callOrLog("persistence SetEnabled for '" .. tostring(name) .. "'",
-            self._persistence.SetEnabled, name, enabled)
+        callOrLog("persistence SetEnabled for id '" .. tostring(id) .. "'",
+            self._persistence.SetEnabled, id, enabled)
     end
-    return alert ~= nil
 end
 
--- Flips the named alert's enabled flag (and persists it). Returns the new enabled state, or nil
--- if no live alert of that name exists (nothing to flip).
+-- Enables or disables *every* alert sharing `name` and persists each. Targets by free-text name
+-- (any graph may toggle any alert, including itself; a stale name after a rename matches nothing —
+-- an accepted no-op, #27). Because names aren't unique (#86), a name may name several alerts and
+-- all are set to `enabled`. Returns true if at least one live alert matched. With no match there's
+-- no Entry id to key persistence on, so nothing is written.
+---@param name string
+---@param enabled boolean
+---@return boolean  # true if at least one live alert of that name existed
+function Runtime:SetEnabled(name, enabled)
+    enabled = enabled and true or false
+    local matches = self._alertsByName[name]
+    if matches == nil or #matches == 0 then
+        return false
+    end
+    for _, alert in ipairs(matches) do
+        alert.enabled = enabled
+        self:_persistEnabled(alert.id, enabled)
+    end
+    return true
+end
+
+-- Flips the enabled flag of *every* alert sharing `name`, each independently (so a mix of on/off
+-- alerts stays mixed-but-inverted — there is no shared per-name state), and persists each. Returns
+-- the number of alerts flipped, or nil if no live alert of that name exists (nothing to flip).
+---@param name string
+---@return integer|nil  # count of alerts flipped, or nil if none matched
 function Runtime:Toggle(name)
-    local alert = self._alertsByName[name]
-    if alert == nil then
+    local matches = self._alertsByName[name]
+    if matches == nil or #matches == 0 then
         return nil
     end
-    local newEnabled = not alert.enabled
-    self:SetEnabled(name, newEnabled)
-    return newEnabled
+    for _, alert in ipairs(matches) do
+        alert.enabled = not alert.enabled
+        self:_persistEnabled(alert.id, alert.enabled)
+    end
+    return #matches
 end
 
 -- Registers a trigger node type's event binding(s). `entries` is a list of

@@ -39,15 +39,16 @@ preserves node ids across serialize/deserialize.
 _Avoid_: Positions (as a concept name), coordinates, placement, arrangement
 
 **Store**:
-Watchdog's persistence backend (`store.lua`): saves and restores graphs via `PersistentDB`.
-LibNodeGraph never persists (it owns only tables/strings, ADR-0007); the Store is the
-consumer half. It bundles the engine's serialized structure with the UI-only Layout and View
-into one document and writes it as a single JSON string. Multi-graph from the start — the
-document holds an array of named graph entries plus a `current` pointer — even though the
-Editor shows only the current one and there is no new/switch-graph UI yet.
-_(Target model: the single multi-graph document becomes per-Scope **Buckets** of an **Entry**
-tree — see the Alert Manager section — and the persisted `current` pointer is dropped (#80). The
-description here is the current state until the migration (#81) lands.)_
+Watchdog's persistence backend (`store.lua`): saves and restores alerts via `PersistentDB`.
+LibNodeGraph never persists (it owns only tables/strings, ADR-0007); the Store is the consumer
+half. It bundles the engine's serialized structure with the UI-only Layout into each alert
+**Entry** and writes a whole Scope's **Entry** tree as one JSON string under its **Bucket** key
+(see the Alert Manager section). The `global` Bucket + Entry tree landed in #86; the persisted
+`current` pointer is gone (the editor binds the first alert until the Manager/#80 lands). Every
+Store operation keys on the Entry `id`, never name.
+_(Target model, not yet landed: per-character `player_<…>` Buckets (#89), Groups (#88), and the
+one-shot legacy migration from the old flat `watchdog_graphs` document (#87) — until #87, an
+existing pre-Bucket save is treated as a fresh install and reseeds the demo.)_
 _Avoid_: Database, save system, persistence layer (in prose), serializer (that's the engine's)
 
 **Capture Layer**:

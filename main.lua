@@ -126,10 +126,10 @@ require("nodes/actions/alert_toggle").Register(registry, runtime)
 -- runtime:PreloadNode after every Graph:SetControl for the control-commit pass.
 runtime:SetRegistry(registry)
 
---- Graph: restore the saved one, or seed a demo on first run -----------------------------
--- Persistence backend lives in store.lua (multi-graph, keyed by name). We only ever show
--- one graph today — the current one — but the store already saves many by name so the
--- future "new graph / switch graph" UI is purely additive.
+--- Graph: restore the saved alerts, or seed a demo on first run --------------------------
+-- Persistence backend lives in store.lua: the `global` Bucket, an Entry tree keyed by minted
+-- `id` (#86). Every alert leaf restores as a live alert; the editor opens the first one. The
+-- multi-alert Manager UI (and per-character buckets) build on this additively.
 
 -- The demo graph, built only when there's nothing saved yet: a small, deliberately varied
 -- graph so the Editor has real content — an event flow (Game Message -> Log, exec + data)
@@ -180,35 +180,27 @@ do
         log("Watchdog: RestoreAll failed, seeding demo — " .. tostring(all))
     end
     if #restored == 0 then
+        -- Fresh install (empty `global` bucket): seed the demo as a single root-level alert Entry.
         local graph, layout = seedDemo()
-        Store.UpsertCurrent(document, "default", graph, layout)
+        local id = Store.MintId(document)
+        Store.InsertEntry(document, Store.NewAlertEntry(id, "default", graph, layout, true))
         Store.Save(document)
-        restored = { { name = "default", graph = graph, layout = layout, enabled = true } }
+        restored = { { id = id, name = "default", graph = graph, layout = layout, enabled = true } }
     end
 end
 
--- Register each restored graph as a live alert the dispatcher fans out over. The editor edits
--- one of these same live instances (the current one), so its triggers fire mid-edit like the
+-- Register each restored alert as a live alert the dispatcher fans out over. The editor edits
+-- one of these same live instances (the first one), so its triggers fire mid-edit like the
 -- rest; the runtime checks `enabled` at fire time so a disabled alert stays live but silent.
 for _, alert in ipairs(restored) do
-    runtime:AddAlert(alert.name, alert.graph, alert.enabled)
+    runtime:AddAlert(alert.id, alert.name, alert.graph, alert.enabled)
 end
 
--- The name of the graph we're editing; every save writes back under this name. Prefer the saved
--- `current` pointer, falling back to the first restored alert.
-local currentName = document.current or restored[1].name
-
--- The editor shows the *current* alert — the very same live Graph instance the runtime holds for
--- it, so edits and trigger firing stay in sync. Fall back to the first alert if `current` is
--- stale (points at a name that didn't restore).
-local currentAlert
-for _, alert in ipairs(restored) do
-    if alert.name == currentName then currentAlert = alert; break end
-end
-if currentAlert == nil then
-    currentAlert = restored[1]
-    currentName = currentAlert.name
-end
+-- The editor opens the *first* alert (there is no persisted `current` pointer under the Bucket
+-- model — that's #80). Its live Graph instance is the very one the runtime holds for it, so edits
+-- and trigger firing stay in sync. `currentId` is the Entry id every autosave writes back under.
+local currentAlert = restored[1]
+local currentId = currentAlert.id
 
 local graph = currentAlert.graph
 local editor = Editor.new(graph, registry, currentAlert.layout, runtime)
@@ -217,8 +209,8 @@ local editor = Editor.new(graph, registry, currentAlert.layout, runtime)
 -- to the saved document and flush, so an alert toggled off (by the user or an Alert Toggle node,
 -- #35) stays off across reloads. Independent of the editor autosave loop below.
 runtime:SetPersistence({
-    SetEnabled = function(name, enabled)
-        Store.SetEnabled(document, name, enabled)
+    SetEnabled = function(id, enabled)
+        Store.SetEnabled(document, id, enabled)
         Store.Save(document)
     end,
 })
@@ -277,7 +269,7 @@ local SAVE_INTERVAL_TICKS = 100
 local saveState = { tick = 0, wasOpen = false, lastEncoded = Store.Encode(document) }
 
 local function persistNow()
-    Store.UpsertCurrent(document, currentName, editor.graph, editor:GetLayout())
+    Store.UpdateAlertGraph(document, currentId, editor.graph, editor:GetLayout())
     local encoded = Store.Encode(document)
     if encoded ~= nil and encoded ~= saveState.lastEncoded then
         if Store.Save(document) then
@@ -425,7 +417,7 @@ end
 
 api.editor = editor
 api.graph = graph
-api.document = document  -- the persisted multi-graph document, exposed for inspection
+api.document = document  -- the persisted `global` Bucket, exposed for inspection
 
 Event.Logic.Subscribe(Events.Logic, onLogic)
 Event.Draw.Subscribe(Events.Draw, onDraw)
