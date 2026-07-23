@@ -45,6 +45,9 @@ consumer half. It bundles the engine's serialized structure with the UI-only Lay
 into one document and writes it as a single JSON string. Multi-graph from the start — the
 document holds an array of named graph entries plus a `current` pointer — even though the
 Editor shows only the current one and there is no new/switch-graph UI yet.
+_(Target model: the single multi-graph document becomes per-Scope **Buckets** of an **Entry**
+tree — see the Alert Manager section — and the persisted `current` pointer is dropped (#80). The
+description here is the current state until the migration (#81) lands.)_
 _Avoid_: Database, save system, persistence layer (in prose), serializer (that's the engine's)
 
 **Capture Layer**:
@@ -192,6 +195,87 @@ input directly through the engine (`Graph:FireInput`), running the Node's `run` 
 had fired into that Pin — a live fire whose real side effects happen, for testing a Node in
 isolation without wiring a Trigger.
 _Avoid_: Run button, play button, trigger button
+
+## Alert Manager
+
+The management surface for **multiple** saved alerts and their player scoping — the layer above
+the single-alert Editor. Built from native `ui.*` components on a `ui.Panel` (ADR-0007), not the
+Editor's Canvas. This vocabulary was settled across the Alert Manager wayfinder map (#73); each
+term points at the ticket that fixed it.
+
+**Alert Manager**:
+The single management surface the F8 keybind and the LibPluginMenu button open: a **tab bar** of
+Scopes over a tree of Entries, each row carrying select / drag / enable / icon / name / rename /
+delete controls. Double-clicking an alert row navigates into the Editor; the two are separate
+surfaces, mounted once, with at most one visible at a time (#76, #78, #80).
+_Avoid_: Alert list, manager window, dashboard; the Editor (that is the Canvas graph surface)
+
+**Entry**:
+A node in a Scope's persisted tree — `kind = "alert" | "group"` — carrying a minted `id`. Identity
+is the `id`; **names carry no uniqueness constraint**, so every operation keys on `id`, never name.
+Ordering is array position within its parent's `children` (#75).
+_Avoid_: Item, record, row (that is an Entry's on-screen rendering); "graph entry" (legacy Store term)
+
+**Alert**:
+A leaf Entry (`kind = "alert"`) bundling one saved graph with its Layout and an `enabled` flag —
+the unit the Editor opens and the runtime fires (#75).
+_Avoid_: Graph (that is the engine model an Alert wraps), rule, trigger
+
+**Group**:
+A branch Entry (`kind = "group"`) with a `children` array of Entries (alerts and/or nested groups).
+Its `enabled` is an **inheritable master switch**: a disabled Group silences its whole subtree, so
+an Alert fires iff its own `enabled` AND every ancestor Group's `enabled` are true — the
+**enabled-chain** (#75).
+_Avoid_: Folder, category, section; "group" as a verb (that is bulk New-group, #82)
+
+**Bucket**:
+The per-Scope `PersistentDB` key holding one Scope's tree as `{ version, entries }`: one `global`
+bucket plus one `player_<normalized>` bucket per character. The `global` bucket also holds
+`infoboxAnchor` (the former `current` pointer is no longer persisted — see Level, #80). Keys carry
+**no `watchdog_` prefix** — `PersistentDB` is already plugin-scoped (#81). Scope is the Bucket, not
+a per-Entry field: changing an Entry's Scope moves its subtree across keys (#75, #77, #81).
+_Avoid_: Store slot, namespace, table; "partition" (that names the concept — see Scope)
+
+**Scope**:
+The partition a Bucket represents: `global`, or a single character keyed on `displayName`. Not a
+field on an Entry — an Entry's Scope is simply which Bucket holds it (#75, #77).
+_Avoid_: Profile, player field, owner, context
+
+**Active scope**:
+The Scope new Entries land in — the Manager's currently-selected tab; `global` when logged out. The
+selector offers **`global` + the current character only** (#77, #78).
+_Avoid_: Selected scope, focus; "current scope" (that word names the deleted Store pointer)
+
+**Armed** / **Resident**:
+Two independent runtime states of a loaded Bucket. **Resident** = loaded in memory. **Armed** =
+eligible to fire: `global` is armed at plugin start and never disarmed; a character Bucket arms on
+the `GAME` transition when its `displayName` is unchanged and disarms (but stays resident) on
+leaving `GAME`. **Fire predicate: armed Bucket AND enabled-chain true — nothing else** (editor
+state and the Manager's selected Scope never gate firing) (#77).
+_Avoid_: Active / loaded (ambiguous between the two states), enabled (that is the per-Entry switch)
+
+**Level** / **bound entry**:
+The depth-1 navigation stack between Manager (root) and Editor. The **bound entry** is the `id` the
+Editor is currently bound to via `BindEntry` — **transient, never persisted** (it replaced the old
+persisted `current`, so a reload always lands on the Manager) (#80).
+_Avoid_: Current (the deleted persisted pointer), page, breadcrumb, depth
+
+**Selection**:
+The per-tab set of checked Entries a bulk action operates on. **Group-as-unit** and normalized to an
+**antichain** — checking a Group represents its whole subtree, no descendant is separately selected
+(so no tri-state checkbox) — over the visible flattened row order. Cleared when the visible list is
+replaced (scope switch, collapse); preserved across export and hide/show (#82).
+_Avoid_: Checked set, marked rows; "multi-select" (that names the gesture, not the resulting set)
+
+**Export / Import**:
+Transfer of Entries as a JSON envelope (`{ schemaVersion, pluginVersion, entries }`) through a
+single `ui.InputField` the user copies/pastes by hand — no clipboard API, and save-to-file is
+designed but disabled until a filesystem API exists (#79). Import is **append, never merge-by-name**.
+Every export shape (whole scope, single row, multi-select) passes a uniform **2,500-byte pre-flight
+guard**: serialize the envelope, measure its UTF-8 byte length, and refuse the entire export —
+exporting nothing — if it exceeds 2,500 (the `InputField` hard cap, #83); no chunking or compaction
+(#84).
+_Avoid_: Backup; "sync" (import is append, not sync); clipboard (no API); "serialize" (engine's word)
 
 ## Node domain
 
