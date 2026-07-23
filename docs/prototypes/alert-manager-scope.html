@@ -87,6 +87,26 @@
   .card-body{padding:8px;background:var(--viewport)}
   .card-body.collapsed{display:none}
 
+  /* ---- variant 4: tabs ---- */
+  .tabs .body{display:flex;flex-direction:column}
+  .tabbar{display:flex;gap:2px;padding:8px 8px 0;background:#191920;border-bottom:1px solid var(--row-border)}
+  .tab{display:flex;align-items:center;gap:7px;padding:8px 14px;font-size:12.5px;font-weight:600;cursor:pointer;
+    border:1px solid transparent;border-bottom:none;border-radius:6px 6px 0 0;color:var(--ink-dim);position:relative;top:1px;background:transparent}
+  .tab:hover{color:var(--ink);background:#20202a}
+  .tab.active{background:var(--viewport);color:var(--title);border-color:var(--row-border)}
+  .tab.active.global{box-shadow:inset 0 2px 0 var(--global)}
+  .tab.active.char{box-shadow:inset 0 2px 0 var(--char)}
+  .tab .tdot{width:8px;height:8px;border-radius:50%}
+  .tab .tdot.global{background:var(--global)} .tab .tdot.char{background:var(--char)}
+  .tab .tcount{font-weight:400;font-size:11px;color:var(--ink-dim)}
+  .tab.drop-tab{outline:2px dashed var(--accent);outline-offset:-2px;background:#2a2618;color:var(--accent)}
+  .tabs .tab-tools{display:flex;align-items:center;gap:6px;margin-left:auto;padding-right:4px}
+  .tabs .tab-tools button{height:22px;padding:0 8px;font-size:11px;border-radius:4px;cursor:pointer;
+    background:var(--row);border:1px solid var(--row-border);color:var(--ink)}
+  .tabs .tab-tools button:hover{background:var(--row-hot);border-color:var(--accent)}
+  .tab-panel{padding:10px;max-height:440px;overflow-y:auto}
+  .tab-sub{font-size:11px;color:var(--ink-dim);padding:0 2px 8px}
+
   /* ---- variant 3: split ---- */
   .split .body{display:flex;flex-direction:column;height:480px}
   .pane{display:flex;flex-direction:column;min-height:0}
@@ -112,6 +132,10 @@
   .row.group.sel{background:var(--row-sel)}
   .row.dragging{opacity:.35}
   .row.drop-into{outline:2px solid var(--accent);outline-offset:-2px}
+  .chk{width:15px;height:15px;border-radius:3px;border:1px solid #4a4a54;background:#181820;flex:none;cursor:pointer;
+    position:relative}
+  .chk.on{background:var(--accent);border-color:var(--accent)}
+  .chk.on::after{content:"✓";position:absolute;inset:0;color:#1a1a1e;font-size:11px;font-weight:800;text-align:center;line-height:15px}
   .handle{cursor:grab;color:var(--off);font-size:14px;width:12px;text-align:center;letter-spacing:-2px}
   .chev{width:14px;text-align:center;color:var(--ink-dim);font-size:10px;cursor:pointer;transition:transform .12s}
   .chev.collapsed{transform:rotate(-90deg)} .chev.leaf{visibility:hidden}
@@ -163,7 +187,8 @@
     <span class="lbl">Layout:</span>
     <button data-v="sections" onclick="setVariant('sections')">1 · Sticky sections</button>
     <button data-v="cards" onclick="setVariant('cards')">2 · Collapsible cards</button>
-    <button data-v="split" onclick="setVariant('split')">3 · Split panes</button>
+    <button data-v="tabs" onclick="setVariant('tabs')">3 · Tabbed scopes</button>
+    <button data-v="split" onclick="setVariant('split')">4 · Split panes</button>
     <span class="desc" id="vdesc"></span>
   </div>
 
@@ -191,12 +216,14 @@
       <h3>Live state — two buckets</h3>
       <pre id="state"></pre>
       <div class="hint">
-        <b>Scope is the bucket.</b> There's no <code>scope</code> field on an entry — an entry's scope
-        is <i>which bucket it sits in</i>. Moving it between <b>Global</b> and <b>Zezima</b> (drag across,
-        or the bulk button) is the only way to change scope. On disk that's a move across
-        <code>PersistentDB</code> keys.<br><br>
-        <b>enabled</b> ANDs up the chain (a disabled group greys its subtree). Try dragging an alert from
-        Global down into the character bucket.
+        <b>Ratified in #78 (tabbed layout):</b><br>
+        • <b>Double-click</b> an alert row → opens the graph editor; double-click a group → expand/collapse.<br>
+        • <b>+ Alert</b> creates in the active scope and opens the editor immediately.<br>
+        • <b>Checkbox column</b> selects rows for bulk actions (Shift-click a checkbox to range-select); the bulk bar appears on ≥1.<br>
+        • <b>Drag</b> the ⠿ handle to reorder, drop on a group's middle band to nest, or drop onto the <b>other tab</b> to change scope.<br><br>
+        <b>Scope is the bucket.</b> No <code>scope</code> field on an entry — its scope is <i>which bucket it sits in</i>.
+        Moving between <b>Global</b> and <b>Zezima</b> is a move across <code>PersistentDB</code> keys.
+        <b>enabled</b> ANDs up the chain (a disabled group greys its subtree).
       </div>
     </aside>
   </div>
@@ -210,6 +237,7 @@ const CHAR='Zezima';
 const VDESC={
   sections:'One scroll; sticky headers keep each scope labelled as you pass it. Compact, both scopes inline.',
   cards:'Each scope is a framed card you can collapse and add into independently. Strongest visual separation.',
+  tabs:'Only one scope on screen at a time — click a tab to swap. Least clutter. Drag a row onto the OTHER tab to change its scope.',
   split:'Two independent scroll panes — Global stays pinned on top no matter how long the character list grows.'
 };
 let variant = new URLSearchParams(location.search).get('variant') || 'sections';
@@ -240,6 +268,7 @@ const bucketMeta={ global:{cls:'global',label:'Global',dot:'global',sub:'shared 
 
 let selected=new Set(); let lastClicked=null;
 let collapsedBucket={global:false,char:false};
+let activeTab='global';
 
 // ---- tree helpers over BOTH buckets ------------------------------------------------------
 function eachRoot(fn){ fn(buckets.global,'global'); fn(buckets.char,'char'); }
@@ -263,6 +292,7 @@ function render(){
   body.innerHTML='';
   if(variant==='sections') body.append(section('global'),section('char'));
   else if(variant==='cards') body.append(card('global'),card('char'));
+  else if(variant==='tabs') body.append(tabsView());
   else { body.append(pane('global'),pane('char')); }
   renderBulk(); renderState();
 }
@@ -273,7 +303,7 @@ function bucketHead(key,withAdd){
     `<span class="bkt-count">· ${buckets[key].length} top-level · ${m.sub}</span>`;
   if(withAdd){ const a=document.createElement('span'); a.className='bkt-add';
     a.innerHTML=`<button>+ Alert</button><button>+ Group</button>`;
-    a.children[0].onclick=e=>{e.stopPropagation();buckets[key].push(alert('New alert','action'));render();};
+    a.children[0].onclick=e=>{e.stopPropagation();buckets[key].push(alert('New alert','action'));render();openEditor('New alert');};
     a.children[1].onclick=e=>{e.stopPropagation();buckets[key].push(group('New group'));render();};
     h.appendChild(a); }
   return h;
@@ -300,6 +330,26 @@ function pane(key){
   const bd=document.createElement('div'); bd.className='pane-body'; bd.appendChild(renderPanel(buckets[key],key));
   p.append(hd,bd); return p;
 }
+function tabsView(){
+  const wrap=document.createElement('div');
+  const bar=document.createElement('div'); bar.className='tabbar';
+  for(const key of ['global','char']){
+    const m=bucketMeta[key];
+    const t=document.createElement('div'); t.className='tab '+key+(activeTab===key?' active':''); t.dataset.tab=key;
+    t.innerHTML=`<span class="tdot ${m.dot}"></span><span>${m.label}</span><span class="tcount">${buckets[key].length}</span>`;
+    t.onclick=()=>{ activeTab=key; render(); };
+    bar.appendChild(t);
+  }
+  const tools=document.createElement('div'); tools.className='tab-tools';
+  tools.innerHTML=`<button>+ Alert</button><button>+ Group</button>`;
+  tools.children[0].onclick=()=>{ buckets[activeTab].push(alert('New alert','action')); render(); openEditor('New alert'); };
+  tools.children[1].onclick=()=>{ buckets[activeTab].push(group('New group')); render(); };
+  bar.appendChild(tools);
+  const panel=document.createElement('div'); panel.className='tab-panel';
+  const sub=document.createElement('div'); sub.className='tab-sub'; sub.textContent=bucketMeta[activeTab].sub+' — drag a row onto the other tab to change its scope';
+  panel.append(sub, renderPanel(buckets[activeTab],activeTab));
+  wrap.append(bar,panel); return wrap;
+}
 function renderPanel(nodes,bucketKey){
   const p=document.createElement('div'); p.className='panel'+(nodes.length?'':' empty'); p.dataset.bucket=bucketKey;
   for(const n of nodes) p.appendChild(renderRowTree(n,bucketKey));
@@ -320,31 +370,45 @@ function renderRow(n,bucketKey){
   row.dataset.id=n.id; row.dataset.bucket=bucketKey;
   const en=effEnabled(n);
   row.innerHTML=
-    `<span class="handle" title="drag to reorder, into a group, or across to change scope">⠿</span>`+
+    `<span class="chk ${selected.has(n.id)?'on':''}" title="select"></span>`+
+    `<span class="handle" title="drag to reorder, into a group, or onto the other tab to change scope">⠿</span>`+
     `<span class="chev ${isGroup?'':'leaf'} ${n.collapsed?'collapsed':''}">▾</span>`+
     `<span class="tgl ${n.enabled?'on':''} ${!en&&n.enabled?'inherit-off':''}" title="enable"><span class="knob"></span></span>`+
     `<span class="icon ${isGroup?'group':n.kind}"></span>`+
     `<span class="name ${en?'':'dim'}">${n.name}${isGroup?` <span style="color:var(--ink-dim);font-size:11px">(${n.children.length})</span>`:''}</span>`+
     `<button class="rowbtn" title="rename">✎</button>`+
     `<button class="rowbtn del" title="delete">🗑</button>`;
+  row.querySelector('.chk').onclick=e=>{e.stopPropagation(); toggleSel(n.id,e);};
   row.querySelector('.chev').onclick=e=>{e.stopPropagation(); if(isGroup){n.collapsed=!n.collapsed;render();}};
   row.querySelector('.tgl').onclick=e=>{e.stopPropagation(); n.enabled=!n.enabled; render();};
   row.querySelector('.rowbtn[title=rename]').onclick=e=>{e.stopPropagation(); const v=prompt('Rename:',n.name); if(v&&v.trim()){n.name=v.trim();render();}};
   row.querySelector('.rowbtn.del').onclick=e=>{e.stopPropagation(); del(n.id);};
-  row.onclick=e=>selectRow(n.id,e);
+  row.ondblclick=e=>{ e.stopPropagation();
+    if(isGroup){ n.collapsed=!n.collapsed; render(); }
+    else openEditor(n.name); };
   row.querySelector('.handle').addEventListener('pointerdown',e=>startDrag(e,n.id));
   return row;
 }
 
 // ---- selection ---------------------------------------------------------------------------
 function flatVisibleIds(){ const out=[]; const rec=list=>{for(const n of list){out.push(n.id); if(n.type==='group'&&!n.collapsed)rec(n.children);}};
+  if(variant==='tabs'){ rec(buckets[activeTab]); return out; }
   rec(buckets.global); rec(buckets.char); return out; }
-function selectRow(id,e){
-  if(e.shiftKey&&lastClicked!=null){ const o=flatVisibleIds(),a=o.indexOf(lastClicked),b=o.indexOf(id);
-    if(a>-1&&b>-1){selected.clear(); for(let i=Math.min(a,b);i<=Math.max(a,b);i++)selected.add(o[i]);} }
-  else if(e.ctrlKey||e.metaKey){ selected.has(id)?selected.delete(id):selected.add(id); lastClicked=id; }
-  else { selected.clear(); selected.add(id); lastClicked=id; }
-  render();
+function toggleSel(id,e){
+  // checkbox column: click toggles; Shift-click on a checkbox extends a range from the last one
+  if(e&&e.shiftKey&&lastClicked!=null){ const o=flatVisibleIds(),a=o.indexOf(lastClicked),b=o.indexOf(id);
+    if(a>-1&&b>-1){ for(let i=Math.min(a,b);i<=Math.max(a,b);i++)selected.add(o[i]); } }
+  else { selected.has(id)?selected.delete(id):selected.add(id); }
+  lastClicked=id; render();
+}
+function openEditor(name){ flashBanner('→ opens the graph editor for “'+name+'”'); }
+function flashBanner(msg){ let b=document.getElementById('editbanner');
+  if(!b){ b=document.createElement('div'); b.id='editbanner'; document.body.appendChild(b);
+    b.style.cssText='position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:80;'+
+      'background:#2a2618;border:1px solid var(--accent);color:var(--accent);padding:9px 16px;'+
+      'border-radius:6px;font-size:13px;box-shadow:0 6px 18px rgba(0,0,0,.5)'; }
+  b.textContent=msg; b.style.opacity='1';
+  clearTimeout(b._t); b._t=setTimeout(()=>{b.style.transition='opacity .4s';b.style.opacity='0';},1400);
 }
 function clearSel(){ selected.clear(); render(); }
 function renderBulk(){ const bar=document.getElementById('bulkbar');
@@ -374,6 +438,11 @@ function moveGhost(e){ const g=document.getElementById('ghost'); g.style.left=(e
 function onDragMove(e){ moveGhost(e);
   const line=document.getElementById('dropline'); line.style.display='none';
   document.querySelectorAll('.row.drop-into').forEach(r=>r.classList.remove('drop-into'));
+  document.querySelectorAll('.tab.drop-tab').forEach(t=>t.classList.remove('drop-tab'));
+  // tabs variant: hovering the inactive tab = move subtree to that scope
+  const tabEl=[...document.querySelectorAll('.tab')].find(t=>{const rc=t.getBoundingClientRect();
+    return e.clientX>=rc.left&&e.clientX<=rc.right&&e.clientY>=rc.top&&e.clientY<=rc.bottom;});
+  if(tabEl && tabEl.dataset.tab!==drag.fromBucket){ tabEl.classList.add('drop-tab'); drag.drop={kind:'tab',bucket:tabEl.dataset.tab}; return; }
   const t=resolveDrop(e); drag.drop=t; if(!t) return;
   if(t.kind==='into'){ const r=[...document.querySelectorAll('.row')].find(x=>+x.dataset.id===t.groupId); if(r)r.classList.add('drop-into'); }
   else if(t.kind==='sibling'){ const rect=t.rect; line.style.display='block'; line.style.left=rect.left+'px'; line.style.width=rect.width+'px'; line.style.top=(t.after?rect.bottom:rect.top)+'px'; }
@@ -395,10 +464,12 @@ function resolveDrop(e){
 function endDrag(){ window.removeEventListener('pointermove',onDragMove);
   document.getElementById('ghost').style.display='none'; document.getElementById('dropline').style.display='none';
   document.querySelectorAll('.row.drop-into').forEach(r=>r.classList.remove('drop-into'));
+  document.querySelectorAll('.tab.drop-tab').forEach(t=>t.classList.remove('drop-tab'));
   const t=drag.drop;
   if(t){ const pl=findParentList(drag.id); const node=pl.list.splice(pl.i,1)[0];
     if(t.kind==='into'){ const gp=findNode(t.groupId); gp.collapsed=false; gp.children.push(node); }
     else if(t.kind==='bucket-root'){ buckets[t.bucket].push(node); }
+    else if(t.kind==='tab'){ buckets[t.bucket].push(node); }
     else { const ref=findParentList(t.refId); ref.list.splice(ref.i+(t.after?1:0),0,node); } }
   drag=null; render();
 }
