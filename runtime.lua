@@ -328,6 +328,21 @@ function Runtime:SetBucketLoader(loader)
     self._bucketLoader = loader
 end
 
+-- The resident character Bucket's display name and key, or nil when no character is loaded (a
+-- fresh boot at the login screen, before any GAME transition). Returns the *resident* character —
+-- it stays resident (though disarmed) while logged out, so the Manager can keep showing that
+-- character's scope tab and editing continues off-world (#77). The Alert Manager (#90) reads this
+-- to decide whether to offer a second scope tab beside `Global`, and how to label it.
+---@return string|nil displayName
+---@return string|nil bucketKey
+function Runtime:GetActiveCharacter()
+    local key = self._characterBucketKey
+    if key == nil then return nil, nil end
+    local bucket = self.buckets[key]
+    if bucket == nil then return nil, nil end
+    return bucket.displayName, key
+end
+
 -- Advances the effect registry and polls mouse-activity by position change. Called once per
 -- Logic tick (see main.lua); `dt` is forwarded verbatim to every live effect handle's update.
 function Runtime:Update(dt)

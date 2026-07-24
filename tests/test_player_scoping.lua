@@ -118,6 +118,33 @@ function TestPlayerScoping:testGlobalKeepsFiringWhileLoggedOut()
     luaunit.assertEquals(g:GetLastValue(nid, "payload"), "still-here")
 end
 
+--- GetActiveCharacter: the resident character's name/key for the Manager scope tab (#90) ---
+
+function TestPlayerScoping:testActiveCharacterNilBeforeAnyLogin()
+    local name, key = self.runtime:GetActiveCharacter()
+    luaunit.assertNil(name)
+    luaunit.assertNil(key)
+end
+
+function TestPlayerScoping:testActiveCharacterReportsLoggedInDisplayName()
+    self:seedCharacterAlert("alice", 1, "a", true)
+    self:login("Alice")
+    local name, key = self.runtime:GetActiveCharacter()
+    luaunit.assertEquals(name, "Alice")           -- the pretty display name, not the normalized key
+    luaunit.assertEquals(key, "player_alice")
+end
+
+function TestPlayerScoping:testActiveCharacterSurvivesLeavingGame()
+    -- Leaving GAME disarms but keeps the character resident, so the scope tab stays visible while
+    -- logged out (editing continues off-world, #77).
+    self:seedCharacterAlert("alice", 1, "a", true)
+    self:login("Alice")
+    self:leaveGame()
+    local name, key = self.runtime:GetActiveCharacter()
+    luaunit.assertEquals(name, "Alice")
+    luaunit.assertEquals(key, "player_alice")
+end
+
 --- Character Bucket: login arms + fires; keyed on normalized name -------------------------
 
 function TestPlayerScoping:testLoginArmsCharacterBucketAndItFires()

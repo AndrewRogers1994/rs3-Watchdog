@@ -31,22 +31,30 @@ local ColorPopup = require("ui/color_popup")
 local Editor = {}
 Editor.__index = Editor
 
--- graph, registry: the live LibNodeGraph objects. layout: optional saved node positions.
--- runtime: optional (see runtime.lua) — only reached for its `screenMarkerCapture` (#39), the
--- full-screen "Draw on screen" capture overlay a Screen Marker node's `rect` Control arms.
--- The View (pan/zoom) is intentionally NOT restored: it resets to the default origin on every
--- open (see resetView), so there's nothing to thread in or persist.
----@param graph LibNodeGraph.Graph
+-- registry: the live LibNodeGraph Registry. runtime: optional (see runtime.lua) — only reached for
+-- its `screenMarkerCapture` (#39), the full-screen "Draw on screen" capture overlay a Screen Marker
+-- node's `rect` Control arms.
+--
+-- The Editor is constructed and mounted **unbound** (#80): it holds no graph until `BindEntry`
+-- swaps one in. The Manager (the root surface) is what opens an alert, at which point the nav owner
+-- binds this one long-lived Editor to that entry rather than constructing a fresh one — mounting is
+-- the fragile, retry-guarded part of this codebase, so it happens once at startup, not per open. An
+-- unbound Editor is inert: it stays hidden (nav never shows it unbound), and its draw/update early-
+-- out on `not visible`, so nothing dereferences the nil graph. `boundId` is the transient bound-
+-- entry id (the persisted `current` pointer is gone, #80), what the host's write-back keys on.
+--
+-- The View (pan/zoom) is intentionally NOT restored: it resets to the default origin on every open
+-- and every BindEntry (see resetView), so there's nothing to thread in or persist.
 ---@param registry LibNodeGraph.Registry
----@param layout Watchdog.Layout|nil
 ---@param runtime table|nil
-function Editor.new(graph, registry, layout, runtime)
+function Editor.new(registry, runtime)
     local self = setmetatable({
-        graph = graph,
+        graph = nil,               -- bound via BindEntry (#80); nil ⇒ inert/unbound
+        boundId = nil,             -- the transient bound-entry id the host writes back under
         registry = registry,
         runtime = runtime,
         view = View.new(),
-        layout = layout or {},     -- nodeId -> {x, y} in Graph-space
+        layout = {},               -- nodeId -> {x, y} in Graph-space; replaced on BindEntry
         nodeOrder = {},            -- draw/z order, front-most last
         geoms = {},                -- per-frame geometry cache, nodeId -> geom
         mouse = { x = 0, y = 0 },
@@ -74,9 +82,55 @@ function Editor.new(graph, registry, layout, runtime)
         groupBox = nil,            -- real GroupBox providing the native header/title/frame
         plusButton = nil,          -- real Button, top-right of the GroupBox
         closeButton = nil,         -- real Button, top-right of the GroupBox
+        backButton = nil,          -- real "← Alerts" Button, top-LEFT of the GroupBox (#80 nav-up)
+        onBack = nil,              -- host nav callback: navigate up to the Manager (set by main.lua)
     }, Editor)
 
     return self
+end
+
+-- Binds the Editor to alert `id`'s live graph + Layout and resets all transient view state, so an
+-- open lands on a clean framing (#80). Called by the nav owner when a Manager alert row is double-
+-- clicked; the graph is the *same* live instance the runtime fires, so edits and firing stay in
+-- sync (unchanged from the old single-alert boot). Resets pan/zoom/selection/mode and dismisses any
+-- open popup/palette/capture — none of the previous entry's transient UI may bleed into the next.
+-- `boundId` is what the host's debounced write-back keys on (never the name — #75).
+---@param id integer
+---@param graph LibNodeGraph.Graph
+---@param layout Watchdog.Layout|nil
+function Editor:BindEntry(id, graph, layout)
+    -- Tear down any transient editor/popup from the previous binding before its graph goes away.
+    self:closeControlEditor()
+    self:closeColorPopup()
+    self.palette:Close()
+
+    self.boundId = id
+    self.graph = graph
+    self.layout = layout or {}
+    self.geoms = {}
+    self.nodeOrder = {}
+    self.selected = nil
+    self.editing = nil
+    self.pressed = false
+    self.mode = "idle"
+    self.wire = nil
+    self.dragNodeId = nil
+    self:resetView()
+end
+
+-- Clears the binding on navigate-back (#80): the Editor becomes inert/unbound again. Kept distinct
+-- from Unmount (which destroys components) — Unbind only drops the graph pointer + bound id so a
+-- reload/back lands on the Manager with nothing bound. The host flushes the entry BEFORE calling this.
+function Editor:Unbind()
+    self:closeControlEditor()
+    self:closeColorPopup()
+    self.palette:Close()
+    self.boundId = nil
+    self.graph = nil
+    self.layout = {}
+    self.geoms = {}
+    self.nodeOrder = {}
+    self.selected = nil
 end
 
 -- The live Layout map (nodeId -> {x,y}); mutated in place as nodes are dragged/created.
@@ -1009,17 +1063,30 @@ function Editor:closeColorHexEditor()
     self.colorHexField = nil
 end
 
--- Esc dismisses the color popup (#30's third dismiss trigger, alongside outside-click and
--- re-click) and cancels an in-progress Screen Marker capture (#39) or Object Marker select
--- mode (#40). Wired from main.lua's existing KeyDown subscription.
+-- The Esc cascade (#80). Escape means different things depending on what's active, resolved
+-- highest-priority-first so a nested affordance is dismissed before the surface navigates:
+--   1. an open color popup (#30's third dismiss trigger, alongside outside-click and re-click),
+--   2. an in-progress Screen Marker capture (#39) / Object Marker select mode (#40),
+--   3. otherwise — nothing local claimed it — navigate **up to the Manager** (goBack), the final rung.
+-- Each rung that fires **consumes** the Escape and stops the cascade, so a marker-capture cancel
+-- never also pops you back to the Manager. Wired from main.lua's existing KeyDown subscription; only
+-- reached while the Editor is the visible surface.
 function Editor:onEscape()
-    if self.colorPopup.open then self:closeColorPopup() end
-    if self.runtime ~= nil and self.runtime.screenMarkerCapture ~= nil then
+    if self.colorPopup.open then
+        self:closeColorPopup()
+        return
+    end
+    if self.runtime ~= nil and self.runtime.screenMarkerCapture ~= nil
+        and self.runtime.screenMarkerCapture:IsArmed() then
         self.runtime.screenMarkerCapture:Cancel()
+        return
     end
-    if self.runtime ~= nil and self.runtime.objectMarkerCapture ~= nil then
+    if self.runtime ~= nil and self.runtime.objectMarkerCapture ~= nil
+        and self.runtime.objectMarkerCapture:IsArmed() then
         self.runtime.objectMarkerCapture:Cancel()
+        return
     end
+    self:goBack()
 end
 
 -- Screen rect for a transient editor field mounted over a Control box `ctrl`. The field's
@@ -1632,12 +1699,41 @@ function Editor:mountGroupBox(parent)
         return button
     end
 
-    self.closeButton = toolbarButton("X", bs + 6, function() self:SetVisible(false) end)
+    -- X and "← Alerts" both navigate up to the Manager (#80) via the host's onBack; closing an
+    -- alert's editor returns you to the Manager, and the nav owner (not the Editor) stays the
+    -- single authority on visibility so F8/menu hide-toggling can never desync. Falls back to a bare
+    -- self-hide when no onBack is wired (a headless/standalone Editor with no Manager above it).
+    self.closeButton = toolbarButton("X", bs + 6, function() self:goBack() end)
     self.plusButton = toolbarButton("+", 2 * bs + 12, function()
         -- Local coordinates (the GroupBox's own frame) — matches the button's own position.
         self:openPaletteUnfiltered(win.w - 2 * bs - 12, 5 + bs)
     end)
     self.plusButton.cursorConfig.mouseOverCursor = id.Cursor.CURSOR_GOTO
+
+    -- The "← Alerts" nav-up button, top-LEFT of the header (opposite the +/X cluster). Wide enough
+    -- for its label; local coords like every other toolbar child.
+    local ok5, back = pcall(function() return ui.Button.new(self.groupBox) end)
+    if ok5 and back ~= nil then
+        pcall(function() back.stylesheetID = safeButtonStyle() end)
+        back:SetPos(6, 5)
+        back:SetSize(4 * bs, bs)
+        back.clickthrough = false
+        pcall(function() back.text.content = "← Alerts" end)
+        back:Subscribe(ui.Hook.ONBUTTONPRESSED, function() self:goBack() return true end)
+        pcall(function() back:MoveToFront() end)
+        self.backButton = back
+    end
+end
+
+-- Navigate up to the Manager: run the host's onBack if wired, else fall back to hiding this surface
+-- (headless/standalone Editor with no Manager above). The nav owner's onBack flushes the bound
+-- entry and unbinds; see main.lua.
+function Editor:goBack()
+    if self.onBack ~= nil then
+        pcall(self.onBack)
+    else
+        self:SetVisible(false)
+    end
 end
 
 function Editor:Unmount()
@@ -1659,6 +1755,7 @@ function Editor:Unmount()
         self.canvas = nil
         self.plusButton = nil
         self.closeButton = nil
+        self.backButton = nil
     end
 end
 

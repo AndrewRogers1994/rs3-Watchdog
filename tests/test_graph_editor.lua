@@ -98,3 +98,67 @@ function TestGraphEditor:testFanOutIsNotTreatedAsDuplicate()
     self.editor:linkPins(trig, "out", act2, "in", false)
     luaunit.assertEquals(#self.graph:GetConnections(), 2)
 end
+
+--- Unbound construction + BindEntry (#80) -------------------------------------------------
+-- Editor.new(registry, runtime) constructs the surface with NO graph; the Manager binds one on
+-- open. These drive the real (unmounted) Editor — construction touches no ui.* — so BindEntry's
+-- reset behavior is assertable headless.
+
+function TestGraphEditor:testConstructedUnbound()
+    local editor = Editor.new(self.registry, nil)
+    luaunit.assertNil(editor.graph)
+    luaunit.assertNil(editor.boundId)
+end
+
+function TestGraphEditor:testBindEntryBindsGraphAndResetsView()
+    local editor = Editor.new(self.registry, nil)
+    -- Dirty the transient view/selection state a previous binding would have left behind.
+    editor.view.panX, editor.view.panY, editor.view.zoom = 123, 45, 2.5
+    editor.selected = 999
+    editor.nodeOrder = { 1, 2, 3 }
+
+    local layout = { [1] = { x = 5, y = 6 } }
+    editor:BindEntry(7, self.graph, layout)
+
+    luaunit.assertEquals(editor.boundId, 7)                 -- keyed on id, never name (#75)
+    luaunit.assertIs(editor.graph, self.graph)              -- the live instance, unchanged
+    luaunit.assertIs(editor:GetLayout(), layout)
+    luaunit.assertEquals(editor.view.panX, 0)              -- pan/zoom reset to the default framing
+    luaunit.assertEquals(editor.view.panY, 0)
+    luaunit.assertEquals(editor.view.zoom, 1.0)
+    luaunit.assertNil(editor.selected)                     -- selection cleared
+    luaunit.assertEquals(editor.nodeOrder, {})             -- z-order rebuilt from the new graph
+end
+
+function TestGraphEditor:testBindEntryDefaultsLayoutToEmpty()
+    local editor = Editor.new(self.registry, nil)
+    editor:BindEntry(3, self.graph, nil)
+    luaunit.assertEquals(editor:GetLayout(), {})
+end
+
+function TestGraphEditor:testUnbindClearsBinding()
+    local editor = Editor.new(self.registry, nil)
+    editor:BindEntry(7, self.graph, { [1] = { x = 1, y = 2 } })
+    editor:Unbind()
+    luaunit.assertNil(editor.boundId)
+    luaunit.assertNil(editor.graph)
+    luaunit.assertEquals(editor:GetLayout(), {})
+end
+
+-- goBack routes through the host's onBack (the nav owner) when wired.
+function TestGraphEditor:testGoBackInvokesOnBack()
+    local editor = Editor.new(self.registry, nil)
+    local calls = 0
+    editor.onBack = function() calls = calls + 1 end
+    editor:goBack()
+    luaunit.assertEquals(calls, 1)
+end
+
+-- The Esc cascade's final rung is nav-up: with no popup/capture active, Escape calls goBack.
+function TestGraphEditor:testEscapeNavigatesUpWhenNothingElseActive()
+    local editor = Editor.new(self.registry, nil)
+    local back = 0
+    editor.onBack = function() back = back + 1 end
+    editor:onEscape()
+    luaunit.assertEquals(back, 1)
+end

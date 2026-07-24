@@ -44,13 +44,15 @@ LibNodeGraph never persists (it owns only tables/strings, ADR-0007); the Store i
 half. It bundles the engine's serialized structure with the UI-only Layout into each alert
 **Entry** and writes a whole Scope's **Entry** tree as one JSON string under its **Bucket** key
 (see the Alert Manager section). The `global` Bucket + Entry tree landed in #86; the persisted
-`current` pointer is gone (the editor binds the first alert until the Manager/#80 lands). Every
-Store operation keys on the Entry `id`, never name. Bucket I/O is key-parametrized: `Store.Load`/
-`Store.Save` are the `global` shorthands over `Store.LoadKey(key)` / `Store.SaveTo(key, doc)`, and
-`Store.PlayerKey(displayName)` builds a character Bucket's `player_<normalized>` key (#89). Only
-`Store.Load` runs the one-shot legacy migration — a character Bucket has no legacy predecessor.
-_(Landed: per-character `player_<…>` Buckets (#89) and the one-shot legacy `watchdog_graphs`
-migration (#87). Not yet landed: Groups (#88).)_
+`current` pointer is gone — the Editor now constructs unbound and the Manager binds it to an alert
+on open (#80/#90), so a reload lands on the Manager. Every Store operation keys on the Entry `id`,
+never name. Bucket I/O is key-parametrized: `Store.Load`/`Store.Save` are the `global` shorthands
+over `Store.LoadKey(key)` / `Store.SaveTo(key, doc)`, and `Store.PlayerKey(displayName)` builds a
+character Bucket's `player_<normalized>` key (#89). Only `Store.Load` runs the one-shot legacy
+migration — a character Bucket has no legacy predecessor.
+_(Landed: per-character `player_<…>` Buckets (#89), the one-shot legacy `watchdog_graphs` migration
+(#87), and the read-only Alert Manager render + Editor↔Manager navigation (#90). Not yet landed:
+Manager mutations — rename/reorder/enable-toggle/delete/multi-select (#78, #82).)_
 _Avoid_: Database, save system, persistence layer (in prose), serializer (that's the engine's)
 
 **Capture Layer**:
@@ -207,10 +209,15 @@ Editor's Canvas. This vocabulary was settled across the Alert Manager wayfinder 
 term points at the ticket that fixed it.
 
 **Alert Manager**:
-The single management surface the F8 keybind and the LibPluginMenu button open: a **tab bar** of
-Scopes over a tree of Entries, each row carrying select / drag / enable / icon / name / rename /
-delete controls. Double-clicking an alert row navigates into the Editor; the two are separate
-surfaces, mounted once, with at most one visible at a time (#76, #78, #80).
+The single management surface the F8 keybind and the LibPluginMenu button open (`ui/manager.lua`):
+a **tab bar** of Scopes over a tree of Entries, each row carrying select / drag / enable / icon /
+name / rename / delete controls. Double-clicking an alert row navigates into the Editor; the two are
+separate surfaces, mounted once, with at most one visible at a time (#76, #78, #80). #90 landed the
+**read-only** cut — scope tabs, tree render (icon + name, group chevron + child count,
+expand/collapse), double-click-to-open, and the nav owner — but not yet the per-row mutations
+(enable check, rename field, drag-reorder, delete, multi-select), which are #78/#82. The tree/scope/
+expand logic is pure and headless-tested; the `ui.Panel` mount/render half is client-only, the same
+split the Editor uses.
 _Avoid_: Alert list, manager window, dashboard; the Editor (that is the Canvas graph surface)
 
 **Entry**:
