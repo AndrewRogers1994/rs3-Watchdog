@@ -857,4 +857,60 @@ function TestStore:testFailedLegacyDeleteIsNotMigrationFailure()
     luaunit.assertNotNil(PersistentDB.data[LEGACY_KEY])
 end
 
+--- Per-character Buckets: keyed I/O (#89) --------------------------------------------------
+-- The `global` bucket lives under a fixed key; a character bucket lives under
+-- `player_<normalized>`. Store.PlayerKey builds that key from a raw display name (normalizing),
+-- and Store.LoadKey/SaveTo read/write any bucket key without the global-only legacy migration.
+
+function TestStore:testPlayerKeyNormalizesDisplayName()
+    luaunit.assertEquals(Store.PlayerKey("Zezima"), "player_zezima")
+    -- Cosmetic case/whitespace variants collapse to the same key so they can't orphan a bucket.
+    luaunit.assertEquals(Store.PlayerKey("Ze  ZIMA "), Store.PlayerKey("ze zima"))
+    -- No `watchdog_` prefix — PersistentDB is already plugin-scoped (#81).
+    luaunit.assertStrContains(Store.PlayerKey("A"), "player_")
+    luaunit.assertNil(string.find(Store.PlayerKey("A"), "watchdog"))
+end
+
+function TestStore:testLoadKeyReturnsEmptyBucketForAbsentKey()
+    local doc = Store.LoadKey(Store.PlayerKey("nobody"))
+    luaunit.assertEquals(doc.entries, {})
+    luaunit.assertEquals(doc.version, 2)
+end
+
+function TestStore:testSaveToAndLoadKeyRoundTripPlayerBucket()
+    local key = Store.PlayerKey("Alice")
+    local doc = Store.Empty()
+    seedAlert(self, doc, "alice-alert", true)
+    luaunit.assertTrue(Store.SaveTo(key, doc))
+
+    -- Written under the player key, not the global one.
+    luaunit.assertNotNil(PersistentDB.data[key])
+    luaunit.assertNil(PersistentDB.data["global"])
+
+    local reloaded = Store.LoadKey(key)
+    luaunit.assertEquals(#reloaded.entries, 1)
+    luaunit.assertEquals(reloaded.entries[1].name, "alice-alert")
+end
+
+function TestStore:testLoadKeyDoesNotRunLegacyMigration()
+    -- The one-shot watchdog_graphs hop is bound to the `global` load path only. Loading a player
+    -- key when only the legacy key exists must NOT adopt it — it's a fresh (empty) player bucket.
+    seedLegacyDoc({ graphs = { { name = "legacy", graph = serializedGraph(self.registry), enabled = true } } })
+    local doc = Store.LoadKey(Store.PlayerKey("someone"))
+    luaunit.assertEquals(#doc.entries, 0)
+    luaunit.assertNotNil(PersistentDB.data[LEGACY_KEY]) -- untouched
+end
+
+function TestStore:testDistinctCharactersUseDistinctBuckets()
+    local aKey, bKey = Store.PlayerKey("Alice"), Store.PlayerKey("Bob")
+    local aDoc, bDoc = Store.Empty(), Store.Empty()
+    seedAlert(self, aDoc, "a-only", true)
+    seedAlert(self, bDoc, "b-only", true)
+    Store.SaveTo(aKey, aDoc)
+    Store.SaveTo(bKey, bDoc)
+
+    luaunit.assertEquals(Store.LoadKey(aKey).entries[1].name, "a-only")
+    luaunit.assertEquals(Store.LoadKey(bKey).entries[1].name, "b-only")
+end
+
 return TestStore

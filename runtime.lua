@@ -43,6 +43,16 @@ local Util = require("util")
 local Runtime = {}
 Runtime.__index = Runtime
 
+-- The `GameState.GAME` enum value — the reliable "logged in and in a game world" signal on
+-- `Event.GameStateChanged` (research #74; docs core/events.html lists GAME = 30). Resolved from
+-- the client enum when present, falling back to the documented literal under the headless test
+-- harness (no `GameState` global), so tests drive lifecycle by pushing `{ newState = 30 }`.
+local GAME_STATE = (GameState ~= nil and GameState.GAME) or 30
+
+-- The always-armed, never-disarmed `global` Bucket key (#89). Character Buckets key on
+-- `player_<normalized displayName>` (see Util.NormalizePlayerName) and arm/disarm with login.
+local GLOBAL_BUCKET = "global"
+
 -- Wraps a node-authored (or persistence-hook) callback so one bad function can't break dispatch
 -- for every other binding — used by the transform/filter fan-out and the enable-persistence hook.
 -- See util.lua. Declared up here so every method below (SetEnabled included) can see it.
@@ -64,10 +74,17 @@ end
 -- `mouseSource` is the injectable stand-in for the client `Mouse` global (defaults to it),
 -- mirroring `eventSource`'s seam: tests pass a fake exposing `IsAvailable()`/`GetPosition()`
 -- instead of relying on the real (test-environment-absent) client global.
-function Runtime.new(eventSource, mouseSource)
+-- `identitySource` is the injectable stand-in for the client `Player` global's identity read
+-- (#89), mirroring `eventSource`/`mouseSource`. It exposes a single `Resolve() -> displayName|nil`
+-- that returns the current character's display name only when actually logged in and in-world
+-- (`Player.IsAvailable()` ∧ `entity.isValid`, see main.lua's wrapper), or nil otherwise. Defaults
+-- to nil: with no identity source the runtime never opens a character Bucket — only `global` is
+-- ever armed — so every existing single-source test keeps its behavior unchanged.
+function Runtime.new(eventSource, mouseSource, identitySource)
     local self = setmetatable({
         eventSource = eventSource or Event,
         mouseSource = mouseSource or Mouse,
+        identitySource = identitySource,
         -- Every saved graph instantiates live as an "alert" (#27); the dispatcher fans out over
         -- *all* of them, not just the one the editor is viewing. `alerts` is the ordered list of
         -- { id, name, graph, enabled }. `_alertsByName` indexes it for name-targeted
@@ -76,6 +93,24 @@ function Runtime.new(eventSource, mouseSource)
         alerts = {},
         _alertsByName = {},
         _persistence = nil,
+        -- Player scoping (#89). `buckets` maps a Bucket key -> { key, armed, resident, displayName }.
+        -- `global` is created armed and never disarmed. Every alert carries a `bucketKey`; the fire
+        -- predicate gates on `alert.enabled AND buckets[alert.bucketKey].armed` — nothing else. A
+        -- character Bucket arms on the GAME transition (unchanged name), disarms but stays resident
+        -- on leaving GAME, and is discarded+reloaded only on a genuine character switch.
+        buckets = { [GLOBAL_BUCKET] = { key = GLOBAL_BUCKET, armed = true, resident = true } },
+        -- The one resident character Bucket's key (only one character is ever loaded at a time), or
+        -- nil while logged out / before first login. Compared to the resolved name to tell a
+        -- world-hop/reconnect (same name -> re-arm in place) from a switch (different -> discard+load).
+        _characterBucketKey = nil,
+        -- Identity is resolved *deferred*, not inline in the GameStateChanged callback: a GAME
+        -- transition raises this flag and each Logic tick (Update) drains it, retrying until the
+        -- name is readable. This also covers a plugin reload mid-session, which gets no
+        -- GameStateChanged at all — the constructor's cold-start poll raises the same flag (#77 §8).
+        _pendingResolve = false,
+        -- Injected by SetBucketLoader: fn(normalizedName) -> Watchdog.RestoredAlert[] for a
+        -- character's Bucket (main.lua wires it to Store.LoadKey + Store.RestoreAll; tests fake it).
+        _bucketLoader = nil,
         -- eventName -> { bindings = { { typeKey, transform, filter }, ... },
         --                subscribed, subscribeName, source }
         channels = {},
@@ -107,6 +142,14 @@ function Runtime.new(eventSource, mouseSource)
         _lastMousePos = nil,
     }, Runtime)
     self:_bindActivityTracking()
+    self:_bindLifecycle()
+    -- Cold-start (#77 §8): a plugin reload mid-session receives no GameStateChanged, so poll once
+    -- now — if already in-world, raise the pending-resolve flag the first Update tick will drain
+    -- (by which point main.lua has wired the Bucket loader). Logged out ⇒ no-op; a later GAME
+    -- transition raises the flag instead.
+    if self:_resolveDisplayName() ~= nil then
+        self._pendingResolve = true
+    end
     return self
 end
 
@@ -127,9 +170,168 @@ function Runtime:_bindActivityTracking()
     self._activitySource = source
 end
 
+--- Player scoping: identity + armed/resident lifecycle (#89) -------------------------------
+
+-- Subscribes to the injectable event source's `GameStateChanged` channel — the *only* login
+-- lifecycle signal the client exposes (research #74). Kept separate from the BindTrigger/channels
+-- fan-out (it drives Bucket arming, not a node typeKey) and torn down in Stop. A GAME transition
+-- only raises the pending-resolve flag; the actual identity read + arm/load happens deferred on
+-- the next Update (see `_drainPendingResolve`).
+function Runtime:_bindLifecycle()
+    local source = self.eventSource.GameStateChanged
+    if source == nil or source.Subscribe == nil then
+        return
+    end
+    local runtime = self
+    source.Subscribe("watchdog_runtime_gamestate", function(payload)
+        runtime:_onGameStateChanged(payload)
+    end)
+    self._lifecycleSource = source
+end
+
+-- Handles one `GameStateChanged`. Entering GAME raises the pending-resolve flag (identity is read
+-- deferred, on the next Update — it isn't established the name is readable the instant this fires,
+-- and deferring is correct either way, #77 §8). Any other newState is "left GAME": the resident
+-- character Bucket disarms (stays resident — its graphs, pollEdgeState and timers persist, they
+-- just stop firing) and any pending arm is cancelled. `global` is untouched — it's never disarmed.
+function Runtime:_onGameStateChanged(payload)
+    local newState = payload ~= nil and payload.newState or nil
+    if newState == GAME_STATE then
+        self._pendingResolve = true
+    else
+        self._pendingResolve = false
+        if self._characterBucketKey ~= nil then
+            local bucket = self.buckets[self._characterBucketKey]
+            if bucket ~= nil then bucket.armed = false end
+        end
+    end
+end
+
+-- Reads the current character display name through the injected identity source, or nil when
+-- there's no source / not logged in / the read failed. The source owns the IsAvailable ∧ isValid
+-- gate; this only guards against a missing source and a non-string result.
+---@return string|nil
+function Runtime:_resolveDisplayName()
+    if self.identitySource == nil or self.identitySource.Resolve == nil then
+        return nil
+    end
+    local ok, name = pcall(function() return self.identitySource:Resolve() end)
+    if ok and type(name) == "string" and name ~= "" then
+        return name
+    end
+    return nil
+end
+
+-- Drains the pending-resolve flag, called once per Logic tick from Update. Retries the identity
+-- read until it succeeds (so a GAME transition whose name isn't readable yet resolves on a later
+-- tick). On success, compares the resolved character to the resident one:
+--   * same normalized name  -> re-arm in place (world-hop / reconnect): no reload, no state reset,
+--     so `pollEdgeState` is preserved and no `Enter` edge is replayed (#77 §7).
+--   * different name / none  -> discard the resident character Bucket and load the new one.
+-- `global` is never touched here.
+function Runtime:_drainPendingResolve()
+    if not self._pendingResolve then
+        return
+    end
+    local name = self:_resolveDisplayName()
+    if name == nil then
+        return -- not readable yet (or no source); keep the flag and retry next tick
+    end
+    self._pendingResolve = false
+    local normalized = Util.NormalizePlayerName(name)
+    local key = "player_" .. normalized
+    if key == self._characterBucketKey then
+        local bucket = self.buckets[key]
+        if bucket ~= nil then bucket.armed = true end
+        return
+    end
+    if self._characterBucketKey ~= nil then
+        self:_discardBucket(self._characterBucketKey)
+    end
+    self:_loadCharacterBucket(key, normalized, name)
+end
+
+-- Creates the resident, armed character Bucket for `key` and loads its saved alerts through the
+-- injected loader (a no-op set when no loader is wired). Each loaded alert is added under this
+-- Bucket key so the fire predicate gates it on this Bucket's armed state.
+function Runtime:_loadCharacterBucket(key, normalized, displayName)
+    self.buckets[key] = { key = key, armed = true, resident = true, displayName = displayName }
+    self._characterBucketKey = key
+    if self._bucketLoader == nil then
+        return
+    end
+    local ok, restored = callOrLog("bucket loader for '" .. tostring(normalized) .. "'",
+        self._bucketLoader, normalized)
+    if ok and type(restored) == "table" then
+        for _, alert in ipairs(restored) do
+            self:AddAlert(alert.id, alert.name, alert.graph, alert.enabled, key)
+        end
+    end
+end
+
+-- Discards a resident Bucket: drops every alert that belongs to it (from the flat list, the
+-- name index, and its per-graph pollEdgeState) and removes the Bucket itself. Used on a genuine
+-- character switch — the only expensive lifecycle path. A rename resolves to a different
+-- normalized key and so lands here too, orphaning the old Bucket on disk (no adoption, #77 §3).
+function Runtime:_discardBucket(key)
+    local kept = {}
+    for _, alert in ipairs(self.alerts) do
+        if alert.bucketKey == key then
+            self.pollEdgeState[alert.graph] = nil
+        else
+            kept[#kept + 1] = alert
+        end
+    end
+    self.alerts = kept
+    self:_rebuildNameIndex()
+    self.buckets[key] = nil
+    if self._characterBucketKey == key then
+        self._characterBucketKey = nil
+    end
+end
+
+-- Appends `alert` to its name's match list in `_alertsByName` (creating the list on first use).
+-- A no-op for an anonymous alert (name nil — untargetable). Shared by AddAlert (incremental) and
+-- _rebuildNameIndex (full rebuild) so the two paths can't produce a differently-shaped index.
+function Runtime:_indexAlert(alert)
+    if alert.name == nil then return end
+    local matches = self._alertsByName[alert.name]
+    if matches == nil then
+        matches = {}
+        self._alertsByName[alert.name] = matches
+    end
+    matches[#matches + 1] = alert
+end
+
+-- Rebuilds the name -> {alerts} index from the current flat `alerts` list. Called after a discard
+-- prunes the list; keeping the index a pure function of `alerts` avoids drift between the two.
+function Runtime:_rebuildNameIndex()
+    self._alertsByName = {}
+    for _, alert in ipairs(self.alerts) do
+        self:_indexAlert(alert)
+    end
+end
+
+-- True iff the alert's Bucket exists and is armed (`global` always is; a character Bucket only
+-- between its GAME-arm and the next leave-GAME). The armed half of the fire predicate.
+---@param bucketKey string|nil
+---@return boolean
+function Runtime:_bucketArmed(bucketKey)
+    local bucket = self.buckets[bucketKey or GLOBAL_BUCKET]
+    return bucket ~= nil and bucket.armed == true
+end
+
+-- Injects the character-Bucket loader (see `_bucketLoader`). Kept as its own seam like
+-- SetPersistence/SetRegistry rather than a Runtime.new param, since main.lua builds it (over the
+-- Store + registry) after constructing the runtime.
+function Runtime:SetBucketLoader(loader)
+    self._bucketLoader = loader
+end
+
 -- Advances the effect registry and polls mouse-activity by position change. Called once per
 -- Logic tick (see main.lua); `dt` is forwarded verbatim to every live effect handle's update.
 function Runtime:Update(dt)
+    self:_drainPendingResolve()
     self:_pollMouseActivity()
     self.effects:Update(dt)
 end
@@ -179,18 +381,13 @@ end
 ---@param name string|nil
 ---@param graph LibNodeGraph.Graph|nil
 ---@param enabled boolean|nil
----@return { id: integer|nil, name: string|nil, graph: LibNodeGraph.Graph|nil, enabled: boolean }
-function Runtime:AddAlert(id, name, graph, enabled)
-    local alert = { id = id, name = name, graph = graph, enabled = enabled ~= false }
+---@param bucketKey string|nil  # which Bucket owns this alert; defaults to `global` (#89)
+---@return { id: integer|nil, name: string|nil, graph: LibNodeGraph.Graph|nil, enabled: boolean, bucketKey: string }
+function Runtime:AddAlert(id, name, graph, enabled, bucketKey)
+    local alert = { id = id, name = name, graph = graph, enabled = enabled ~= false,
+        bucketKey = bucketKey or GLOBAL_BUCKET }
     self.alerts[#self.alerts + 1] = alert
-    if name ~= nil then
-        local matches = self._alertsByName[name]
-        if matches == nil then
-            matches = {}
-            self._alertsByName[name] = matches
-        end
-        matches[#matches + 1] = alert
-    end
+    self:_indexAlert(alert)
     self:PreloadGraph(graph)
     return alert
 end
@@ -289,13 +486,18 @@ end
 -- Persists one alert's enabled flag through the injected hook, keyed by its Entry id. A no-op for
 -- an anonymous alert (id nil) or when no persistence is wired. Called once per affected alert, so
 -- a multi-match SetEnabled/Toggle writes each matching alert's flag exactly like a single one does.
----@param id integer|nil
+--
+-- Scoped to `global` alerts (#89): the injected hook owns the `global` Bucket document, and Entry
+-- ids are only unique *within* a Bucket — persisting a character alert's id through it would
+-- collide with the same id in `global`. A character alert still flips in memory (so it stops
+-- firing immediately); persisting per-character enable state is deferred to the Manager (#90).
+---@param alert { id: integer|nil, bucketKey: string }
 ---@param enabled boolean
-function Runtime:_persistEnabled(id, enabled)
-    if id == nil then return end
+function Runtime:_persistEnabled(alert, enabled)
+    if alert.id == nil or alert.bucketKey ~= GLOBAL_BUCKET then return end
     if self._persistence ~= nil and self._persistence.SetEnabled ~= nil then
-        callOrLog("persistence SetEnabled for id '" .. tostring(id) .. "'",
-            self._persistence.SetEnabled, id, enabled)
+        callOrLog("persistence SetEnabled for id '" .. tostring(alert.id) .. "'",
+            self._persistence.SetEnabled, alert.id, enabled)
     end
 end
 
@@ -315,7 +517,7 @@ function Runtime:SetEnabled(name, enabled)
     end
     for _, alert in ipairs(matches) do
         alert.enabled = enabled
-        self:_persistEnabled(alert.id, enabled)
+        self:_persistEnabled(alert, enabled)
     end
     return true
 end
@@ -332,7 +534,7 @@ function Runtime:Toggle(name)
     end
     for _, alert in ipairs(matches) do
         alert.enabled = not alert.enabled
-        self:_persistEnabled(alert.id, alert.enabled)
+        self:_persistEnabled(alert, alert.enabled)
     end
     return #matches
 end
@@ -421,14 +623,17 @@ function Runtime:_dispatch(eventName, raw)
     end
 end
 
--- Fans a shaped payload out to every matching node in every *firing* alert's graph. An alert
--- fires iff its own `enabled` flag AND its enabled-chain (every ancestor group enabled, #88) hold
--- — checked here at fire time, not by tearing down a disabled alert, so toggling an alert or a
--- group is O(1) and never loses graph state (it stays live but silent). The editor's current graph
--- is just one alert among these, so its triggers fire mid-edit like any other's.
+-- Fans a shaped payload out to every matching node in every *firing* alert's graph. The full fire
+-- predicate is three independent O(1) gates, all checked here at fire time rather than by tearing
+-- down the alert: its own `enabled` flag, its enabled-chain (every ancestor group enabled, #88),
+-- and its Bucket being *armed* (a logged-in character, or `global`, #89). A disabled alert, one
+-- suppressed by a disabled ancestor group, or one in a disarmed character Bucket (logged out /
+-- other character) is skipped without tearing anything down, so toggling, grouping, and arming are
+-- all lossless — the alert stays live but silent. The editor's current graph is just one alert
+-- among these, so its triggers fire mid-edit like any other's.
 function Runtime:_fireBinding(binding, payload)
     for _, alert in ipairs(self.alerts) do
-        if alert.enabled and self:_ancestorsEnabled(alert.id) then
+        if alert.enabled and self:_ancestorsEnabled(alert.id) and self:_bucketArmed(alert.bucketKey) then
             self:_fireBindingInGraph(binding, payload, alert.graph)
         end
     end
@@ -456,13 +661,16 @@ function Runtime:_fireBindingInGraph(binding, payload, graph)
     end
 end
 
--- Poll fan-out (#28). Same shape as `_fireBinding` — over every *firing* alert — but each graph
--- is handled by `_firePollBindingInGraph`, which applies the edge gate instead of firing on every
--- filter pass. A non-firing alert (own flag off, or suppressed by a disabled ancestor group, #88)
--- is skipped and its edge state left frozen until it fires again, mirroring the event path.
+-- Poll fan-out (#28). Same shape as `_fireBinding` — over every *firing* alert, gated by the same
+-- three-part predicate (own flag, enabled-chain #88, armed Bucket #89) — but each graph is handled
+-- by `_firePollBindingInGraph`, which applies the edge gate instead of firing on every filter pass.
+-- A non-firing alert (own flag off, suppressed by a disabled ancestor group, or in a disarmed
+-- Bucket) is skipped and its edge state left frozen until it fires again. That freezing is exactly
+-- what makes a world-hop's disarm→re-arm invisible: the preserved predicate state means no spurious
+-- `Enter` is replayed on re-arm (#89).
 function Runtime:_firePollBinding(binding, payload)
     for _, alert in ipairs(self.alerts) do
-        if alert.enabled and self:_ancestorsEnabled(alert.id) then
+        if alert.enabled and self:_ancestorsEnabled(alert.id) and self:_bucketArmed(alert.bucketKey) then
             self:_firePollBindingInGraph(binding, payload, alert.graph)
         end
     end
@@ -547,6 +755,10 @@ function Runtime:Stop()
     if self._activitySource ~= nil then
         pcall(function() self._activitySource.Unsubscribe("watchdog_runtime_activity_key") end)
         self._activitySource = nil
+    end
+    if self._lifecycleSource ~= nil then
+        pcall(function() self._lifecycleSource.Unsubscribe("watchdog_runtime_gamestate") end)
+        self._lifecycleSource = nil
     end
     -- Cancel any armed Object Marker select mode (#40) so its Event.MiniMenuEntrySelected
     -- subscription is unsubscribed on teardown/reload rather than leaking across instances.
