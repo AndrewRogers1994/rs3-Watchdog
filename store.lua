@@ -234,6 +234,103 @@ function Store.DeleteById(doc, id)
     return entry
 end
 
+-- True if `targetId` names `entry` itself or any entry inside its subtree — the cycle guard
+-- MoveSubtree uses so a group can't be reparented under one of its own descendants (which would
+-- detach that whole branch from the tree).
+---@param entry Watchdog.Entry
+---@param targetId integer
+---@return boolean
+local function subtreeContains(entry, targetId)
+    if entry.id == targetId then return true end
+    for _, child in ipairs(entry.children or {}) do
+        if subtreeContains(child, targetId) then return true end
+    end
+    return false
+end
+
+-- Reparents the entry with `id` (and its whole subtree) to the end of `newParentId`'s children,
+-- or to the root when `newParentId` is nil. Id-keyed like every tree op; the moved subtree stays
+-- intact. Returns true on success, false and leaves the tree untouched when: no entry has `id`;
+-- `newParentId` names an entry that doesn't exist or isn't a group; or `newParentId` is `id` itself
+-- or one of its descendants (a cycle — see subtreeContains). Mutates `doc` in place.
+---@param doc Watchdog.Bucket
+---@param id integer
+---@param newParentId integer|nil                  # nil ⇒ root; else a group entry's id
+---@return boolean
+function Store.MoveSubtree(doc, id, newParentId)
+    local entry, siblings, index = Store.FindById(doc, id)
+    if entry == nil then return false end
+    -- Validate the destination *before* detaching, so a refused move is a genuine no-op: reject a
+    -- cycle (into self or a descendant), or a parent that doesn't exist / isn't a group. The
+    -- group/existence half mirrors InsertEntry's, which does the actual append below.
+    if newParentId ~= nil then
+        if subtreeContains(entry, newParentId) then return false end
+        local parent = Store.FindById(doc, newParentId)
+        if parent == nil or parent.kind ~= "group" then return false end
+    end
+    table.remove(siblings, index)
+    return Store.InsertEntry(doc, entry, newParentId)
+end
+
+--- Enabled-chain (#88) --------------------------------------------------------------------
+-- `enabled` is an inheritable master switch: an alert fires iff its own `enabled` AND every
+-- ancestor group's `enabled` are true — the enabled-chain. A group's flag is stored on the group
+-- Entry alone (SetEnabled by id, above, flips it); disabling a group never touches a descendant's
+-- own `enabled`, so re-enabling it restores exactly the prior per-alert state. The resolution is
+-- always live over the current tree, so a move (Store.MoveSubtree) re-parents an entry into a new
+-- chain with no cached state to invalidate.
+
+-- Returns the ancestor groups of the entry with `id`, outermost-first (root → the entry's parent),
+-- or nil if no entry has that id. Purely the chain *above* the entry — the entry itself is excluded.
+---@param entries Watchdog.Entry[]|nil
+---@param id integer
+---@return Watchdog.Entry[]|nil
+local function ancestorsOf(entries, id)
+    local function rec(list, acc)
+        for _, entry in ipairs(list or {}) do
+            if entry.id == id then
+                return acc
+            end
+            if entry.children ~= nil then
+                acc[#acc + 1] = entry
+                local found = rec(entry.children, acc)
+                if found ~= nil then return found end
+                acc[#acc] = nil
+            end
+        end
+        return nil
+    end
+    return rec(entries, {})
+end
+
+-- True unless some ancestor group of the entry with `id` is disabled — the upstream half of the
+-- enabled-chain, excluding the entry's own flag. A root-level entry (no ancestors) and an absent
+-- `id` both return true: nothing upstream suppresses them. This is the gate the runtime ANDs with
+-- an alert's own `enabled` at fire time (main.lua wires it via Runtime:SetEnabledResolver).
+---@param doc Watchdog.Bucket
+---@param id integer
+---@return boolean
+function Store.AncestorsEnabled(doc, id)
+    local ancestors = ancestorsOf((doc or {}).entries, id)
+    if ancestors == nil then return true end
+    for _, group in ipairs(ancestors) do
+        if not normalizeEnabled(group.enabled) then return false end
+    end
+    return true
+end
+
+-- The full enabled-chain for the entry with `id`: its own `enabled` AND every ancestor group's
+-- `enabled`. False for an unknown `id` (an absent entry is not enabled). The Manager's per-row
+-- "does this fire?" query; the runtime instead composes AncestorsEnabled with its own live flag.
+---@param doc Watchdog.Bucket
+---@param id integer
+---@return boolean
+function Store.EnabledChain(doc, id)
+    local entry = Store.FindById(doc, id)
+    if entry == nil then return false end
+    return normalizeEnabled(entry.enabled) and Store.AncestorsEnabled(doc, id)
+end
+
 --- Entry construction ---------------------------------------------------------------------
 
 -- Builds an alert Entry from a *live* graph (serialized here) + its Layout. `enabled` defaults

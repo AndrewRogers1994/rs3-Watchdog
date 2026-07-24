@@ -226,6 +226,14 @@ runtime:SetPersistence({
     end,
 })
 
+-- Enabled-chain gate (#88): the runtime ANDs each alert's own `enabled` with whether every
+-- ancestor group is enabled. Resolved live over the saved document, so a group toggle or a subtree
+-- move re-evaluates on the next fire with nothing cached. A root-level alert has no ancestors and
+-- always passes, so this is inert until Groups exist in the tree.
+runtime:SetEnabledResolver(function(id)
+    return Store.AncestorsEnabled(document, id)
+end)
+
 -- Restore the InfoBox Area's (#41) persisted anchor, if any was ever saved, then wire its own
 -- EndDrag persistence hook the same seam shape as the alert enable/disable one above.
 do

@@ -266,6 +266,195 @@ function TestStore:testDeleteByIdReturnsNilForUnknownId()
     luaunit.assertNil(Store.DeleteById(Store.Empty(), 999))
 end
 
+--- Entry-tree helpers: MoveSubtree (reparent by id, #88) ----------------------------------
+
+function TestStore:testMoveSubtreeReparentsRootAlertIntoGroup()
+    local doc = Store.Empty()
+    local alertId = seedAlert(self, doc, "alpha", true)
+    local groupId = Store.MintId(doc)
+    Store.InsertEntry(doc, Store.NewGroupEntry(groupId, "group", true, {}))
+
+    luaunit.assertTrue(Store.MoveSubtree(doc, alertId, groupId))
+
+    -- The alert left the root and now lives under the group.
+    luaunit.assertEquals(#doc.entries, 1)
+    luaunit.assertEquals(doc.entries[1].id, groupId)
+    luaunit.assertEquals(#doc.entries[1].children, 1)
+    luaunit.assertEquals(doc.entries[1].children[1].id, alertId)
+end
+
+function TestStore:testMoveSubtreeReparentsNestedAlertToRoot()
+    local doc = Store.Empty()
+    local groupId = Store.MintId(doc)
+    Store.InsertEntry(doc, Store.NewGroupEntry(groupId, "group", true, {}))
+    local alertId = seedAlert(self, doc, "nested", true, groupId)
+
+    luaunit.assertTrue(Store.MoveSubtree(doc, alertId, nil))
+
+    -- The alert is now a root sibling of the (now-empty) group.
+    luaunit.assertEquals(#doc.entries[1].children, 0)
+    luaunit.assertEquals(doc.entries[2].id, alertId)
+end
+
+function TestStore:testMoveSubtreeCarriesAWholeGroupSubtree()
+    local doc = Store.Empty()
+    -- outer group holds inner group, inner holds an alert; move the inner group under a new home.
+    local outerId = Store.MintId(doc)
+    Store.InsertEntry(doc, Store.NewGroupEntry(outerId, "outer", true, {}))
+    local innerId = Store.MintId(doc)
+    Store.InsertEntry(doc, Store.NewGroupEntry(innerId, "inner", true, {}), outerId)
+    local alertId = seedAlert(self, doc, "deep", true, innerId)
+    local homeId = Store.MintId(doc)
+    Store.InsertEntry(doc, Store.NewGroupEntry(homeId, "home", true, {}))
+
+    luaunit.assertTrue(Store.MoveSubtree(doc, innerId, homeId))
+
+    -- outer is emptied; the inner group (with its alert) hangs under home intact.
+    luaunit.assertEquals(#Store.FindById(doc, outerId).children, 0)
+    local home = Store.FindById(doc, homeId)
+    luaunit.assertEquals(home.children[1].id, innerId)
+    luaunit.assertEquals(home.children[1].children[1].id, alertId)
+end
+
+function TestStore:testMoveSubtreeIntoOwnDescendantIsRefused()
+    -- Moving a group under one of its own descendants would sever the tree — must be refused.
+    local doc = Store.Empty()
+    local outerId = Store.MintId(doc)
+    Store.InsertEntry(doc, Store.NewGroupEntry(outerId, "outer", true, {}))
+    local innerId = Store.MintId(doc)
+    Store.InsertEntry(doc, Store.NewGroupEntry(innerId, "inner", true, {}), outerId)
+
+    luaunit.assertFalse(Store.MoveSubtree(doc, outerId, innerId))
+    -- Structure untouched: outer still holds inner at root.
+    luaunit.assertEquals(doc.entries[1].id, outerId)
+    luaunit.assertEquals(doc.entries[1].children[1].id, innerId)
+end
+
+function TestStore:testMoveSubtreeIntoItselfIsRefused()
+    local doc = Store.Empty()
+    local groupId = Store.MintId(doc)
+    Store.InsertEntry(doc, Store.NewGroupEntry(groupId, "group", true, {}))
+    luaunit.assertFalse(Store.MoveSubtree(doc, groupId, groupId))
+end
+
+function TestStore:testMoveSubtreeIntoAlertIsRefused()
+    -- An alert leaf is not a container; reparenting into one must fail, leaving the tree intact.
+    local doc = Store.Empty()
+    local aId = seedAlert(self, doc, "a", true)
+    local bId = seedAlert(self, doc, "b", true)
+    luaunit.assertFalse(Store.MoveSubtree(doc, aId, bId))
+    luaunit.assertEquals(#doc.entries, 2)
+end
+
+function TestStore:testMoveSubtreeReturnsFalseForUnknownId()
+    local doc = Store.Empty()
+    local groupId = Store.MintId(doc)
+    Store.InsertEntry(doc, Store.NewGroupEntry(groupId, "group", true, {}))
+    luaunit.assertFalse(Store.MoveSubtree(doc, 999, groupId))
+end
+
+function TestStore:testMoveSubtreeToMissingParentIsRefused()
+    local doc = Store.Empty()
+    local alertId = seedAlert(self, doc, "a", true)
+    luaunit.assertFalse(Store.MoveSubtree(doc, alertId, 999))
+    luaunit.assertEquals(#doc.entries, 1) -- still at root
+end
+
+--- Enabled-chain: an alert fires iff its own enabled AND every ancestor group's enabled (#88) --
+
+function TestStore:testAncestorsEnabledTrueForRootEntry()
+    -- A root-level entry has no ancestor groups, so nothing upstream can suppress it.
+    local doc = Store.Empty()
+    local id = seedAlert(self, doc, "root", true)
+    luaunit.assertTrue(Store.AncestorsEnabled(doc, id))
+end
+
+function TestStore:testAncestorsEnabledTrueWhenEveryAncestorGroupEnabled()
+    local doc = Store.Empty()
+    local outerId = Store.MintId(doc)
+    Store.InsertEntry(doc, Store.NewGroupEntry(outerId, "outer", true, {}))
+    local innerId = Store.MintId(doc)
+    Store.InsertEntry(doc, Store.NewGroupEntry(innerId, "inner", true, {}), outerId)
+    local alertId = seedAlert(self, doc, "deep", true, innerId)
+
+    luaunit.assertTrue(Store.AncestorsEnabled(doc, alertId))
+end
+
+function TestStore:testAncestorsEnabledFalseWhenAnyAncestorGroupDisabled()
+    local doc = Store.Empty()
+    local outerId = Store.MintId(doc)
+    Store.InsertEntry(doc, Store.NewGroupEntry(outerId, "outer", false, {})) -- outer disabled
+    local innerId = Store.MintId(doc)
+    Store.InsertEntry(doc, Store.NewGroupEntry(innerId, "inner", true, {}), outerId)
+    local alertId = seedAlert(self, doc, "deep", true, innerId)
+
+    -- The alert's own flag is on and inner is on, but the disabled outer breaks the chain.
+    luaunit.assertFalse(Store.AncestorsEnabled(doc, alertId))
+end
+
+function TestStore:testEnabledChainCombinesOwnFlagWithAncestors()
+    local doc = Store.Empty()
+    local groupId = Store.MintId(doc)
+    Store.InsertEntry(doc, Store.NewGroupEntry(groupId, "group", true, {}))
+    local onId = seedAlert(self, doc, "on", true, groupId)
+    local offId = seedAlert(self, doc, "off", false, groupId)
+
+    -- Both under an enabled group: the chain follows each alert's own flag.
+    luaunit.assertTrue(Store.EnabledChain(doc, onId))
+    luaunit.assertFalse(Store.EnabledChain(doc, offId))
+end
+
+function TestStore:testEnabledChainFalseWhenGroupDisabledEvenIfAlertEnabled()
+    local doc = Store.Empty()
+    local groupId = Store.MintId(doc)
+    Store.InsertEntry(doc, Store.NewGroupEntry(groupId, "group", false, {}))
+    local alertId = seedAlert(self, doc, "on", true, groupId)
+
+    luaunit.assertFalse(Store.EnabledChain(doc, alertId))
+end
+
+function TestStore:testEnabledChainFalseForUnknownId()
+    luaunit.assertFalse(Store.EnabledChain(Store.Empty(), 999))
+end
+
+function TestStore:testDisablingGroupLeavesDescendantOwnFlagsUntouched()
+    -- The master switch suppresses via the chain; it must not overwrite descendants' own enabled,
+    -- so re-enabling the group restores exactly the prior per-alert state.
+    local doc = Store.Empty()
+    local groupId = Store.MintId(doc)
+    Store.InsertEntry(doc, Store.NewGroupEntry(groupId, "group", true, {}))
+    local onId = seedAlert(self, doc, "on", true, groupId)
+    local offId = seedAlert(self, doc, "off", false, groupId)
+
+    Store.SetEnabled(doc, groupId, false)
+    -- Suppressed while the group is off, but each alert keeps its own flag.
+    luaunit.assertFalse(Store.EnabledChain(doc, onId))
+    luaunit.assertEquals(Store.FindById(doc, onId).enabled, true)
+    luaunit.assertEquals(Store.FindById(doc, offId).enabled, false)
+
+    Store.SetEnabled(doc, groupId, true)
+    -- Re-enabling restores exactly the prior mix: "on" fires again, "off" stays off.
+    luaunit.assertTrue(Store.EnabledChain(doc, onId))
+    luaunit.assertFalse(Store.EnabledChain(doc, offId))
+end
+
+function TestStore:testEnabledChainReEvaluatesAfterMove()
+    -- Moving an alert out of a disabled group must restore it; moving it back in re-suppresses —
+    -- the chain is resolved live over the tree, never cached at insert time.
+    local doc = Store.Empty()
+    local offGroup = Store.MintId(doc)
+    Store.InsertEntry(doc, Store.NewGroupEntry(offGroup, "off-group", false, {}))
+    local alertId = seedAlert(self, doc, "a", true, offGroup)
+
+    luaunit.assertFalse(Store.EnabledChain(doc, alertId)) -- suppressed inside the disabled group
+
+    Store.MoveSubtree(doc, alertId, nil) -- out to root
+    luaunit.assertTrue(Store.EnabledChain(doc, alertId))  -- restored
+
+    Store.MoveSubtree(doc, alertId, offGroup) -- back into the disabled group
+    luaunit.assertFalse(Store.EnabledChain(doc, alertId)) -- re-suppressed
+end
+
 --- Alert Entry construction: enabled default + shape -------------------------------------
 
 function TestStore:testNewAlertEntryDefaultsEnabledTrue()

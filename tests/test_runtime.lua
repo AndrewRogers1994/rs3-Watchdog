@@ -505,6 +505,99 @@ function TestRuntime:testAlertMayToggleItself()
     luaunit.assertNil(graphA:GetLastValue(aId, "payload"))
 end
 
+--- Enabled-chain gate (#88): an ancestor-group resolver suppresses firing per alert -------
+
+function TestRuntime:testEnabledResolverSuppressesFiringForDescendantsOfADisabledGroup()
+    registerEchoTrigger(self.registry, "fixture.echo")
+    self.runtime:BindTrigger("fixture.echo", { { event = "Custom" } })
+
+    -- Alert 1 sits under a disabled group, alert 2 under an enabled one — modelled by a resolver
+    -- that reports ancestor-enabled per Entry id (what Store.AncestorsEnabled provides live).
+    self.runtime:SetEnabledResolver(function(id) return id ~= 1 end)
+
+    local graphA = Graph.new(self.registry)
+    local graphB = Graph.new(self.registry)
+    self.runtime:SetGraph(nil)
+    self.runtime:AddAlert(1, "A", graphA, true) -- own flag on, but ancestor group off
+    self.runtime:AddAlert(2, "B", graphB, true)
+    local aId = graphA:AddNode("fixture.echo")
+    local bId = graphB:AddNode("fixture.echo")
+
+    self.source:Push("Custom", "ping")
+
+    -- The disabled group silences alert 1's descendant; alert 2 fires normally.
+    luaunit.assertNil(graphA:GetLastValue(aId, "payload"))
+    luaunit.assertEquals(graphB:GetLastValue(bId, "payload"), "ping")
+end
+
+function TestRuntime:testEnabledResolverReEvaluatedEachFire()
+    registerEchoTrigger(self.registry, "fixture.echo")
+    self.runtime:BindTrigger("fixture.echo", { { event = "Custom" } })
+
+    -- The gate flips between fires (as a group toggle / move would), and firing tracks it live.
+    local ancestorsEnabled = false
+    self.runtime:SetEnabledResolver(function() return ancestorsEnabled end)
+
+    local graphA = Graph.new(self.registry)
+    self.runtime:SetGraph(nil)
+    self.runtime:AddAlert(1, "A", graphA, true)
+    local aId = graphA:AddNode("fixture.echo")
+
+    self.source:Push("Custom", "while-group-off")
+    luaunit.assertNil(graphA:GetLastValue(aId, "payload"))
+
+    ancestorsEnabled = true
+    self.source:Push("Custom", "after-group-on")
+    luaunit.assertEquals(graphA:GetLastValue(aId, "payload"), "after-group-on")
+end
+
+function TestRuntime:testOwnDisabledStaysSuppressedRegardlessOfResolver()
+    -- The runtime's own per-alert flag ANDs with the ancestor gate: a disabled alert never fires
+    -- even when every ancestor group is enabled.
+    registerEchoTrigger(self.registry, "fixture.echo")
+    self.runtime:BindTrigger("fixture.echo", { { event = "Custom" } })
+    self.runtime:SetEnabledResolver(function() return true end)
+
+    local graphA = Graph.new(self.registry)
+    self.runtime:SetGraph(nil)
+    self.runtime:AddAlert(1, "A", graphA, false) -- own flag off
+    local aId = graphA:AddNode("fixture.echo")
+
+    self.source:Push("Custom", "ping")
+    luaunit.assertNil(graphA:GetLastValue(aId, "payload"))
+end
+
+function TestRuntime:testNoResolverFiresAsBefore()
+    -- With no resolver wired (a runtime with no groups), every enabled alert fires exactly as it
+    -- did before the enabled-chain gate existed.
+    registerEchoTrigger(self.registry, "fixture.echo")
+    self.runtime:BindTrigger("fixture.echo", { { event = "Custom" } })
+
+    local graphA = Graph.new(self.registry)
+    self.runtime:SetGraph(nil)
+    self.runtime:AddAlert(1, "A", graphA, true)
+    local aId = graphA:AddNode("fixture.echo")
+
+    self.source:Push("Custom", "ping")
+    luaunit.assertEquals(graphA:GetLastValue(aId, "payload"), "ping")
+end
+
+function TestRuntime:testResolverErrorFailsOpenSoOneBadGateCannotSilenceEverything()
+    -- A resolver that raises must not take down dispatch — fire-time gating is lenient like the
+    -- transform/filter fan-out, so the alert still fires.
+    registerEchoTrigger(self.registry, "fixture.echo")
+    self.runtime:BindTrigger("fixture.echo", { { event = "Custom" } })
+    self.runtime:SetEnabledResolver(function() error("boom") end)
+
+    local graphA = Graph.new(self.registry)
+    self.runtime:SetGraph(nil)
+    self.runtime:AddAlert(1, "A", graphA, true)
+    local aId = graphA:AddNode("fixture.echo")
+
+    self.source:Push("Custom", "ping")
+    luaunit.assertEquals(graphA:GetLastValue(aId, "payload"), "ping")
+end
+
 function TestRuntime:testStopUnsubscribesAllChannels()
     registerEchoTrigger(self.registry, "fixture.echo")
     self.runtime:BindTrigger("fixture.echo", { { event = "Custom" } })
