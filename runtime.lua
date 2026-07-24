@@ -261,6 +261,31 @@ function Runtime:SetPersistence(persistence)
     self._persistence = persistence
 end
 
+-- Injects the enabled-chain gate (#88): `resolver(id) -> bool` reports whether every ancestor
+-- GROUP of the alert's Entry `id` is enabled — the enabled-chain minus the alert's own flag, which
+-- the runtime already checks via `alert.enabled`. main.lua wires it to Store.AncestorsEnabled over
+-- the live document, so a group toggle or a subtree move re-resolves on the very next fire (nothing
+-- is cached). Left unset (a runtime with no groups) every alert is treated as having all ancestors
+-- enabled, so firing behaves exactly as it did before the gate existed.
+---@param resolver fun(id: integer): boolean
+function Runtime:SetEnabledResolver(resolver)
+    self._enabledResolver = resolver
+end
+
+-- True unless the injected resolver reports a disabled ancestor group for `id`. Fail-open: no
+-- resolver wired, a nil id (an anonymous alert has no Entry to key on), or a resolver that raises
+-- all leave the alert firing — mirroring the lenient transform/filter handling, so one broken gate
+-- can never silence every alert.
+---@param id integer|nil
+---@return boolean
+function Runtime:_ancestorsEnabled(id)
+    if self._enabledResolver == nil or id == nil then return true end
+    local ok, result = callOrLog("enabled resolver for id '" .. tostring(id) .. "'",
+        self._enabledResolver, id)
+    if not ok then return true end
+    return result ~= false
+end
+
 -- Persists one alert's enabled flag through the injected hook, keyed by its Entry id. A no-op for
 -- an anonymous alert (id nil) or when no persistence is wired. Called once per affected alert, so
 -- a multi-match SetEnabled/Toggle writes each matching alert's flag exactly like a single one does.
@@ -396,14 +421,14 @@ function Runtime:_dispatch(eventName, raw)
     end
 end
 
--- Fans a shaped payload out to every matching node in every *enabled* alert's graph. The
--- enabled check is done here, at fire time (not by tearing down a disabled alert), so toggling
--- an alert is O(1) and never loses graph state — a disabled alert stays live but silent. The
--- editor's current graph is just one alert among these, so its triggers fire mid-edit like any
--- other's.
+-- Fans a shaped payload out to every matching node in every *firing* alert's graph. An alert
+-- fires iff its own `enabled` flag AND its enabled-chain (every ancestor group enabled, #88) hold
+-- — checked here at fire time, not by tearing down a disabled alert, so toggling an alert or a
+-- group is O(1) and never loses graph state (it stays live but silent). The editor's current graph
+-- is just one alert among these, so its triggers fire mid-edit like any other's.
 function Runtime:_fireBinding(binding, payload)
     for _, alert in ipairs(self.alerts) do
-        if alert.enabled then
+        if alert.enabled and self:_ancestorsEnabled(alert.id) then
             self:_fireBindingInGraph(binding, payload, alert.graph)
         end
     end
@@ -431,13 +456,13 @@ function Runtime:_fireBindingInGraph(binding, payload, graph)
     end
 end
 
--- Poll fan-out (#28). Same shape as `_fireBinding` — over every *enabled* alert — but each
--- graph is handled by `_firePollBindingInGraph`, which applies the edge gate instead of firing
--- on every filter pass. A disabled alert is skipped (and so its edge state is left frozen until
--- re-enabled), mirroring the enabled check on the event path.
+-- Poll fan-out (#28). Same shape as `_fireBinding` — over every *firing* alert — but each graph
+-- is handled by `_firePollBindingInGraph`, which applies the edge gate instead of firing on every
+-- filter pass. A non-firing alert (own flag off, or suppressed by a disabled ancestor group, #88)
+-- is skipped and its edge state left frozen until it fires again, mirroring the event path.
 function Runtime:_firePollBinding(binding, payload)
     for _, alert in ipairs(self.alerts) do
-        if alert.enabled then
+        if alert.enabled and self:_ancestorsEnabled(alert.id) then
             self:_firePollBindingInGraph(binding, payload, alert.graph)
         end
     end
