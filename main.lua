@@ -76,7 +76,22 @@ end
 -- runtime:BindTrigger(...), so adding a new trigger never means editing dispatch code here.
 -- Its live graph is set once we know which graph we're editing (further down).
 
-local runtime = Runtime.new()
+-- The injectable identity source (#89): the runtime's seam onto the client `Player` global,
+-- mirroring how the event/`Mouse` sources are injected. `Resolve()` returns the current
+-- character's display name only when actually logged in and in-world (`Player.IsAvailable()` ∧
+-- `entity.isValid`, per research #74) — otherwise nil, which the runtime treats as "not readable
+-- yet" and retries. This is the only client-coupled half of player scoping; everything else is
+-- headless-tested through a fake identity source.
+local playerIdentity = {
+    Resolve = function()
+        if Player == nil or not Player.IsAvailable() then return nil end
+        local ok, entity = pcall(function() return Player.GetEntity() end)
+        if not ok or entity == nil or not entity.isValid then return nil end
+        return entity.displayName
+    end,
+}
+
+local runtime = Runtime.new(nil, nil, playerIdentity)
 
 -- Toast action (#36): one shared, draggable toast stack riding on runtime.effects, keyed
 -- off `runtime.toast` the same way `runtime.effects` already is, so nodes/actions/toast.lua
@@ -125,6 +140,20 @@ require("nodes/actions/alert_toggle").Register(registry, runtime)
 -- graph-restore preload pass through this; the Editor (ui/graph.lua) calls
 -- runtime:PreloadNode after every Graph:SetControl for the control-commit pass.
 runtime:SetRegistry(registry)
+
+-- The character-Bucket loader (#89): given a normalized display name, read that character's
+-- Bucket off disk and restore its saved alerts as live graphs. The runtime calls this on a
+-- genuine character switch (and first login), then arms the returned alerts under the player
+-- Bucket. `global` alerts are loaded separately below; this only ever touches `player_<name>`
+-- keys, and never runs the global-only legacy migration (Store.LoadKey, not Store.Load).
+runtime:SetBucketLoader(function(normalized)
+    local playerDoc = Store.LoadKey(Store.PlayerKey(normalized))
+    local ok, restored = pcall(function() return Store.RestoreAll(playerDoc, registry) end)
+    if ok and restored ~= nil then
+        return restored
+    end
+    return {}
+end)
 
 --- Graph: restore the saved alerts, or seed a demo on first run --------------------------
 -- Persistence backend lives in store.lua: the `global` Bucket, an Entry tree keyed by minted

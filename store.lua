@@ -32,11 +32,24 @@
 -- round-trips back to a nodeId-keyed map on load. That mapping only stays valid because
 -- LibNodeGraph.Deserialize preserves node ids.
 
+local Util = require("util")
+
 local Store = {}
 
--- The Bucket key is un-prefixed — PersistentDB is already plugin-scoped (#81).
+-- Bucket keys are un-prefixed — PersistentDB is already plugin-scoped (#81). The `global` scope
+-- keys on a fixed string; a per-character scope (#89) keys on `player_<normalized displayName>`.
 local DB_KEY = "global"
 local DOC_VERSION = 2
+
+-- The `PersistentDB` key for a character's Bucket (#89): `player_` + the normalized display name.
+-- Normalizing (see Util.NormalizePlayerName) means a cosmetic case/whitespace difference in what
+-- the client returns can't silently orphan a bucket, and the `player_` namespace lets an
+-- IterateEntries pass tell character buckets apart from `global` (#77 §4).
+---@param displayName string
+---@return string
+function Store.PlayerKey(displayName)
+    return "player_" .. Util.NormalizePlayerName(displayName)
+end
 
 --- Persisted schema -----------------------------------------------------------------------
 -- These describe exactly what lives under the DB_KEY JSON string. `Watchdog.Bucket` is the
@@ -452,6 +465,31 @@ local function migrateLegacy()
     return doc, false
 end
 
+-- Reads and decodes the raw JSON at `key` into a Bucket, or an empty one when the key is absent,
+-- unreadable, or not valid JSON. Never returns nil. Unlike Store.Load this is the *plain* read
+-- with **no legacy migration** — that hop is bound to the `global` key alone (a player key has no
+-- legacy predecessor). Used for every character Bucket (#89) and reused by Store.Load for `global`.
+---@param key string
+---@return Watchdog.Bucket doc  # the same shape Store.SaveTo persists (the round-trip contract)
+function Store.LoadKey(key)
+    if PersistentDB == nil then return Store.Empty() end
+    local text
+    pcall(function() text = PersistentDB:GetString(key) end)
+    if type(text) ~= "string" or text == "" then
+        return Store.Empty()
+    end
+    local c = codec()
+    if c == nil then return Store.Empty() end
+    local ok, doc = pcall(function() return c.decode(text) end)
+    if not ok or type(doc) ~= "table" then
+        if log ~= nil then log("Watchdog: saved bucket '" .. tostring(key) .. "' unreadable, starting fresh — " .. tostring(doc)) end
+        return Store.Empty()
+    end
+    doc.version = doc.version or DOC_VERSION
+    doc.entries = doc.entries or {}
+    return doc
+end
+
 -- Reads the saved `global` bucket, or an empty one when there's nothing saved / it can't be
 -- parsed. Never returns nil, so callers always get a document to work on. When `global` is absent
 -- the one-shot #87 migration runs first, carrying a legacy `watchdog_graphs` document across; its
@@ -472,30 +510,31 @@ function Store.Load()
         if failed then return Store.Empty(), true end
         return Store.Empty()
     end
-    local c = codec()
-    if c == nil then return Store.Empty() end
-    local ok, doc = pcall(function() return c.decode(text) end)
-    if not ok or type(doc) ~= "table" then
-        if log ~= nil then log("Watchdog: saved bucket unreadable, starting fresh — " .. tostring(doc)) end
-        return Store.Empty()
-    end
-    doc.version = doc.version or DOC_VERSION
-    doc.entries = doc.entries or {}
-    return doc
+    -- `global` present and authoritative: plain keyed read, no migration.
+    return Store.LoadKey(DB_KEY)
 end
 
--- Persists the bucket as one JSON string under the `global` key. Returns true on success.
----@param doc Watchdog.Bucket  # the same shape Store.Load returns (the round-trip contract)
+-- Persists `doc` as one JSON string under `key`. Returns true on success. The keyed sibling of
+-- Store.Save: used for character Buckets (#89) and reused by Store.Save for the `global` key.
+---@param key string
+---@param doc Watchdog.Bucket  # the same shape Store.LoadKey returns (the round-trip contract)
 ---@return boolean  # true if the document was encoded and written
-function Store.Save(doc)
+function Store.SaveTo(key, doc)
     if PersistentDB == nil then return false end
     local text = Store.Encode(doc)
     if text == nil then
         if log ~= nil then log("Watchdog: failed to encode bucket for save") end
         return false
     end
-    local ok = pcall(function() PersistentDB:SetString(DB_KEY, text) end)
+    local ok = pcall(function() PersistentDB:SetString(key, text) end)
     return ok
+end
+
+-- Persists the bucket as one JSON string under the `global` key. Returns true on success.
+---@param doc Watchdog.Bucket  # the same shape Store.Load returns (the round-trip contract)
+---@return boolean  # true if the document was encoded and written
+function Store.Save(doc)
+    return Store.SaveTo(DB_KEY, doc)
 end
 
 return Store

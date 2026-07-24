@@ -45,10 +45,12 @@ half. It bundles the engine's serialized structure with the UI-only Layout into 
 **Entry** and writes a whole Scope's **Entry** tree as one JSON string under its **Bucket** key
 (see the Alert Manager section). The `global` Bucket + Entry tree landed in #86; the persisted
 `current` pointer is gone (the editor binds the first alert until the Manager/#80 lands). Every
-Store operation keys on the Entry `id`, never name.
-_(Target model, not yet landed: per-character `player_<…>` Buckets (#89), Groups (#88), and the
-one-shot legacy migration from the old flat `watchdog_graphs` document (#87) — until #87, an
-existing pre-Bucket save is treated as a fresh install and reseeds the demo.)_
+Store operation keys on the Entry `id`, never name. Bucket I/O is key-parametrized: `Store.Load`/
+`Store.Save` are the `global` shorthands over `Store.LoadKey(key)` / `Store.SaveTo(key, doc)`, and
+`Store.PlayerKey(displayName)` builds a character Bucket's `player_<normalized>` key (#89). Only
+`Store.Load` runs the one-shot legacy migration — a character Bucket has no legacy predecessor.
+_(Landed: per-character `player_<…>` Buckets (#89) and the one-shot legacy `watchdog_graphs`
+migration (#87). Not yet landed: Groups (#88).)_
 _Avoid_: Database, save system, persistence layer (in prose), serializer (that's the engine's)
 
 **Capture Layer**:
@@ -248,11 +250,16 @@ selector offers **`global` + the current character only** (#77, #78).
 _Avoid_: Selected scope, focus; "current scope" (that word names the deleted Store pointer)
 
 **Armed** / **Resident**:
-Two independent runtime states of a loaded Bucket. **Resident** = loaded in memory. **Armed** =
-eligible to fire: `global` is armed at plugin start and never disarmed; a character Bucket arms on
-the `GAME` transition when its `displayName` is unchanged and disarms (but stays resident) on
-leaving `GAME`. **Fire predicate: armed Bucket AND enabled-chain true — nothing else** (editor
-state and the Manager's selected Scope never gate firing) (#77).
+Two independent runtime states of a loaded Bucket (landed in `runtime.lua`, #89). **Resident** =
+loaded in memory. **Armed** = eligible to fire: `global` is armed at plugin start and never
+disarmed; a character Bucket arms on the `GAME` transition when its `displayName` is unchanged (a
+world-hop/reconnect re-arms *in place* — no reload, so `pollEdgeState` survives and no `Enter` is
+replayed), disarms but stays resident on leaving `GAME`, and is discarded+reloaded only on a
+genuine character switch (a rename, having no stable account id, reads as a switch and orphans the
+old Bucket). Identity has no switch event, so it's resolved by a **pending-resolve flag drained on
+Logic ticks** (which also covers a plugin reload mid-session). **Fire predicate: armed Bucket AND
+enabled-chain true — nothing else** (editor state and the Manager's selected Scope never gate
+firing) (#77, #89).
 _Avoid_: Active / loaded (ambiguous between the two states), enabled (that is the per-Entry switch)
 
 **Level** / **bound entry**:
