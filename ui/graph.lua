@@ -1650,11 +1650,18 @@ function Editor:mountGroupBox(parent)
     self.groupBox.clickthrough = true
     self:positionGroupBox()
 
+    -- Toolbar button metric, shared by the header title inset below and the toolbar buttons further
+    -- down. The top-left "← Alerts" button (SetPos(6,5), width 4*bs) sits inside the header, so the
+    -- title must start to its right or the left-aligned title text draws over the button and hides it.
+    local bs = Theme.WINDOW_HEADER_H - 10
+    local titleInset = 6 + 4 * bs + 8  -- back-button left margin + its width + a gap
+
     -- headerWidth is a Uint8 (0..255) in the docs even though the Window itself is wider —
-    -- clamp rather than pass the raw Window width and risk it wrapping/clamping oddly.
+    -- clamp rather than pass the raw Window width and risk it wrapping/clamping oddly. offsetX shifts
+    -- the title clear of the "← Alerts" button (top-left of the same header band).
     local ok2, err2 = pcall(function()
-        self.groupBox:SetHeaderLayout(math.min(win.w, 255), Theme.WINDOW_HEADER_H,
-            0, 0, ui.GroupBoxHeaderAlignMode.LEFT)
+        self.groupBox:SetHeaderLayout(math.min(win.w - titleInset, 255), Theme.WINDOW_HEADER_H,
+            titleInset, 0, ui.GroupBoxHeaderAlignMode.LEFT)
     end)
     if not ok2 and log ~= nil then log("Watchdog: SetHeaderLayout failed — " .. tostring(err2)) end
 
@@ -1683,7 +1690,7 @@ function Editor:mountGroupBox(parent)
     pcall(function() self.groupBox.contentMargin = ui.Margin.new() end)
     self.groupBox:MoveToFront()
 
-    local bs = Theme.WINDOW_HEADER_H - 10
+    -- `bs` (toolbar button size) was computed above for the header title inset; reused here.
     local function toolbarButton(label, offsetFromRight, onPress)
         local button = nil
         local ok4 = pcall(function() button = ui.Button.new(self.groupBox) end)

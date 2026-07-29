@@ -163,6 +163,10 @@ function Runtime:_bindActivityTracking()
         return
     end
     local runtime = self
+    -- LOAD-BEARING print() — do NOT remove (undocumented client-API quirk, measured in-client):
+    -- reading an injected event-source channel and calling :Subscribe in the same scope hard-crashes
+    -- the client unless a print() executes in that scope first. Looks like a stray debug line; it
+    -- isn't. Every event-source Subscribe/Unsubscribe site needs it. See CLAUDE.md "Three ways to hard-crash the client" (#3) / memory client-event-param-crash.
     print()
     source.Subscribe("watchdog_runtime_activity_key", function()
         runtime.keyboardActivityTick = runtime.keyboardActivityTick + 1
@@ -183,6 +187,10 @@ function Runtime:_bindLifecycle()
         return
     end
     local runtime = self
+    -- LOAD-BEARING print() — do NOT remove. Without it, this GameStateChanged Subscribe hard-crashes
+    -- the client on plugin load (this was the #89 crash: the function was copied from
+    -- _bindActivityTracking above but dropped its print()). See CLAUDE.md "Three ways to hard-crash the client" (#3) / memory client-event-param-crash.
+    print()
     source.Subscribe("watchdog_runtime_gamestate", function(payload)
         runtime:_onGameStateChanged(payload)
     end)

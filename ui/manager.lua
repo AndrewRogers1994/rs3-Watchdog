@@ -22,6 +22,23 @@
 
 local Theme = require("ui/theme")
 
+-- Absolute cursor position off the client `Mouse` global (nil under the headless test harness /
+-- before the client is ready). Mirrors ui/graph.lua's helper — the drag path is client-only and
+-- pcall-guarded, so reading the global directly here (rather than injecting a source) matches the
+-- Editor's convention and keeps the pure tree/scope logic free of any client coupling.
+local function mousePos()
+    if Mouse == nil or Mouse.GetPosition == nil then return nil end
+    local ok, pos = pcall(function() return Mouse.GetPosition() end)
+    if ok and pos ~= nil then return pos.x, pos.y end
+    return nil
+end
+
+local function clampv(v, lo, hi)
+    if v < lo then return lo end
+    if v > hi then return hi end
+    return v
+end
+
 local Manager = {}
 Manager.__index = Manager
 
@@ -87,6 +104,14 @@ function Manager.new(opts)
         tabButtons = {},
         rowButtons = {},
         lastSignature = nil,        -- last-rendered rebuild signature (skip no-op rebuilds)
+        -- Window drag (mirrors the Editor's capture-layer model, ui/graph.lua). An invisible
+        -- full-window Button sits behind the clickthrough GroupBox: it blocks clicks from reaching
+        -- the game AND drives header-drag. Grab offset recorded on a header press; window follows
+        -- the cursor each Update tick while `dragging`.
+        rootParent = nil,           -- kept for on-screen clamp (screen size)
+        captureButton = nil,
+        dragging = false,
+        dragDX = 0, dragDY = 0,     -- cursor-to-window-origin offset captured at drag start
     }, Manager)
     return self
 end
@@ -272,12 +297,18 @@ function Manager:Mount(parent)
     end
     local win = self.window
 
+    self.rootParent = parent
     local ok = pcall(function() self.groupBox = ui.GroupBox.new(parent) end)
     if not ok or self.groupBox == nil then
         self.groupBox = nil
         return
     end
     pcall(function() self.groupBox.stylesheetID = safePanelStyle() end)
+    -- Clickthrough like the Editor's GroupBox: a click that misses a real child Button falls through
+    -- the frame to the invisible capture Button behind it (created below). That capture both BLOCKS
+    -- the click from reaching the game (fixing the "window reads as dead / clicks leak through"
+    -- report) and drives header-dragging. Without the capture layer a clickthrough frame would leak
+    -- clicks — the two are a pair; never one without the other.
     self.groupBox.clickthrough = true
     pcall(function()
         self.groupBox:SetPos(win.x, win.y)
@@ -298,14 +329,110 @@ function Manager:Mount(parent)
         self.treePanel = ui.Panel.new(self.groupBox)
         self.treePanel.isVertical = true
         self.treePanel.spacing = 0
-        self.treePanel.clickthrough = true
+        self.treePanel.clickthrough = false
         self.treePanel:SetPos(TAB_PAD, treeTop)
         self.treePanel:SetSize(win.w - 2 * TAB_PAD, win.h - Theme.WINDOW_HEADER_H - treeTop - CONTENT_TOP)
     end)
 
+    -- The invisible capture Button (mirrors the Editor's, ui/graph.lua). A SIBLING on the root
+    -- parent (not a GroupBox child) so it can grow past the window to full-screen during a drag —
+    -- a nested child can only size within its parent. Created AFTER the GroupBox so it lands in
+    -- front of it; the MoveToFront below then re-fronts the GroupBox + its Buttons above the
+    -- capture, leaving the capture reachable only where a click misses a real Button (the header
+    -- band and empty content), which is exactly where we want drags/blocking. ONCLICK begins a drag
+    -- iff it landed in the header; movement is polled in Update; ONRELEASE ends it.
+    pcall(function()
+        self.captureButton = ui.Button.new(parent)
+        self.captureButton.alpha = 0
+        self.captureButton.clickthrough = false
+        self.captureButton:Subscribe(ui.Hook.ONCLICK, function() self:_beginDrag() end)
+        self.captureButton:Subscribe(ui.Hook.ONRELEASE, function() self:_endDrag() end)
+    end)
+    self:_positionCapture()
+
     pcall(function() self.groupBox:MoveToFront() end)
     self:SetVisible(self.visible)
     self:_rebuild()
+end
+
+--- Window drag (capture-layer model; see the captureButton comment in Mount) -----------------
+
+-- Full-screen interface size (fallback if the root component can't be read), for the on-screen
+-- clamp. Mirrors Editor:screenSize.
+---@return number, number
+function Manager:_screenSize()
+    local w, h = 1920, 1080
+    if self.rootParent ~= nil then
+        pcall(function()
+            if self.rootParent.width and self.rootParent.width > 0 then w = self.rootParent.width end
+            if self.rootParent.height and self.rootParent.height > 0 then h = self.rootParent.height end
+        end)
+    end
+    return w, h
+end
+
+-- Whether an absolute screen point is in the window's header band. The Manager works entirely in
+-- absolute coords (no Canvas transform), so this is a plain rect test — pure, and unit-tested.
+---@param mx number
+---@param my number
+---@return boolean
+function Manager:_inHeader(mx, my)
+    local win = self.window
+    return mx >= win.x and mx <= win.x + win.w
+        and my >= win.y and my <= win.y + Theme.WINDOW_HEADER_H
+end
+
+-- Sizes the capture Button to the window rect (its resting size). Absolute coords, like the Editor's.
+function Manager:_positionCapture()
+    if self.captureButton == nil then return end
+    local win = self.window
+    pcall(function()
+        self.captureButton:SetPos(win.x, win.y)
+        self.captureButton:SetSize(win.w, win.h)
+    end)
+end
+
+-- Grows the capture Button to the whole screen for a drag's duration, so the release (and continued
+-- tracking) still reaches us if the cursor leaves the window. Restored to window size in _endDrag.
+function Manager:_expandCapture()
+    if self.captureButton == nil then return end
+    pcall(function()
+        self.captureButton:SetPos(0, 0)
+        self.captureButton:SetSize(0, 0, 1.0, 1.0)
+    end)
+end
+
+-- Moves the GroupBox (its tab/row children ride along) and the resting capture to the window rect.
+function Manager:_positionWindow()
+    local win = self.window
+    if self.groupBox ~= nil then
+        pcall(function()
+            self.groupBox:SetPos(win.x, win.y)
+            self.groupBox:SetSize(win.w, win.h)
+        end)
+    end
+    self:_positionCapture()
+end
+
+-- A press reached the capture: start a window drag only if it landed in the header band. The grab
+-- offset is cursor-minus-window-origin so the window tracks the cursor without jumping. A non-header
+-- press just gets swallowed by the capture (blocking the game), which is the desired no-op.
+function Manager:_beginDrag()
+    if not self.visible or self.captureButton == nil then return end
+    local mx, my = mousePos()
+    if mx == nil then return end
+    if self:_inHeader(mx, my) then
+        self.dragging = true
+        self.dragDX, self.dragDY = mx - self.window.x, my - self.window.y
+        self:_expandCapture()
+    end
+end
+
+-- Ends a drag on release: shrink the capture back to the window. Safe when not dragging.
+function Manager:_endDrag()
+    if not self.dragging then return end
+    self.dragging = false
+    self:_positionCapture()
 end
 
 -- True once the GroupBox exists (read back off the handle, mirroring effects:IsMounted — so main's
@@ -424,10 +551,22 @@ function Manager:_onRowPress(row)
 end
 
 -- Per-tick poll (driven from main.lua's Logic loop, like the Editor's update): advances the
--- double-click tick and rebuilds when the signature changed out from under us (a character login
--- adds a tab, a logout removes one) so the tab bar tracks scope changes without an explicit call.
+-- double-click tick, follows the cursor while dragging, and rebuilds when the signature changed out
+-- from under us (a character login adds a tab, a logout removes one) so the tab bar tracks scope
+-- changes without an explicit call.
 function Manager:Update()
     self.tick = self.tick + 1
+    -- Follow the cursor via the grab offset, clamped so the window (header included) stays on screen.
+    -- The tab/row Buttons are GroupBox children, so moving the GroupBox carries them along for free.
+    if self.dragging then
+        local mx, my = mousePos()
+        if mx ~= nil then
+            local sw, sh = self:_screenSize()
+            self.window.x = clampv(mx - self.dragDX, 0, math.max(0, sw - self.window.w))
+            self.window.y = clampv(my - self.dragDY, 0, math.max(0, sh - self.window.h))
+            self:_positionWindow()
+        end
+    end
     if not self.visible or self.groupBox == nil then return end
     if self:_signature() ~= self.lastSignature then
         self:_rebuild()
@@ -445,8 +584,18 @@ end
 function Manager:SetVisible(v)
     local becomingVisible = v and not self.visible
     self.visible = v and true or false
+    if not self.visible then
+        self.dragging = false -- abandon any in-progress drag so nothing resumes when reshown
+    end
     if self.groupBox ~= nil then
         pcall(function() self.groupBox.hidden = not self.visible end)
+    end
+    if self.captureButton ~= nil then
+        pcall(function()
+            self.captureButton.hidden = not self.visible
+            self.captureButton.enabled = self.visible -- stop intercepting game input while hidden
+        end)
+        if self.visible then self:_positionCapture() end -- also recovers size if a drag left it expanded
     end
     -- A rebuild on show catches any scope/tree change that happened while hidden (a login, or an
     -- Editor write-back to a tree the Manager already had on screen).
@@ -460,14 +609,21 @@ function Manager:Toggle()
 end
 
 -- Re-asserts front-most z-order (mirrors Editor:RaiseToFront) after another always-on overlay
--- jumped in front mid-drag. No-op while hidden.
+-- jumped in front mid-drag. Fronts the capture first, then the GroupBox on top of it — the same
+-- relative order Mount establishes (GroupBox + Buttons out-rank capture, capture out-ranks the rest).
+-- No-op while hidden.
 function Manager:RaiseToFront()
     if not self.visible then return end
+    pcall(function() if self.captureButton ~= nil then self.captureButton:MoveToFront() end end)
     pcall(function() if self.groupBox ~= nil then self.groupBox:MoveToFront() end end)
 end
 
 function Manager:Unmount()
     self:_clearChildren()
+    if self.captureButton ~= nil then
+        pcall(function() self.captureButton:Destroy() end)
+        self.captureButton = nil
+    end
     if self.groupBox ~= nil then
         pcall(function() self.groupBox:Destroy() end)  -- takes the tree Panel + any children with it
         self.groupBox = nil
