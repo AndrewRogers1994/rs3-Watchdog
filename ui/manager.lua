@@ -6,6 +6,10 @@
 -- pan nor zoom, so Canvas's rationale (ADR-0001) doesn't extend here, and a Panel hands us
 -- native auto-layout + scroll + per-row clicks for free.
 --
+-- Chrome (title bar, window frame, drag) lives on the host Multiplexer / PrettyUI window.
+-- This module mounts **content only** into an external parent (`mux:Content()` /
+-- `rootWindow.content`): tab row + scrollable tree. No GroupBox, no capture-drag layer.
+--
 -- #90 landed the tree/scope/expand read-only cut; #91 adds the per-row editing ops (enable
 -- toggle, InputField rename, delete-with-confirm) and the per-tab + Alert / + Group actions.
 -- Drag-reorder and multi-select are later tickets (#92, #93).
@@ -20,32 +24,15 @@
 
 local Theme = require("ui/theme")
 
--- Absolute cursor position off the client `Mouse` global (nil under the headless test harness /
--- before the client is ready). Mirrors ui/graph.lua's helper — the drag path is client-only and
--- pcall-guarded, so reading the global directly here (rather than injecting a source) matches the
--- Editor's convention and keeps the pure tree/scope logic free of any client coupling.
-local function mousePos()
-    if Mouse == nil or Mouse.GetPosition == nil then return nil end
-    local ok, pos = pcall(function() return Mouse.GetPosition() end)
-    if ok and pos ~= nil then return pos.x, pos.y end
-    return nil
-end
-
-local function clampv(v, lo, hi)
-    if v < lo then return lo end
-    if v > hi then return hi end
-    return v
-end
-
 local Manager = {}
 Manager.__index = Manager
 
--- Layout constants (GroupBox-local content coords, mirroring the Editor's convention: child (0,0)
--- is the top-left of the content area, the title band floats above it per the _TITLED stylesheet).
+-- Layout constants (content-parent-local coords: child (0,0) is the top-left of the host's
+-- content area — already below the PrettyUI title bar, so no WINDOW_HEADER_H inset).
 local TAB_H       = 24    -- scope tab bar height
-local TAB_PAD     = 6     -- gap between tabs / inset from the box edge
+local TAB_PAD     = 6     -- gap between tabs / inset from the content edge
 local ROW_H       = 22    -- one tree row
-local CONTENT_TOP = 4     -- inset below the title band
+local CONTENT_TOP = 4     -- inset from the top of the content area
 local ENABLE_W    = 22    -- enable toggle width
 local ACT_W       = 36    -- rename / delete action button width (ASCII labels, not emoji)
 local CREATE_W    = 72    -- + Alert / + Group button width
@@ -111,24 +98,16 @@ function Manager.new(opts)
         tick = 0,                   -- Logic-tick counter, for row double-click timing
         lastRowId = nil,            -- id of the previously-pressed row (double-click pairing)
         lastRowTick = -1000,
+        -- Layout size only (no screen placement — host/mux owns the window chrome).
         window = {
-            x = Theme.WINDOW_X, y = Theme.WINDOW_Y,
             w = Theme.WINDOW_W, h = Theme.WINDOW_H,
         },
         -- Client-only component handles (nil until Mount); see the render half below.
-        groupBox = nil,
+        contentParent = nil,        -- external parent (mux Content / rootWindow.content)
         treePanel = nil,
         tabButtons = {},
         rowButtons = {},
         lastSignature = nil,        -- last-rendered rebuild signature (skip no-op rebuilds)
-        -- Window drag (mirrors the Editor's capture-layer model, ui/graph.lua). An invisible
-        -- full-window Button sits behind the clickthrough GroupBox: it blocks clicks from reaching
-        -- the game AND drives header-drag. Grab offset recorded on a header press; window follows
-        -- the cursor each Update tick while `dragging`.
-        rootParent = nil,           -- kept for on-screen clamp (screen size)
-        captureButton = nil,
-        dragging = false,
-        dragDX = 0, dragDY = 0,     -- cursor-to-window-origin offset captured at drag start
         -- Inline rename (#91): the mounted InputField + the Entry id it's editing, or nil when idle.
         renameField = nil,
         renameId = nil,
@@ -376,173 +355,65 @@ local function safeCheckStyle()
     return nil
 end
 
-local function safePanelStyle()
-    if id ~= nil and id.StyleSheet ~= nil and id.StyleSheet.GROUPBOX_CONTENT_PANEL_TITLED ~= nil then
-        return id.StyleSheet.GROUPBOX_CONTENT_PANEL_TITLED
-    end
-    return nil
-end
-
--- Mounts the Manager's native chrome: a titled GroupBox framing a scope tab bar and a scrollable
--- vertical tree Panel. Structure mirrors the Editor's mountGroupBox (same safe-style guards, same
--- header layout), differing only in what it hosts. Everything is best-effort: a missing ui.* just
--- leaves the surface unmounted (IsMounted false), and main.lua's retry loop tries again next frame.
----@param parent ui.ComponentCollection
-function Manager:Mount(parent)
-    if ui == nil or ui.GroupBox == nil then
-        if log ~= nil then log("Watchdog: ui.GroupBox unavailable, Manager Mount aborted") end
-        return
-    end
-    local win = self.window
-
-    self.rootParent = parent
-    local ok = pcall(function() self.groupBox = ui.GroupBox.new(parent) end)
-    if not ok or self.groupBox == nil then
-        self.groupBox = nil
-        return
-    end
-    pcall(function() self.groupBox.stylesheetID = safePanelStyle() end)
-    -- Clickthrough like the Editor's GroupBox: a click that misses a real child Button falls through
-    -- the frame to the invisible capture Button behind it (created below). That capture both BLOCKS
-    -- the click from reaching the game (fixing the "window reads as dead / clicks leak through"
-    -- report) and drives header-dragging. Without the capture layer a clickthrough frame would leak
-    -- clicks — the two are a pair; never one without the other.
-    self.groupBox.clickthrough = true
-    pcall(function()
-        self.groupBox:SetPos(win.x, win.y)
-        self.groupBox:SetSize(win.w, win.h)
-    end)
-    pcall(function()
-        self.groupBox:SetHeaderLayout(math.min(win.w, 255), Theme.WINDOW_HEADER_H,
-            0, 0, ui.GroupBoxHeaderAlignMode.LEFT)
-    end)
-    pcall(function() self.groupBox.headerText.content = "Watchdog — Alerts" end)
-    pcall(function() self.groupBox.headerText.font = id.Font.MUSEO_SANS_15PT_REGULAR end)
-    pcall(function() self.groupBox.contentMargin = ui.Margin.new() end)
-
-    -- The tree lives in its own scrollable vertical Panel below the tab bar; the tabs are direct
-    -- GroupBox children positioned by hand (a short fixed row, not worth an auto-layout Panel).
-    local treeTop = CONTENT_TOP + TAB_H + TAB_PAD
-    pcall(function()
-        self.treePanel = ui.Panel.new(self.groupBox)
-        self.treePanel.isVertical = true
-        self.treePanel.spacing = 0
-        self.treePanel.clickthrough = false
-        self.treePanel:SetPos(TAB_PAD, treeTop)
-        self.treePanel:SetSize(win.w - 2 * TAB_PAD, win.h - Theme.WINDOW_HEADER_H - treeTop - CONTENT_TOP)
-    end)
-
-    -- The invisible capture Button (mirrors the Editor's, ui/graph.lua). A SIBLING on the root
-    -- parent (not a GroupBox child) so it can grow past the window to full-screen during a drag —
-    -- a nested child can only size within its parent. Created AFTER the GroupBox so it lands in
-    -- front of it; the MoveToFront below then re-fronts the GroupBox + its Buttons above the
-    -- capture, leaving the capture reachable only where a click misses a real Button (the header
-    -- band and empty content), which is exactly where we want drags/blocking. ONCLICK begins a drag
-    -- iff it landed in the header; movement is polled in Update; ONRELEASE ends it.
-    pcall(function()
-        self.captureButton = ui.Button.new(parent)
-        self.captureButton.alpha = 0
-        self.captureButton.clickthrough = false
-        self.captureButton:Subscribe(ui.Hook.ONCLICK, function() self:_beginDrag() end)
-        self.captureButton:Subscribe(ui.Hook.ONRELEASE, function() self:_endDrag() end)
-    end)
-    self:_positionCapture()
-
-    pcall(function() self.groupBox:MoveToFront() end)
-    self:SetVisible(self.visible)
-    self:_rebuild()
-end
-
---- Window drag (capture-layer model; see the captureButton comment in Mount) -----------------
-
--- Full-screen interface size (fallback if the root component can't be read), for the on-screen
--- clamp. Mirrors Editor:screenSize.
+-- Content rect size: prefer the parent's width/height when available, else Theme defaults.
+---@param parent ui.ComponentCollection|nil
 ---@return number, number
-function Manager:_screenSize()
-    local w, h = 1920, 1080
-    if self.rootParent ~= nil then
+local function contentSize(parent)
+    local w, h = Theme.WINDOW_W, Theme.WINDOW_H
+    if parent ~= nil then
         pcall(function()
-            if self.rootParent.width and self.rootParent.width > 0 then w = self.rootParent.width end
-            if self.rootParent.height and self.rootParent.height > 0 then h = self.rootParent.height end
+            if parent.width and parent.width > 0 then w = parent.width end
+            if parent.height and parent.height > 0 then h = parent.height end
         end)
     end
     return w, h
 end
 
--- Whether an absolute screen point is in the window's header band. The Manager works entirely in
--- absolute coords (no Canvas transform), so this is a plain rect test — pure, and unit-tested.
----@param mx number
----@param my number
----@return boolean
-function Manager:_inHeader(mx, my)
-    local win = self.window
-    return mx >= win.x and mx <= win.x + win.w
-        and my >= win.y and my <= win.y + Theme.WINDOW_HEADER_H
-end
-
--- Sizes the capture Button to the window rect (its resting size). Absolute coords, like the Editor's.
-function Manager:_positionCapture()
-    if self.captureButton == nil then return end
-    local win = self.window
-    pcall(function()
-        self.captureButton:SetPos(win.x, win.y)
-        self.captureButton:SetSize(win.w, win.h)
-    end)
-end
-
--- Grows the capture Button to the whole screen for a drag's duration, so the release (and continued
--- tracking) still reaches us if the cursor leaves the window. Restored to window size in _endDrag.
-function Manager:_expandCapture()
-    if self.captureButton == nil then return end
-    pcall(function()
-        self.captureButton:SetPos(0, 0)
-        self.captureButton:SetSize(0, 0, 1.0, 1.0)
-    end)
-end
-
--- Moves the GroupBox (its tab/row children ride along) and the resting capture to the window rect.
-function Manager:_positionWindow()
-    local win = self.window
-    if self.groupBox ~= nil then
-        pcall(function()
-            self.groupBox:SetPos(win.x, win.y)
-            self.groupBox:SetSize(win.w, win.h)
-        end)
+-- Mounts tab row + scrollable tree Panel directly under `contentParent` (mux Content /
+-- rootWindow.content). No GroupBox chrome — PrettyUI owns the title bar and frame. Everything
+-- is best-effort: a missing ui.* leaves the surface unmounted (IsMounted false), and main.lua's
+-- retry loop tries again next frame.
+---@param contentParent ui.ComponentCollection
+function Manager:Mount(contentParent)
+    if ui == nil or ui.Panel == nil then
+        if log ~= nil then log("Watchdog: ui.Panel unavailable, Manager Mount aborted") end
+        return
     end
-    self:_positionCapture()
-end
 
--- A press reached the capture: start a window drag only if it landed in the header band. The grab
--- offset is cursor-minus-window-origin so the window tracks the cursor without jumping. A non-header
--- press just gets swallowed by the capture (blocking the game), which is the desired no-op.
-function Manager:_beginDrag()
-    if not self.visible or self.captureButton == nil then return end
-    local mx, my = mousePos()
-    if mx == nil then return end
-    if self:_inHeader(mx, my) then
-        self.dragging = true
-        self.dragDX, self.dragDY = mx - self.window.x, my - self.window.y
-        self:_expandCapture()
+    self.contentParent = contentParent
+    local w, h = contentSize(contentParent)
+    self.window.w, self.window.h = w, h
+
+    -- The tree lives in its own scrollable vertical Panel below the tab bar; the tabs are direct
+    -- contentParent children positioned by hand (a short fixed row, not worth an auto-layout Panel).
+    local treeTop = CONTENT_TOP + TAB_H + TAB_PAD
+    pcall(function()
+        self.treePanel = ui.Panel.new(contentParent)
+        self.treePanel.isVertical = true
+        self.treePanel.spacing = 0
+        self.treePanel.clickthrough = false
+        self.treePanel:SetPos(TAB_PAD, treeTop)
+        self.treePanel:SetSize(w - 2 * TAB_PAD, h - treeTop - CONTENT_TOP)
+    end)
+    if self.treePanel == nil then
+        self.contentParent = nil
+        return
     end
+
+    self:SetVisible(self.visible)
+    self:_rebuild()
 end
 
--- Ends a drag on release: shrink the capture back to the window. Safe when not dragging.
-function Manager:_endDrag()
-    if not self.dragging then return end
-    self.dragging = false
-    self:_positionCapture()
-end
-
--- True once the GroupBox exists (read back off the handle, mirroring effects:IsMounted — so main's
--- retry loop stops re-mounting once we're up).
+-- True once the tree Panel exists (read back off the handle — so main's retry loop stops
+-- re-mounting once we're up).
 ---@return boolean
 function Manager:IsMounted()
-    return self.groupBox ~= nil
+    return self.treePanel ~= nil
 end
 
 -- Destroys the previous frame's tab buttons + tree rows + create buttons + any inline rename
--- field. Children of the GroupBox get taken by its own Destroy on Unmount, but a rebuild must
--- clear them itself so stale rows don't pile up.
+-- field. A rebuild must clear them itself so stale rows don't pile up; Unmount also calls this
+-- before destroying the tree Panel.
 function Manager:_clearChildren()
     self:_endRename(false) -- drop the InputField without committing (rebuild is about to recreate)
     for _, b in ipairs(self.tabButtons) do pcall(function() b:Destroy() end) end
@@ -626,10 +497,10 @@ end
 ---@param h number
 function Manager:_beginRename(id, name, x, y, w, h)
     self:_endRename(false)
-    if self.groupBox == nil or ui == nil or ui.InputField == nil then return end
+    if self.treePanel == nil or ui == nil or ui.InputField == nil then return end
     local field
     local ok = pcall(function()
-        field = ui.InputField.new(self.treePanel or self.groupBox)
+        field = ui.InputField.new(self.treePanel)
         pcall(function() field.stylesheetID = safeButtonStyle() end)
         field.clickthrough = false
         field:SetPos(x, y)
@@ -708,18 +579,38 @@ function Manager:_deleteConfirmLabel(id)
     return "OK?"
 end
 
+-- Apply hidden/enabled to a single content child (tabs, tree, rename field).
+---@param comp ui.Component|nil
+---@param visible boolean
+local function setChildVisible(comp, visible)
+    if comp == nil then return end
+    pcall(function()
+        comp.hidden = not visible
+        comp.enabled = visible
+    end)
+end
+
 -- Rebuilds the scope tabs, + Alert/+ Group actions, and tree rows from current state. Called on
 -- mount, on visibility-show, and whenever the rebuild signature changes (see Update). Fully tears
 -- down and recreates — a list is rebuilt rarely (tab switch / expand / mutation / login), so
 -- retained-mode diffing isn't worth it here.
 function Manager:_rebuild()
-    if self.groupBox == nil or ui == nil then return end
+    if self.contentParent == nil or self.treePanel == nil or ui == nil then return end
     self:_clearChildren()
     self.lastSignature = self:_signature()
 
-    local win = self.window
+    -- Refresh layout size from the host content rect (window may have been resized).
+    local w, h = contentSize(self.contentParent)
+    self.window.w, self.window.h = w, h
+    local treeTop = CONTENT_TOP + TAB_H + TAB_PAD
+    pcall(function()
+        self.treePanel:SetPos(TAB_PAD, treeTop)
+        self.treePanel:SetSize(w - 2 * TAB_PAD, h - treeTop - CONTENT_TOP)
+    end)
+
     local scopes = self:ScopeList()
     local activeKey = self:ActiveScopeKey()
+    local parent = self.contentParent
 
     -- Scope tab bar: one button per scope, laid left-to-right. The active tab is marked in its text
     -- (native restyle-by-state isn't worth wiring) so it reads which scope is live.
@@ -728,21 +619,21 @@ function Manager:_rebuild()
         local label = (scope.key == activeKey) and ("[" .. (scope.label or "") .. "]") or (scope.label or "")
         local scopeKey = scope.key
         local wpx = math.max(64, 12 + 8 * #label)
-        mountButton(self.groupBox, self.tabButtons, tabX, CONTENT_TOP, wpx, TAB_H, label, function()
+        mountButton(parent, self.tabButtons, tabX, CONTENT_TOP, wpx, TAB_H, label, function()
             self:_onTabPress(scopeKey)
         end)
         tabX = tabX + wpx + TAB_PAD
     end
 
     -- Per-tab create actions (#91 / #78): + Alert / + Group, right-aligned on the tab bar.
-    local createX = win.w - TAB_PAD - 2 * CREATE_W - TAB_PAD
+    local createX = w - TAB_PAD - 2 * CREATE_W - TAB_PAD
     if createX < tabX then createX = tabX + TAB_PAD end
-    mountButton(self.groupBox, self.tabButtons, createX, CONTENT_TOP, CREATE_W, TAB_H, "+ Alert", function()
+    mountButton(parent, self.tabButtons, createX, CONTENT_TOP, CREATE_W, TAB_H, "+ Alert", function()
         self:CreateAlert()
         -- Host opens the Editor immediately; no Manager-side follow-up.
         self:_rebuild()
     end)
-    mountButton(self.groupBox, self.tabButtons, createX + CREATE_W + TAB_PAD, CONTENT_TOP, CREATE_W, TAB_H, "+ Group", function()
+    mountButton(parent, self.tabButtons, createX + CREATE_W + TAB_PAD, CONTENT_TOP, CREATE_W, TAB_H, "+ Group", function()
         local id = self:CreateGroup()
         if type(id) == "number" then self.pendingRenameId = id end
         self:_rebuild()
@@ -753,8 +644,8 @@ function Manager:_rebuild()
     -- sat under the name instead of beside it. Client fonts also don't render emoji (✎/🗑 → ?/tofu),
     -- so action labels stay ASCII ("ren" / "del").
     local rows = self:VisibleRows()
-    local rowW = win.w - 2 * TAB_PAD
-    local treeParent = self.treePanel or self.groupBox
+    local rowW = w - 2 * TAB_PAD
+    local treeParent = self.treePanel
     local nameW = math.max(40, rowW - ENABLE_W - 2 * ACT_W - 3 * ROW_GAP)
     for _, row in ipairs(rows) do
         local capturedRow = row
@@ -859,6 +750,14 @@ function Manager:_rebuild()
     if self.treePanel ~= nil then
         pcall(function() self.treePanel:SetScrollSize(rowW, #rows * ROW_H) end)
     end
+
+    -- Rebuild creates fresh tabs at visible=true by default; re-apply visibility so a hidden
+    -- Manager doesn't flash new chrome into the host content area.
+    if not self.visible then
+        for _, b in ipairs(self.tabButtons) do setChildVisible(b, false) end
+        setChildVisible(self.treePanel, false)
+        setChildVisible(self.renameField, false)
+    end
 end
 
 -- Scope tab press: switch the active scope (a no-op rebuild if it was already active, since the
@@ -892,23 +791,11 @@ function Manager:_onRowPress(row)
 end
 
 -- Per-tick poll (driven from main.lua's Logic loop, like the Editor's update): advances the
--- double-click tick, follows the cursor while dragging, and rebuilds when the signature changed out
--- from under us (a character login adds a tab, a logout removes one) so the tab bar tracks scope
--- changes without an explicit call.
+-- double-click tick and rebuilds when the signature changed out from under us (a character login
+-- adds a tab, a logout removes one) so the tab bar tracks scope changes without an explicit call.
 function Manager:Update()
     self.tick = self.tick + 1
-    -- Follow the cursor via the grab offset, clamped so the window (header included) stays on screen.
-    -- The tab/row Buttons are GroupBox children, so moving the GroupBox carries them along for free.
-    if self.dragging then
-        local mx, my = mousePos()
-        if mx ~= nil then
-            local sw, sh = self:_screenSize()
-            self.window.x = clampv(mx - self.dragDX, 0, math.max(0, sw - self.window.w))
-            self.window.y = clampv(my - self.dragDY, 0, math.max(0, sh - self.window.h))
-            self:_positionWindow()
-        end
-    end
-    if not self.visible or self.groupBox == nil then return end
+    if not self.visible or self.treePanel == nil then return end
     if self:_signature() ~= self.lastSignature then
         self:_rebuild()
     end
@@ -921,26 +808,18 @@ function Manager:IsVisible()
     return self.visible
 end
 
+-- Toggles content children (tabs, tree Panel, rename field) hidden/enabled. Host/mux owns the
+-- window shell; this only shows or hides the Manager's own widgets inside content.
 ---@param v boolean
 function Manager:SetVisible(v)
     local becomingVisible = v and not self.visible
     self.visible = v and true or false
-    if not self.visible then
-        self.dragging = false -- abandon any in-progress drag so nothing resumes when reshown
-    end
-    if self.groupBox ~= nil then
-        pcall(function() self.groupBox.hidden = not self.visible end)
-    end
-    if self.captureButton ~= nil then
-        pcall(function()
-            self.captureButton.hidden = not self.visible
-            self.captureButton.enabled = self.visible -- stop intercepting game input while hidden
-        end)
-        if self.visible then self:_positionCapture() end -- also recovers size if a drag left it expanded
-    end
+    setChildVisible(self.treePanel, self.visible)
+    for _, b in ipairs(self.tabButtons) do setChildVisible(b, self.visible) end
+    setChildVisible(self.renameField, self.visible)
     -- A rebuild on show catches any scope/tree change that happened while hidden (a login, or an
     -- Editor write-back to a tree the Manager already had on screen).
-    if becomingVisible and self.groupBox ~= nil then
+    if becomingVisible and self.treePanel ~= nil then
         self:_rebuild()
     end
 end
@@ -949,28 +828,19 @@ function Manager:Toggle()
     self:SetVisible(not self.visible)
 end
 
--- Re-asserts front-most z-order (mirrors Editor:RaiseToFront) after another always-on overlay
--- jumped in front mid-drag. Fronts the capture first, then the GroupBox on top of it — the same
--- relative order Mount establishes (GroupBox + Buttons out-rank capture, capture out-ranks the rest).
--- No-op while hidden.
+-- Host/mux owns z-order; kept as a no-op so callers (infobox-drag restore) stay unchanged.
 function Manager:RaiseToFront()
-    if not self.visible then return end
-    pcall(function() if self.captureButton ~= nil then self.captureButton:MoveToFront() end end)
-    pcall(function() if self.groupBox ~= nil then self.groupBox:MoveToFront() end end)
 end
 
+-- Destroys content children only (tabs, tree Panel, rename). Does not touch the host parent.
 function Manager:Unmount()
     self.pendingDeleteId = nil
     self:_clearChildren()
-    if self.captureButton ~= nil then
-        pcall(function() self.captureButton:Destroy() end)
-        self.captureButton = nil
-    end
-    if self.groupBox ~= nil then
-        pcall(function() self.groupBox:Destroy() end)  -- takes the tree Panel + any children with it
-        self.groupBox = nil
+    if self.treePanel ~= nil then
+        pcall(function() self.treePanel:Destroy() end)
         self.treePanel = nil
     end
+    self.contentParent = nil
 end
 
 return Manager

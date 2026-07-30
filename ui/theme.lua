@@ -150,8 +150,12 @@ Theme.TITLE_MIN_ZOOM   = 0.30   -- node titles
 Theme.ZOOM_MIN = 0.25
 Theme.ZOOM_MAX = 2.0
 
---- Window (screen-space) ----------------------------------------------------------------
+--- Window (defaults / host chrome) ------------------------------------------------------
 
+-- Default content size seed before Mount syncs from the live content parent. Screen
+-- placement (x/y) is owned by PrettyUI; WINDOW_X/Y are only fallbacks for self.window
+-- until syncContentOrigin runs. WINDOW_HEADER_H is retained for any host/docs that still
+-- describe PrettyUI title height — the Editor itself no longer insets by it.
 Theme.WINDOW_X        = 600
 Theme.WINDOW_Y        = 340
 Theme.WINDOW_W        = 900

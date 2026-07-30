@@ -2,23 +2,20 @@
 --
 -- Owns the View (pan/zoom), the Layout (nodeId -> Graph-space position), the input state
 -- machine, and all hit-testing. Draws everything each frame onto one Canvas (immediate
--- mode, ADR-0001) mounted as a child of a real GroupBox, which supplies the native
--- header/title/frame and hosts the toolbar Buttons. Mutates the Graph through the engine's
--- own Connect/Disconnect so the picture and the model can't drift. UI presentation only —
--- no graph structure is invented here.
+-- mode, ADR-0001) mounted into an external PrettyUI content parent; window chrome (title,
+-- frame, drag, close) belongs to the host Multiplexer / prettyui.Window. Mutates the Graph
+-- through the engine's own Connect/Disconnect so the picture and the model can't drift. UI
+-- presentation only — no graph structure is invented here.
 --
--- The editor lives in a draggable Window (a logical screen-space rect). Because the Canvas
--- is a child of the GroupBox, and child components position in coordinates relative to
--- their parent's own origin (confirmed against DevTools/menu.lua's nested panels), every
--- draw call and hit-test in this file works in that same GroupBox-local frame — NOT
--- absolute screen coordinates. `self.window.x/y` (the Window's absolute screen position)
--- is only ever used to place the GroupBox and the Capture Layer themselves, or to convert
--- an incoming absolute Mouse.GetPosition() into local space via `toLocal`. Dragging the
--- Window just moves the GroupBox (and Capture); the Canvas and its content ride along for
--- free — no pan compensation needed. Input is caught by a Capture Layer sized to the
--- Window (kept as a separate, absolutely-positioned, full-screen-capable sibling — see
--- Mount — since child components can't size themselves to the true screen), so the game
--- still receives clicks outside it. A keybind (wired in main) toggles visibility.
+-- Mount(contentParent, overlayParent): Canvas under contentParent; Back/+, capture,
+-- paletteCanvas, and transient InputField/ComboField under overlayParent. The mux raises
+-- the overlay above the PrettyUI window so capture can receive canvas gestures — anything
+-- that needs real clicks (toolbar, inline editors) must live on that same overlay *above*
+-- the capture, or MoveToFront inside the window cannot win. Content-local (0,0) is the
+-- top-left of PrettyUI content (no WINDOW_HEADER_H inset). `self.window` is the live
+-- content screen rect, re-synced each update from contentParent (PrettyUI owns drag).
+-- Resting capture tracks that rect so title-drag/close stay clickable; overlay chrome is
+-- positioned in absolute screen space via toScreen.
 
 local Theme    = require("ui/theme")
 local View     = require("ui/view")
@@ -59,7 +56,7 @@ function Editor.new(registry, runtime)
         geoms = {},                -- per-frame geometry cache, nodeId -> geom
         mouse = { x = 0, y = 0 },
         pressed = false,
-        mode = "idle",             -- idle | pan | dragnode | wire | dragwindow
+        mode = "idle",             -- idle | pan | dragnode | wire | colordrag | palettescroll
         editing = nil,             -- active inline Control editor: {nodeId,pinName,spec,widget,field}
         selected = nil,
         visible = false,           -- starts closed; opened via F8 / the panel button
@@ -70,7 +67,7 @@ function Editor.new(registry, runtime)
         lastClickTick = -1000,     -- tick of the previous press (double-click pairing)
         lastClickX = 0,
         lastClickY = 0,
-        window = {                 -- screen-space rect the editor occupies
+        window = {                 -- live content screen rect (synced from contentParent)
             x = Theme.WINDOW_X, y = Theme.WINDOW_Y,
             w = Theme.WINDOW_W, h = Theme.WINDOW_H,
         },
@@ -78,10 +75,10 @@ function Editor.new(registry, runtime)
         paletteCanvas = nil,       -- separate full-screen Canvas for the Palette (screen space,
                                    -- unclipped) so it can render past the Window edges
         capture = nil,
-        rootParent = nil,          -- the client's root component, kept for screenSize()
-        groupBox = nil,            -- real GroupBox providing the native header/title/frame
-        plusButton = nil,          -- real Button, top-right of the GroupBox
-        backButton = nil,          -- real "Back" Button, top-LEFT of the GroupBox (#80 nav-up)
+        contentParent = nil,       -- PrettyUI content host (Canvas only)
+        overlayParent = nil,       -- capture + palette + toolbar + transient editors
+        plusButton = nil,          -- real Button on overlay, top-right of content rect
+        backButton = nil,          -- real "Back" Button on overlay, top-LEFT (#80 nav-up)
         onBack = nil,              -- host nav callback: navigate up to the Manager (set by main.lua)
     }, Editor)
 
@@ -144,46 +141,96 @@ function Editor:IsVisible()
     return self.visible
 end
 
--- The content region: x, y, w, h, in GroupBox-local (Canvas-draw) space. Its height is the
--- Window height MINUS the reserved header strip: the Canvas is a child that starts at the
--- content-area origin (WINDOW_HEADER_H below the frame top), so of its full win.h only
--- (win.h - WINDOW_HEADER_H) is actually visible — the GroupBox clips the overshooting bottom
--- strip. Verified in-client (clip probe, 2026-07-17): drawing past this height is silently cut
--- off, which is what let the Palette believe it had room it didn't and get its bottom clipped.
--- Width needs no such adjustment (the Canvas spans the full win.w). The native header (title
--- text) floats above local y=0 per the _TITLED stylesheet's overlap convention, so nothing
--- here paints over it.
+-- The content region in Canvas-draw (content-local) space. Origin is (0,0) at the top-left
+-- of the PrettyUI content parent — no header inset (chrome lives outside this rect).
 function Editor:viewportRect()
     local win = self.window
-    return 0, 0, win.w, win.h - Theme.WINDOW_HEADER_H
+    return 0, 0, win.w, win.h
 end
 
--- Whether a local-space point is inside the Window's header strip. `local` space is the
--- Canvas draw frame (see toLocal), whose Y=0 is the TOP of the content area; the header sits
--- just above it, so in local space it spans Y [-WINDOW_HEADER_H, 0].
-function Editor:inHeader(sx, sy)
-    local win = self.window
-    return sx >= 0 and sx <= win.w and sy >= -Theme.WINDOW_HEADER_H and sy <= 0
-end
-
--- Converts an absolute screen point (e.g. from Mouse.GetPosition()) into the Canvas's
--- draw frame, which is what every draw call and hit-test in this file works in. The Canvas
--- is a child of the GroupBox and starts BELOW the GroupBox's reserved header strip, so a
--- screen point's content-local Y is offset down by the header height — subtract it here so
--- `local` space lines up with where the Canvas actually paints (otherwise nodes, wires, and
--- popups all read one header-height too low). Ties to the same WINDOW_HEADER_H used for
--- SetHeaderLayout so the two can't drift.
+-- Converts an absolute screen point (e.g. from Mouse.GetPosition()) into content-local
+-- Canvas-draw space. `self.window.x/y` must be the live content screen origin (see
+-- syncContentOrigin) — PrettyUI owns window drag, so a stale cache misaligns hit-tests.
 function Editor:toLocal(sx, sy)
-    return sx - self.window.x, sy - self.window.y - Theme.WINDOW_HEADER_H
+    return sx - self.window.x, sy - self.window.y
 end
 
--- Inverse of toLocal: a Canvas-draw-space (GroupBox-local) point back to absolute screen
--- coordinates. Used for the out-of-window Palette, which draws on its own full-screen Canvas
--- (paletteCanvas) in screen space so it can extend past the Window edges — the window Canvas
--- clips to its bounds (verified in-client), so an overflowing popup has to live on a
--- full-screen surface instead.
+-- Inverse of toLocal: content-local point → absolute screen. Used for the out-of-window
+-- Palette on paletteCanvas (screen space, unclipped by the content Canvas).
 function Editor:toScreen(lx, ly)
-    return lx + self.window.x, ly + self.window.y + Theme.WINDOW_HEADER_H
+    return lx + self.window.x, ly + self.window.y
+end
+
+-- Re-read the content parent's live screen rect into self.window. PrettyUI moves the window
+-- root on title-drag; nested content's raw .x/.y are parent-relative, so prefer PrettyUI's
+-- Tooltip context position resolver when present (absolute screen). Falls back to .x/.y.
+function Editor:syncContentOrigin()
+    local p = self.contentParent
+    if p == nil then return end
+    pcall(function()
+        local x, y = p.x or 0, p.y or 0
+        if prettyui ~= nil and prettyui.Tooltip ~= nil and prettyui.Tooltip.getContext ~= nil then
+            local ctx = prettyui.Tooltip.getContext(p)
+            if ctx ~= nil and type(ctx.position) == "function" then
+                local ax, ay = ctx.position(p)
+                if ax ~= nil and ay ~= nil then x, y = ax, ay end
+            end
+        end
+        local w = self.window.w
+        local h = self.window.h
+        if p.width and p.width > 0 then w = p.width end
+        if p.height and p.height > 0 then h = p.height end
+        self.window.x, self.window.y = x, y
+        self.window.w, self.window.h = w, h
+    end)
+    self:layoutToolbar()
+    self:layoutTransientEditors()
+end
+
+-- Parent for clickable overlay chrome (toolbar + transient fields). Falls back to
+-- contentParent only if Mount somehow lacked an overlay (should not happen in-client).
+---@return ui.ComponentCollection|nil
+function Editor:interactiveParent()
+    return self.overlayParent or self.contentParent
+end
+
+-- Re-assert overlay child order: capture under palette under toolbar under transient
+-- editors. Call after expandCapture / RaiseToFront / Mount so chrome stays clickable
+-- while the overlay sits above the PrettyUI window.
+function Editor:frontOverlayInteractives()
+    pcall(function() if self.capture ~= nil then self.capture:MoveToFront() end end)
+    pcall(function() if self.paletteCanvas ~= nil then self.paletteCanvas:MoveToFront() end end)
+    if self.backButton ~= nil then pcall(function() self.backButton:MoveToFront() end) end
+    if self.plusButton ~= nil then pcall(function() self.plusButton:MoveToFront() end) end
+    if self.editing ~= nil and self.editing.field ~= nil then
+        pcall(function() self.editing.field:MoveToFront() end)
+    end
+    if self.colorHexField ~= nil then
+        pcall(function() self.colorHexField:MoveToFront() end)
+    end
+end
+
+-- Keep absolute-positioned overlay editors glued to content while PrettyUI drags the window.
+function Editor:layoutTransientEditors()
+    if self.editing ~= nil and self.editing.field ~= nil
+        and self.editing.localX ~= nil and self.editing.localY ~= nil then
+        local ax, ay = self:toScreen(self.editing.localX, self.editing.localY)
+        pcall(function()
+            self.editing.field:SetPos(ax, ay)
+            if self.editing.sw ~= nil then
+                self.editing.field:SetSize(self.editing.sw, self.editing.sh)
+            end
+        end)
+    end
+    if self.colorHexField ~= nil and self.colorHexLocalX ~= nil then
+        local ax, ay = self:toScreen(self.colorHexLocalX, self.colorHexLocalY)
+        pcall(function()
+            self.colorHexField:SetPos(ax, ay)
+            if self.colorHexLocalW ~= nil then
+                self.colorHexField:SetSize(self.colorHexLocalW, self.colorHexLocalH)
+            end
+        end)
+    end
 end
 
 --- Small helpers ------------------------------------------------------------------------
@@ -208,12 +255,6 @@ local function fieldContent(field)
     local quantity
     pcall(function() quantity = field.contentQuantity end)
     return raw, quantity
-end
-
-local function clampv(v, lo, hi)
-    if v < lo then return lo end
-    if v > hi then return hi end
-    return v
 end
 
 -- Resolves an enum member by name with a string fallback. The client's ui.Hook /
@@ -243,19 +284,11 @@ local function isSubmitCause(cause)
     return false
 end
 
--- Native StyleSheet lookups for the GroupBox/Buttons (mirrors DevTools/menu.lua's
--- safeButtonStyle/safePanelStyle) — guarded since a stylesheet id can be absent/renamed.
+-- Native StyleSheet lookups for toolbar / transient fields (mirrors DevTools/menu.lua's
+-- safeButtonStyle) — guarded since a stylesheet id can be absent/renamed.
 local function safeButtonStyle()
     if id ~= nil and id.StyleSheet ~= nil and id.StyleSheet.BUTTON_DEFAULT ~= nil then
         return id.StyleSheet.BUTTON_DEFAULT
-    end
-    return nil
-end
-
-local function safePanelStyle()
-    if id ~= nil and id.StyleSheet ~= nil and id.StyleSheet.GROUPBOX_CONTENT_PANEL_TITLED ~= nil then
-        -- return id.StyleSheet.GROUPBOX_MAIN_MODAL_TITLED
-        return id.StyleSheet.GROUPBOX_CONTENT_PANEL_TITLED
     end
     return nil
 end
@@ -269,6 +302,10 @@ local function safeComboStyle()
     end
     return nil
 end
+
+-- Content-local toolbar button edge length (Back / + sit in the content area, not a header).
+local TOOLBAR_BTN = 18
+local TOOLBAR_PAD = 6
 
 -- The reserved placeholder type key (#53), read from the authoritative source. LibNodeGraph is a
 -- hard dependency (called unguarded in store.lua too), so no nil-guard or literal fallback — a
@@ -487,6 +524,7 @@ end
 -- The pressed-guard still protects against a duplicate ONCLICK re-starting mid-gesture.
 function Editor:beginPress()
     if self.pressed or not self.visible then return end
+    self:syncContentOrigin()
     local mx, my = mousePos()
     if mx == nil then return end
     local lx, ly = self:toLocal(mx, my)
@@ -514,8 +552,8 @@ function Editor:beginPress()
         return
     end
 
-    -- The toolbar +/x are real Buttons (children of the GroupBox, stacked in front of the
-    -- Capture Layer) with their own ONBUTTONPRESSED handlers, so they never reach here.
+    -- The toolbar Back/+ are real Buttons on the overlay (above capture) with their own
+    -- ONBUTTONPRESSED handlers, so they never reach here.
 
     -- Pair this press with the previous one for double-click detection (recorded for every
     -- press; only acted on when the second click lands on empty space, below).
@@ -526,19 +564,9 @@ function Editor:beginPress()
 
     -- From here it's a real drag gesture. Grow the Capture Layer to full-screen for its
     -- duration, so the release (and continued tracking) still reaches us if the cursor
-    -- leaves the Window. Restored to Window size in endPress.
+    -- leaves the content. Restored to content size in endPress.
     self.pressed = true
     self:expandCapture()
-
-    -- Pressing the Window header drags the whole Window.
-    if self:inHeader(lx, ly) then
-        self.selected = nil
-        self.mode = "dragwindow"
-        -- Grab offset in true Window-frame space (matches the absolute mouse coords the
-        -- dragwindow branch subtracts it from) — NOT the header-adjusted local coords.
-        self.dragWinDX, self.dragWinDY = mx - self.window.x, my - self.window.y
-        return
-    end
 
     -- A node's header delete button takes priority over its body/pins beneath it. Deleting
     -- isn't a drag, so unwind the gesture setup (pressed/capture) the way the double-click
@@ -637,6 +665,12 @@ end
 -- Per-tick drag application (driven by Event.Logic poll in main).
 function Editor:update()
     self.tick = self.tick + 1   -- advances even without a cursor, for double-click timing
+    self:syncContentOrigin()
+    -- Resting capture must track the live content rect while PrettyUI drags the window;
+    -- skip while expanded (gesture / open palette).
+    if self.visible and not self.pressed and not self.palette.open then
+        self:positionCapture()
+    end
     local mx, my = mousePos()   -- absolute; converted to local per-branch below
     if mx == nil then return end
 
@@ -644,16 +678,6 @@ function Editor:update()
         if self.mode == "pan" then
             local lx, ly = self:toLocal(mx, my)
             self.view:PanBy(lx - self.mouse.x, ly - self.mouse.y)
-        elseif self.mode == "dragwindow" then
-            -- Follow the cursor via the grab offset, clamped so the Window (and its header)
-            -- stays fully on screen. No pan compensation needed: the Canvas is a child of
-            -- the GroupBox we're moving, so its content rides along for free.
-            local sw, sh = self:screenSize()
-            local nx = clampv(mx - self.dragWinDX, 0, math.max(0, sw - self.window.w))
-            local ny = clampv(my - self.dragWinDY, 0, math.max(0, sh - self.window.h))
-            self.window.x, self.window.y = nx, ny
-            self:positionCapture()
-            self:positionGroupBox()
         elseif self.mode == "dragnode" and self.dragNodeId ~= nil then
             local lx, ly = self:toLocal(mx, my)
             local gx, gy = self.view:ToGraph(lx, ly)
@@ -1025,20 +1049,21 @@ end
 -- so the field just needs to accept whatever's typed and let the parse sort it out.
 function Editor:openColorHexEditor()
     self:closeColorHexEditor()
-    if self.groupBox == nil or ui == nil then return end
+    if self:interactiveParent() == nil or ui == nil then return end
     local cp = self.colorPopup
     local r = cp.rect and cp.rect.hex
     if r == nil then return end
 
-    -- The popup lives in the same fixed GroupBox-local frame the Canvas draws in (like the
-    -- Palette), so its rect's coords are the field's coords directly — no View scaling, no
-    -- header offset (mirrors the node control editor's own no-offset finding).
+    -- The popup lives in the same content-local frame the Canvas draws in, so its rect's
+    -- coords are content-local; mountInputField converts to absolute for the overlay.
     local field = self:mountInputField(r.x, r.y, r.w, r.h, "NONE", 8,
         cp:Format(cp:Value()),
         function(_, cause, newContent) self:onColorHexContent(cause, newContent) end)
     if field == nil then return end
     self.colorHexField = field
-    pcall(function() field:MoveToFront() end)
+    self.colorHexLocalX, self.colorHexLocalY = r.x, r.y
+    self.colorHexLocalW, self.colorHexLocalH = r.w, r.h
+    self:frontOverlayInteractives()
     pcall(function() field:SetFocus() end)
 end
 
@@ -1060,6 +1085,8 @@ function Editor:closeColorHexEditor()
     if self.colorHexField == nil then return end
     pcall(function() self.colorHexField:Destroy() end)
     self.colorHexField = nil
+    self.colorHexLocalX, self.colorHexLocalY = nil, nil
+    self.colorHexLocalW, self.colorHexLocalH = nil, nil
 end
 
 -- The Esc cascade (#80). Escape means different things depending on what's active, resolved
@@ -1091,11 +1118,9 @@ end
 -- Screen rect for a transient editor field mounted over a Control box `ctrl`. The field's
 -- native font is a fixed pixel size (it can't scale with the View), so the component is sized
 -- in screen pixels: a fixed readable height, width tracking the box but never below the min,
--- centered vertically on the box row so a taller-than-box field straddles it evenly. A GroupBox
--- child positions in the SAME frame the Canvas draws in (both measured from the content-area
--- origin), so the box's draw coords are the field's coords directly — no header offset (verified
--- in-client: adding WINDOW_HEADER_H put the field a header-height too low). Shared by both mount
--- paths — the inline editor (openControlEditor) and the Pin Control host (mountControlField).
+-- centered vertically on the box row so a taller-than-box field straddles it evenly. Returns
+-- content-local coords (Canvas-draw frame); mountInputField converts to absolute for the
+-- overlay parent. Shared by the inline editor and the Pin Control host.
 ---@param geom table
 ---@param ctrl table
 ---@return number px, number py, number sw, number sh
@@ -1183,7 +1208,7 @@ end
 ---@param onChange fun(raw: string, quantity: number|nil)
 function Editor:mountControlField(pinControl, nodeId, ctrl, opts, onChange)
     if self.editing ~= nil then self:closeControlEditor() end
-    if self.groupBox == nil or ui == nil then return end
+    if self:interactiveParent() == nil or ui == nil then return end
     local geom = self.geoms[nodeId]
     if geom == nil then return end
 
@@ -1194,8 +1219,9 @@ function Editor:mountControlField(pinControl, nodeId, ctrl, opts, onChange)
     if field == nil then return end
 
     self.editing = { nodeId = nodeId, pinName = ctrl.pinName, field = field,
-        kind = ctrl.kind, axis = ctrl.axis, pinControl = pinControl, onChange = onChange }
-    pcall(function() field:MoveToFront() end)
+        kind = ctrl.kind, axis = ctrl.axis, pinControl = pinControl, onChange = onChange,
+        localX = px, localY = py, sw = sw, sh = sh }
+    self:frontOverlayInteractives()
     pcall(function() field:SetFocus() end)
 end
 
@@ -1213,17 +1239,19 @@ end
 ---@param onSelect fun(label: string)
 function Editor:mountControlDropdown(pinControl, nodeId, ctrl, opts, onSelect)
     if self.editing ~= nil then self:closeControlEditor() end
-    if self.groupBox == nil or ui == nil then return end
+    local parent = self:interactiveParent()
+    if parent == nil or ui == nil then return end
     local geom = self.geoms[nodeId]
     if geom == nil then return end
 
     local px, py, sw, sh = self:controlEditRect(geom, ctrl)
+    local ax, ay = self:toScreen(px, py)
     local field
     local ok = pcall(function()
-        field = ui.ComboField.new(self.groupBox)
+        field = ui.ComboField.new(parent)
         pcall(function() field.stylesheetID = safeComboStyle() end)
         field.clickthrough = false
-        field:SetPos(px, py)
+        field:SetPos(ax, ay)
         field:SetSize(sw, sh)
         -- The `i` passed to Add only guarantees id uniqueness; ComboField re-sorts alphabetically
         -- and reassigns ids, so selection is matched by label text, not id (see openControlEditor).
@@ -1242,8 +1270,9 @@ function Editor:mountControlDropdown(pinControl, nodeId, ctrl, opts, onSelect)
     if not ok or field == nil then return end
 
     self.editing = { nodeId = nodeId, pinName = ctrl.pinName, field = field,
-        kind = ctrl.kind, axis = ctrl.axis, pinControl = pinControl, onSelect = onSelect }
-    pcall(function() field:MoveToFront() end)
+        kind = ctrl.kind, axis = ctrl.axis, pinControl = pinControl, onSelect = onSelect,
+        localX = px, localY = py, sw = sw, sh = sh }
+    self:frontOverlayInteractives()
     pcall(function() field:SetFocus() end)
 end
 
@@ -1261,21 +1290,20 @@ end
 
 --- Inline Control editing ---------------------------------------------------------------
 
--- Mounts a transient real ui.InputField as a child of the GroupBox (ADR-0004's mechanism):
--- styled so it isn't invisible (no stylesheet -> no background sprite, the gotcha ADR-0004
--- documents), positioned/sized in the caller's coords, filtered, seeded with initial content,
--- and wired to `onChanged` (an ONCONTENTCHANGED callback of `fn(component, cause, newContent)`).
--- Shared by the node's own inline Control editor (openControlEditor, below) and the color
--- popup's hex field (openColorHexEditor, #30) — the two differ only in where the field goes
--- and what its filter/initial content/commit path are. Returns the field, or nil if mounting
--- failed (caller decides what "no field" means for it — both bail out entirely).
+-- Mounts a transient real ui.InputField on the overlay (ADR-0004's mechanism): styled so it
+-- isn't invisible, positioned in absolute screen space from content-local (px,py), filtered,
+-- seeded with initial content, and wired to `onChanged`. Shared by the node's inline Control
+-- editor and the color popup's hex field. Returns the field, or nil if mounting failed.
 function Editor:mountInputField(px, py, sw, sh, filterMode, maxLen, initialContent, onChanged)
+    local parent = self:interactiveParent()
+    if parent == nil then return nil end
+    local ax, ay = self:toScreen(px, py)
     local field
     local ok = pcall(function()
-        field = ui.InputField.new(self.groupBox)
+        field = ui.InputField.new(parent)
         pcall(function() field.stylesheetID = safeButtonStyle() end)
         field.clickthrough = false
-        field:SetPos(px, py)
+        field:SetPos(ax, ay)
         field:SetSize(sw, sh)
         field:Setup(enumv(ui.TextContentVisibilityMode, "VISIBLE"),
             enumv(ui.InputFieldFilterMode, filterMode), maxLen)
@@ -1349,15 +1377,6 @@ function Editor:geomVisible(geom, vx, vy, vw, vh)
     return not (x1 < vx or x0 > vx + vw or y1 < vy or y0 > vy + vh)
 end
 
--- The Window border, drawn on top of content. The header band, title, and toolbar Buttons
--- are the real GroupBox this Canvas is a child of (see Mount) — its header shows through
--- here because the Canvas never paints above viewportRect's top edge.
-function Editor:drawChrome()
-    local vx, vy, vw, vh = self:viewportRect()
-    self.canvas:AddOutline(vx, vy, vw, vh, Theme.BORDER_THICKNESS,
-        Theme.Vec4(Theme.COL_WINDOW_BORDER))
-end
-
 function Editor:drawConnections()
     for _, c in ipairs(self.graph:GetConnections()) do
         local fromGeom = self.geoms[c.fromNode]
@@ -1388,20 +1407,10 @@ end
 
 function Editor:draw()
     if self.canvas == nil or not self.visible then return end
+    self:syncContentOrigin()
     pcall(function() self.canvas:MoveToFront() end)
-    -- The grid background now paints all the way up to y=0 (viewportRect), which would
-    -- otherwise get buried under the +/x Buttons since they're siblings under the same
-    -- GroupBox and the canvas just claimed front-most. Re-front the Buttons every frame so
-    -- they stay visually above the grid.
-    if self.backButton ~= nil then pcall(function() self.backButton:MoveToFront() end) end
-    if self.plusButton ~= nil then pcall(function() self.plusButton:MoveToFront() end) end
-    -- Keep the transient Control editor above the just-fronted Canvas.
-    if self.editing ~= nil and self.editing.field ~= nil then
-        pcall(function() self.editing.field:MoveToFront() end)
-    end
-    if self.colorHexField ~= nil then
-        pcall(function() self.colorHexField:MoveToFront() end)
-    end
+    -- Overlay chrome: capture under palette under Back/+ under transient editors.
+    self:frontOverlayInteractives()
     self.canvas:Clear()
 
     self:buildGeoms()
@@ -1424,10 +1433,9 @@ function Editor:draw()
     end
 
     self:drawPendingWire()
-    self:drawChrome()
 
-    -- The color popup draws last on the content Canvas, on top of the chrome, clamped inside
-    -- the Viewport. (It and the Palette are mutually exclusive — see openColorPopup /
+    -- The color popup draws last on the content Canvas, clamped inside the Viewport.
+    -- (It and the Palette are mutually exclusive — see openColorPopup /
     -- openPaletteUnfiltered — so they never contend for the surface.)
     if self.colorPopup.open then
         self.colorPopup:Draw(self.canvas, vx, vy, vw, vh, self.mouse.x, self.mouse.y,
@@ -1435,8 +1443,8 @@ function Editor:draw()
     end
 
     -- The Palette draws on its OWN full-screen Canvas in screen space, so it can extend past
-    -- the Window edges (the content Canvas above clips to the Window). Cleared every frame;
-    -- fronted and redrawn only while open, clamped to the whole screen rather than the Viewport.
+    -- the content edges (the content Canvas above clips). Cleared every frame; fronted and
+    -- redrawn only while open, clamped to the whole screen rather than the Viewport.
     if self.paletteCanvas ~= nil then
         pcall(function() self.paletteCanvas:Clear() end)
         if self.palette.open then
@@ -1450,20 +1458,22 @@ end
 
 --- Visibility ----------------------------------------------------------------------------
 
--- Full-screen interface size, read from the client's root component (fallback if
--- unavailable). Can't read this off the Canvas any more since it's Window-sized now,
--- not full-screen, now that it's mounted as a child of the GroupBox.
+-- Full-screen interface size, read from the overlay parent (fallback if unavailable).
+-- Content Canvas is content-sized; palette / expandCapture need the true screen.
 function Editor:screenSize()
     local w, h = 1920, 1080
-    if self.rootParent ~= nil then
+    local p = self.overlayParent
+    if p ~= nil then
         pcall(function()
-            if self.rootParent.width and self.rootParent.width > 0 then w = self.rootParent.width end
-            if self.rootParent.height and self.rootParent.height > 0 then h = self.rootParent.height end
+            if p.width and p.width > 0 then w = p.width end
+            if p.height and p.height > 0 then h = p.height end
         end)
     end
     return w, h
 end
 
+-- Resting capture tracks the live content screen rect (not the PrettyUI title bar), so
+-- title-drag and close stay clickable outside it.
 function Editor:positionCapture()
     if self.capture == nil then return end
     local win = self.window
@@ -1473,47 +1483,50 @@ function Editor:positionCapture()
     end)
 end
 
--- Keeps the GroupBox (the real header/frame) tracking the Window rect, same as the
--- Capture Layer. The toolbar Buttons are its children and ride along for free.
-function Editor:positionGroupBox()
-    if self.groupBox == nil then return end
-    local win = self.window
-    pcall(function()
-        self.groupBox:SetPos(win.x, win.y)
-        self.groupBox:SetSize(win.w, win.h)
-    end)
-end
-
--- Grow the Capture Layer to cover the whole screen (used during a drag so the release
--- reaches us wherever the cursor ends up).
+-- Grow the Capture Layer to cover the whole screen (used during a drag / open palette so
+-- the release reaches us wherever the cursor ends up). Also fronts the overlay parent so
+-- capture/palette sit above the PrettyUI window (Show/title-drag bury siblings).
 function Editor:expandCapture()
     if self.capture == nil then return end
     pcall(function()
+        if self.overlayParent ~= nil and self.overlayParent.MoveToFront ~= nil then
+            self.overlayParent:MoveToFront()
+        end
         self.capture:SetPos(0, 0)
         self.capture:SetSize(0, 0, 1.0, 1.0)
     end)
+    -- Keep Back/+ (and any open field) above the expanded capture so they stay clickable.
+    self:frontOverlayInteractives()
 end
 
--- Re-asserts the editor's front-most z-order after another always-on overlay (the InfoBox
--- Area's drag capture) temporarily jumped its capture in front of ours mid-drag. Fronts the
--- Capture Layer first, then the GroupBox on top of it — the same relative order Mount
--- establishes (GroupBox + toolbar Buttons out-rank Capture, Capture out-ranks everything
--- else). No-op while hidden: a closed editor's capture is disabled and shouldn't out-rank the
--- InfoBox. Called from main.lua the tick an InfoBox drag ends.
+-- Re-asserts overlay + capture + chrome z-order after another always-on overlay (e.g.
+-- InfoBox drag) jumped in front. Mux RaiseToFront covers window chrome; this fronts the
+-- Editor's overlay children. No-op while hidden.
 function Editor:RaiseToFront()
     if not self.visible then return end
-    pcall(function() if self.capture ~= nil then self.capture:MoveToFront() end end)
-    pcall(function() if self.groupBox ~= nil then self.groupBox:MoveToFront() end end)
+    pcall(function()
+        if self.overlayParent ~= nil and self.overlayParent.MoveToFront ~= nil then
+            self.overlayParent:MoveToFront()
+        end
+    end)
+    self:frontOverlayInteractives()
 end
 
--- Clamps the Window fully on screen so the header can never be dragged out of reach.
-function Editor:clampWindow()
-    local sw, sh = self:screenSize()
-    self.window.x = clampv(self.window.x, 0, math.max(0, sw - self.window.w))
-    self.window.y = clampv(self.window.y, 0, math.max(0, sh - self.window.h))
+-- Shell tucked away (mux SetVisible false / Close / F8) without Pop or surface SetVisible:
+-- dismiss palette/popups and abandon gestures so a reopen doesn't leave a clickthrough
+-- ghost. Does NOT flip self.visible or hide canvas — pan/zoom must survive F8.
+function Editor:OnShellHide()
+    self.pressed = false
+    self.mode = "idle"
+    self.wire = nil
+    self.dragNodeId = nil
+    self:closePalette()
+    self:closeControlEditor()
+    self:closeColorPopup()
+    self:positionCapture()
 end
 
--- The default framing (pan + zoom) applied on a fresh Mount and each time the Window is
+-- The default framing (pan + zoom) applied on a fresh Mount and each time the surface is
 -- opened. Centralized so the two callers can't drift. Recentering on open is deliberate:
 -- pan or zoom far enough and your nodes scroll off-screen with no way back, so every open
 -- snaps the graph transform back to this known origin.
@@ -1526,7 +1539,7 @@ end
 function Editor:SetVisible(v)
     local becomingVisible = v and not self.visible
     self.visible = v and true or false
-    -- Re-center the graph every time the Window opens, so a stray pan can never lose the nodes.
+    -- Re-center the graph every time the surface opens, so a stray pan can never lose the nodes.
     if becomingVisible then self:resetView() end
     if not self.visible then
         -- Abandon any in-progress gesture (and dismiss the Palette / close the inline editor)
@@ -1542,6 +1555,12 @@ function Editor:SetVisible(v)
     if self.canvas ~= nil then
         pcall(function() self.canvas.hidden = not self.visible end)
     end
+    if self.plusButton ~= nil then
+        pcall(function() self.plusButton.hidden = not self.visible end)
+    end
+    if self.backButton ~= nil then
+        pcall(function() self.backButton.hidden = not self.visible end)
+    end
     if self.paletteCanvas ~= nil then
         pcall(function() self.paletteCanvas.hidden = not self.visible end)
     end
@@ -1550,13 +1569,12 @@ function Editor:SetVisible(v)
             self.capture.hidden = not self.visible
             self.capture.enabled = self.visible  -- stop intercepting game input while hidden
         end)
-        -- On show, ensure the Capture Layer is back to Window size (also recovers it if a
+        -- On show, ensure the Capture Layer is back to content size (also recovers it if a
         -- prior drag left it expanded), so the toggle doubles as a reset.
-        if self.visible then self:positionCapture() end
-    end
-    if self.groupBox ~= nil then
-        -- Hiding the GroupBox also hides its child Buttons, so they don't need this too.
-        pcall(function() self.groupBox.hidden = not self.visible end)
+        if self.visible then
+            self:syncContentOrigin()
+            self:positionCapture()
+        end
     end
 end
 
@@ -1566,165 +1584,128 @@ end
 
 --- Mount / unmount -----------------------------------------------------------------------
 
-function Editor:Mount(parent)
-    self.rootParent = parent  -- kept for screenSize(), now that Canvas isn't full-screen
+-- Keeps Back/+ in absolute screen space over the live content rect (overlay-mounted).
+function Editor:layoutToolbar()
+    local win = self.window
+    local bs = TOOLBAR_BTN
+    if self.plusButton ~= nil then
+        pcall(function()
+            self.plusButton:SetPos(win.x + win.w - bs - TOOLBAR_PAD, win.y + TOOLBAR_PAD)
+            self.plusButton:SetSize(bs, bs)
+        end)
+    end
+    if self.backButton ~= nil then
+        pcall(function()
+            self.backButton:SetPos(win.x + TOOLBAR_PAD, win.y + TOOLBAR_PAD)
+            self.backButton:SetSize(4 * bs, bs)
+        end)
+    end
+end
 
-    -- The GroupBox must exist before the Canvas, since the Canvas mounts as its child.
-    self:mountGroupBox(parent)
-    if self.groupBox == nil then
-        if log ~= nil then log("Watchdog: ui.GroupBox unavailable, aborting Mount") end
+-- Mounts Canvas under contentParent; toolbar + capture + palette under overlayParent.
+-- Window chrome is external (PrettyUI / Multiplexer). Abort if either parent or Canvas fails.
+---@param contentParent ui.ComponentCollection
+---@param overlayParent ui.ComponentCollection
+function Editor:Mount(contentParent, overlayParent)
+    if contentParent == nil or overlayParent == nil then
+        if log ~= nil then log("Watchdog: Editor Mount needs contentParent and overlayParent") end
+        return
+    end
+    if ui == nil or ui.Canvas == nil then
+        if log ~= nil then log("Watchdog: ui.Canvas unavailable, aborting Editor Mount") end
         return
     end
 
-    self.canvas = ui.Canvas.new(self.groupBox)
+    self.contentParent = contentParent
+    self.overlayParent = overlayParent
+    self:syncContentOrigin()
+
+    local okCanvas, canvas = pcall(function() return ui.Canvas.new(contentParent) end)
+    if not okCanvas or canvas == nil then
+        self.contentParent = nil
+        self.overlayParent = nil
+        if log ~= nil then log("Watchdog: Canvas Mount failed") end
+        return
+    end
+    self.canvas = canvas
     self.canvas:SetPos(0, 0)
-    -- Height excludes the reserved header strip: the Canvas starts at the content-area origin
-    -- (WINDOW_HEADER_H below the frame top), so sizing it the full win.h overshoots the box
-    -- bottom by that much and the GroupBox clips it. Size it to the true content area so the
-    -- Canvas's own bounds match what's visible (see viewportRect).
-    self.canvas:SetSize(self.window.w, self.window.h - Theme.WINDOW_HEADER_H)
+    -- Fill the content parent; size tracks the host via relative anchors when resized.
+    self.canvas:SetSize(0, 0, 1.0, 1.0)
     self.canvas.clickthrough = true
 
-    -- Invisible Capture Layer sized to the Window. Kept as a separate, absolutely-
-    -- positioned sibling (not nested under the GroupBox) because it must be able to grow
-    -- to cover the true full screen during a drag (see expandCapture) — a nested child
-    -- can only size itself relative to its own parent, never past it.
-    self.capture = ui.Button.new(parent)
-    self.capture.alpha = 0
-    self.capture.clickthrough = false
+    -- Invisible Capture Layer on the overlay (not nested under content) so it can grow to
+    -- true full-screen during a drag / open palette (see expandCapture).
+    local okCap, capture = pcall(function() return ui.Button.new(overlayParent) end)
+    if okCap and capture ~= nil then
+        self.capture = capture
+        self.capture.alpha = 0
+        self.capture.clickthrough = false
+    end
 
-    -- The Palette's own drawing surface: a full-screen Canvas mounted on the root parent (NOT
-    -- the GroupBox), so it isn't clipped to the Window and its rows can extend past the Window
-    -- edges. Screen-space coords (SetPos 0,0 + full-screen SetSize), inert/clickthrough like
-    -- the content Canvas — clicks fall through to the Capture Layer, which is expanded to
-    -- full-screen while the Palette is open (see openPalette*/closePalette) so out-of-window
-    -- rows are still hit-testable. Re-fronted each frame it's open (draw); Cleared otherwise.
-    self.paletteCanvas = ui.Canvas.new(parent)
-    self.paletteCanvas:SetPos(0, 0)
-    self.paletteCanvas:SetSize(0, 0, 1.0, 1.0)
-    self.paletteCanvas.clickthrough = true
+    -- Palette's full-screen Canvas on the overlay so it isn't clipped to content.
+    local okPal, paletteCanvas = pcall(function() return ui.Canvas.new(overlayParent) end)
+    if okPal and paletteCanvas ~= nil then
+        self.paletteCanvas = paletteCanvas
+        self.paletteCanvas:SetPos(0, 0)
+        self.paletteCanvas:SetSize(0, 0, 1.0, 1.0)
+        self.paletteCanvas.clickthrough = true
+    end
 
-    -- Keep the Window on screen (in case defaults exceed this display), then size the
-    -- capture and re-sync the GroupBox's position (mountGroupBox positioned it once
-    -- before clampWindow had a chance to adjust self.window.x/y).
-    self:clampWindow()
+    -- Toolbar on the overlay *above* capture (same parent) — contentParent children cannot
+    -- out-rank the mux overlay once it sits above the PrettyUI window.
+    self:mountToolbar(overlayParent)
+
     self:positionCapture()
-    self:positionGroupBox()
 
     -- Start a gesture ONLY on ONCLICK (a mouse-DOWN this layer actually captured). ONHOLD is
     -- intentionally left unsubscribed: it also fires when a press that began elsewhere is
     -- dragged over us, and that foreign press's ONRELEASE never comes back to us — so binding
     -- it to beginPress strands the drag stuck-to-cursor. Movement is polled in update().
-    self.capture:Subscribe(ui.Hook.ONCLICK, function() self:beginPress() end)
-    self.capture:Subscribe(ui.Hook.ONRELEASE, function() self:endPress() end)
-    self.capture:Subscribe(ui.Hook.ONSCROLLWHEEL, function(...) self:onScroll(...) end)
+    if self.capture ~= nil then
+        self.capture:Subscribe(ui.Hook.ONCLICK, function() self:beginPress() end)
+        self.capture:Subscribe(ui.Hook.ONRELEASE, function() self:endPress() end)
+        self.capture:Subscribe(ui.Hook.ONSCROLLWHEEL, function(...) self:onScroll(...) end)
+    end
 
-    -- The Capture Layer is a sibling created AFTER the GroupBox, so it lands in front of the
-    -- GroupBox and its child toolbar Buttons — swallowing their clicks (dead +/x). Re-front
-    -- the GroupBox now that Capture exists so its Buttons out-rank it. Content-area clicks
-    -- still reach Capture because the GroupBox and Canvas are both clickthrough, so a miss on
-    -- a Button falls straight through to the Capture behind.
-    pcall(function() self.groupBox:MoveToFront() end)
+    self:frontOverlayInteractives()
 
-    -- Frame content at the default origin on first mount (SetVisible re-applies this on every
-    -- subsequent open, so a stray pan/zoom can never lose the nodes).
     self:resetView()
-
     self:SetVisible(self.visible)
 end
 
--- The real GroupBox supplying the native header/title/frame, plus the toolbar Buttons
--- (top-right of the box, not inside the header itself). Created before the Canvas (which
--- mounts as its child, see Mount) and moved to front so its Buttons out-rank the Capture
--- Layer's full-window hit area — Capture itself stays reachable everywhere else because
--- the GroupBox is clickthrough, so a miss just falls through to it.
-function Editor:mountGroupBox(parent)
-    if ui.GroupBox == nil then return end  -- degrade to border-only chrome if unavailable
+-- Back + "+" as overlay-mounted toolbar Buttons, absolute screen pos over the content rect.
+---@param overlayParent ui.ComponentCollection
+function Editor:mountToolbar(overlayParent)
     local win = self.window
+    local bs = TOOLBAR_BTN
 
-    local ok = pcall(function() self.groupBox = ui.GroupBox.new(parent) end)
-    if not ok or self.groupBox == nil then return end
-
-    pcall(function() self.groupBox.stylesheetID = safePanelStyle() end)
-    self.groupBox.clickthrough = true
-    self:positionGroupBox()
-
-    -- Toolbar button metric, shared by the header title inset below and the toolbar buttons further
-    -- down. The top-left "Back" button (SetPos(6,5), width 4*bs) sits inside the header, so the
-    -- title must start to its right or the left-aligned title text draws over the button and hides it.
-    local bs = Theme.WINDOW_HEADER_H - 10
-
-    -- headerWidth is a Uint8 (0..255) in the docs even though the Window itself is wider —
-    -- clamp rather than pass the raw Window width and risk it wrapping/clamping oddly. offsetX shifts
-    -- the title clear of the "Back" button (top-left of the same header band).
-    local ok2, err2 = pcall(function()
-        self.groupBox:SetHeaderLayout(math.min(win.w, 255), Theme.WINDOW_HEADER_H,
-            0, 0, ui.GroupBoxHeaderAlignMode.LEFT)
-    end)
-    if not ok2 and log ~= nil then log("Watchdog: SetHeaderLayout failed — " .. tostring(err2)) end
-
-    local ok3, err3 = pcall(function() self.groupBox.headerText.content = Theme.WINDOW_TITLE end)
-    if not ok3 and log ~= nil then log("Watchdog: headerText failed — " .. tostring(err3)) end
-
-    -- The content area (below the header) is left to the Canvas's own draw calls, which
-    -- render on top of it as a child — this just guards against any default sprite fill
-    -- showing through at the edges the Canvas doesn't paint.
-    -- pcall(function() self.groupBox.contentBackgroundSprite.alpha = 0 end)
-    self.groupBox.headerText.font = id.Font.MUSEO_SANS_15PT_REGULAR
-    -- self.groupBox.headerBackgroundSprite.sprite = 35539
-    -- self.groupBox.contentBackgroundSprite.sprite = 32376
-    -- local popupSprite = ui.Sprite.new(popupLayer, 160, 2)
-    -- popupSprite:SetPos(2, 2)
-    -- popupSprite:SetSize(-4, -4, 1.0, 1.0)
-    -- popupSprite.sprite = Plugin.resources.runescape_guy
-    -- self.groupBox.headerBackgroundSprite.sprite = Plugin.resources.images.ToolbarCategoryLogistics
-
-
-    -- Zero the content margin so child components (the +/x toolbar Buttons) aren't inset by
-    -- the GroupBox's default padding. NOTE: this does NOT move the child Canvas's draw origin
-    -- — the Canvas still starts below the reserved header strip (SetHeaderLayout height). That
-    -- header inset is compensated for in `toLocal`, which is what actually keeps hit-tests
-    -- lined up with what the Canvas paints.
-    pcall(function() self.groupBox.contentMargin = ui.Margin.new() end)
-    self.groupBox:MoveToFront()
-
-    -- `bs` (toolbar button size) was computed above for the header title inset; reused here.
-    local function toolbarButton(label, offsetFromRight, onPress)
-        local button = nil
-        local ok4 = pcall(function() button = ui.Button.new(self.groupBox) end)
-        if not ok4 or button == nil then return nil end
-
-        pcall(function() button.stylesheetID = safeButtonStyle() end)
-        button:SetPos(win.w - offsetFromRight, 5)  -- local: relative to the GroupBox
-        button:SetSize(bs, bs)
-        button.clickthrough = false
-        button.text.content = label
-        button:Subscribe(ui.Hook.ONBUTTONPRESSED, function() onPress() return true end)
-        pcall(function() button:MoveToFront() end)
-        return button
+    local okPlus, plus = pcall(function() return ui.Button.new(overlayParent) end)
+    if okPlus and plus ~= nil then
+        pcall(function() plus.stylesheetID = safeButtonStyle() end)
+        plus:SetPos(win.x + win.w - bs - TOOLBAR_PAD, win.y + TOOLBAR_PAD)
+        plus:SetSize(bs, bs)
+        plus.clickthrough = false
+        plus.text.content = "+"
+        plus:Subscribe(ui.Hook.ONBUTTONPRESSED, function()
+            local w = self.window.w
+            self:openPaletteUnfiltered(w - 2 * bs - 12, TOOLBAR_PAD + bs)
+            return true
+        end)
+        pcall(function()
+            plus.cursorConfig.mouseOverCursor = id.Cursor.CURSOR_GOTO
+        end)
+        self.plusButton = plus
     end
 
-    -- X and "Back" both navigate up to the Manager (#80) via the host's onBack; closing an
-    -- alert's editor returns you to the Manager, and the nav owner (not the Editor) stays the
-    -- single authority on visibility so F8/menu hide-toggling can never desync. Falls back to a bare
-    -- self-hide when no onBack is wired (a headless/standalone Editor with no Manager above it).
-    self.plusButton = toolbarButton("+", bs + 6, function()
-        -- Local coordinates (the GroupBox's own frame) — matches the button's own position.
-        self:openPaletteUnfiltered(win.w - 2 * bs - 12, 5 + bs)
-    end)
-    self.plusButton.cursorConfig.mouseOverCursor = id.Cursor.CURSOR_GOTO
-
-    -- The "Back" nav-up button, top-LEFT of the header (opposite the +/X cluster). Wide enough
-    -- for its label; local coords like every other toolbar child.
-    local ok5, back = pcall(function() return ui.Button.new(self.groupBox) end)
-    if ok5 and back ~= nil then
+    -- "Back" nav-up (#80): host onBack flushes/unbinds; falls back to self-hide when unwired.
+    local okBack, back = pcall(function() return ui.Button.new(overlayParent) end)
+    if okBack and back ~= nil then
         pcall(function() back.stylesheetID = safeButtonStyle() end)
-        back:SetPos(6, 5)
+        back:SetPos(win.x + TOOLBAR_PAD, win.y + TOOLBAR_PAD)
         back:SetSize(4 * bs, bs)
         back.clickthrough = false
         pcall(function() back.text.content = "Back" end)
         back:Subscribe(ui.Hook.ONBUTTONPRESSED, function() self:goBack() return true end)
-        pcall(function() back:MoveToFront() end)
         self.backButton = back
     end
 end
@@ -1744,8 +1725,6 @@ function Editor:Unmount()
     self:closeControlEditor()  -- tear down any transient editor before its parent goes away
     self:closeColorPopup()
     if self.paletteCanvas ~= nil then
-        -- A sibling of the GroupBox (mounted on the root parent), so groupBox:Destroy() below
-        -- won't take it — tear it down explicitly.
         pcall(function() self.paletteCanvas:Destroy() end)
         self.paletteCanvas = nil
     end
@@ -1753,13 +1732,20 @@ function Editor:Unmount()
         pcall(function() self.capture:Destroy() end)
         self.capture = nil
     end
-    if self.groupBox ~= nil then
-        pcall(function() self.groupBox:Destroy() end)  -- takes the Canvas + Buttons with it
-        self.groupBox = nil
-        self.canvas = nil
+    if self.plusButton ~= nil then
+        pcall(function() self.plusButton:Destroy() end)
         self.plusButton = nil
+    end
+    if self.backButton ~= nil then
+        pcall(function() self.backButton:Destroy() end)
         self.backButton = nil
     end
+    if self.canvas ~= nil then
+        pcall(function() self.canvas:Destroy() end)
+        self.canvas = nil
+    end
+    self.contentParent = nil
+    self.overlayParent = nil
 end
 
 return Editor

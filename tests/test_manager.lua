@@ -225,21 +225,6 @@ function TestManager:testRowLabelIndentsByDepth()
     luaunit.assertTrue(#deep > #shallow) -- deeper rows carry more leading indent
 end
 
---- Window drag: header hit-test (the one pure part of the client-only drag path) -----------
-
--- _inHeader gates whether a press on the capture layer starts a window drag. Pure rect test in
--- absolute coords, so assertable headless even though the rest of the drag path is client-only.
-function TestManager:testInHeaderHitTest()
-    local mgr = self:makeManager({})
-    mgr.window = { x = 100, y = 200, w = 300, h = 400 }
-    local headerBottom = 200 + require("ui/theme").WINDOW_HEADER_H
-    luaunit.assertTrue(mgr:_inHeader(150, 205))                 -- inside the header band
-    luaunit.assertTrue(mgr:_inHeader(100, 200))                 -- top-left corner (inclusive)
-    luaunit.assertFalse(mgr:_inHeader(150, headerBottom + 5))   -- below the header (body) -> no drag
-    luaunit.assertFalse(mgr:_inHeader(50, 205))                 -- left of the window -> no drag
-    luaunit.assertFalse(mgr:_inHeader(450, 205))               -- right of the window -> no drag
-end
-
 --- Row editing ops (#91): host callbacks + signature bump ---------------------------------
 -- Manager mutations go through injected host callbacks (main.lua wires Store + Runtime). The
 -- pure half only reports the op + bumps mutateVersion so the view rebuilds; the host mutates

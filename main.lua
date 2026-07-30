@@ -11,9 +11,11 @@ end
 
 local Editor = require("ui/graph")
 local Manager = require("ui/manager")
+local Multiplexer = require("ui/multiplexer")
 local Store  = require("store")
 local Runtime = require("runtime")
 local ToastStack = require("toast")
+local Theme = require("ui/theme")
 
 local function RegisterToPluginMenu()
     LibPluginMenu.Unregister("watchdog")
@@ -23,7 +25,7 @@ local function RegisterToPluginMenu()
         icon = "W",
         -- icon = id.Sprite.AIF_COINS_ICON,
         onClick = function()
-            -- Hide/show the whole plugin UI at the current nav level (#80) — never navigates, so
+            -- Hide/show the whole plugin UI at the current stack depth (#80) — never navigates, so
             -- the button reopens whichever surface (Manager or Editor) you last had up.
             pcall(function() Watchdog.Toggle() end)
         end
@@ -304,10 +306,9 @@ runtime.infobox:SetPersistence({
 })
 
 --- Alert Manager + Editor↔Manager navigation (#90) --------------------------------------
--- Two surfaces, mounted once, with the nav owner below keeping AT MOST ONE visible so the tree can
--- never be mutated mid-edit. The Manager is the root; the Editor is a depth-1 level opened by a
--- double-click and left via "← Alerts" / Esc. F8 and the menu button toggle *visibility* at the
--- current level — they never navigate (the level is preserved in memory).
+-- Two surfaces share one Multiplexer window: Manager is the stack root; Editor is Push'd on
+-- double-click and Pop'd via "← Alerts" / Esc. F8 / ribbon / window-close toggle *shell*
+-- visibility only — the stack is preserved in memory.
 
 -- id-keyed live-graph lookup: given a scope key + entry id, the live Graph + Layout the runtime
 -- fires (so binding the Editor to it keeps edits and firing in sync) plus the Bucket doc/key the
@@ -355,32 +356,16 @@ local boundScope = nil
 local boundLastEncoded = nil
 local persistNow -- forward ref: the debounced bound-entry write-back (assigned below)
 
--- The nav owner: `level` is which surface is the target (manager root ⇄ editor), `visible` whether
--- the plugin UI is shown at all. `applyNav` is the single place surface visibility is set, so the
--- "at most one visible" invariant holds by construction (the non-target surface is always hidden).
-local nav = { level = "manager", visible = false }
-local manager -- forward ref (constructed below); applyNav guards on it until then
+-- Multiplexer owns the prettyui.Window + stack; thin surface wrappers forward SetVisible.
+-- Declared here so navOpenAlert/navBack can close over them; constructed after Manager.new.
+local mux ---@type Watchdog.Multiplexer
+local managerSurface ---@type Watchdog.MuxSurface
+local editorSurface ---@type Watchdog.MuxSurface
+local manager -- forward ref (constructed below)
 
-local function applyNav()
-    if manager == nil then return end
-    if nav.level == "editor" then
-        manager:SetVisible(false)
-        editor:SetVisible(nav.visible)
-    else
-        editor:SetVisible(false)
-        manager:SetVisible(nav.visible)
-    end
-end
-
--- F8 / menu: hide/show the current level, never navigate (the level stays put in memory).
-local function navToggleVisibility()
-    nav.visible = not nav.visible
-    applyNav()
-end
-
--- A Manager alert row was double-clicked: bind the Editor to that entry's live graph and navigate
--- down to it. Records the bound scope so the write-back targets the right Bucket. A row that no
--- longer resolves (deleted/wrong scope) is a silent no-op — the Manager stays put.
+-- A Manager alert row was double-clicked: bind the Editor to that entry's live graph and Push
+-- the editor surface. Records the bound scope so the write-back targets the right Bucket. A row
+-- that no longer resolves (deleted/wrong scope) is a silent no-op — the Manager stays put.
 ---@param scopeKey string
 ---@param entryId integer
 local function navOpenAlert(scopeKey, entryId)
@@ -389,20 +374,20 @@ local function navOpenAlert(scopeKey, entryId)
     editor:BindEntry(entryId, a.graph, a.layout)
     boundScope = { doc = a.doc, key = a.key }
     boundLastEncoded = Store.Encode(a.doc)
-    nav.level = "editor"
-    nav.visible = true
-    applyNav()
+    if mux ~= nil and editorSurface ~= nil then
+        mux:Push(editorSurface)
+        mux:SetVisible(true)
+    end
 end
 
--- Navigate up to the Manager: flush the bound entry to its Bucket, unbind the Editor, drop the
--- bound scope, and show the Manager (visibility carries over — going back doesn't hide the UI).
+-- Pop to the Manager: flush the bound entry to its Bucket, unbind the Editor, drop the bound
+-- scope. Shell visibility carries over — going back doesn't hide the UI.
 local function navBack()
     if persistNow ~= nil then pcall(persistNow) end -- flush before unbinding
     editor:Unbind()
     boundScope = nil
     boundLastEncoded = nil
-    nav.level = "manager"
-    applyNav()
+    if mux ~= nil then mux:Pop() end
 end
 
 editor.onBack = navBack
@@ -566,6 +551,37 @@ manager = Manager.new({
     onCreateGroup = onCreateGroup,
 })
 
+-- Shared prettyui.Window host: Manager/Editor mount into Content()/Overlay(); Push/Pop swaps
+-- which surface is visible. Close = hide (stack preserved). onHide keeps the ribbon in sync.
+mux = Multiplexer.new({
+    x = Theme.WINDOW_X,
+    y = Theme.WINDOW_Y,
+    width = Theme.WINDOW_W,
+    height = Theme.WINDOW_H,
+    minWidth = 320,
+    minHeight = 220,
+    scrollable = false,
+    onHide = function()
+        if ribbon ~= nil then
+            pcall(function() ribbon:SetActive(false) end)
+        end
+    end,
+})
+
+managerSurface = {
+    id = "manager",
+    title = "Watchdog - Alerts",
+    SetVisible = function(_, v) manager:SetVisible(v) end,
+}
+editorSurface = {
+    id = "editor",
+    title = "Watchdog — Editor",
+    SetVisible = function(_, v) editor:SetVisible(v) end,
+    -- Shell hide (F8/Close) must dismiss palette/gestures without Editor:SetVisible(false),
+    -- so pan/zoom survive; mux calls this instead of flipping surface visibility.
+    OnShellHide = function() editor:OnShellHide() end,
+}
+
 --- Client root parent (interface may not be loaded yet; retried on the Logic loop) ------
 
 local function getRootParent()
@@ -585,13 +601,20 @@ end
 
 --- Event loops --------------------------------------------------------------------------
 
--- `mounted` tracks the editor Window; `effectsMounted` tracks the EffectRegistry's own
--- always-on overlay Canvas (see effects.lua); `infoboxMounted` tracks the InfoBox Area's (#41)
--- own click-capture layer; `screenMarkerMounted` tracks the Screen Marker capture overlay's
--- (#39) own click-capture layer — all four must keep working while the editor Window is
--- closed, so none can be gated on state.mounted. The Toast stack (#36) rides on the
--- effects Canvas, so it mounts/draws alongside `effectsMounted` rather than needing its own flag.
-local state = { mounted = false, managerMounted = false, navApplied = false, effectsMounted = false, infoboxMounted = false, screenMarkerMounted = false, infoboxWasDragging = false }
+-- `muxMounted` / `mounted` / `managerMounted` track the Multiplexer shell + Editor + Manager
+-- respectively; `effectsMounted` / `infoboxMounted` / `screenMarkerMounted` track always-on
+-- overlays that must keep working while the window is closed. The Toast stack (#36) rides on
+-- the effects Canvas. `rootPushed` is true once managerSurface is on the mux stack.
+local state = {
+    muxMounted = false,
+    mounted = false,
+    managerMounted = false,
+    rootPushed = false,
+    effectsMounted = false,
+    infoboxMounted = false,
+    screenMarkerMounted = false,
+    infoboxWasDragging = false,
+}
 
 -- Debounced autosave, but only while an alert is **bound and the Editor visible** — that's the only
 -- time the graph can be edited, so during normal play (or while on the Manager) we stay off
@@ -633,12 +656,10 @@ local function onLogic()
                 pcall(function() runtime.infobox:Drag(mx, my) end)
             end
         elseif state.infoboxWasDragging then
-            -- The drag fronted the InfoBox capture over the active surface's own hit layer so a
-            -- fast cursor crossing into it couldn't steal the hover and drop the grab. Now that it's
-            -- ended, restore whichever surface is up to the top (each no-ops while hidden, so the
-            -- "at most one visible" invariant means only the active one actually re-fronts).
-            pcall(function() editor:RaiseToFront() end)
-            pcall(function() manager:RaiseToFront() end)
+            -- The drag fronted the InfoBox capture over the window's hit layer so a fast cursor
+            -- crossing into it couldn't steal the hover and drop the grab. Restore the mux shell
+            -- (window + overlay) to the front once the drag ends.
+            pcall(function() mux:RaiseToFront() end)
         end
         state.infoboxWasDragging = dragging
     end
@@ -654,14 +675,14 @@ local function onLogic()
     end
 
     if not state.effectsMounted or not state.infoboxMounted or not state.screenMarkerMounted
-        or not state.mounted or not state.managerMounted then
+        or not state.muxMounted or not state.mounted or not state.managerMounted then
         local parent = getRootParent()
         if parent ~= nil then
             if not state.effectsMounted then
                 pcall(function() runtime.effects:Mount(parent) end)
                 -- Mount swallows its own errors (logs, leaves canvas nil), so success is
                 -- read back off the registry rather than the pcall's `ok` — mirrors the
-                -- editor:Mount retry-on-failure pattern just below.
+                -- surface Mount retry-on-failure pattern below.
                 state.effectsMounted = runtime.effects:IsMounted()
                 pcall(function() runtime.toast:Mount(parent) end)
             end
@@ -673,28 +694,37 @@ local function onLogic()
                 pcall(function() runtime.screenMarkerCapture:Mount(parent) end)
                 state.screenMarkerMounted = runtime.screenMarkerCapture:IsMounted()
             end
-            if not state.mounted then
-                local ok, err = pcall(function() editor:Mount(parent) end)
-                if ok then
-                    state.mounted = true
-                elseif log ~= nil then
-                    log("Watchdog: mount failed — " .. tostring(err))
+            -- Multiplexer first (owns content + overlay parents), then both surfaces into it,
+            -- then Push manager as the stack root — shell stays hidden until ribbon/F8.
+            if not state.muxMounted then
+                local ok, err = pcall(function() mux:Mount(parent) end)
+                if ok and mux:Content() ~= nil then
+                    state.muxMounted = true
+                elseif log ~= nil and not ok then
+                    log("Watchdog: mux mount failed — " .. tostring(err))
                 end
             end
-            -- The Alert Manager (#90): the second surface, mounted once beside the Editor. Read
-            -- success back off IsMounted like the others.
-            if not state.managerMounted then
-                pcall(function() manager:Mount(parent) end)
-                state.managerMounted = manager:IsMounted()
+            if state.muxMounted then
+                if not state.managerMounted then
+                    pcall(function() manager:Mount(mux:Content()) end)
+                    state.managerMounted = manager:IsMounted()
+                end
+                if not state.mounted then
+                    local ok, err = pcall(function()
+                        editor:Mount(mux:Content(), mux:Overlay())
+                    end)
+                    if ok and editor.canvas ~= nil then
+                        state.mounted = true
+                    elseif log ~= nil and not ok then
+                        log("Watchdog: mount failed — " .. tostring(err))
+                    end
+                end
+                if state.managerMounted and not state.rootPushed then
+                    mux:Push(managerSurface)
+                    state.rootPushed = true
+                end
             end
         end
-    end
-
-    -- Apply the nav state on the first frame BOTH surfaces are up (whichever mounted first), so the
-    -- "at most one visible" invariant is established from the start rather than on the first F8.
-    if state.mounted and state.managerMounted and not state.navApplied then
-        state.navApplied = true
-        applyNav()
     end
 
     -- The Manager polls every tick like the Editor (double-click timing + scope-change rebuild).
@@ -707,9 +737,11 @@ local function onLogic()
     end
     pcall(function() editor:update() end)
 
-    -- Persist only during an editing session (an alert bound AND the Editor visible); flush once on
-    -- the transition out of it (navigate-back also flushes explicitly before unbinding).
-    local isOpen = editor:IsVisible() and editor.boundId ~= nil
+    -- Persist only during an editing session (an alert bound AND the Editor shell visible); flush
+    -- once on the transition out of it (navigate-back also flushes explicitly before unbinding).
+    -- Gate on mux:IsVisible too: Multiplexer hide closes the window without flipping surface
+    -- SetVisible, so editor:IsVisible alone would keep autosaving while the UI is tucked away.
+    local isOpen = mux:IsVisible() and editor:IsVisible() and editor.boundId ~= nil
     if isOpen then
         saveState.tick = saveState.tick + 1
         if saveState.tick >= SAVE_INTERVAL_TICKS then
@@ -767,27 +799,35 @@ function api.Stop()
     pcall(function() runtime.screenMarkerCapture:Unmount() end)
     pcall(function() editor:Unmount() end)
     pcall(function() manager:Unmount() end)
+    pcall(function() mux:Destroy() end)
+    state.muxMounted = false
     state.mounted = false
     state.managerMounted = false
+    state.rootPushed = false
     state.effectsMounted = false
     state.infoboxMounted = false
     state.screenMarkerMounted = false
 end
 
--- Hide/show the whole plugin UI at the current nav level (#80) — the F8 keybind and the menu
--- button both call this. Never navigates: the level (Manager root vs a bound Editor) is preserved.
+-- Hide/show the whole plugin UI at the current stack depth (#80) — the F8 keybind and the menu
+-- button both call this. Never navigates: Manager vs Editor stays put on the mux stack.
 function api.Toggle()
-    navToggleVisibility()
+    if mux == nil then return end
+    mux:Toggle()
+    if ribbon ~= nil then
+        pcall(function() ribbon:SetActive(mux:IsVisible()) end)
+    end
 end
 
 api.editor = editor
 api.manager = manager
+api.mux = mux
 api.document = document  -- the persisted `global` Bucket, exposed for inspection
 
 Event.Logic.Subscribe(Events.Logic, onLogic)
 Event.Draw.Subscribe(Events.Draw, onDraw)
 
--- Hide/show the plugin UI on TOGGLE_KEY (level-preserving); Esc runs the Editor's Esc cascade
+-- Hide/show the plugin UI on TOGGLE_KEY (stack-preserving); Esc runs the Editor's Esc cascade
 -- (popup/marker-capture cancel, else navigate up to the Manager — #80). KeyDown payload has
 -- gameKey/isRepeat (core/events docs); ignore auto-repeat so a held key doesn't flicker the panel.
 Event.KeyDown.Subscribe(Events.KeyDown, function(keyEvent)
@@ -796,15 +836,14 @@ Event.KeyDown.Subscribe(Events.KeyDown, function(keyEvent)
         -- Esc only means anything on the Editor surface: it dismisses a popup / cancels a marker
         -- capture, or — as the last rung — navigates up. On the Manager (root) there is nowhere to
         -- go up to, so Esc is inert there (the Manager selection-clear rung is #82, not this ticket).
-        if nav.level == "editor" and editor:IsVisible() then
+        if mux ~= nil and mux:IsVisible() and mux:IsTop("editor") and editor:IsVisible() then
             pcall(function() editor:onEscape() end)
         end
         return
     end
     local target = GameKey[TOGGLE_KEY]
     if target ~= nil and keyEvent.gameKey == target then
-        navToggleVisibility()
-        ribbon:SetActive(nav.visible)
+        api.Toggle()
     end
 end)
 
@@ -817,8 +856,7 @@ ribbon = prettyui.RibbonBar.Register({
     -- object = config.Obj.WIN05_STARBAUBLE_PINK,
     tooltip = "Open Watchdog",
     onClick = function(handle, active)
-        nav.visible = active
-        applyNav()
+        if mux ~= nil then mux:SetVisible(active) end
     end,
 })
 
