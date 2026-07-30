@@ -1,7 +1,12 @@
 {
   "name": "Watchdog",
   "version": "0.1.0",
-  "requiredDependencies": ["LibNodeGraph", "LibNodeGraphStd", "LibPluginMenu"],
+  "requiredDependencies": [
+    "LibNodeGraph",
+    "LibNodeGraphStd",
+    "LibPluginMenu",
+    "prettyui"
+  ],
   "optionalDependencies": ["LibPluginMenu"],
   "optionalPermissions": ["httpAccess"],
   "urls": {

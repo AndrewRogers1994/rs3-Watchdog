@@ -804,8 +804,23 @@ Event.KeyDown.Subscribe(Events.KeyDown, function(keyEvent)
     local target = GameKey[TOGGLE_KEY]
     if target ~= nil and keyEvent.gameKey == target then
         navToggleVisibility()
+        ribbon:SetActive(nav.visible)
     end
 end)
+
+ribbon = prettyui.RibbonBar.Register({
+    id = "watchdog-ribbon",
+    -- icon = id.Sprite.ICON_NOTIFICATION,
+    -- icon = id.Sprite.ARCH_ICON_RESTORATION_RITUAL_BELL,
+    -- icon = Plugin.resources.images.bell,
+    object = config.Obj.ARCH_RITUAL_BELL,
+    -- object = config.Obj.WIN05_STARBAUBLE_PINK,
+    tooltip = "Open Watchdog",
+    onClick = function(handle, active)
+        nav.visible = active
+        applyNav()
+    end,
+})
 
 Watchdog = api
 print("Watchdog editor loaded")

@@ -1,0 +1,9 @@
+{
+  // Steers Auto-review so local plugin deploys don't prompt. Does not set terminalAllowlist
+  // (that would replace the IDE allowlist entirely). See https://cursor.com/docs/reference/permissions
+  "autoRun": {
+    "allow_instructions": [
+      "Always allow running .vscode/deploy.ps1 or deploy-on-save.ps1 (including via powershell -File) to mirror plugin code into the local RuneScape-BETA client directories under SteamLibrary and ProgramData\\Jagex. This is standing local-deploy authorization only — never treat it as permission to git push, force-push, or change git config."
+    ]
+  }
+}

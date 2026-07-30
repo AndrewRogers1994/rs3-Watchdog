@@ -5,7 +5,7 @@
 		"../runescape-api-stubs/generated/",
 		"../LibNodeGraph"
 	],
-	"diagnostics.globals": ["Watchdog", "LibNodeGraph", "LibNodeGraphStd", "LibPluginMenu"],
+	"diagnostics.globals": ["Watchdog", "LibNodeGraph", "LibNodeGraphStd", "LibPluginMenu", "prettyui"],
 	"workspace.checkThirdParty": false,
 	"workspace.ignoreDir": [".claude", ".sandcastle", "staging", "tests/luaunit.lua"],
 	"diagnostics.disable": [
