@@ -81,8 +81,7 @@ function Editor.new(registry, runtime)
         rootParent = nil,          -- the client's root component, kept for screenSize()
         groupBox = nil,            -- real GroupBox providing the native header/title/frame
         plusButton = nil,          -- real Button, top-right of the GroupBox
-        closeButton = nil,         -- real Button, top-right of the GroupBox
-        backButton = nil,          -- real "← Alerts" Button, top-LEFT of the GroupBox (#80 nav-up)
+        backButton = nil,          -- real "Back" Button, top-LEFT of the GroupBox (#80 nav-up)
         onBack = nil,              -- host nav callback: navigate up to the Manager (set by main.lua)
     }, Editor)
 
@@ -1394,8 +1393,8 @@ function Editor:draw()
     -- otherwise get buried under the +/x Buttons since they're siblings under the same
     -- GroupBox and the canvas just claimed front-most. Re-front the Buttons every frame so
     -- they stay visually above the grid.
+    if self.backButton ~= nil then pcall(function() self.backButton:MoveToFront() end) end
     if self.plusButton ~= nil then pcall(function() self.plusButton:MoveToFront() end) end
-    if self.closeButton ~= nil then pcall(function() self.closeButton:MoveToFront() end) end
     -- Keep the transient Control editor above the just-fronted Canvas.
     if self.editing ~= nil and self.editing.field ~= nil then
         pcall(function() self.editing.field:MoveToFront() end)
@@ -1651,17 +1650,16 @@ function Editor:mountGroupBox(parent)
     self:positionGroupBox()
 
     -- Toolbar button metric, shared by the header title inset below and the toolbar buttons further
-    -- down. The top-left "← Alerts" button (SetPos(6,5), width 4*bs) sits inside the header, so the
+    -- down. The top-left "Back" button (SetPos(6,5), width 4*bs) sits inside the header, so the
     -- title must start to its right or the left-aligned title text draws over the button and hides it.
     local bs = Theme.WINDOW_HEADER_H - 10
-    local titleInset = 6 + 4 * bs + 8  -- back-button left margin + its width + a gap
 
     -- headerWidth is a Uint8 (0..255) in the docs even though the Window itself is wider —
     -- clamp rather than pass the raw Window width and risk it wrapping/clamping oddly. offsetX shifts
-    -- the title clear of the "← Alerts" button (top-left of the same header band).
+    -- the title clear of the "Back" button (top-left of the same header band).
     local ok2, err2 = pcall(function()
-        self.groupBox:SetHeaderLayout(math.min(win.w - titleInset, 255), Theme.WINDOW_HEADER_H,
-            titleInset, 0, ui.GroupBoxHeaderAlignMode.LEFT)
+        self.groupBox:SetHeaderLayout(math.min(win.w, 255), Theme.WINDOW_HEADER_H,
+            0, 0, ui.GroupBoxHeaderAlignMode.LEFT)
     end)
     if not ok2 and log ~= nil then log("Watchdog: SetHeaderLayout failed — " .. tostring(err2)) end
 
@@ -1706,18 +1704,17 @@ function Editor:mountGroupBox(parent)
         return button
     end
 
-    -- X and "← Alerts" both navigate up to the Manager (#80) via the host's onBack; closing an
+    -- X and "Back" both navigate up to the Manager (#80) via the host's onBack; closing an
     -- alert's editor returns you to the Manager, and the nav owner (not the Editor) stays the
     -- single authority on visibility so F8/menu hide-toggling can never desync. Falls back to a bare
     -- self-hide when no onBack is wired (a headless/standalone Editor with no Manager above it).
-    self.closeButton = toolbarButton("X", bs + 6, function() self:goBack() end)
-    self.plusButton = toolbarButton("+", 2 * bs + 12, function()
+    self.plusButton = toolbarButton("+", bs + 6, function()
         -- Local coordinates (the GroupBox's own frame) — matches the button's own position.
         self:openPaletteUnfiltered(win.w - 2 * bs - 12, 5 + bs)
     end)
     self.plusButton.cursorConfig.mouseOverCursor = id.Cursor.CURSOR_GOTO
 
-    -- The "← Alerts" nav-up button, top-LEFT of the header (opposite the +/X cluster). Wide enough
+    -- The "Back" nav-up button, top-LEFT of the header (opposite the +/X cluster). Wide enough
     -- for its label; local coords like every other toolbar child.
     local ok5, back = pcall(function() return ui.Button.new(self.groupBox) end)
     if ok5 and back ~= nil then
@@ -1725,7 +1722,7 @@ function Editor:mountGroupBox(parent)
         back:SetPos(6, 5)
         back:SetSize(4 * bs, bs)
         back.clickthrough = false
-        pcall(function() back.text.content = "← Alerts" end)
+        pcall(function() back.text.content = "Back" end)
         back:Subscribe(ui.Hook.ONBUTTONPRESSED, function() self:goBack() return true end)
         pcall(function() back:MoveToFront() end)
         self.backButton = back
@@ -1761,7 +1758,6 @@ function Editor:Unmount()
         self.groupBox = nil
         self.canvas = nil
         self.plusButton = nil
-        self.closeButton = nil
         self.backButton = nil
     end
 end
