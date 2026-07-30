@@ -26,13 +26,18 @@ end
 TestManager = {}
 
 -- A Manager over a fixed scope list, with the alert-open callback recorded so a test can prove a
--- double-click reports the right (scopeKey, id).
-function TestManager:makeManager(scopes)
+-- double-click reports the right (scopeKey, id). Optional `extras` injects the #91 mutation
+-- callbacks (onToggleEnabled / onRename / onDelete / onCreateAlert / onCreateGroup).
+function TestManager:makeManager(scopes, extras)
     local opened = {}
-    local mgr = Manager.new({
+    local opts = {
         scopes = function() return scopes end,
         onOpenAlert = function(scopeKey, id) opened[#opened + 1] = { scopeKey, id } end,
-    })
+    }
+    if extras ~= nil then
+        for k, v in pairs(extras) do opts[k] = v end
+    end
+    local mgr = Manager.new(opts)
     return mgr, opened
 end
 
@@ -233,4 +238,130 @@ function TestManager:testInHeaderHitTest()
     luaunit.assertFalse(mgr:_inHeader(150, headerBottom + 5))   -- below the header (body) -> no drag
     luaunit.assertFalse(mgr:_inHeader(50, 205))                 -- left of the window -> no drag
     luaunit.assertFalse(mgr:_inHeader(450, 205))               -- right of the window -> no drag
+end
+
+--- Row editing ops (#91): host callbacks + signature bump ---------------------------------
+-- Manager mutations go through injected host callbacks (main.lua wires Store + Runtime). The
+-- pure half only reports the op + bumps mutateVersion so the view rebuilds; the host mutates
+-- the shared Bucket doc the scopes provider already returns.
+
+function TestManager:testToggleEnabledReportsActiveScopeAndId()
+    local calls = {}
+    local doc = bucket({ alert(7, "a", true) })
+    local mgr = self:makeManager(
+        { { key = "global", label = "Global", doc = doc } },
+        { onToggleEnabled = function(scopeKey, id) calls[#calls + 1] = { scopeKey, id } end }
+    )
+    local before = mgr:_signature()
+    mgr:ToggleEnabled(7)
+    luaunit.assertEquals(calls, { { "global", 7 } })
+    luaunit.assertNotEquals(mgr:_signature(), before)
+end
+
+function TestManager:testRenameReportsActiveScopeIdAndName()
+    local calls = {}
+    local doc = bucket({ alert(3, "old") })
+    local mgr = self:makeManager(
+        { { key = "global", label = "Global", doc = doc } },
+        { onRename = function(scopeKey, id, name) calls[#calls + 1] = { scopeKey, id, name } end }
+    )
+    mgr:Rename(3, "new")
+    luaunit.assertEquals(calls, { { "global", 3, "new" } })
+end
+
+function TestManager:testDeleteReportsActiveScopeAndId()
+    local calls = {}
+    local doc = bucket({ alert(5, "a") })
+    local mgr = self:makeManager(
+        { { key = "global", label = "Global", doc = doc } },
+        { onDelete = function(scopeKey, id) calls[#calls + 1] = { scopeKey, id } end }
+    )
+    mgr:Delete(5)
+    luaunit.assertEquals(calls, { { "global", 5 } })
+end
+
+function TestManager:testCreateAlertReportsActiveScope()
+    local calls = {}
+    local mgr = self:makeManager(
+        {
+            { key = "global", label = "Global", doc = bucket({}) },
+            { key = "player_alice", label = "Alice", doc = bucket({}) },
+        },
+        { onCreateAlert = function(scopeKey) calls[#calls + 1] = scopeKey end }
+    )
+    mgr:SetActiveScope("player_alice")
+    mgr:CreateAlert()
+    luaunit.assertEquals(calls, { "player_alice" })
+end
+
+function TestManager:testCreateGroupReportsActiveScope()
+    local calls = {}
+    local mgr = self:makeManager(
+        { { key = "global", label = "Global", doc = bucket({}) } },
+        { onCreateGroup = function(scopeKey) calls[#calls + 1] = scopeKey end }
+    )
+    mgr:CreateGroup()
+    luaunit.assertEquals(calls, { "global" })
+end
+
+function TestManager:testMutationNoOpsWithoutActiveScope()
+    local calls = {}
+    local mgr = self:makeManager({}, {
+        onToggleEnabled = function() calls[#calls + 1] = "toggle" end,
+        onRename = function() calls[#calls + 1] = "rename" end,
+        onDelete = function() calls[#calls + 1] = "delete" end,
+        onCreateAlert = function() calls[#calls + 1] = "alert" end,
+        onCreateGroup = function() calls[#calls + 1] = "group" end,
+    })
+    mgr:ToggleEnabled(1)
+    mgr:Rename(1, "x")
+    mgr:Delete(1)
+    mgr:CreateAlert()
+    mgr:CreateGroup()
+    luaunit.assertEquals(calls, {})
+end
+
+function TestManager:testHostMutationReflectedInVisibleRows()
+    -- Shared-doc seam: host mutates the Bucket the provider already returns; after the Manager
+    -- bumps its signature the next VisibleRows read sees the change (no Manager-owned copy).
+    local doc = bucket({ alert(1, "alpha", true) })
+    local mgr = self:makeManager(
+        { { key = "global", label = "Global", doc = doc } },
+        {
+            onToggleEnabled = function(_, id)
+                doc.entries[1].enabled = not doc.entries[1].enabled
+            end,
+            onRename = function(_, id, name)
+                doc.entries[1].name = name
+            end,
+            onDelete = function(_, id)
+                doc.entries = {}
+            end,
+        }
+    )
+    mgr:ToggleEnabled(1)
+    luaunit.assertEquals(mgr:VisibleRows()[1].enabled, false)
+    mgr:Rename(1, "beta")
+    luaunit.assertEquals(mgr:VisibleRows()[1].name, "beta")
+    mgr:Delete(1)
+    luaunit.assertEquals(mgr:VisibleRows(), {})
+end
+
+function TestManager:testCreateGroupReturnsMintedIdFromHost()
+    local mgr = self:makeManager(
+        { { key = "global", label = "Global", doc = bucket({}) } },
+        { onCreateGroup = function() return 42 end }
+    )
+    luaunit.assertEquals(mgr:CreateGroup(), 42)
+end
+
+function TestManager:testDeleteConfirmLabelDisclosesDescendantCount()
+    local doc = bucket({
+        group(1, "g", { alert(2, "a"), group(3, "inner", { alert(4, "b") }) }),
+        alert(5, "leaf"),
+    })
+    local mgr = self:makeManager({ { key = "global", label = "Global", doc = doc } })
+    luaunit.assertEquals(mgr:_descendantCount(1), 3) -- a + inner + b
+    luaunit.assertEquals(mgr:_deleteConfirmLabel(1), "OK 3?")
+    luaunit.assertEquals(mgr:_deleteConfirmLabel(5), "OK?") -- leaf: no ride-alongs
 end

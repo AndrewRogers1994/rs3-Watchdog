@@ -399,6 +399,20 @@ function Store.SetEnabled(doc, id, enabled)
     return true
 end
 
+-- Renames an entry in place, keyed by `id` (Manager row rename, #91). Returns true if an entry
+-- with that id existed, false otherwise. Names carry no uniqueness constraint — this only mutates
+-- the targeted entry. Does not persist; the caller runs Store.Save.
+---@param doc Watchdog.Bucket
+---@param id integer
+---@param name string
+---@return boolean
+function Store.SetName(doc, id, name)
+    local entry = Store.FindById(doc, id)
+    if entry == nil then return false end
+    entry.name = name
+    return true
+end
+
 -- Re-serializes a *live* graph + Layout back into the alert Entry with `id` (the editor autosave
 -- path). Returns true if an alert with that id existed and was updated, false otherwise. Does not
 -- persist; the caller runs Store.Save.

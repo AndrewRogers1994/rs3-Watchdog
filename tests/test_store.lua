@@ -503,6 +503,40 @@ function TestStore:testSetEnabledPersistsThroughRoundTrip()
     luaunit.assertEquals(Store.FindById(reloaded, id).enabled, false)
 end
 
+--- SetName by id (#91) -------------------------------------------------------------------
+
+function TestStore:testSetNameRenamesById()
+    local doc = Store.Empty()
+    local id = seedAlert(self, doc, "alpha", true)
+
+    luaunit.assertTrue(Store.SetName(doc, id, "beta"))
+    luaunit.assertEquals(Store.FindById(doc, id).name, "beta")
+end
+
+function TestStore:testSetNameIsIdKeyedAcrossDuplicateNames()
+    -- Two alerts share a name; SetName keys on id, so it touches only the targeted one.
+    local doc = Store.Empty()
+    local a = seedAlert(self, doc, "dup", true)
+    local b = seedAlert(self, doc, "dup", true)
+
+    Store.SetName(doc, a, "renamed")
+    luaunit.assertEquals(Store.FindById(doc, a).name, "renamed")
+    luaunit.assertEquals(Store.FindById(doc, b).name, "dup")
+end
+
+function TestStore:testSetNameReturnsFalseForUnknownId()
+    luaunit.assertFalse(Store.SetName(Store.Empty(), 999, "x"))
+end
+
+function TestStore:testSetNamePersistsThroughRoundTrip()
+    local doc = Store.Empty()
+    local id = seedAlert(self, doc, "alpha", true)
+    Store.SetName(doc, id, "beta")
+
+    local reloaded = saveAndReload(doc)
+    luaunit.assertEquals(Store.FindById(reloaded, id).name, "beta")
+end
+
 --- UpdateAlertGraph by id (the editor autosave path) -------------------------------------
 
 function TestStore:testUpdateAlertGraphRewritesGraphById()

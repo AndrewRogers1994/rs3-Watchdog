@@ -598,6 +598,72 @@ function TestRuntime:testResolverErrorFailsOpenSoOneBadGateCannotSilenceEverythi
     luaunit.assertEquals(graphA:GetLastValue(aId, "payload"), "ping")
 end
 
+--- Manager live-set sync by id (#91): RemoveAlert / SetAlertEnabled / RenameAlert ----------
+-- Manager mutations own persistence (Store.Save); these APIs only keep the live alert set in
+-- sync so a deleted/disabled alert stops firing and a rename retargets name-based SetEnabled.
+
+function TestRuntime:testRemoveAlertStopsFiringAndDropsFromLiveSet()
+    registerEchoTrigger(self.registry, "fixture.echo")
+    self.runtime:BindTrigger("fixture.echo", { { event = "Custom" } })
+
+    local graphA = Graph.new(self.registry)
+    local graphB = Graph.new(self.registry)
+    self.runtime:SetGraph(nil)
+    self.runtime:AddAlert(1, "A", graphA, true)
+    self.runtime:AddAlert(2, "B", graphB, true)
+    local aId = graphA:AddNode("fixture.echo")
+    local bId = graphB:AddNode("fixture.echo")
+
+    luaunit.assertTrue(self.runtime:RemoveAlert(1))
+    self.source:Push("Custom", "after-delete")
+
+    luaunit.assertNil(graphA:GetLastValue(aId, "payload")) -- deleted: silent
+    luaunit.assertEquals(graphB:GetLastValue(bId, "payload"), "after-delete") -- sibling still fires
+    luaunit.assertEquals(#self.runtime.alerts, 1)
+    luaunit.assertEquals(self.runtime.alerts[1].id, 2)
+end
+
+function TestRuntime:testRemoveAlertReturnsFalseForUnknownId()
+    self.runtime:SetGraph(nil)
+    luaunit.assertFalse(self.runtime:RemoveAlert(999))
+end
+
+function TestRuntime:testSetAlertEnabledSuppressesFiringWithoutPersisting()
+    -- Manager already wrote Store; this is memory-only so the persistence hook is not re-entered.
+    registerEchoTrigger(self.registry, "fixture.echo")
+    self.runtime:BindTrigger("fixture.echo", { { event = "Custom" } })
+    local fake = newFakePersistence()
+    self.runtime:SetPersistence(fake)
+
+    local graphA = Graph.new(self.registry)
+    self.runtime:SetGraph(nil)
+    self.runtime:AddAlert(1, "A", graphA, true)
+    local aId = graphA:AddNode("fixture.echo")
+
+    luaunit.assertTrue(self.runtime:SetAlertEnabled(1, false))
+    self.source:Push("Custom", "while-off")
+    luaunit.assertNil(graphA:GetLastValue(aId, "payload"))
+    luaunit.assertEquals(#fake.calls, 0) -- Manager owns persist; runtime does not double-write
+
+    luaunit.assertTrue(self.runtime:SetAlertEnabled(1, true))
+    self.source:Push("Custom", "while-on")
+    luaunit.assertEquals(graphA:GetLastValue(aId, "payload"), "while-on")
+end
+
+function TestRuntime:testRenameAlertRetargetsNameIndex()
+    local fake = newFakePersistence()
+    self.runtime:SetPersistence(fake)
+    local graphA = Graph.new(self.registry)
+    self.runtime:SetGraph(nil)
+    self.runtime:AddAlert(1, "old", graphA, true)
+
+    luaunit.assertTrue(self.runtime:RenameAlert(1, "new"))
+    luaunit.assertFalse(self.runtime:SetEnabled("old", false)) -- stale name: no match
+    luaunit.assertTrue(self.runtime:SetEnabled("new", false))
+    luaunit.assertEquals(fake.state[1], false)
+    luaunit.assertEquals(self.runtime.alerts[1].name, "new")
+end
+
 function TestRuntime:testStopUnsubscribesAllChannels()
     registerEchoTrigger(self.registry, "fixture.echo")
     self.runtime:BindTrigger("fixture.echo", { { event = "Custom" } })

@@ -269,11 +269,23 @@ runtime:SetPersistence({
 })
 
 -- Enabled-chain gate (#88): the runtime ANDs each alert's own `enabled` with whether every
--- ancestor group is enabled. Resolved live over the saved document, so a group toggle or a subtree
--- move re-evaluates on the next fire with nothing cached. A root-level alert has no ancestors and
--- always passes, so this is inert until Groups exist in the tree.
+-- ancestor group is enabled. Resolved live over the alert's own Bucket doc (global or the
+-- resident character), so a group toggle or a subtree move re-evaluates on the next fire with
+-- nothing cached. A root-level alert has no ancestors and always passes.
 runtime:SetEnabledResolver(function(id)
-    return Store.AncestorsEnabled(document, id)
+    for _, alert in ipairs(runtime.alerts) do
+        if alert.id == id then
+            local doc
+            if alert.bucketKey == "global" then
+                doc = document
+            elseif charScope ~= nil and charScope.key == alert.bucketKey then
+                doc = charScope.doc
+            end
+            if doc ~= nil then return Store.AncestorsEnabled(doc, id) end
+            return true
+        end
+    end
+    return true
 end)
 
 -- Restore the InfoBox Area's (#41) persisted anchor, if any was ever saved, then wire its own
@@ -395,7 +407,164 @@ end
 
 editor.onBack = navBack
 
-manager = Manager.new({ scopes = getScopes, onOpenAlert = navOpenAlert })
+-- Scope → live Bucket doc + alert list the Manager mutations write through (#91). nil for an
+-- unknown / departed scope. `list` is the parallel restored-alerts array resolveAlert reads.
+---@param scopeKey string
+---@return Watchdog.Bucket|nil doc
+---@return string|nil key
+---@return Watchdog.RestoredAlert[]|nil list
+local function scopeBucket(scopeKey)
+    if scopeKey == "global" then
+        return document, "global", restored
+    elseif charScope ~= nil and charScope.key == scopeKey then
+        return charScope.doc, charScope.key, charScope.alerts
+    end
+    return nil
+end
+
+-- Walk an Entry subtree collecting every alert leaf id (so a group delete can RemoveAlert each).
+---@param entry Watchdog.Entry
+---@param out integer[]
+local function collectAlertIds(entry, out)
+    if entry.kind == "alert" then
+        out[#out + 1] = entry.id
+    else
+        for _, child in ipairs(entry.children or {}) do
+            collectAlertIds(child, out)
+        end
+    end
+end
+
+-- Drop every matching id from a restored-alerts list (keeps resolveAlert from resurrecting a
+-- just-deleted Entry).
+---@param list Watchdog.RestoredAlert[]
+---@param ids integer[]
+local function purgeAlertList(list, ids)
+    local drop = {}
+    for _, id in ipairs(ids) do drop[id] = true end
+    for i = #list, 1, -1 do
+        if drop[list[i].id] then table.remove(list, i) end
+    end
+end
+
+-- Manager mutation host (#91): each op writes the Bucket immediately, keeps the runtime live set
+-- in sync, and (for delete of the bound entry) unbinds the Editor. No undo — Manager writes are
+-- immediate by design (#78/#82).
+
+---@param scopeKey string
+---@param id integer
+local function onToggleEnabled(scopeKey, id)
+    local doc, key = scopeBucket(scopeKey)
+    if doc == nil then return end
+    local entry = Store.FindById(doc, id)
+    if entry == nil then return end
+    local nextEnabled = not (entry.enabled ~= false)
+    Store.SetEnabled(doc, id, nextEnabled)
+    Store.SaveTo(key, doc)
+    -- Groups aren't live alerts; the enabled-chain resolver reads the Store doc on the next fire.
+    if entry.kind == "alert" then
+        runtime:SetAlertEnabled(id, nextEnabled)
+        -- Keep the parallel restored list in sync so a later BindEntry still sees the flag.
+        local _, _, list = scopeBucket(scopeKey)
+        if list ~= nil then
+            for _, a in ipairs(list) do
+                if a.id == id then a.enabled = nextEnabled end
+            end
+        end
+    end
+end
+
+---@param scopeKey string
+---@param id integer
+---@param name string
+local function onRename(scopeKey, id, name)
+    local doc, key, list = scopeBucket(scopeKey)
+    if doc == nil then return end
+    if not Store.SetName(doc, id, name) then return end
+    Store.SaveTo(key, doc)
+    local entry = Store.FindById(doc, id)
+    if entry ~= nil and entry.kind == "alert" then
+        runtime:RenameAlert(id, name)
+        if list ~= nil then
+            for _, a in ipairs(list) do
+                if a.id == id then a.name = name end
+            end
+        end
+    end
+end
+
+---@param scopeKey string
+---@param id integer
+local function onDelete(scopeKey, id)
+    local doc, key, list = scopeBucket(scopeKey)
+    if doc == nil then return end
+    local entry = Store.FindById(doc, id)
+    if entry == nil then return end
+    -- Collect alert leaf ids *before* splicing so we can sync the runtime + restored list.
+    local alertIds = {}
+    collectAlertIds(entry, alertIds)
+    -- Unbind the Editor if its bound entry is in the deleted subtree (AC: deleting the bound
+    -- entry unbinds). Check while the entry still exists, then navigate up.
+    if editor.boundId ~= nil and boundScope ~= nil and boundScope.key == key then
+        local function contains(e, target)
+            if e.id == target then return true end
+            for _, c in ipairs(e.children or {}) do
+                if contains(c, target) then return true end
+            end
+            return false
+        end
+        if contains(entry, editor.boundId) then
+            navBack()
+        end
+    end
+    Store.DeleteById(doc, id)
+    Store.SaveTo(key, doc)
+    for _, aid in ipairs(alertIds) do
+        runtime:RemoveAlert(aid)
+    end
+    if list ~= nil then purgeAlertList(list, alertIds) end
+end
+
+---@param scopeKey string
+---@return integer|nil
+local function onCreateAlert(scopeKey)
+    local doc, key, list = scopeBucket(scopeKey)
+    if doc == nil then return nil end
+    local graph = LibNodeGraph.NewGraph(registry)
+    local layout = {}
+    local id = Store.MintId(doc)
+    local name = "New Alert"
+    Store.InsertEntry(doc, Store.NewAlertEntry(id, name, graph, layout, true))
+    Store.SaveTo(key, doc)
+    if list ~= nil then
+        list[#list + 1] = { id = id, name = name, graph = graph, layout = layout, enabled = true }
+    end
+    runtime:AddAlert(id, name, graph, true, key)
+    -- + Alert opens the Editor immediately (#78).
+    navOpenAlert(scopeKey, id)
+    return id
+end
+
+---@param scopeKey string
+---@return integer|nil
+local function onCreateGroup(scopeKey)
+    local doc, key = scopeBucket(scopeKey)
+    if doc == nil then return nil end
+    local id = Store.MintId(doc)
+    Store.InsertEntry(doc, Store.NewGroupEntry(id, "New Group", true, {}))
+    Store.SaveTo(key, doc)
+    return id
+end
+
+manager = Manager.new({
+    scopes = getScopes,
+    onOpenAlert = navOpenAlert,
+    onToggleEnabled = onToggleEnabled,
+    onRename = onRename,
+    onDelete = onDelete,
+    onCreateAlert = onCreateAlert,
+    onCreateGroup = onCreateGroup,
+})
 
 --- Client root parent (interface may not be loaded yet; retried on the Logic loop) ------
 

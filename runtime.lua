@@ -415,6 +415,61 @@ function Runtime:AddAlert(id, name, graph, enabled, bucketKey)
     return alert
 end
 
+-- Drops the live alert with Entry `id` from the fan-out set (Manager delete, #91). Clears its
+-- poll-edge state and rebuilds the name index. Persistence is the caller's job (Store.DeleteById
+-- + Save) — this only keeps firing in sync. Returns true if an alert with that id was removed.
+---@param id integer
+---@return boolean
+function Runtime:RemoveAlert(id)
+    local kept, removed = {}, false
+    for _, alert in ipairs(self.alerts) do
+        if alert.id == id then
+            self.pollEdgeState[alert.graph] = nil
+            removed = true
+        else
+            kept[#kept + 1] = alert
+        end
+    end
+    if not removed then return false end
+    self.alerts = kept
+    self:_rebuildNameIndex()
+    return true
+end
+
+-- Flips one live alert's `enabled` flag by Entry `id` (Manager enable toggle, #91). Memory-only —
+-- the Manager already wrote Store; this does not re-enter the persistence hook. Returns true if
+-- an alert with that id existed. A group toggle never reaches here (groups aren't live alerts);
+-- the enabled-chain resolver reads the Store doc directly.
+---@param id integer
+---@param enabled boolean
+---@return boolean
+function Runtime:SetAlertEnabled(id, enabled)
+    for _, alert in ipairs(self.alerts) do
+        if alert.id == id then
+            alert.enabled = enabled and true or false
+            return true
+        end
+    end
+    return false
+end
+
+-- Renames one live alert by Entry `id` and rebuilds the name index (Manager rename, #91).
+-- Memory-only — persistence is the caller's job. Returns true if an alert with that id existed.
+-- A group rename never reaches here (groups aren't live alerts).
+---@param id integer
+---@param name string
+---@return boolean
+function Runtime:RenameAlert(id, name)
+    for _, alert in ipairs(self.alerts) do
+        if alert.id == id then
+            alert.name = name
+            self:_rebuildNameIndex()
+            return true
+        end
+    end
+    return false
+end
+
 -- Injects the node-type registry (#33) so PreloadNode/PreloadGraph can look up a node's
 -- descriptor by typeKey. Kept as its own seam (like SetPersistence) rather than a Runtime.new
 -- param, since main.lua constructs the registry after the runtime.

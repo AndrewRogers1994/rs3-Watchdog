@@ -51,8 +51,9 @@ over `Store.LoadKey(key)` / `Store.SaveTo(key, doc)`, and `Store.PlayerKey(displ
 character Bucket's `player_<normalized>` key (#89). Only `Store.Load` runs the one-shot legacy
 migration — a character Bucket has no legacy predecessor.
 _(Landed: per-character `player_<…>` Buckets (#89), the one-shot legacy `watchdog_graphs` migration
-(#87), and the read-only Alert Manager render + Editor↔Manager navigation (#90). Not yet landed:
-Manager mutations — rename/reorder/enable-toggle/delete/multi-select (#78, #82).)_
+(#87), the read-only Alert Manager render + Editor↔Manager navigation (#90), and Manager row
+editing ops — create / rename / delete / enable (#91). Not yet landed: drag-reorder (#92),
+multi-select / bulk actions (#93), export/import (#94).)_
 _Avoid_: Database, save system, persistence layer (in prose), serializer (that's the engine's)
 
 **Capture Layer**:
@@ -213,11 +214,11 @@ The single management surface the F8 keybind and the LibPluginMenu button open (
 a **tab bar** of Scopes over a tree of Entries, each row carrying select / drag / enable / icon /
 name / rename / delete controls. Double-clicking an alert row navigates into the Editor; the two are
 separate surfaces, mounted once, with at most one visible at a time (#76, #78, #80). #90 landed the
-**read-only** cut — scope tabs, tree render (icon + name, group chevron + child count,
-expand/collapse), double-click-to-open, and the nav owner — but not yet the per-row mutations
-(enable check, rename field, drag-reorder, delete, multi-select), which are #78/#82. The tree/scope/
-expand logic is pure and headless-tested; the `ui.Panel` mount/render half is client-only, the same
-split the Editor uses.
+scope tabs, tree render (icon + name, group chevron + child count, expand/collapse),
+double-click-to-open, and the nav owner; #91 adds the per-row enable / rename / delete ops and the
+per-tab + Alert / + Group actions. Drag-reorder and multi-select remain (#92, #93). The tree/scope/
+expand/mutation logic is pure and headless-tested; the `ui.Panel` mount/render half is client-only,
+the same split the Editor uses.
 _Avoid_: Alert list, manager window, dashboard; the Editor (that is the Canvas graph surface)
 
 **Entry**:

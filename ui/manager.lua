@@ -1,24 +1,22 @@
 -- manager.lua — the Alert Manager: the second surface beside the Canvas Editor.
 --
 -- The management surface the F8 keybind and the LibPluginMenu button open (through the nav
--- owner in main.lua): a scope **tab bar** over a **read-only tree** of Entries. Built from
--- native `ui.*` components on a `ui.Panel` (ADR-0007), NOT the Editor's Canvas — a scrolling
--- list has neither pan nor zoom, so Canvas's rationale (ADR-0001) doesn't extend here, and a
--- Panel hands us native auto-layout + scroll + per-row clicks for free.
+-- owner in main.lua): a scope **tab bar** over a tree of Entries. Built from native `ui.*`
+-- components on a `ui.Panel` (ADR-0007), NOT the Editor's Canvas — a scrolling list has neither
+-- pan nor zoom, so Canvas's rationale (ADR-0001) doesn't extend here, and a Panel hands us
+-- native auto-layout + scroll + per-row clicks for free.
 --
--- This ticket (#90) renders the tree **read-only**: each row shows an icon + name; a group row
--- shows a chevron + its direct-child count and toggles expand/collapse on click; double-clicking
--- an alert row navigates into the Editor (via the nav owner). The enable checkbox, rename field,
--- drag-reorder, delete and multi-select are later tickets (#78, #82) — the row rendering here is
--- deliberately the minimal read-only cut.
+-- #90 landed the tree/scope/expand read-only cut; #91 adds the per-row editing ops (enable
+-- toggle, InputField rename, delete-with-confirm) and the per-tab + Alert / + Group actions.
+-- Drag-reorder and multi-select are later tickets (#92, #93).
 --
 -- ## Two halves
 --
--- The tree/scope/expand logic is **pure** (no `ui.*`): it walks a `Watchdog.Bucket` into a flat
--- list of visible rows, tracks per-scope collapse state, and resolves the active scope against the
--- injected scope provider. That half is unit-tested headless (tests/test_manager.lua). The mount /
--- render half is client-only and pcall-guarded, the same split every other surface in this plugin
--- uses (the Editor's linkPins is tested; its Mount is not).
+-- The tree/scope/expand/mutation logic is **pure** (no `ui.*`): it walks a `Watchdog.Bucket`
+-- into a flat list of visible rows, tracks per-scope collapse state, resolves the active scope
+-- against the injected scope provider, and reports mutations through host callbacks. That half
+-- is unit-tested headless (tests/test_manager.lua). The mount / render half is client-only and
+-- pcall-guarded, the same split every other surface in this plugin uses.
 
 local Theme = require("ui/theme")
 
@@ -48,6 +46,10 @@ local TAB_H       = 24    -- scope tab bar height
 local TAB_PAD     = 6     -- gap between tabs / inset from the box edge
 local ROW_H       = 22    -- one tree row
 local CONTENT_TOP = 4     -- inset below the title band
+local ENABLE_W    = 22    -- enable toggle width
+local ACT_W       = 36    -- rename / delete action button width (ASCII labels, not emoji)
+local CREATE_W    = 72    -- + Alert / + Group button width
+local ROW_GAP     = 2     -- gap between controls inside a row
 
 -- A scope descriptor the injected provider hands back: which Bucket, how to label its tab, and its
 -- tree to render. `key` is the Bucket's `PersistentDB` key (`global` / `player_<normalized>`) — the
@@ -67,29 +69,44 @@ local CONTENT_TOP = 4     -- inset below the title band
 ---@field depth integer               # 0 at root; each nesting level adds one (→ ROW_INDENT px)
 ---@field childCount integer|nil      # group only: number of DIRECT children
 ---@field expanded boolean            # group only: whether its children are shown (false for alerts)
----@field enabled boolean             # the Entry's own enabled flag (read-only badge, not yet wired)
+---@field enabled boolean             # the Entry's own enabled flag (drives the row enable Check)
 
 --- Construction ---------------------------------------------------------------------------
 
--- The Manager's whole seam onto its host: the scope provider and the alert-open callback.
+-- The Manager's whole seam onto its host: the scope provider, the alert-open callback, and the
+-- #91 mutation callbacks (enable / rename / delete / create). Persistence + runtime sync live in
+-- the host (main.lua); the Manager only reports the op and bumps its rebuild signature.
 ---@class Watchdog.ManagerOpts
 ---@field scopes fun(): Watchdog.ManagerScope[]              # ordered scopes (Global first, character second)
 ---@field onOpenAlert fun(scopeKey: string, id: integer)    # nav callback for a double-clicked alert row
+---@field onToggleEnabled fun(scopeKey: string, id: integer)|nil
+---@field onRename fun(scopeKey: string, id: integer, name: string)|nil
+---@field onDelete fun(scopeKey: string, id: integer)|nil
+---@field onCreateAlert fun(scopeKey: string): integer|nil   # returns the minted alert id
+---@field onCreateGroup fun(scopeKey: string): integer|nil   # returns the minted group id
 
 -- `scopes` is the injected scope provider: `fn() -> Watchdog.ManagerScope[]`, ordered (Global
 -- first, the current character second when logged in). Called live on every rebuild so a character
 -- login/logout re-tabs without the Manager caching identity. `onOpenAlert` is the nav callback
 -- `fn(scopeKey, id)` fired when an alert row is double-clicked — main.lua's nav owner binds the
--- Editor to that entry. Both are the whole seam onto the host; everything else here is self-owned.
+-- Editor to that entry. The #91 mutation callbacks (`onToggleEnabled` / `onRename` / `onDelete` /
+-- `onCreateAlert` / `onCreateGroup`) are the host's Store+Runtime wiring; absent ⇒ the matching
+-- Manager method is a silent no-op. All of these are the whole seam onto the host.
 ---@param opts Watchdog.ManagerOpts|nil
 ---@return table
 function Manager.new(opts)
     local self = setmetatable({
         scopesProvider = (opts and opts.scopes) or function() return {} end,
         onOpenAlert = (opts and opts.onOpenAlert) or function() end,
+        onToggleEnabled = opts and opts.onToggleEnabled,
+        onRename = opts and opts.onRename,
+        onDelete = opts and opts.onDelete,
+        onCreateAlert = opts and opts.onCreateAlert,
+        onCreateGroup = opts and opts.onCreateGroup,
         activeScope = nil,          -- resolved lazily; nil ⇒ "first scope" (Global)
         expanded = {},              -- expanded[scopeKey][id] = bool; absent ⇒ default (expanded)
         expandVersion = 0,          -- bumped on every toggle, part of the rebuild signature
+        mutateVersion = 0,          -- bumped on every row/create mutation (#91) so enable/rename redraw
         visible = false,
         tick = 0,                   -- Logic-tick counter, for row double-click timing
         lastRowId = nil,            -- id of the previously-pressed row (double-click pairing)
@@ -112,6 +129,13 @@ function Manager.new(opts)
         captureButton = nil,
         dragging = false,
         dragDX = 0, dragDY = 0,     -- cursor-to-window-origin offset captured at drag start
+        -- Inline rename (#91): the mounted InputField + the Entry id it's editing, or nil when idle.
+        renameField = nil,
+        renameId = nil,
+        -- Delete confirm (#91): Entry id awaiting confirm, or nil when idle.
+        pendingDeleteId = nil,
+        -- After + Group (#78): begin inline rename on this id once the row is rebuilt.
+        pendingRenameId = nil,
     }, Manager)
     return self
 end
@@ -237,14 +261,81 @@ function Manager:_activateRow(scopeKey, row)
     end
 end
 
+--- Pure logic: row editing ops (#91) ------------------------------------------------------
+-- Each method reports through the matching host callback (main.lua wires Store + Runtime) and
+-- bumps `mutateVersion` so the rebuild signature changes even when the root entry count does
+-- not (enable / rename). A missing active scope or missing callback is a silent no-op.
+
+local function bumpMutate(self)
+    self.mutateVersion = self.mutateVersion + 1
+end
+
+-- Flips the Entry's own `enabled` via the host. The host re-evaluates the enabled-chain.
+---@param id integer
+function Manager:ToggleEnabled(id)
+    local scopeKey = self:ActiveScopeKey()
+    if scopeKey == nil or self.onToggleEnabled == nil then return end
+    pcall(self.onToggleEnabled, scopeKey, id)
+    bumpMutate(self)
+end
+
+-- Renames the Entry via the host.
+---@param id integer
+---@param name string
+function Manager:Rename(id, name)
+    local scopeKey = self:ActiveScopeKey()
+    if scopeKey == nil or self.onRename == nil then return end
+    pcall(self.onRename, scopeKey, id, name)
+    bumpMutate(self)
+end
+
+-- Deletes the Entry (and its subtree) via the host. Confirm UI is the caller's job — this is the
+-- committed delete.
+---@param id integer
+function Manager:Delete(id)
+    local scopeKey = self:ActiveScopeKey()
+    if scopeKey == nil or self.onDelete == nil then return end
+    pcall(self.onDelete, scopeKey, id)
+    bumpMutate(self)
+end
+
+-- Asks the host to mint + insert a new alert at the active scope root (and typically open it).
+-- Returns the minted id when the host provides one.
+---@return integer|nil
+function Manager:CreateAlert()
+    local scopeKey = self:ActiveScopeKey()
+    if scopeKey == nil or self.onCreateAlert == nil then return nil end
+    local ok, id = pcall(self.onCreateAlert, scopeKey)
+    bumpMutate(self)
+    if ok and type(id) == "number" then return id end
+    return nil
+end
+
+-- Asks the host to mint + insert a new empty group at the active scope root. Returns the minted
+-- id when the host provides one (so the view can open an inline rename on the new row, #78).
+---@return integer|nil
+function Manager:CreateGroup()
+    local scopeKey = self:ActiveScopeKey()
+    if scopeKey == nil or self.onCreateGroup == nil then return nil end
+    local ok, id = pcall(self.onCreateGroup, scopeKey)
+    bumpMutate(self)
+    if ok and type(id) == "number" then return id end
+    return nil
+end
+
 --- Rebuild signature ----------------------------------------------------------------------
 
 -- A cheap string capturing everything the rendered tree depends on: the active scope, the expand
--- generation, and each scope's key+label+entry-count. The view rebuilds only when this changes, so
--- a character login (new tab), a scope switch, or an expand toggle redraws — but an idle frame doesn't.
+-- generation, the mutate generation (#91 — enable/rename don't change root count), and each
+-- scope's key+label+entry-count. The view rebuilds only when this changes, so a character login
+-- (new tab), a scope switch, an expand toggle, or a row mutation redraws — but an idle frame doesn't.
 ---@return string
 function Manager:_signature()
-    local parts = { self:ActiveScopeKey() or "-", tostring(self.expandVersion) }
+    local parts = {
+        self:ActiveScopeKey() or "-",
+        tostring(self.expandVersion),
+        tostring(self.mutateVersion),
+    }
     for _, scope in ipairs(self:ScopeList()) do
         local entries = (scope.doc or {}).entries or {}
         parts[#parts + 1] = scope.key .. ":" .. (scope.label or "") .. ":" .. tostring(#entries)
@@ -254,10 +345,10 @@ end
 
 --- Client view: rows glyphs ---------------------------------------------------------------
 
--- The one-line label a row renders as: indent, a chevron for a group (▾ open / ▸ collapsed), an
--- icon, the name, and a group's direct-child count. Text-only (read-only cut) — the richer
--- per-control row (enable check, rename field, badges) is #78. Kept pure so the exact string is
--- assertable in tests without a mounted component.
+-- The one-line label a row's name button renders: indent, a chevron for a group (▾ open / ▸
+-- collapsed), an icon, the name, and a group's direct-child count. Kept pure so the exact string
+-- is assertable in tests without a mounted component. Enable / rename / delete are sibling
+-- controls (#91), not baked into this string.
 ---@param row Watchdog.ManagerRow
 ---@return string
 function Manager:RowLabel(row)
@@ -266,7 +357,7 @@ function Manager:RowLabel(row)
         local chevron = row.expanded and "▾" or "▸"
         return indent .. chevron .. " ▣ " .. row.name .. " (" .. tostring(row.childCount or 0) .. ")"
     end
-    return indent .. "   • " .. row.name
+    return indent .. "• " .. row.name
 end
 
 --- Client view: mount / render (client-only, pcall-guarded) -------------------------------
@@ -274,6 +365,13 @@ end
 local function safeButtonStyle()
     if id ~= nil and id.StyleSheet ~= nil and id.StyleSheet.BUTTON_DEFAULT ~= nil then
         return id.StyleSheet.BUTTON_DEFAULT
+    end
+    return nil
+end
+
+local function safeCheckStyle()
+    if id ~= nil and id.StyleSheet ~= nil and id.StyleSheet.CHECKBOX_DEFAULT ~= nil then
+        return id.StyleSheet.CHECKBOX_DEFAULT
     end
     return nil
 end
@@ -442,19 +540,178 @@ function Manager:IsMounted()
     return self.groupBox ~= nil
 end
 
--- Destroys the previous frame's tab buttons + tree rows. Children of the GroupBox get taken by its
--- own Destroy on Unmount, but a rebuild must clear them itself so stale rows don't pile up.
+-- Destroys the previous frame's tab buttons + tree rows + create buttons + any inline rename
+-- field. Children of the GroupBox get taken by its own Destroy on Unmount, but a rebuild must
+-- clear them itself so stale rows don't pile up.
 function Manager:_clearChildren()
+    self:_endRename(false) -- drop the InputField without committing (rebuild is about to recreate)
     for _, b in ipairs(self.tabButtons) do pcall(function() b:Destroy() end) end
     for _, b in ipairs(self.rowButtons) do pcall(function() b:Destroy() end) end
     self.tabButtons = {}
     self.rowButtons = {}
 end
 
--- Rebuilds the scope tabs and tree rows from current state. Called on mount, on visibility-show,
--- and whenever the rebuild signature changes (see Update). Fully tears down and recreates — a read-
--- only list is rebuilt rarely (tab switch / expand toggle / login), so retained-mode diffing isn't
--- worth it here.
+-- Helper: mount a Button under `parent` with text `label`, at (x,y)/(w,h), wired to `onPress`.
+-- Returns the button or nil. Tracked in `bucket` (tabButtons / rowButtons) for teardown.
+---@param parent ui.ComponentCollection
+---@param bucket table[]
+---@param x number
+---@param y number
+---@param w number
+---@param h number
+---@param label string
+---@param onPress fun()
+---@return ui.Button|nil
+local function mountButton(parent, bucket, x, y, w, h, label, onPress)
+    local button
+    local okb = pcall(function() button = ui.Button.new(parent) end)
+    if not okb or button == nil then return nil end
+    pcall(function() button.stylesheetID = safeButtonStyle() end)
+    button.clickthrough = false
+    button:SetPos(x, y)
+    button:SetSize(w, h)
+    pcall(function() button.text.content = label end)
+    button:Subscribe(ui.Hook.ONBUTTONPRESSED, function()
+        onPress()
+        return true
+    end)
+    pcall(function() button:MoveToFront() end)
+    bucket[#bucket + 1] = button
+    return button
+end
+
+-- Resolves an enum member by name with a string fallback (mirrors ui/graph.lua's enumv — newer
+-- Hook / InputFieldFilterMode members can be missing from stubs but present in-client).
+local function enumv(tbl, name)
+    if tbl ~= nil and tbl[name] ~= nil then return tbl[name] end
+    return name
+end
+
+local SUBMIT_CAUSES = {
+    SUBMIT = true, SUBMIT_ON_ESCAPE = true, SUBMIT_ON_FOCUS_LOSS = true,
+}
+local function isSubmitCause(cause)
+    if cause == nil then return false end
+    if type(cause) == "string" and SUBMIT_CAUSES[cause] then return true end
+    local r = ui and ui.InputFieldActionResult
+    if r ~= nil then
+        if cause == r.SUBMIT or cause == r.SUBMIT_ON_ESCAPE or cause == r.SUBMIT_ON_FOCUS_LOSS then
+            return true
+        end
+    end
+    return false
+end
+
+-- Commits (or abandons) the inline rename InputField. `commit` true reads the field content and
+-- calls Rename; false just tears the field down (used by rebuild / cancel).
+---@param commit boolean
+function Manager:_endRename(commit)
+    local field, id = self.renameField, self.renameId
+    self.renameField, self.renameId = nil, nil
+    if field == nil then return end
+    if commit and id ~= nil then
+        local name = ""
+        pcall(function() name = field.content or "" end)
+        if name ~= "" then self:Rename(id, name) end
+    end
+    pcall(function() field:Destroy() end)
+end
+
+-- Mounts a transient InputField over the name slot for Entry `id` (ADR-0007's caret rename).
+---@param id integer
+---@param name string
+---@param x number
+---@param y number
+---@param w number
+---@param h number
+function Manager:_beginRename(id, name, x, y, w, h)
+    self:_endRename(false)
+    if self.groupBox == nil or ui == nil or ui.InputField == nil then return end
+    local field
+    local ok = pcall(function()
+        field = ui.InputField.new(self.treePanel or self.groupBox)
+        pcall(function() field.stylesheetID = safeButtonStyle() end)
+        field.clickthrough = false
+        field:SetPos(x, y)
+        field:SetSize(w, h)
+        field:Setup(enumv(ui.TextContentVisibilityMode, "VISIBLE"),
+            enumv(ui.InputFieldFilterMode, "NONE"), 64)
+        field.content = name or ""
+        field:Subscribe(enumv(ui.Hook, "ONCONTENTCHANGED"), function(_c, cause, _new)
+            if isSubmitCause(cause) then
+                self:_endRename(true)
+                self:_rebuild()
+            end
+            return true
+        end)
+        pcall(function() field:MoveToFront() end)
+    end)
+    if ok and field ~= nil then
+        self.renameField = field
+        self.renameId = id
+    end
+end
+
+-- Delete press: first click arms a confirm (pendingDeleteId); second click on the same row
+-- commits. Any other row's delete re-arms onto that row. The armed label discloses ride-along
+-- descendant count for a non-empty group (#78/#82) — Manager writes are immediate, no undo.
+---@param id integer
+function Manager:_onDeletePress(id)
+    if self.pendingDeleteId == id then
+        self.pendingDeleteId = nil
+        self:Delete(id)
+        self:_rebuild()
+    else
+        self.pendingDeleteId = id
+        self:_rebuild()
+    end
+end
+
+-- Descendant count for the delete-confirm label (direct + nested children of a group; 0 for an
+-- alert). Read off the live Bucket so a nested tree discloses the full ride-along set.
+---@param id integer
+---@return integer
+function Manager:_descendantCount(id)
+    local scope = self:ActiveScope()
+    if scope == nil or scope.doc == nil then return 0 end
+    -- Walk VisibleRows isn't enough (collapsed children are absent); search the live tree.
+    local function find(entries)
+        for _, e in ipairs(entries or {}) do
+            if e.id == id then return e end
+            if e.children ~= nil then
+                local found = find(e.children)
+                if found ~= nil then return found end
+            end
+        end
+        return nil
+    end
+    local entry = find((scope.doc or {}).entries)
+    if entry == nil or entry.kind ~= "group" then return 0 end
+    local n = 0
+    local function count(children)
+        for _, c in ipairs(children or {}) do
+            n = n + 1
+            if c.children ~= nil then count(c.children) end
+        end
+    end
+    count(entry.children)
+    return n
+end
+
+-- Confirm-button label for a pending delete: "OK?" for a leaf / empty group; "OK N?" when a
+-- group would take N descendants with it (#78).
+---@param id integer
+---@return string
+function Manager:_deleteConfirmLabel(id)
+    local n = self:_descendantCount(id)
+    if n > 0 then return "OK " .. tostring(n) .. "?" end
+    return "OK?"
+end
+
+-- Rebuilds the scope tabs, + Alert/+ Group actions, and tree rows from current state. Called on
+-- mount, on visibility-show, and whenever the rebuild signature changes (see Update). Fully tears
+-- down and recreates — a list is rebuilt rarely (tab switch / expand / mutation / login), so
+-- retained-mode diffing isn't worth it here.
 function Manager:_rebuild()
     if self.groupBox == nil or ui == nil then return end
     self:_clearChildren()
@@ -465,52 +722,137 @@ function Manager:_rebuild()
     local activeKey = self:ActiveScopeKey()
 
     -- Scope tab bar: one button per scope, laid left-to-right. The active tab is marked in its text
-    -- (native restyle-by-state isn't worth wiring for the read-only cut) so it reads which scope is live.
+    -- (native restyle-by-state isn't worth wiring) so it reads which scope is live.
     local tabX = TAB_PAD
     for _, scope in ipairs(scopes) do
         local label = (scope.key == activeKey) and ("[" .. (scope.label or "") .. "]") or (scope.label or "")
         local scopeKey = scope.key
-        local button
-        local okb = pcall(function() button = ui.Button.new(self.groupBox) end)
-        if okb and button ~= nil then
-            pcall(function() button.stylesheetID = safeButtonStyle() end)
-            button.clickthrough = false
-            local wpx = math.max(64, 12 + 8 * #label)
-            button:SetPos(tabX, CONTENT_TOP)
-            button:SetSize(wpx, TAB_H)
-            pcall(function() button.text.content = label end)
-            button:Subscribe(ui.Hook.ONBUTTONPRESSED, function()
-                self:_onTabPress(scopeKey)
-                return true
-            end)
-            pcall(function() button:MoveToFront() end)
-            self.tabButtons[#self.tabButtons + 1] = button
-            tabX = tabX + wpx + TAB_PAD
-        end
+        local wpx = math.max(64, 12 + 8 * #label)
+        mountButton(self.groupBox, self.tabButtons, tabX, CONTENT_TOP, wpx, TAB_H, label, function()
+            self:_onTabPress(scopeKey)
+        end)
+        tabX = tabX + wpx + TAB_PAD
     end
 
-    -- Tree rows: one button per visible row inside the scrollable Panel. Indent is baked into the
-    -- label text (a leading-space run per depth), so all rows share the Panel's simple vertical stack.
+    -- Per-tab create actions (#91 / #78): + Alert / + Group, right-aligned on the tab bar.
+    local createX = win.w - TAB_PAD - 2 * CREATE_W - TAB_PAD
+    if createX < tabX then createX = tabX + TAB_PAD end
+    mountButton(self.groupBox, self.tabButtons, createX, CONTENT_TOP, CREATE_W, TAB_H, "+ Alert", function()
+        self:CreateAlert()
+        -- Host opens the Editor immediately; no Manager-side follow-up.
+        self:_rebuild()
+    end)
+    mountButton(self.groupBox, self.tabButtons, createX + CREATE_W + TAB_PAD, CONTENT_TOP, CREATE_W, TAB_H, "+ Group", function()
+        local id = self:CreateGroup()
+        if type(id) == "number" then self.pendingRenameId = id end
+        self:_rebuild()
+    end)
+
+    -- Tree rows: one horizontal row Panel per visible Entry (ADR-0007). The tree Panel itself is
+    -- vertical and would otherwise stack every control as its own row — that was why rename/delete
+    -- sat under the name instead of beside it. Client fonts also don't render emoji (✎/🗑 → ?/tofu),
+    -- so action labels stay ASCII ("ren" / "del").
     local rows = self:VisibleRows()
     local rowW = win.w - 2 * TAB_PAD
-    for i, row in ipairs(rows) do
+    local treeParent = self.treePanel or self.groupBox
+    local nameW = math.max(40, rowW - ENABLE_W - 2 * ACT_W - 3 * ROW_GAP)
+    for _, row in ipairs(rows) do
         local capturedRow = row
-        local button
-        local okb = pcall(function() button = ui.Button.new(self.treePanel or self.groupBox) end)
-        if okb and button ~= nil then
-            pcall(function() button.stylesheetID = safeButtonStyle() end)
-            button.clickthrough = false
-            -- Positioned inside the tree Panel; the Panel's own vertical auto-layout may also
-            -- arrange children, but an explicit SetPos keeps rows ordered even if it doesn't. Depth
-            -- indent is carried entirely by the label text (RowLabel), so every row is full-width.
-            button:SetPos(0, (i - 1) * ROW_H)
-            button:SetSize(rowW, ROW_H)
-            pcall(function() button.text.content = self:RowLabel(row) end)
-            button:Subscribe(ui.Hook.ONBUTTONPRESSED, function()
-                self:_onRowPress(capturedRow)
-                return true
+        local rowPanel = treeParent
+        local okRow = pcall(function()
+            rowPanel = ui.Panel.new(treeParent)
+            rowPanel.isVertical = false
+            rowPanel.spacing = ROW_GAP
+            rowPanel.clickthrough = true
+            rowPanel:SetSize(rowW, ROW_H)
+        end)
+        if not okRow or rowPanel == nil then rowPanel = treeParent end
+        -- Destroying the row Panel takes its children; track it (not each control) for teardown.
+        if rowPanel ~= treeParent then
+            self.rowButtons[#self.rowButtons + 1] = rowPanel
+        end
+
+        local nameX = ENABLE_W + ROW_GAP
+        -- Inside the row Panel, y is always 0 — the vertical tree Panel stacks the row Panels.
+
+        -- Enable toggle (ui.Check with CHECKBOX_DEFAULT — no stylesheet ⇒ invisible, same gotcha
+        -- as Button/InputField). Falls back to a labelled Button if Check can't mount.
+        local enableMounted = false
+        if ui.Check ~= nil then
+            local check
+            local okc = pcall(function() check = ui.Check.new(rowPanel) end)
+            if okc and check ~= nil then
+                pcall(function()
+                    check.stylesheetID = safeCheckStyle()
+                    check:SetPos(0, 0)
+                    check:SetSize(ENABLE_W, ROW_H)
+                    check.buttonSize = math.min(ENABLE_W - 2, ROW_H - 2)
+                    check.value = row.enabled and true or false
+                    check.label = ""
+                    check:Subscribe(ui.Hook.ONBUTTONPRESSED, function()
+                        self.pendingDeleteId = nil
+                        self:ToggleEnabled(capturedRow.id)
+                        self:_rebuild()
+                        return true
+                    end)
+                end)
+                if rowPanel == treeParent then
+                    self.rowButtons[#self.rowButtons + 1] = check
+                end
+                enableMounted = true
+            end
+        end
+        if not enableMounted then
+            local mark = row.enabled and "[x]" or "[ ]"
+            local bucket = (rowPanel == treeParent) and self.rowButtons or {}
+            mountButton(rowPanel, bucket, 0, 0, ENABLE_W, ROW_H, mark, function()
+                self.pendingDeleteId = nil
+                self:ToggleEnabled(capturedRow.id)
+                self:_rebuild()
             end)
-            self.rowButtons[#self.rowButtons + 1] = button
+        end
+
+        -- Name / expand / double-click-open.
+        do
+            local bucket = (rowPanel == treeParent) and self.rowButtons or {}
+            mountButton(rowPanel, bucket, nameX, 0, nameW, ROW_H, self:RowLabel(row), function()
+                self.pendingDeleteId = nil
+                self:_onRowPress(capturedRow)
+                if capturedRow.kind == "group" then self:_rebuild() end
+            end)
+        end
+
+        -- Inline rename — ASCII "ren" (client fonts don't render ✎).
+        local renameX = nameX + nameW + ROW_GAP
+        do
+            local bucket = (rowPanel == treeParent) and self.rowButtons or {}
+            mountButton(rowPanel, bucket, renameX, 0, ACT_W, ROW_H, "ren", function()
+                self.pendingDeleteId = nil
+                -- InputField is parented to the tree Panel; convert row-local name slot to tree Y
+                -- via the row Panel's laid-out origin when available.
+                local fieldY = 0
+                pcall(function() fieldY = rowPanel.y or 0 end)
+                self:_beginRename(capturedRow.id, capturedRow.name, nameX, fieldY, nameW, ROW_H)
+            end)
+        end
+
+        -- Delete — ASCII "del"; confirm label discloses descendant count.
+        local deleteX = renameX + ACT_W + ROW_GAP
+        local delLabel = (self.pendingDeleteId == row.id) and self:_deleteConfirmLabel(row.id) or "del"
+        local delW = math.max(ACT_W, 8 + 7 * #delLabel)
+        do
+            local bucket = (rowPanel == treeParent) and self.rowButtons or {}
+            mountButton(rowPanel, bucket, deleteX, 0, delW, ROW_H, delLabel, function()
+                self:_onDeletePress(capturedRow.id)
+            end)
+        end
+
+        -- + Group follow-up: open the InputField caret on the freshly created row (#78).
+        if self.pendingRenameId == row.id then
+            self.pendingRenameId = nil
+            local fieldY = 0
+            pcall(function() fieldY = rowPanel.y or 0 end)
+            self:_beginRename(row.id, row.name, nameX, fieldY, nameW, ROW_H)
         end
     end
     -- Grow the tree Panel's scroll region to the full row stack so it scrolls when it overflows.
@@ -523,21 +865,20 @@ end
 -- signature is unchanged) and force a rebuild so the new tree shows immediately.
 ---@param scopeKey string
 function Manager:_onTabPress(scopeKey)
+    self.pendingDeleteId = nil
     self:SetActiveScope(scopeKey)
     self:_rebuild()
 end
 
 -- Tree row press. A group toggles expand (single click). An alert opens only on a **double**-click
--- (two presses of the same row within DOUBLECLICK_TICKS) — a single click on an alert is inert in
--- the read-only cut. Double-click timing reuses the Editor's tick-based scheme (Manager:Update
--- advances the tick).
+-- (two presses of the same row within DOUBLECLICK_TICKS) — a single click on an alert is inert.
+-- Double-click timing reuses the Editor's tick-based scheme (Manager:Update advances the tick).
 ---@param row Watchdog.ManagerRow
 function Manager:_onRowPress(row)
     local scopeKey = self:ActiveScopeKey()
     if scopeKey == nil then return end
     if row.kind == "group" then
         self:_activateRow(scopeKey, row)
-        self:_rebuild()
         return
     end
     -- Alert: pair with the previous press for double-click detection.
@@ -619,6 +960,7 @@ function Manager:RaiseToFront()
 end
 
 function Manager:Unmount()
+    self.pendingDeleteId = nil
     self:_clearChildren()
     if self.captureButton ~= nil then
         pcall(function() self.captureButton:Destroy() end)
