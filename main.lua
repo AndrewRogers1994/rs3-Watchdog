@@ -5,8 +5,35 @@
 -- per-tick update loops. Follows the idempotent load/reload pattern (CLAUDE.md): tear down
 -- any prior instance up top, publish this instance as the global `watchdog` at the end.
 
+-- Probe: did this script load via re-exec (Watchdog still set → Stop guard runs) or via
+-- plugins_reload / fresh client (Watchdog nil → only PluginShutdown ran on the old instance)?
+-- Appends to mgr_probe_stop so Mount cannot erase it.
+pcall(function()
+    if PersistentDB == nil or PersistentDB.SetString == nil then return end
+    local prev = ""
+    if PersistentDB.GetString ~= nil then
+        prev = PersistentDB:GetString("mgr_probe_stop") or ""
+    end
+    local line = "=== main.lua top Watchdog=" .. tostring(Watchdog ~= nil)
+        .. " Stop=" .. tostring(Watchdog ~= nil and Watchdog.Stop ~= nil) .. " ==="
+    if prev ~= "" then prev = prev .. "\n" end
+    PersistentDB:SetString("mgr_probe_stop", prev .. line)
+end)
+
 if Watchdog ~= nil and Watchdog.Stop ~= nil then
+    pcall(function()
+        if PersistentDB ~= nil and PersistentDB.SetString ~= nil then
+            local prev = PersistentDB:GetString("mgr_probe_stop") or ""
+            PersistentDB:SetString("mgr_probe_stop", prev .. "\n[main] calling Watchdog.Stop()")
+        end
+    end)
     pcall(function() Watchdog.Stop() end)
+    pcall(function()
+        if PersistentDB ~= nil and PersistentDB.SetString ~= nil then
+            local prev = PersistentDB:GetString("mgr_probe_stop") or ""
+            PersistentDB:SetString("mgr_probe_stop", prev .. "\n[main] Watchdog.Stop() returned")
+        end
+    end)
 end
 
 local Editor = require("ui/graph")
@@ -788,18 +815,62 @@ local api = {}
 function api.Stop()
     -- Flush the latest edits before tearing down, so a reload (which calls the previous
     -- instance's Stop first) doesn't lose work done since the last autosave tick.
+    -- Prefer Manager._probeStopTrail (append-only + dedicated mgr_probe_stop key); fall back
+    -- to a direct PersistentDB append if Manager wasn't constructed yet.
+    local function stopProbe(msg)
+        if Manager ~= nil and Manager._probeStopTrail ~= nil then
+            pcall(function() Manager._probeStopTrail(msg) end)
+            return
+        end
+        pcall(function()
+            if log ~= nil then log("Watchdog.stop: " .. msg) end
+            if PersistentDB == nil or PersistentDB.GetString == nil then return end
+            local prev = PersistentDB:GetString("mgr_probe_stop") or ""
+            PersistentDB:SetString("mgr_probe_stop", prev .. "\n" .. tostring(msg))
+            local main = PersistentDB:GetString("mgr_probe_log") or ""
+            PersistentDB:SetString("mgr_probe_log", main .. "\n[stop] " .. tostring(msg))
+        end)
+    end
+    -- Clear the Stop-only key at the START of this Stop so we only keep THIS teardown.
+    pcall(function()
+        if PersistentDB ~= nil and PersistentDB.SetString ~= nil then
+            PersistentDB:SetString("mgr_probe_stop", "=== Stop trail ===")
+        end
+    end)
+    stopProbe("Stop begin")
     pcall(persistNow)
+    stopProbe("after persistNow")
     pcall(function() Event.Logic.Unsubscribe(Events.Logic) end)
     pcall(function() Event.Draw.Unsubscribe(Events.Draw) end)
     pcall(function() Event.KeyDown.Unsubscribe(Events.KeyDown) end)
+    stopProbe("after event unsub")
     pcall(function() runtime:Stop() end)
     pcall(function() runtime.effects:Unmount() end)
     pcall(function() runtime.toast:Unmount() end)
     pcall(function() runtime.infobox:Unmount() end)
     pcall(function() runtime.screenMarkerCapture:Unmount() end)
+    stopProbe("after runtime/overlays Unmount")
     pcall(function() editor:Unmount() end)
+    stopProbe("after editor:Unmount")
+    local mgrSnap = "?"
+    pcall(function()
+        mgrSnap = "visible=" .. tostring(manager.visible)
+            .. " tabs=" .. tostring(manager.tabs ~= nil)
+            .. " tree=" .. tostring(manager.treePanel ~= nil)
+            .. " widgets=" .. tostring(manager.rowWidgets and #manager.rowWidgets or -1)
+    end)
+    stopProbe("before manager:Unmount " .. mgrSnap)
     pcall(function() manager:Unmount() end)
+    stopProbe("after manager:Unmount")
+    local muxSnap = "?"
+    pcall(function()
+        muxSnap = "win=" .. tostring(mux.window ~= nil)
+            .. " stack=" .. tostring(mux._stack and #mux._stack or -1)
+            .. " visible=" .. tostring(mux._visible)
+    end)
+    stopProbe("before mux:Destroy " .. muxSnap)
     pcall(function() mux:Destroy() end)
+    stopProbe("after mux:Destroy — Stop complete")
     state.muxMounted = false
     state.mounted = false
     state.managerMounted = false
@@ -862,5 +933,49 @@ ribbon = prettyui.RibbonBar.Register({
 
 Watchdog = api
 print("Watchdog editor loaded")
+
+-- ADR-0008: client calls this on poff / plugins_reload / clean exit. PersistentDB writes work.
+-- MUST NOT :Destroy() UI here — client tears the tree down after. Probe-only for now (+ flush /
+-- event unsub later); we need to know whether reload even reaches this hook before the crash.
+function PluginShutdown()
+    pcall(function()
+        local function shut(msg)
+            if log ~= nil then pcall(function() log("Watchdog.shutdown: " .. msg) end) end
+            if PersistentDB == nil or PersistentDB.SetString == nil then return end
+            local prev = ""
+            if PersistentDB.GetString ~= nil then
+                prev = PersistentDB:GetString("mgr_probe_stop") or ""
+            end
+            if prev ~= "" then prev = prev .. "\n" end
+            PersistentDB:SetString("mgr_probe_stop", prev .. "[shutdown] " .. tostring(msg))
+            -- Mirror into append-only mgr_probe_log when Manager helpers exist.
+            if Manager ~= nil and Manager._probe ~= nil then
+                pcall(function() Manager._probe("[shutdown] " .. tostring(msg)) end)
+            end
+        end
+        -- Reset trail for this shutdown so we see a clean sequence.
+        if PersistentDB ~= nil and PersistentDB.SetString ~= nil then
+            PersistentDB:SetString("mgr_probe_stop", "=== PluginShutdown trail ===")
+        end
+        shut("begin")
+        local snap = "manager=" .. tostring(manager ~= nil)
+        pcall(function()
+            snap = snap
+                .. " visible=" .. tostring(manager.visible)
+                .. " tabs=" .. tostring(manager.tabs ~= nil)
+                .. " tree=" .. tostring(manager.treePanel ~= nil)
+                .. " widgets=" .. tostring(manager.rowWidgets and #manager.rowWidgets or -1)
+                .. " muxWin=" .. tostring(mux ~= nil and mux.window ~= nil)
+        end)
+        shut(snap)
+        -- Flush only — no UI Destroy (ADR-0008).
+        pcall(persistNow)
+        shut("after persistNow")
+        pcall(function() Event.Logic.Unsubscribe(Events.Logic) end)
+        pcall(function() Event.Draw.Unsubscribe(Events.Draw) end)
+        pcall(function() Event.KeyDown.Unsubscribe(Events.KeyDown) end)
+        shut("after event unsub — returning (no UI Destroy)")
+    end)
+end
 
 return Watchdog

@@ -350,3 +350,28 @@ function TestManager:testDeleteConfirmLabelDisclosesDescendantCount()
     luaunit.assertEquals(mgr:_deleteConfirmLabel(1), "OK 3?")
     luaunit.assertEquals(mgr:_deleteConfirmLabel(5), "OK?") -- leaf: no ride-alongs
 end
+
+--- PrettyUI chrome helpers (pure; mount/render still client-only) -------------------------
+
+function TestManager:testScopeTabsSignatureTracksKeysAndLabels()
+    local scopes = {
+        { key = "global", label = "Global", doc = bucket({}) },
+        { key = "player_alice", label = "Alice", doc = bucket({}) },
+    }
+    local mgr = self:makeManager(scopes)
+    luaunit.assertEquals(mgr:_scopeTabsSignature(), "global:Global|player_alice:Alice")
+    scopes[2].label = "Alicia"
+    luaunit.assertEquals(mgr:_scopeTabsSignature(), "global:Global|player_alice:Alicia")
+    scopes[2] = nil
+    luaunit.assertEquals(mgr:_scopeTabsSignature(), "global:Global")
+end
+
+function TestManager:testActiveScopeIndexFollowsSelection()
+    local mgr = self:makeManager({
+        { key = "global", label = "Global", doc = bucket({}) },
+        { key = "player_alice", label = "Alice", doc = bucket({}) },
+    })
+    luaunit.assertEquals(mgr:_activeScopeIndex(), 1)
+    mgr:SetActiveScope("player_alice")
+    luaunit.assertEquals(mgr:_activeScopeIndex(), 2)
+end

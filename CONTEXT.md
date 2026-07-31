@@ -205,9 +205,11 @@ _Avoid_: Run button, play button, trigger button
 ## Alert Manager
 
 The management surface for **multiple** saved alerts and their player scoping — the layer above
-the single-alert Editor. Built from native `ui.*` components on a `ui.Panel` (ADR-0007), not the
-Editor's Canvas. This vocabulary was settled across the Alert Manager wayfinder map (#73); each
-term points at the ticket that fixed it.
+the single-alert Editor. Window chrome uses PrettyUI (`prettyui.Window` via the Multiplexer);
+content is a **hybrid**: PrettyUI for scope tabs and form controls, native `ui.Panel` rows for
+the tree strip (ADR-0007) — see [`docs/alert-manager-prettyui.md`](docs/alert-manager-prettyui.md).
+Not the Editor's Canvas. This vocabulary was settled across the Alert Manager wayfinder map (#73);
+each term points at the ticket that fixed it.
 
 **Alert Manager**:
 The single management surface the F8 keybind and the LibPluginMenu button open (`ui/manager.lua`):
@@ -216,9 +218,10 @@ name / rename / delete controls. Double-clicking an alert row navigates into the
 separate surfaces, mounted once, with at most one visible at a time (#76, #78, #80). #90 landed the
 scope tabs, tree render (icon + name, group chevron + child count, expand/collapse),
 double-click-to-open, and the nav owner; #91 adds the per-row enable / rename / delete ops and the
-per-tab + Alert / + Group actions. Drag-reorder and multi-select remain (#92, #93). The tree/scope/
-expand/mutation logic is pure and headless-tested; the `ui.Panel` mount/render half is client-only,
-the same split the Editor uses.
+per-tab + Alert / + Group actions. PrettyUI chrome migration (tabs, toolbar, sprite actions) is
+planned ahead of drag-reorder (#92) and multi-select (#93) — [`docs/alert-manager-prettyui.md`](docs/alert-manager-prettyui.md).
+The tree/scope/expand/mutation logic is pure and headless-tested; the mount/render half is
+client-only, the same split the Editor uses.
 _Avoid_: Alert list, manager window, dashboard; the Editor (that is the Canvas graph surface)
 
 **Entry**:
