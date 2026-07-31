@@ -3,7 +3,7 @@
 -- The management surface the F8 keybind and the LibPluginMenu button open (through the nav
 -- owner in main.lua): a scope **tab bar** over a tree of Entries. Hybrid PrettyUI + native
 -- `ui.Panel` (ADR-0007 + docs/alert-manager-prettyui.md): PrettyUI `Tabs` / toolbar /
--- SpriteButton actions / TextField rename; native horizontal row Panels for the tree strip.
+-- TextField rename; native horizontal row Panels + native ren/del buttons for the tree strip.
 -- NOT the Editor's Canvas — a scrolling list has neither pan nor zoom.
 --
 -- Window chrome (title bar, frame, drag) lives on the host Multiplexer / PrettyUI window.
@@ -36,7 +36,7 @@ Manager.__index = Manager
 local TAB_BASELINE = 42
 local ROW_H       = 22    -- one tree row
 local ENABLE_W    = 22    -- enable toggle width
-local ACT_W       = 24    -- PrettyUI SpriteButton default size
+local ACT_W       = 24    -- ren/del action button width
 local ROW_GAP     = 2     -- gap between controls inside a row
 local PAGE_PAD    = 8     -- inset from content edge for the tree
 local TOOLBAR_H   = 27    -- PrettyUI FancyButton height
@@ -116,7 +116,7 @@ function Manager.new(opts)
         treePanel = nil,
         toolbarButtons = {},        -- PrettyUI FancyButtons on the active tab page
         rowButtons = {},            -- native row Panels (teardown destroys children)
-        rowWidgets = {},            -- PrettyUI SpriteButton / FancyButton wrappers on rows
+        rowWidgets = {},            -- PrettyUI row widgets (rename TextField uses renameField)
         lastSignature = nil,        -- last-rendered rebuild signature (skip no-op rebuilds)
         -- Inline rename: PrettyUI TextField + the Entry id it's editing, or nil when idle.
         renameField = nil,
@@ -351,86 +351,6 @@ end
 
 --- Client view: mount / render (client-only, pcall-guarded) -------------------------------
 
--- PersistentDB crash/rebuild probe (AGENTS.md mirror-log pattern).
--- APPEND-ONLY across Mount/Stop: wiping on Mount erased the Stop/mux trail that names the
--- crash site. Cap keeps the interesting tail. Agents read PluginData.db.
-local PROBE_KEY = "mgr_probe_log"
-local PROBE_RUN_KEY = "mgr_probe_run"
-local PROBE_STOP_KEY = "mgr_probe_stop" -- last Stop trail only; Mount never clears this
-local PROBE_BUDGET = 120000
-local probeLines = {}
-
-local function probe(msg)
-    local line = tostring(msg)
-    if log ~= nil then pcall(function() log("Watchdog.mgr: " .. line) end) end
-    probeLines[#probeLines + 1] = line
-    local blob = table.concat(probeLines, "\n")
-    if #blob > PROBE_BUDGET then
-        blob = blob:sub(-PROBE_BUDGET)
-        probeLines = { blob }
-    end
-    pcall(function()
-        if PersistentDB ~= nil and PersistentDB.SetString ~= nil then
-            PersistentDB:SetString(PROBE_KEY, blob)
-        end
-    end)
-end
-
--- Seed probeLines from whatever is already on disk so a fresh Mount doesn't erase prior
--- Stop/mux lines from a crashed reload.
-local function probeBeginRun()
-    local prev = ""
-    pcall(function()
-        if PersistentDB ~= nil and PersistentDB.GetString ~= nil then
-            prev = PersistentDB:GetString(PROBE_KEY) or ""
-        end
-    end)
-    if prev ~= "" then
-        probeLines = { prev }
-    else
-        probeLines = {}
-    end
-    local run = 0
-    pcall(function()
-        if PersistentDB ~= nil and PersistentDB.GetInt ~= nil then
-            run = PersistentDB:GetInt(PROBE_RUN_KEY) or 0
-        end
-    end)
-    run = run + 1
-    pcall(function()
-        if PersistentDB ~= nil and PersistentDB.SetInt ~= nil then
-            PersistentDB:SetInt(PROBE_RUN_KEY, run)
-        end
-    end)
-    probe("=== mgr probe run " .. tostring(run) .. " ===")
-end
-
--- Append a line to the Stop-only key (survives Mount). Used from main.lua / multiplexer.
-local function probeStopTrail(msg)
-    pcall(function()
-        if PersistentDB == nil then return end
-        local line = tostring(msg)
-        if log ~= nil then pcall(function() log("Watchdog.stop: " .. line) end) end
-        local prev = ""
-        if PersistentDB.GetString ~= nil then
-            prev = PersistentDB:GetString(PROBE_STOP_KEY) or ""
-        end
-        local blob = prev
-        if blob ~= "" then blob = blob .. "\n" end
-        blob = blob .. line
-        if #blob > PROBE_BUDGET then blob = blob:sub(-PROBE_BUDGET) end
-        if PersistentDB.SetString ~= nil then
-            PersistentDB:SetString(PROBE_STOP_KEY, blob)
-        end
-        -- Also mirror into the main append-only log.
-        probe("[stop] " .. line)
-    end)
-end
-
--- Expose Stop-trail helper for main.lua / multiplexer (same module table).
-Manager._probeStopTrail = probeStopTrail
-Manager._probe = probe
-
 local function safeButtonStyle()
     if id ~= nil and id.StyleSheet ~= nil and id.StyleSheet.BUTTON_DEFAULT ~= nil then
         return id.StyleSheet.BUTTON_DEFAULT
@@ -501,46 +421,33 @@ end
 
 -- Destroys create-toolbar FancyButtons parented to tabs.root.
 function Manager:_destroyToolbar()
-    probe("destroyToolbar n=" .. tostring(#self.toolbarButtons))
     for _, b in ipairs(self.toolbarButtons) do
         pcall(function() b:Destroy() end)
     end
     self.toolbarButtons = {}
-    probe("destroyToolbar done")
 end
 
--- Destroys the tree Panel (row SpriteButtons die with it — do not Destroy them separately).
+-- Destroys the tree Panel (row children die with it).
 function Manager:_destroyTree()
-    probe("destroyTree BEFORE treePanel=" .. tostring(self.treePanel ~= nil)
-        .. " rowWidgets=" .. tostring(#self.rowWidgets)
-        .. " rowButtons=" .. tostring(#self.rowButtons)
-        .. " renameField=" .. tostring(self.renameField ~= nil))
     self:_endRename(false)
-    probe("destroyTree after endRename")
     self.rowWidgets = {}
     self.rowButtons = {}
     if self.treePanel ~= nil then
-        local ok, err = pcall(function() self.treePanel:Destroy() end)
-        probe("destroyTree panel:Destroy ok=" .. tostring(ok) .. " err=" .. tostring(err))
+        pcall(function() self.treePanel:Destroy() end)
         self.treePanel = nil
     end
-    probe("destroyTree done")
 end
 
 -- Live rebuild helper: tear down toolbar + Tabs when the scope list changes.
 -- NOT used from Unmount/Stop — see Unmount (must not Destroy before mux window Destroy).
 function Manager:_destroyTabs()
-    probe("destroyTabs begin")
     self:_destroyToolbar()
     self:_destroyTree()
     if self.tabs ~= nil then
-        probe("destroyTabs calling tabs:Destroy")
         pcall(function() self.tabs:Destroy() end)
         self.tabs = nil
-        probe("destroyTabs tabs:Destroy returned")
     end
     self.tabsScopeSig = nil
-    probe("destroyTabs end")
 end
 
 -- Ensures PrettyUI Tabs match the live scope list. Recreates on scope key/label change;
@@ -548,12 +455,10 @@ end
 ---@return boolean
 function Manager:_ensureTabs()
     if prettyui == nil or prettyui.Tabs == nil or self.contentParent == nil then
-        probe("ensureTabs bail prettyui/parent missing")
         return false
     end
     local scopes = self:ScopeList()
     if #scopes == 0 then
-        probe("ensureTabs no scopes")
         self:_destroyTabs()
         return false
     end
@@ -564,7 +469,6 @@ function Manager:_ensureTabs()
         return true
     end
 
-    probe("ensureTabs recreate sig=" .. sig)
     self:_destroyTabs()
     local entries = {}
     for _, scope in ipairs(scopes) do
@@ -594,27 +498,21 @@ function Manager:_ensureTabs()
         })
     end)
     if not ok or tabs == nil then
-        probe("ensureTabs Tabs.new FAILED " .. tostring(err))
         if log ~= nil then log("Watchdog: prettyui.Tabs Mount failed") end
         return false
     end
     self.tabs = tabs
     self.tabsScopeSig = sig
-    probe("ensureTabs ok nScopes=" .. tostring(#scopes) .. " active=" .. tostring(activeIndex))
     return true
 end
 
 ---@param contentParent ui.ComponentCollection
 function Manager:Mount(contentParent)
-    probeBeginRun()
-    probe("Mount begin")
     if ui == nil or ui.Panel == nil then
-        probe("Mount abort: no ui.Panel")
         if log ~= nil then log("Watchdog: ui.Panel unavailable, Manager Mount aborted") end
         return
     end
     if prettyui == nil or prettyui.Tabs == nil then
-        probe("Mount abort: no prettyui.Tabs")
         if log ~= nil then log("Watchdog: prettyui.Tabs unavailable, Manager Mount aborted") end
         return
     end
@@ -622,17 +520,14 @@ function Manager:Mount(contentParent)
     self.contentParent = contentParent
     local w, h = contentSize(contentParent)
     self.window.w, self.window.h = w, h
-    probe("Mount contentSize " .. tostring(w) .. "x" .. tostring(h))
 
     if not self:_ensureTabs() then
         self.contentParent = nil
-        probe("Mount abort: ensureTabs failed")
         return
     end
 
     self:SetVisible(self.visible)
     self:_rebuild()
-    probe("Mount end mounted=" .. tostring(self:IsMounted()) .. " visible=" .. tostring(self.visible))
 end
 
 ---@return boolean
@@ -837,13 +732,10 @@ end
 
 -- Rebuilds toolbar + tree rows. Tabs recreate only when the scope-list signature changes.
 function Manager:_rebuild()
-    probe("rebuild begin visible=" .. tostring(self.visible))
     if self.contentParent == nil or ui == nil then
-        probe("rebuild bail no parent/ui")
         return
     end
     if not self:_ensureTabs() then
-        probe("rebuild bail ensureTabs")
         return
     end
     self:_clearChildren()
@@ -851,22 +743,18 @@ function Manager:_rebuild()
 
     local w, h = contentSize(self.contentParent)
     self.window.w, self.window.h = w, h
-    probe("rebuild size " .. tostring(w) .. "x" .. tostring(h))
 
     self:_mountToolbar()
-    probe("rebuild toolbar n=" .. tostring(#self.toolbarButtons))
 
     -- Tree: sibling of Tabs under contentParent, below the tab strip (not inside a tab page).
+    -- Do NOT assign scrollable — read-only on ComponentCollection; writing it aborts the pcall
+    -- and leaves no tree.
     local rowW = math.max(40, w - 2 * PAGE_PAD)
     local treeH = math.max(40, h - TREE_TOP - PAGE_PAD)
-    local treeOk, treeErr = pcall(function()
+    local treeOk = pcall(function()
         self.treePanel = ui.Panel.new(self.contentParent)
         self.treePanel.isVertical = true
         self.treePanel.spacing = 0
-        -- BASELINE PROBE (verify non-crash): re-introduce the scrollable write that aborts
-        -- tree mount. Historically this left Tabs+toolbar only (no rows / no SpriteButtons)
-        -- and plugins_reload after Show did NOT crash. Remove once baseline confirmed.
-        self.treePanel.scrollable = true
         self.treePanel.clickthrough = false
         self.treePanel:SetPos(PAGE_PAD, TREE_TOP)
         self.treePanel:SetSize(rowW, treeH)
@@ -874,30 +762,17 @@ function Manager:_rebuild()
     end)
     if not treeOk or self.treePanel == nil then
         self.treePanel = nil
-        probe("rebuild treePanel FAILED (baseline: expect readonly scrollable) " .. tostring(treeErr))
         return
     end
-    probe("rebuild treePanel ok UNEXPECTED — baseline probe should have failed")
 
     local rows = self:VisibleRows()
-    local scope = self:ActiveScope()
-    local entryCount = 0
-    if scope ~= nil and scope.doc ~= nil and scope.doc.entries ~= nil then
-        entryCount = #scope.doc.entries
-    end
-    probe("rebuild scope=" .. tostring(self:ActiveScopeKey())
-        .. " docEntries=" .. tostring(entryCount)
-        .. " visibleRows=" .. tostring(#rows))
-
     local treeParent = self.treePanel
+    -- Native ui.Button ren/del — PrettyUI SpriteButton crashes client teardown after PluginShutdown.
     local nameW = math.max(40, rowW - ENABLE_W - 2 * ACT_W - 3 * ROW_GAP)
-    local mountedRows = 0
-    local nPencil, nTrash, nConfirm, nPencilFail, nTrashFail = 0, 0, 0, 0, 0
-    local nCheck, nNameBtn = 0, 0
     for _, row in ipairs(rows) do
         local capturedRow = row
         local rowPanel = treeParent
-        local okRow, rowErr = pcall(function()
+        local okRow = pcall(function()
             rowPanel = ui.Panel.new(treeParent)
             rowPanel.isVertical = false
             rowPanel.spacing = ROW_GAP
@@ -905,12 +780,10 @@ function Manager:_rebuild()
             rowPanel:SetSize(rowW, ROW_H)
         end)
         if not okRow or rowPanel == nil then
-            probe("rowPanel FAIL id=" .. tostring(row.id) .. " err=" .. tostring(rowErr))
             rowPanel = treeParent
         end
         if rowPanel ~= treeParent then
             self.rowButtons[#self.rowButtons + 1] = rowPanel
-            mountedRows = mountedRows + 1
         end
 
         local nameX = ENABLE_W + ROW_GAP
@@ -938,7 +811,6 @@ function Manager:_rebuild()
                     self.rowButtons[#self.rowButtons + 1] = check
                 end
                 enableMounted = true
-                nCheck = nCheck + 1
             end
         end
         if not enableMounted then
@@ -958,44 +830,10 @@ function Manager:_rebuild()
                 self:_onRowPress(capturedRow)
                 if capturedRow.kind == "group" then self:_rebuild() end
             end)
-            nNameBtn = nNameBtn + 1
         end
 
         local renameX = nameX + nameW + ROW_GAP
-        local iconY = math.max(0, math.floor((ROW_H - ACT_W) / 2))
-        if prettyui ~= nil and prettyui.SpriteButton ~= nil then
-            -- Sprite roots are owned by rowPanel; teardown destroys the panel only (no
-            -- SpriteButton:Destroy — that double-frees after the window has been shown).
-            local pencil
-            local okP, errP = pcall(function()
-                pencil = prettyui.SpriteButton.new(rowPanel, "PENCIL", function()
-                    self.pendingDeleteId = nil
-                    local fieldY = 0
-                    pcall(function() fieldY = rowPanel.y or 0 end)
-                    self:_beginRename(capturedRow.id, capturedRow.name, nameX, fieldY, nameW, ROW_H)
-                end, {
-                    x = renameX,
-                    y = iconY,
-                    width = ACT_W,
-                    height = ACT_W,
-                    tooltip = "Rename",
-                })
-            end)
-            if okP and pencil ~= nil then
-                nPencil = nPencil + 1
-                self.rowWidgets[#self.rowWidgets + 1] = pencil
-                local tipOk = pencil.tooltip ~= nil
-                local tipRoot = tipOk and pencil.tooltip.root ~= nil
-                probe("row id=" .. tostring(row.id) .. " PENCIL ok tip=" .. tostring(tipOk)
-                    .. " tipRoot=" .. tostring(tipRoot)
-                    .. " tipParent=" .. tostring(tipOk and pencil.tooltip.parent ~= nil)
-                    .. " x=" .. tostring(renameX))
-            else
-                nPencilFail = nPencilFail + 1
-                probe("row id=" .. tostring(row.id) .. " PENCIL FAIL ok=" .. tostring(okP)
-                    .. " err=" .. tostring(errP))
-            end
-        else
+        do
             local bucket = (rowPanel == treeParent) and self.rowButtons or {}
             mountButton(rowPanel, bucket, renameX, 0, ACT_W, ROW_H, "ren", function()
                 self.pendingDeleteId = nil
@@ -1007,54 +845,9 @@ function Manager:_rebuild()
 
         local deleteX = renameX + ACT_W + ROW_GAP
         local armed = self.pendingDeleteId == row.id
-        if armed and prettyui ~= nil and prettyui.FancyButton ~= nil then
-            -- Confirm button is also parented to the row panel; panel Destroy cleans it up.
-            local confirm
-            pcall(function()
-                confirm = prettyui.FancyButton.new(rowPanel, self:_deleteConfirmLabel(row.id), function()
-                    self:_onDeletePress(capturedRow.id)
-                end, {
-                    x = deleteX,
-                    y = 0,
-                    variant = "negative",
-                })
-            end)
-            if confirm ~= nil then
-                nConfirm = nConfirm + 1
-                self.rowWidgets[#self.rowWidgets + 1] = confirm
-            end
-        elseif prettyui ~= nil and prettyui.SpriteButton ~= nil then
-            local trash
-            local okT, errT = pcall(function()
-                trash = prettyui.SpriteButton.new(rowPanel, "TRASH", function()
-                    self:_onDeletePress(capturedRow.id)
-                end, {
-                    x = deleteX,
-                    y = iconY,
-                    width = ACT_W,
-                    height = ACT_W,
-                    tooltip = "Delete",
-                })
-            end)
-            if okT and trash ~= nil then
-                nTrash = nTrash + 1
-                self.rowWidgets[#self.rowWidgets + 1] = trash
-                local tipOk = trash.tooltip ~= nil
-                local spriteId = nil
-                pcall(function() spriteId = trash.root and trash.root.spriteID end)
-                probe("row id=" .. tostring(row.id) .. " TRASH ok tip=" .. tostring(tipOk)
-                    .. " spriteID=" .. tostring(spriteId)
-                    .. " disabled=" .. tostring(trash.disabled)
-                    .. " x=" .. tostring(deleteX)
-                    .. " rowW=" .. tostring(rowW))
-            else
-                nTrashFail = nTrashFail + 1
-                probe("row id=" .. tostring(row.id) .. " TRASH FAIL ok=" .. tostring(okT)
-                    .. " err=" .. tostring(errT))
-            end
-        else
-            local delLabel = armed and self:_deleteConfirmLabel(row.id) or "del"
-            local delW = math.max(ACT_W, 8 + 7 * #delLabel)
+        local delLabel = armed and self:_deleteConfirmLabel(row.id) or "del"
+        local delW = math.max(ACT_W, 8 + 7 * #delLabel)
+        do
             local bucket = (rowPanel == treeParent) and self.rowButtons or {}
             mountButton(rowPanel, bucket, deleteX, 0, delW, ROW_H, delLabel, function()
                 self:_onDeletePress(capturedRow.id)
@@ -1070,17 +863,10 @@ function Manager:_rebuild()
     end
 
     if self.treePanel ~= nil then
-        pcall(function() self.treePanel:SetScrollSize(rowW, #rows * ROW_H) end)
+        pcall(function()
+            self.treePanel:SetScrollSize(rowW, #rows * ROW_H)
+        end)
     end
-
-    probe("rebuild summary rows=" .. tostring(mountedRows)
-        .. " checks=" .. tostring(nCheck)
-        .. " names=" .. tostring(nNameBtn)
-        .. " pencil=" .. tostring(nPencil) .. "/" .. tostring(nPencilFail)
-        .. " trash=" .. tostring(nTrash) .. "/" .. tostring(nTrashFail)
-        .. " confirm=" .. tostring(nConfirm)
-        .. " rowWidgets=" .. tostring(#self.rowWidgets)
-        .. " done")
 
     if not self.visible then
         setChildVisible(componentRoot(self.tabs), false)
@@ -1128,7 +914,6 @@ end
 function Manager:SetVisible(v)
     local becomingVisible = v and not self.visible
     self.visible = v and true or false
-    probe("SetVisible " .. tostring(self.visible) .. " becoming=" .. tostring(becomingVisible))
     setChildVisible(componentRoot(self.tabs), self.visible)
     for _, b in ipairs(self.toolbarButtons) do
         setChildVisible(componentRoot(b), self.visible)
@@ -1154,23 +939,8 @@ end
 -- the window Destroy owns native teardown. Mid-session rebuild still uses _destroyTree /
 -- _destroyToolbar / _destroyTabs while the window stays alive.
 function Manager:Unmount()
-    -- Snapshot only — no Destroy, no Tooltip.unbind (probe phase; do not "fix" teardown here).
-    local tipCount = 0
-    for _, w in ipairs(self.rowWidgets) do
-        if w ~= nil and w.tooltip ~= nil then tipCount = tipCount + 1 end
-    end
-    probe("Unmount BEGIN (no Destroy) visible=" .. tostring(self.visible)
-        .. " tabs=" .. tostring(self.tabs ~= nil)
-        .. " treePanel=" .. tostring(self.treePanel ~= nil)
-        .. " toolbar=" .. tostring(#self.toolbarButtons)
-        .. " rowWidgets=" .. tostring(#self.rowWidgets)
-        .. " withTooltip=" .. tostring(tipCount)
-        .. " rowButtons=" .. tostring(#self.rowButtons)
-        .. " renameField=" .. tostring(self.renameField ~= nil)
-        .. " contentParent=" .. tostring(self.contentParent ~= nil))
     self.pendingDeleteId = nil
     self:_endRename(false)
-    probe("Unmount after endRename")
     self.toolbarButtons = {}
     self.rowWidgets = {}
     self.rowButtons = {}
@@ -1178,7 +948,6 @@ function Manager:Unmount()
     self.tabs = nil
     self.tabsScopeSig = nil
     self.contentParent = nil
-    probe("Unmount END refs cleared — native tree/tabs still under mux window until mux:Destroy")
 end
 
 return Manager

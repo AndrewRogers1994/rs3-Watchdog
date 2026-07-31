@@ -184,64 +184,30 @@ function Multiplexer:Mount(parent)
 end
 
 function Multiplexer:Unmount()
-    local function muxProbe(msg)
-        pcall(function()
-            local ManagerMod = package.loaded["ui/manager"] or package.loaded["ui.manager"]
-            if ManagerMod ~= nil and ManagerMod._probeStopTrail ~= nil then
-                ManagerMod._probeStopTrail("[mux] " .. tostring(msg))
-                return
-            end
-            if log ~= nil then log("Watchdog.mux: " .. msg) end
-            if PersistentDB == nil or PersistentDB.GetString == nil then return end
-            local prev = PersistentDB:GetString("mgr_probe_stop") or ""
-            PersistentDB:SetString("mgr_probe_stop", prev .. "\n[mux] " .. tostring(msg))
-            local main = PersistentDB:GetString("mgr_probe_log") or ""
-            PersistentDB:SetString("mgr_probe_log", main .. "\n[mux] " .. tostring(msg))
-        end)
-    end
-    muxProbe("Unmount BEGIN stack=" .. tostring(#self._stack)
-        .. " window=" .. tostring(self.window ~= nil)
-        .. " injected=" .. tostring(self._injected)
-        .. " overlay=" .. tostring(self._overlay ~= nil)
-        .. " ownsOverlay=" .. tostring(self._ownsOverlay)
-        .. " rootLayer=" .. tostring(self.rootLayer ~= nil)
-        .. " ownsRoot=" .. tostring(self._ownsRoot))
-
     for i = #self._stack, 1, -1 do
         local surface = self._stack[i]
         if surface ~= nil and surface.SetVisible ~= nil then
-            muxProbe("SetVisible(false) surface#" .. tostring(i))
             pcall(function() surface:SetVisible(false) end)
-            muxProbe("SetVisible(false) surface#" .. tostring(i) .. " returned")
         end
     end
 
     if self.window ~= nil and self.window.Destroy ~= nil and not self._injected then
-        muxProbe("BEFORE window:Destroy")
-        local ok, err = pcall(function() self.window:Destroy() end)
-        muxProbe("AFTER window:Destroy ok=" .. tostring(ok) .. " err=" .. tostring(err))
-    else
-        muxProbe("skip window:Destroy (nil or injected)")
+        pcall(function() self.window:Destroy() end)
     end
     self.window = nil
 
     if self._ownsOverlay and self._overlay ~= nil and self._overlay.Destroy ~= nil then
-        muxProbe("BEFORE overlay:Destroy")
-        local ok, err = pcall(function() self._overlay:Destroy() end)
-        muxProbe("AFTER overlay:Destroy ok=" .. tostring(ok) .. " err=" .. tostring(err))
+        pcall(function() self._overlay:Destroy() end)
     end
     self._overlay = nil
     self._ownsOverlay = false
 
     if self._ownsRoot and self.rootLayer ~= nil and self.rootLayer.Destroy ~= nil then
-        muxProbe("BEFORE rootLayer:Destroy")
-        local ok, err = pcall(function() self.rootLayer:Destroy() end)
-        muxProbe("AFTER rootLayer:Destroy ok=" .. tostring(ok) .. " err=" .. tostring(err))
+        pcall(function() self.rootLayer:Destroy() end)
     end
     self.rootLayer = nil
     self._ownsRoot = false
     self._visible = false
-    muxProbe("Unmount END")
 end
 
 function Multiplexer:Destroy()
