@@ -36,7 +36,7 @@ Manager.__index = Manager
 local TAB_BASELINE = 42
 local ROW_H       = 22    -- one tree row
 local ENABLE_W    = 22    -- enable toggle width
-local ACT_W       = 24    -- ren/del action button width
+local ACT_W       = 64    -- ren/del action button width
 local ROW_GAP     = 2     -- gap between controls inside a row
 local PAGE_PAD    = 8     -- inset from content edge for the tree
 local TOOLBAR_H   = 27    -- PrettyUI FancyButton height
@@ -835,7 +835,7 @@ function Manager:_rebuild()
         local renameX = nameX + nameW + ROW_GAP
         do
             local bucket = (rowPanel == treeParent) and self.rowButtons or {}
-            mountButton(rowPanel, bucket, renameX, 0, ACT_W, ROW_H, "ren", function()
+            mountButton(rowPanel, bucket, renameX, 0, ACT_W, ROW_H, "Rename", function()
                 self.pendingDeleteId = nil
                 local fieldY = 0
                 pcall(function() fieldY = rowPanel.y or 0 end)
@@ -845,7 +845,7 @@ function Manager:_rebuild()
 
         local deleteX = renameX + ACT_W + ROW_GAP
         local armed = self.pendingDeleteId == row.id
-        local delLabel = armed and self:_deleteConfirmLabel(row.id) or "del"
+        local delLabel = armed and self:_deleteConfirmLabel(row.id) or "Delete"
         local delW = math.max(ACT_W, 8 + 7 * #delLabel)
         do
             local bucket = (rowPanel == treeParent) and self.rowButtons or {}
