@@ -315,6 +315,108 @@ local function ancestorsOf(entries, id)
     return rec(entries, {})
 end
 
+-- Ancestor group ids of `id`, outermost-first (root → parent), excluding `id` itself. Empty
+-- when `id` is root-level or absent.
+---@param doc Watchdog.Bucket
+---@param id integer
+---@return integer[]
+function Store.AncestorIds(doc, id)
+    local chain = ancestorsOf((doc or {}).entries, id)
+    if chain == nil then return {} end
+    local ids = {}
+    for _, g in ipairs(chain) do ids[#ids + 1] = g.id end
+    return ids
+end
+
+-- Nearest common ancestor **group** of `ids` — the deepest group that contains every id as a
+-- descendant (not the ids themselves). nil when the common parent is the Bucket root (or `ids`
+-- is empty). Used by bulk New-group (#93) so the new group lands under that parent.
+---@param doc Watchdog.Bucket
+---@param ids integer[]
+---@return integer|nil
+function Store.NearestCommonAncestor(doc, ids)
+    if ids == nil or #ids == 0 then return nil end
+    local prefix = Store.AncestorIds(doc, ids[1])
+    for i = 2, #ids do
+        local chain = Store.AncestorIds(doc, ids[i])
+        local n = math.min(#prefix, #chain)
+        local kept = 0
+        for j = 1, n do
+            if prefix[j] ~= chain[j] then break end
+            kept = j
+        end
+        -- Trim prefix to the shared head.
+        for j = #prefix, kept + 1, -1 do prefix[j] = nil end
+    end
+    if #prefix == 0 then return nil end
+    return prefix[#prefix]
+end
+
+-- Bulk New-group (#93): mint an empty group under the nearest common ancestor of `ids`, then
+-- MoveSubtree each id (in the given order) into it. Returns the new group id, or nil if `ids`
+-- is empty. Mutates `doc` in place; caller persists.
+---@param doc Watchdog.Bucket
+---@param ids integer[]
+---@param name string|nil
+---@return integer|nil
+function Store.GroupSelected(doc, ids, name)
+    if ids == nil or #ids == 0 then return nil end
+    local parentId = Store.NearestCommonAncestor(doc, ids)
+    local newId = Store.MintId(doc)
+    local group = Store.NewGroupEntry(newId, name or "New Group", true, {})
+    if not Store.InsertEntry(doc, group, parentId) then return nil end
+    for _, id in ipairs(ids) do
+        Store.MoveSubtree(doc, id, newId)
+    end
+    return newId
+end
+
+-- Remint any entry ids in `entry`'s subtree that already exist in `destDoc`, so a cross-bucket
+-- insert can't collide. Ids that are free in dest are preserved (#93 id-preserving move).
+---@param entry Watchdog.Entry
+---@param destDoc Watchdog.Bucket
+local function remintCollidingIds(entry, destDoc)
+    local used = {}
+    walk((destDoc or {}).entries, function(e)
+        if type(e.id) == "number" then used[e.id] = true end
+    end)
+    -- Reserve free ids from the moved subtree so remints don't steal them.
+    local function reserve(e)
+        if used[e.id] == nil then used[e.id] = "keep" end
+        for _, c in ipairs(e.children or {}) do reserve(c) end
+    end
+    reserve(entry)
+    local function nextFree()
+        local n = 1
+        while used[n] ~= nil do n = n + 1 end
+        return n
+    end
+    local function fix(e)
+        if used[e.id] ~= "keep" then
+            local newId = nextFree()
+            used[newId] = "keep"
+            e.id = newId
+        end
+        for _, c in ipairs(e.children or {}) do fix(c) end
+    end
+    fix(entry)
+end
+
+-- Cross-bucket move (#93): detach `id` from `srcDoc` and append it at `destDoc`'s root.
+-- Preserves ids when free in dest; remints colliding ones. Returns the moved root entry
+-- (possibly reminted), or nil if `id` was absent in src. Mutates both docs; caller persists.
+---@param srcDoc Watchdog.Bucket
+---@param destDoc Watchdog.Bucket
+---@param id integer
+---@return Watchdog.Entry|nil
+function Store.MoveEntryToBucket(srcDoc, destDoc, id)
+    local entry = Store.DeleteById(srcDoc, id)
+    if entry == nil then return nil end
+    remintCollidingIds(entry, destDoc)
+    Store.InsertEntry(destDoc, entry, nil)
+    return entry
+end
+
 -- True unless some ancestor group of the entry with `id` is disabled — the upstream half of the
 -- enabled-chain, excluding the entry's own flag. A root-level entry (no ancestors) and an absent
 -- `id` both return true: nothing upstream suppresses them. This is the gate the runtime ANDs with

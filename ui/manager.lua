@@ -15,8 +15,8 @@
 -- Destroying Tabs then the window double-frees after Show).
 --
 -- #90 landed the tree/scope/expand read-only cut; #91 adds the per-row editing ops; PrettyUI
--- chrome migration replaces hand-laid tab buttons and ASCII ren/del. Drag-reorder and
--- multi-select are later tickets (#92, #93).
+-- chrome migration replaces hand-laid tab buttons and ASCII ren/del. Multi-select + bulk
+-- actions are #93; drag-reorder is #92.
 --
 -- ## Two halves
 --
@@ -36,13 +36,15 @@ Manager.__index = Manager
 local TAB_BASELINE = 42
 local ROW_H       = 22    -- one tree row
 local ENABLE_W    = 22    -- enable toggle width
+local SELECT_W    = 22    -- multi-select checkbox column (#93)
 local ACT_W       = 64    -- ren/del action button width
 local ROW_GAP     = 2     -- gap between controls inside a row
 local PAGE_PAD    = 8     -- inset from content edge for the tree
 local TOOLBAR_H   = 27    -- PrettyUI FancyButton height
 local TOOLBAR_PAD = 8     -- right inset for + Alert / + Group on the tab strip
 local TOOLBAR_GAP = 6     -- gap between create buttons
-local TREE_TOP    = TAB_BASELINE + 4 -- tree sits below the PrettyUI tab strip
+local BULK_BAR_H  = 30    -- bulk-action bar height when any row is selected
+local TREE_TOP    = TAB_BASELINE + 4 -- tree sits below the PrettyUI tab strip (no bulk bar)
 
 
 -- A scope descriptor the injected provider hands back: which Bucket, how to label its tab, and its
@@ -78,14 +80,19 @@ local TREE_TOP    = TAB_BASELINE + 4 -- tree sits below the PrettyUI tab strip
 ---@field onDelete fun(scopeKey: string, id: integer)|nil
 ---@field onCreateAlert fun(scopeKey: string): integer|nil   # returns the minted alert id
 ---@field onCreateGroup fun(scopeKey: string): integer|nil   # returns the minted group id
+---@field onBulkDelete fun(scopeKey: string, ids: integer[])|nil
+---@field onBulkNewGroup fun(scopeKey: string, ids: integer[]): integer|nil  # returns new group id
+---@field onBulkMove fun(scopeKey: string, destScopeKey: string, ids: integer[])|nil
+---@field onBulkExport fun(scopeKey: string, ids: integer[])|nil
 
 -- `scopes` is the injected scope provider: `fn() -> Watchdog.ManagerScope[]`, ordered (Global
 -- first, the current character second when logged in). Called live on every rebuild so a character
 -- login/logout re-tabs without the Manager caching identity. `onOpenAlert` is the nav callback
 -- `fn(scopeKey, id)` fired when an alert row is double-clicked — main.lua's nav owner binds the
 -- Editor to that entry. The #91 mutation callbacks (`onToggleEnabled` / `onRename` / `onDelete` /
--- `onCreateAlert` / `onCreateGroup`) are the host's Store+Runtime wiring; absent ⇒ the matching
--- Manager method is a silent no-op. All of these are the whole seam onto the host.
+-- `onCreateAlert` / `onCreateGroup`) and the #93 bulk callbacks are the host's Store+Runtime
+-- wiring; absent ⇒ the matching Manager method is a silent no-op. All of these are the whole
+-- seam onto the host.
 ---@param opts Watchdog.ManagerOpts|nil
 ---@return table
 function Manager.new(opts)
@@ -97,10 +104,17 @@ function Manager.new(opts)
         onDelete = opts and opts.onDelete,
         onCreateAlert = opts and opts.onCreateAlert,
         onCreateGroup = opts and opts.onCreateGroup,
+        onBulkDelete = opts and opts.onBulkDelete,
+        onBulkNewGroup = opts and opts.onBulkNewGroup,
+        onBulkMove = opts and opts.onBulkMove,
+        onBulkExport = opts and opts.onBulkExport,
         activeScope = nil,          -- resolved lazily; nil ⇒ "first scope" (Global)
         expanded = {},              -- expanded[scopeKey][id] = bool; absent ⇒ default (expanded)
         expandVersion = 0,          -- bumped on every toggle, part of the rebuild signature
         mutateVersion = 0,          -- bumped on every row/create mutation (#91) so enable/rename redraw
+        selected = {},              -- selected[id] = true; antichain after every toggle (#93)
+        selectVersion = 0,          -- bumped on every selection change; part of rebuild signature
+        lastSelectId = nil,         -- anchor for Shift-click range over VisibleRows()
         visible = false,
         tick = 0,                   -- Logic-tick counter, for row double-click timing
         lastRowId = nil,            -- id of the previously-pressed row (double-click pairing)
@@ -114,6 +128,7 @@ function Manager.new(opts)
         tabs = nil,                 -- prettyui.Tabs instance
         tabsScopeSig = nil,         -- scope key:label signature Tabs was built from
         treePanel = nil,
+        bulkBarButtons = {},        -- PrettyUI FancyButtons / SpriteButton on the bulk bar
         toolbarButtons = {},        -- PrettyUI FancyButtons on the active tab page
         rowButtons = {},            -- native row Panels (teardown destroys children)
         rowWidgets = {},            -- PrettyUI row widgets (rename TextField uses renameField)
@@ -123,6 +138,8 @@ function Manager.new(opts)
         renameId = nil,
         -- Delete confirm (#91): Entry id awaiting confirm, or nil when idle.
         pendingDeleteId = nil,
+        -- Bulk delete confirm (#93): true while the bulk Delete button awaits a second press.
+        pendingBulkDelete = false,
         -- After + Group (#78): begin inline rename on this id once the row is rebuilt.
         pendingRenameId = nil,
     }, Manager)
@@ -164,11 +181,13 @@ function Manager:ActiveScopeKey()
 end
 
 -- Selects the scope tab `key` renders. Clears the double-click pairing so a click that switched
--- tabs can't accidentally pair with a row press in the newly-shown tree.
+-- tabs can't accidentally pair with a row press in the newly-shown tree. Clears selection (#93):
+-- a scope switch replaces the visible list.
 ---@param key string
 function Manager:SetActiveScope(key)
     self.activeScope = key
     self.lastRowId = nil
+    self:ClearSelection()
 end
 
 --- Pure logic: expand/collapse ------------------------------------------------------------
@@ -184,8 +203,37 @@ function Manager:IsExpanded(scopeKey, id)
     return perScope[id]
 end
 
+-- True if `maybeDescendant` is `ancestorId` itself or nested under it in the active scope tree.
+---@param ancestorId integer
+---@param maybeDescendant integer
+---@return boolean
+local function entryContainsId(entries, ancestorId, maybeDescendant)
+    local function find(list)
+        for _, e in ipairs(list or {}) do
+            if e.id == ancestorId then return e end
+            if e.children ~= nil then
+                local found = find(e.children)
+                if found ~= nil then return found end
+            end
+        end
+        return nil
+    end
+    local root = find(entries)
+    if root == nil then return false end
+    if root.id == maybeDescendant then return true end
+    local function walk(children)
+        for _, c in ipairs(children or {}) do
+            if c.id == maybeDescendant then return true end
+            if c.children ~= nil and walk(c.children) then return true end
+        end
+        return false
+    end
+    return walk(root.children)
+end
+
 -- Flips group `id`'s expand state in scope `scopeKey` and bumps the rebuild signature so the view
--- redraws. Read-only otherwise — no persistence; collapse state is transient session UI.
+-- redraws. On collapse, drops any selection inside the group (#93) — those rows leave the visible
+-- list. Read-only otherwise — no persistence; collapse state is transient session UI.
 ---@param scopeKey string
 ---@param id integer
 function Manager:ToggleExpand(scopeKey, id)
@@ -194,8 +242,25 @@ function Manager:ToggleExpand(scopeKey, id)
         perScope = {}
         self.expanded[scopeKey] = perScope
     end
-    perScope[id] = not self:IsExpanded(scopeKey, id)
+    local nowExpanded = not self:IsExpanded(scopeKey, id)
+    perScope[id] = nowExpanded
     self.expandVersion = self.expandVersion + 1
+    if not nowExpanded then
+        -- Collapse: drop selection inside the group (the group row itself stays visible).
+        local scope = self:ActiveScope()
+        local entries = scope and (scope.doc or {}).entries or nil
+        local changed = false
+        for selId, _ in pairs(self.selected) do
+            if selId ~= id and entryContainsId(entries, id, selId) then
+                self.selected[selId] = nil
+                changed = true
+            end
+        end
+        if changed then
+            self.selectVersion = self.selectVersion + 1
+            self.pendingBulkDelete = false
+        end
+    end
 end
 
 --- Pure logic: tree flattening ------------------------------------------------------------
@@ -312,18 +377,184 @@ function Manager:CreateGroup()
     return nil
 end
 
+--- Pure logic: multi-select (#93) ---------------------------------------------------------
+-- Selection is a map `id → true`, normalized to a group-as-unit **antichain** after every
+-- toggle: a selected group represents its whole subtree, so no descendant is separately
+-- selected (and checkboxes never go tri-state). Shift-click ranges over VisibleRows() order.
+
+local function bumpSelect(self)
+    self.selectVersion = self.selectVersion + 1
+    self.pendingBulkDelete = false
+end
+
+-- Ancestor id chain of `id` in `entries`, outermost-first (root → parent). Empty when `id` is
+-- root-level or absent. Pure walk shared by NormalizeSelection.
+---@param entries Watchdog.Entry[]|nil
+---@param id integer
+---@return integer[]
+local function ancestorIdsOf(entries, id)
+    local function rec(list, acc)
+        for _, entry in ipairs(list or {}) do
+            if entry.id == id then return acc end
+            if entry.children ~= nil then
+                acc[#acc + 1] = entry.id
+                local found = rec(entry.children, acc)
+                if found ~= nil then return found end
+                acc[#acc] = nil
+            end
+        end
+        return nil
+    end
+    return rec(entries, {}) or {}
+end
+
+-- Drops any selected id that has an ancestor also selected — group-as-unit antichain.
+function Manager:NormalizeSelection()
+    local scope = self:ActiveScope()
+    local entries = scope and (scope.doc or {}).entries or nil
+    local drop = {}
+    for selId, _ in pairs(self.selected) do
+        for _, anc in ipairs(ancestorIdsOf(entries, selId)) do
+            if self.selected[anc] then
+                drop[selId] = true
+                break
+            end
+        end
+    end
+    for id, _ in pairs(drop) do
+        self.selected[id] = nil
+    end
+end
+
+-- Clears the selection map. Bumps selectVersion only when something was actually selected.
+function Manager:ClearSelection()
+    local any = false
+    for _ in pairs(self.selected) do any = true break end
+    self.selected = {}
+    self.lastSelectId = nil
+    self.pendingBulkDelete = false
+    if any then bumpSelect(self) end
+end
+
+---@return boolean
+function Manager:HasSelection()
+    for _ in pairs(self.selected) do return true end
+    return false
+end
+
+-- Selected ids in VisibleRows() order (antichain members only after NormalizeSelection).
+---@return integer[]
+function Manager:SelectedIds()
+    local out = {}
+    for _, row in ipairs(self:VisibleRows()) do
+        if self.selected[row.id] then out[#out + 1] = row.id end
+    end
+    return out
+end
+
+-- Toggles `id` in the selection. When `shift` is true and there is a prior anchor, selects the
+-- inclusive VisibleRows() range from the anchor to `id` (additive). Always re-normalizes to an
+-- antichain afterwards and bumps selectVersion.
+---@param id integer
+---@param shift boolean|nil
+function Manager:ToggleSelection(id, shift)
+    if shift and self.lastSelectId ~= nil then
+        local rows = self:VisibleRows()
+        local a, b
+        for i, row in ipairs(rows) do
+            if row.id == self.lastSelectId then a = i end
+            if row.id == id then b = i end
+        end
+        if a ~= nil and b ~= nil then
+            local lo, hi = math.min(a, b), math.max(a, b)
+            for i = lo, hi do
+                self.selected[rows[i].id] = true
+            end
+        else
+            -- Anchor or target not visible: fall back to a plain add.
+            self.selected[id] = true
+        end
+    else
+        if self.selected[id] then
+            self.selected[id] = nil
+        else
+            self.selected[id] = true
+        end
+    end
+    self.lastSelectId = id
+    self:NormalizeSelection()
+    bumpSelect(self)
+end
+
+-- Host-facing bulk ops. Each reports through the matching callback and bumps mutateVersion.
+-- Confirm UI for delete is the caller's / view's job — BulkDelete is the committed delete.
+
+---@param ids integer[]|nil
+function Manager:BulkDelete(ids)
+    local scopeKey = self:ActiveScopeKey()
+    if scopeKey == nil or self.onBulkDelete == nil then return end
+    ids = ids or self:SelectedIds()
+    if #ids == 0 then return end
+    pcall(self.onBulkDelete, scopeKey, ids)
+    self:ClearSelection()
+    bumpMutate(self)
+end
+
+---@param ids integer[]|nil
+---@return integer|nil
+function Manager:BulkNewGroup(ids)
+    local scopeKey = self:ActiveScopeKey()
+    if scopeKey == nil or self.onBulkNewGroup == nil then return nil end
+    ids = ids or self:SelectedIds()
+    if #ids == 0 then return nil end
+    local ok, newId = pcall(self.onBulkNewGroup, scopeKey, ids)
+    bumpMutate(self)
+    if ok and type(newId) == "number" then
+        self.selected = { [newId] = true }
+        self.lastSelectId = newId
+        bumpSelect(self)
+        return newId
+    end
+    self:ClearSelection()
+    return nil
+end
+
+---@param destScopeKey string
+---@param ids integer[]|nil
+function Manager:BulkMove(destScopeKey, ids)
+    local scopeKey = self:ActiveScopeKey()
+    if scopeKey == nil or self.onBulkMove == nil then return end
+    ids = ids or self:SelectedIds()
+    if #ids == 0 then return end
+    pcall(self.onBulkMove, scopeKey, destScopeKey, ids)
+    self:ClearSelection()
+    bumpMutate(self)
+end
+
+---@param ids integer[]|nil
+function Manager:BulkExport(ids)
+    local scopeKey = self:ActiveScopeKey()
+    if scopeKey == nil or self.onBulkExport == nil then return end
+    ids = ids or self:SelectedIds()
+    if #ids == 0 then return end
+    -- Preserve selection across export (#93).
+    pcall(self.onBulkExport, scopeKey, ids)
+end
+
 --- Rebuild signature ----------------------------------------------------------------------
 
 -- A cheap string capturing everything the rendered tree depends on: the active scope, the expand
--- generation, the mutate generation (#91 — enable/rename don't change root count), and each
--- scope's key+label+entry-count. The view rebuilds only when this changes, so a character login
--- (new tab), a scope switch, an expand toggle, or a row mutation redraws — but an idle frame doesn't.
+-- generation, the mutate generation (#91 — enable/rename don't change root count), the select
+-- generation (#93), and each scope's key+label+entry-count. The view rebuilds only when this
+-- changes, so a character login (new tab), a scope switch, an expand toggle, a row mutation, or a
+-- selection change redraws — but an idle frame doesn't.
 ---@return string
 function Manager:_signature()
     local parts = {
         self:ActiveScopeKey() or "-",
         tostring(self.expandVersion),
         tostring(self.mutateVersion),
+        tostring(self.selectVersion),
     }
     for _, scope in ipairs(self:ScopeList()) do
         local entries = (scope.doc or {}).entries or {}
@@ -427,6 +658,14 @@ function Manager:_destroyToolbar()
     self.toolbarButtons = {}
 end
 
+-- Destroys bulk-action bar FancyButtons / SpriteButtons (#93).
+function Manager:_destroyBulkBar()
+    for _, b in ipairs(self.bulkBarButtons) do
+        pcall(function() b:Destroy() end)
+    end
+    self.bulkBarButtons = {}
+end
+
 -- Destroys the tree Panel (row children die with it).
 function Manager:_destroyTree()
     self:_endRename(false)
@@ -442,6 +681,7 @@ end
 -- NOT used from Unmount/Stop — see Unmount (must not Destroy before mux window Destroy).
 function Manager:_destroyTabs()
     self:_destroyToolbar()
+    self:_destroyBulkBar()
     self:_destroyTree()
     if self.tabs ~= nil then
         pcall(function() self.tabs:Destroy() end)
@@ -537,6 +777,7 @@ end
 
 function Manager:_clearChildren()
     self:_destroyToolbar()
+    self:_destroyBulkBar()
     self:_destroyTree()
 end
 
@@ -689,6 +930,28 @@ function Manager:_deleteConfirmLabel(id)
     return "OK?"
 end
 
+-- Ride-along descendant count across a multi-select set (for the bulk Delete confirm label).
+---@param ids integer[]|nil
+---@return integer
+function Manager:_bulkRideAlongCount(ids)
+    local n = 0
+    for _, id in ipairs(ids or self:SelectedIds()) do
+        n = n + self:_descendantCount(id)
+    end
+    return n
+end
+
+---@return boolean
+local function isShiftDown()
+    local shift = false
+    pcall(function()
+        if Keyboard ~= nil and Keyboard.IsShiftDown ~= nil then
+            shift = Keyboard.IsShiftDown() and true or false
+        end
+    end)
+    return shift
+end
+
 -- + Alert / + Group on the PrettyUI tab strip (right-aligned), visually inline with the tabs.
 -- PrettyUI Tabs has no trailing-actions API; parenting FancyButtons to tabs.root is the
 -- supported workaround.
@@ -730,7 +993,95 @@ function Manager:_mountToolbar()
     if group ~= nil then self.toolbarButtons[#self.toolbarButtons + 1] = group end
 end
 
--- Rebuilds toolbar + tree rows. Tabs recreate only when the scope-list signature changes.
+-- Bulk-action bar (#93): Delete / New group / Move (when another scope exists) / Export.
+-- Sibling of Tabs under contentParent, between the tab strip and the tree.
+function Manager:_mountBulkBar(y)
+    if not self:HasSelection() then return end
+    if self.contentParent == nil or prettyui == nil or prettyui.FancyButton == nil then return end
+    local ids = self:SelectedIds()
+    local x = 0
+    local gap = TOOLBAR_GAP
+
+    local function addFancy(label, variant, onPress)
+        local btn
+        local w = 80
+        pcall(function()
+            w = select(1, prettyui.FancyButton.getSize(label, { variant = variant, inline = true }))
+        end)
+        pcall(function()
+            btn = prettyui.FancyButton.new(self.contentParent, label, onPress, {
+                x = PAGE_PAD + x,
+                y = y,
+                variant = variant,
+                inline = true,
+            })
+        end)
+        if btn ~= nil then
+            self.bulkBarButtons[#self.bulkBarButtons + 1] = btn
+            x = x + w + gap
+        end
+    end
+
+    local delLabel = "Delete"
+    if self.pendingBulkDelete then
+        local ride = self:_bulkRideAlongCount(ids)
+        delLabel = ride > 0 and ("OK " .. tostring(ride) .. "?") or "OK?"
+    end
+    addFancy(delLabel, "negative", function()
+        if self.pendingBulkDelete then
+            self.pendingBulkDelete = false
+            self:BulkDelete(ids)
+            self:_rebuild()
+        else
+            self.pendingBulkDelete = true
+            self:_rebuild()
+        end
+    end)
+
+    addFancy("New group", "positive", function()
+        local newId = self:BulkNewGroup(ids)
+        if type(newId) == "number" then self.pendingRenameId = newId end
+        self:_rebuild()
+    end)
+
+    -- Move: only when another scope is available (logged in).
+    local scopes = self:ScopeList()
+    local activeKey = self:ActiveScopeKey()
+    local other
+    for _, scope in ipairs(scopes) do
+        if scope.key ~= activeKey then other = scope break end
+    end
+    if other ~= nil then
+        local moveLabel = "Move to " .. (other.label or other.key)
+        addFancy(moveLabel, "neutral", function()
+            self:BulkMove(other.key, ids)
+            self:_rebuild()
+        end)
+    end
+
+    if prettyui.SpriteButton ~= nil then
+        local exportBtn
+        pcall(function()
+            exportBtn = prettyui.SpriteButton.new(self.contentParent, "EXPORT", function()
+                self:BulkExport(ids)
+            end, {
+                x = PAGE_PAD + x,
+                y = y,
+                inline = true,
+                tooltip = "Export selected",
+            })
+        end)
+        if exportBtn ~= nil then
+            self.bulkBarButtons[#self.bulkBarButtons + 1] = exportBtn
+        end
+    else
+        addFancy("Export", "neutral", function()
+            self:BulkExport(ids)
+        end)
+    end
+end
+
+-- Rebuilds toolbar + bulk bar + tree rows. Tabs recreate only when the scope-list signature changes.
 function Manager:_rebuild()
     if self.contentParent == nil or ui == nil then
         return
@@ -746,17 +1097,25 @@ function Manager:_rebuild()
 
     self:_mountToolbar()
 
-    -- Tree: sibling of Tabs under contentParent, below the tab strip (not inside a tab page).
+    local hasSel = self:HasSelection()
+    local bulkY = TREE_TOP
+    local treeTop = TREE_TOP
+    if hasSel then
+        self:_mountBulkBar(bulkY)
+        treeTop = TREE_TOP + BULK_BAR_H + 4
+    end
+
+    -- Tree: sibling of Tabs under contentParent, below the tab strip (and bulk bar when raised).
     -- Do NOT assign scrollable — read-only on ComponentCollection; writing it aborts the pcall
     -- and leaves no tree.
     local rowW = math.max(40, w - 2 * PAGE_PAD)
-    local treeH = math.max(40, h - TREE_TOP - PAGE_PAD)
+    local treeH = math.max(40, h - treeTop - PAGE_PAD)
     local treeOk = pcall(function()
         self.treePanel = ui.Panel.new(self.contentParent)
         self.treePanel.isVertical = true
         self.treePanel.spacing = 0
         self.treePanel.clickthrough = false
-        self.treePanel:SetPos(PAGE_PAD, TREE_TOP)
+        self.treePanel:SetPos(PAGE_PAD, treeTop)
         self.treePanel:SetSize(rowW, treeH)
         self.treePanel:MoveToFront()
     end)
@@ -768,7 +1127,7 @@ function Manager:_rebuild()
     local rows = self:VisibleRows()
     local treeParent = self.treePanel
     -- Native ui.Button ren/del — PrettyUI SpriteButton crashes client teardown after PluginShutdown.
-    local nameW = math.max(40, rowW - ENABLE_W - 2 * ACT_W - 3 * ROW_GAP)
+    local nameW = math.max(40, rowW - ENABLE_W - SELECT_W - 2 * ACT_W - 4 * ROW_GAP)
     for _, row in ipairs(rows) do
         local capturedRow = row
         local rowPanel = treeParent
@@ -786,7 +1145,8 @@ function Manager:_rebuild()
             self.rowButtons[#self.rowButtons + 1] = rowPanel
         end
 
-        local nameX = ENABLE_W + ROW_GAP
+        local selectX = ENABLE_W + ROW_GAP
+        local nameX = selectX + SELECT_W + ROW_GAP
 
         local enableMounted = false
         if ui.Check ~= nil then
@@ -802,6 +1162,7 @@ function Manager:_rebuild()
                     check.label = ""
                     check:Subscribe(ui.Hook.ONBUTTONPRESSED, function()
                         self.pendingDeleteId = nil
+                        self.pendingBulkDelete = false
                         self:ToggleEnabled(capturedRow.id)
                         self:_rebuild()
                         return true
@@ -818,7 +1179,44 @@ function Manager:_rebuild()
             local bucket = (rowPanel == treeParent) and self.rowButtons or {}
             mountButton(rowPanel, bucket, 0, 0, ENABLE_W, ROW_H, mark, function()
                 self.pendingDeleteId = nil
+                self.pendingBulkDelete = false
                 self:ToggleEnabled(capturedRow.id)
+                self:_rebuild()
+            end)
+        end
+
+        -- Select column (#93): separate native ui.Check — not prettyui.CheckboxButton.
+        local selectMounted = false
+        if ui.Check ~= nil then
+            local sel
+            local oks = pcall(function() sel = ui.Check.new(rowPanel) end)
+            if oks and sel ~= nil then
+                pcall(function()
+                    sel.stylesheetID = safeCheckStyle()
+                    sel:SetPos(selectX, 0)
+                    sel:SetSize(SELECT_W, ROW_H)
+                    sel.buttonSize = math.min(SELECT_W - 2, ROW_H - 2)
+                    sel.value = self.selected[row.id] and true or false
+                    sel.label = ""
+                    sel:Subscribe(ui.Hook.ONBUTTONPRESSED, function()
+                        self.pendingDeleteId = nil
+                        self:ToggleSelection(capturedRow.id, isShiftDown())
+                        self:_rebuild()
+                        return true
+                    end)
+                end)
+                if rowPanel == treeParent then
+                    self.rowButtons[#self.rowButtons + 1] = sel
+                end
+                selectMounted = true
+            end
+        end
+        if not selectMounted then
+            local mark = self.selected[row.id] and "[*]" or "[ ]"
+            local bucket = (rowPanel == treeParent) and self.rowButtons or {}
+            mountButton(rowPanel, bucket, selectX, 0, SELECT_W, ROW_H, mark, function()
+                self.pendingDeleteId = nil
+                self:ToggleSelection(capturedRow.id, isShiftDown())
                 self:_rebuild()
             end)
         end
@@ -827,6 +1225,7 @@ function Manager:_rebuild()
             local bucket = (rowPanel == treeParent) and self.rowButtons or {}
             mountButton(rowPanel, bucket, nameX, 0, nameW, ROW_H, self:RowLabel(row), function()
                 self.pendingDeleteId = nil
+                self.pendingBulkDelete = false
                 self:_onRowPress(capturedRow)
                 if capturedRow.kind == "group" then self:_rebuild() end
             end)
@@ -837,6 +1236,7 @@ function Manager:_rebuild()
             local bucket = (rowPanel == treeParent) and self.rowButtons or {}
             mountButton(rowPanel, bucket, renameX, 0, ACT_W, ROW_H, "Rename", function()
                 self.pendingDeleteId = nil
+                self.pendingBulkDelete = false
                 local fieldY = 0
                 pcall(function() fieldY = rowPanel.y or 0 end)
                 self:_beginRename(capturedRow.id, capturedRow.name, nameX, fieldY, nameW, ROW_H)
@@ -850,6 +1250,7 @@ function Manager:_rebuild()
         do
             local bucket = (rowPanel == treeParent) and self.rowButtons or {}
             mountButton(rowPanel, bucket, deleteX, 0, delW, ROW_H, delLabel, function()
+                self.pendingBulkDelete = false
                 self:_onDeletePress(capturedRow.id)
             end)
         end
@@ -871,6 +1272,9 @@ function Manager:_rebuild()
     if not self.visible then
         setChildVisible(componentRoot(self.tabs), false)
         for _, b in ipairs(self.toolbarButtons) do
+            setChildVisible(componentRoot(b), false)
+        end
+        for _, b in ipairs(self.bulkBarButtons) do
             setChildVisible(componentRoot(b), false)
         end
         setChildVisible(self.treePanel, false)
@@ -918,6 +1322,9 @@ function Manager:SetVisible(v)
     for _, b in ipairs(self.toolbarButtons) do
         setChildVisible(componentRoot(b), self.visible)
     end
+    for _, b in ipairs(self.bulkBarButtons) do
+        setChildVisible(componentRoot(b), self.visible)
+    end
     setChildVisible(self.treePanel, self.visible)
     setChildVisible(componentRoot(self.renameField), self.visible)
     if becomingVisible and self.tabs ~= nil then
@@ -940,8 +1347,10 @@ end
 -- _destroyToolbar / _destroyTabs while the window stays alive.
 function Manager:Unmount()
     self.pendingDeleteId = nil
+    self.pendingBulkDelete = false
     self:_endRename(false)
     self.toolbarButtons = {}
+    self.bulkBarButtons = {}
     self.rowWidgets = {}
     self.rowButtons = {}
     self.treePanel = nil

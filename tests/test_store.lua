@@ -352,6 +352,64 @@ function TestStore:testMoveSubtreeToMissingParentIsRefused()
     luaunit.assertEquals(#doc.entries, 1) -- still at root
 end
 
+--- Bulk helpers (#93): NearestCommonAncestor / GroupSelected / MoveEntryToBucket -------------
+
+function TestStore:testNearestCommonAncestorNilForRootSiblings()
+    local doc = Store.Empty()
+    local a = seedAlert(self, doc, "a", true)
+    local b = seedAlert(self, doc, "b", true)
+    luaunit.assertNil(Store.NearestCommonAncestor(doc, { a, b }))
+end
+
+function TestStore:testNearestCommonAncestorFindsSharedParent()
+    local doc = Store.Empty()
+    local groupId = Store.MintId(doc)
+    Store.InsertEntry(doc, Store.NewGroupEntry(groupId, "g", true, {}))
+    local a = seedAlert(self, doc, "a", true, groupId)
+    local b = seedAlert(self, doc, "b", true, groupId)
+    luaunit.assertEquals(Store.NearestCommonAncestor(doc, { a, b }), groupId)
+end
+
+function TestStore:testGroupSelectedWrapsUnderCommonAncestor()
+    local doc = Store.Empty()
+    local parentId = Store.MintId(doc)
+    Store.InsertEntry(doc, Store.NewGroupEntry(parentId, "parent", true, {}))
+    local a = seedAlert(self, doc, "a", true, parentId)
+    local b = seedAlert(self, doc, "b", true, parentId)
+    local newId = Store.GroupSelected(doc, { a, b }, "bundled")
+    luaunit.assertNotNil(newId)
+    local parent = Store.FindById(doc, parentId)
+    luaunit.assertEquals(#parent.children, 1)
+    luaunit.assertEquals(parent.children[1].id, newId)
+    luaunit.assertEquals(parent.children[1].name, "bundled")
+    luaunit.assertEquals(#parent.children[1].children, 2)
+    luaunit.assertEquals(parent.children[1].children[1].id, a)
+    luaunit.assertEquals(parent.children[1].children[2].id, b)
+end
+
+function TestStore:testMoveEntryToBucketPreservesFreeIds()
+    local src = Store.Empty()
+    local dest = Store.Empty()
+    local id = seedAlert(self, src, "a", true)
+    local moved = Store.MoveEntryToBucket(src, dest, id)
+    luaunit.assertEquals(moved.id, id)
+    luaunit.assertEquals(#src.entries, 0)
+    luaunit.assertEquals(#dest.entries, 1)
+    luaunit.assertEquals(dest.entries[1].id, id)
+end
+
+function TestStore:testMoveEntryToBucketRemintsCollidingIds()
+    local src = Store.Empty()
+    local dest = Store.Empty()
+    seedAlert(self, dest, "existing", true) -- claims id 1
+    local id = seedAlert(self, src, "moving", true) -- also id 1 in src
+    luaunit.assertEquals(id, 1)
+    local moved = Store.MoveEntryToBucket(src, dest, id)
+    luaunit.assertNotEquals(moved.id, 1)
+    luaunit.assertEquals(#dest.entries, 2)
+    luaunit.assertEquals(Store.FindById(dest, 1).name, "existing")
+end
+
 --- Enabled-chain: an alert fires iff its own enabled AND every ancestor group's enabled (#88) --
 
 function TestStore:testAncestorsEnabledTrueForRootEntry()
