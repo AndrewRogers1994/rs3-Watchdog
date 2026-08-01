@@ -146,8 +146,6 @@ function Manager.new(opts)
         treePanel = nil,
         bulkBarButtons = {},        -- PrettyUI FancyButtons / SpriteButton on the bulk bar
         toolbarButtons = {},        -- PrettyUI FancyButtons on the active tab page
-        rowButtons = {},            -- native row Panels (teardown destroys children)
-        rowWidgets = {},            -- PrettyUI row widgets (rename TextField uses renameField)
         lastSignature = nil,        -- last-rendered rebuild signature (skip no-op rebuilds)
         -- Inline rename: PrettyUI TextField + the Entry id it's editing, or nil when idle.
         renameField = nil,
@@ -843,8 +841,6 @@ end
 -- Destroys the tree Panel (row children die with it).
 function Manager:_destroyTree()
     self:_endRename(false)
-    self.rowWidgets = {}
-    self.rowButtons = {}
     if self.treePanel ~= nil then
         pcall(function() self.treePanel:Destroy() end)
         self.treePanel = nil
@@ -958,7 +954,6 @@ end
 -- Helper: mount a Button under `parent` with text `label`, at (x,y)/(w,h), wired to `onPress`.
 -- When `enabled` is false the button is shown disabled and presses are ignored.
 ---@param parent ui.ComponentCollection
----@param bucket table[]
 ---@param x number
 ---@param y number
 ---@param w number
@@ -967,7 +962,7 @@ end
 ---@param onPress fun()
 ---@param enabled boolean|nil
 ---@return ui.Button|nil
-local function mountButton(parent, bucket, x, y, w, h, label, onPress, enabled)
+local function mountButton(parent, x, y, w, h, label, onPress, enabled)
     local button
     local okb = pcall(function() button = ui.Button.new(parent) end)
     if not okb or button == nil then return nil end
@@ -984,7 +979,6 @@ local function mountButton(parent, bucket, x, y, w, h, label, onPress, enabled)
         return true
     end)
     pcall(function() button:MoveToFront() end)
-    bucket[#bucket + 1] = button
     return button
 end
 
@@ -1452,9 +1446,6 @@ function Manager:_rebuild()
         if not okRow or rowPanel == nil then
             rowPanel = treeParent
         end
-        if rowPanel ~= treeParent then
-            self.rowButtons[#self.rowButtons + 1] = rowPanel
-        end
 
         local selectX = ENABLE_W + ROW_GAP
         local upX = selectX + SELECT_W + ROW_GAP
@@ -1488,16 +1479,12 @@ function Manager:_rebuild()
                         return true
                     end)
                 end)
-                if rowPanel == treeParent then
-                    self.rowButtons[#self.rowButtons + 1] = check
-                end
                 enableMounted = true
             end
         end
         if not enableMounted then
             local mark = row.enabled and "[x]" or "[ ]"
-            local bucket = (rowPanel == treeParent) and self.rowButtons or {}
-            mountButton(rowPanel, bucket, 0, 0, ENABLE_W, ROW_H, mark, function()
+            mountButton(rowPanel, 0, 0, ENABLE_W, ROW_H, mark, function()
                 self.pendingDeleteId = nil
                 self.pendingBulkDelete = false
                 self:ToggleEnabled(capturedRow.id)
@@ -1525,16 +1512,12 @@ function Manager:_rebuild()
                         return true
                     end)
                 end)
-                if rowPanel == treeParent then
-                    self.rowButtons[#self.rowButtons + 1] = sel
-                end
                 selectMounted = true
             end
         end
         if not selectMounted then
             local mark = self.selected[row.id] and "[*]" or "[ ]"
-            local bucket = (rowPanel == treeParent) and self.rowButtons or {}
-            mountButton(rowPanel, bucket, selectX, 0, SELECT_W, ROW_H, mark, function()
+            mountButton(rowPanel, selectX, 0, SELECT_W, ROW_H, mark, function()
                 self.pendingDeleteId = nil
                 self:ToggleSelection(capturedRow.id, isShiftDown())
                 self:_rebuild()
@@ -1564,9 +1547,6 @@ function Manager:_rebuild()
                 iconBtn:Subscribe(ui.Hook.ONMOUSELEAVE, function()
                     if isEnabled then iconBtn.spriteID = sprite end
                 end)
-                if rowPanel == treeParent then
-                    self.rowButtons[#self.rowButtons + 1] = iconBtn
-                end
             end
             mountIconButton(upX, 0, REORDER_W, ROW_H,
                 id.Sprite.RS3_ICON_DIRECTION_UP_32PX_2,
@@ -1612,54 +1592,39 @@ function Manager:_rebuild()
                 spacer.clickthrough = true
                 spacer:SetSize(spacerW, ROW_H)
             end)
-            if okSp and spacer ~= nil and rowPanel == treeParent then
-                self.rowButtons[#self.rowButtons + 1] = spacer
-            end
         end
 
-        do
-            local bucket = (rowPanel == treeParent) and self.rowButtons or {}
-            mountButton(rowPanel, bucket, nameX, 0, nameW, ROW_H, self:RowLabel(row), function()
-                self.pendingDeleteId = nil
-                self.pendingBulkDelete = false
-                self:_onRowPress(capturedRow)
-                if capturedRow.kind == "group" then self:_rebuild() end
-            end)
-        end
+        mountButton(rowPanel, nameX, 0, nameW, ROW_H, self:RowLabel(row), function()
+            self.pendingDeleteId = nil
+            self.pendingBulkDelete = false
+            self:_onRowPress(capturedRow)
+            if capturedRow.kind == "group" then self:_rebuild() end
+        end)
 
         local renameX = nameX + nameW + ROW_GAP
-        do
-            local bucket = (rowPanel == treeParent) and self.rowButtons or {}
-            mountButton(rowPanel, bucket, renameX, 0, ACT_W, ROW_H, "Rename", function()
-                self.pendingDeleteId = nil
-                self.pendingBulkDelete = false
-                local fieldY = 0
-                pcall(function() fieldY = rowPanel.y or 0 end)
-                self:_beginRename(capturedRow.id, capturedRow.name, nameX, fieldY, nameW, ROW_H)
-            end)
-        end
+        mountButton(rowPanel, renameX, 0, ACT_W, ROW_H, "Rename", function()
+            self.pendingDeleteId = nil
+            self.pendingBulkDelete = false
+            local fieldY = 0
+            pcall(function() fieldY = rowPanel.y or 0 end)
+            self:_beginRename(capturedRow.id, capturedRow.name, nameX, fieldY, nameW, ROW_H)
+        end)
 
         local exportX = renameX + ACT_W + ROW_GAP
-        do
-            local bucket = (rowPanel == treeParent) and self.rowButtons or {}
-            mountButton(rowPanel, bucket, exportX, 0, ACT_W, ROW_H, "Export", function()
-                self.pendingDeleteId = nil
-                self.pendingBulkDelete = false
-                self:ExportRow(capturedRow.id)
-            end)
-        end
+        mountButton(rowPanel, exportX, 0, ACT_W, ROW_H, "Export", function()
+            self.pendingDeleteId = nil
+            self.pendingBulkDelete = false
+            self:ExportRow(capturedRow.id)
+        end)
 
         local deleteX = exportX + ACT_W + ROW_GAP
         local armed = self.pendingDeleteId == row.id
         local delLabel = armed and self:_deleteConfirmLabel(row.id) or "Delete"
         local delW = math.max(ACT_W, 8 + 7 * #delLabel)
-        do
-            local bucket = (rowPanel == treeParent) and self.rowButtons or {}
-            mountButton(rowPanel, bucket, deleteX, 0, delW, ROW_H, delLabel, function()
-                self.pendingBulkDelete = false
-                self:_onDeletePress(capturedRow.id)
-            end)
-        end
+        mountButton(rowPanel, deleteX, 0, delW, ROW_H, delLabel, function()
+            self.pendingBulkDelete = false
+            self:_onDeletePress(capturedRow.id)
+        end)
 
         if self.pendingRenameId == row.id then
             self.pendingRenameId = nil
@@ -1763,8 +1728,6 @@ function Manager:Unmount()
     self:CloseTransfer()
     self.toolbarButtons = {}
     self.bulkBarButtons = {}
-    self.rowWidgets = {}
-    self.rowButtons = {}
     self.treePanel = nil
     self.tabs = nil
     self.tabsScopeSig = nil
