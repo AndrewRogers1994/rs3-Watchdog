@@ -792,7 +792,11 @@ manager = Manager.new({
     onBulkMove = onBulkMove,
     onExportEntries = onExportEntries,
     onImportJson = onImportJson,
-    windowParent = getRootParent,
+    -- Same owned Layer the main shell Window uses — dialog dies with mux.rootLayer on
+    -- Stop / reload, instead of orphaning under the game area.
+    windowParent = function()
+        return mux ~= nil and mux.rootLayer or nil
+    end,
 })
 
 -- Shared prettyui.Window host: Manager/Editor mount into Content()/Overlay(); Push/Pop swaps
@@ -806,6 +810,7 @@ mux = Multiplexer.new({
     minHeight = 220,
     scrollable = false,
     onHide = function()
+        pcall(function() manager:CloseTransfer() end)
         if ribbon ~= nil then
             pcall(function() ribbon:SetActive(false) end)
         end

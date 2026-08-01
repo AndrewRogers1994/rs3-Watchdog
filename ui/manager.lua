@@ -90,7 +90,7 @@ local TRANSFER_H  = 420
 ---@field onBulkMove fun(scopeKey: string, destScopeKey: string, ids: integer[])|nil
 ---@field onExportEntries fun(scopeKey: string, ids: integer[]|nil): boolean, string  # nil ids = whole scope; err or json
 ---@field onImportJson fun(scopeKey: string, text: string): boolean, Watchdog.ImportReport|string
----@field windowParent fun(): any|nil  # parent for the transfer prettyui.Window (game-area root)
+---@field windowParent fun(): any|nil  # parent Layer for the transfer Window (mux.rootLayer — plugin-owned)
 
 -- `scopes` is the injected scope provider: `fn() -> Watchdog.ManagerScope[]`, ordered (Global
 -- first, the current character second when logged in). Called live on every rebuild so a character
@@ -1134,7 +1134,9 @@ function Manager:_mountToolbar()
 end
 
 -- Copy-paste transfer as its own prettyui.Window (#94): titled chrome + AddText /
--- AddTextField / AddFancyButton. Oversize exports open in error mode with no payload.
+-- AddTextField / AddFancyButton. Parent is the mux-owned root Layer (same pattern as the
+-- main shell) so poff / plugins_reload / Stop tear the dialog down with the plugin — never
+-- parent directly to the game area. Oversize exports open in error mode with no payload.
 -- Save-to-file is present but disabled pending a filesystem API.
 function Manager:_mountTransfer()
     if self.transfer == nil then return end
