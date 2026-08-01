@@ -33,28 +33,6 @@ local Export = require("export")
 local Manager = {}
 Manager.__index = Manager
 
--- Layout constants (content-parent-local / tab-strip-local).
--- PrettyUI Tabs uses TAB_BASELINE ≈ 42 for the tab header strip (see prettyui/src/tabs.lua).
-local TAB_BASELINE = 42
-local ROW_H       = 22    -- one tree row
-local ENABLE_W    = 22    -- enable toggle width
-local SELECT_W    = 22    -- multi-select checkbox column (#93)
-local ACT_W       = 64    -- ren/del action button width (also Export per row, #94)
-local ACT_COUNT   = 3     -- Rename + Export + Delete per row (#94)
-local REORDER_W   = 22    -- Up / Down / Lift sprite buttons after select
-local REORDER_COUNT = 3
-local ROW_GAP     = 2     -- gap between controls inside a row
-local ROW_INDENT  = 12    -- px the name button shifts right per nesting level
-local PAGE_PAD    = 8     -- inset from content edge for the tree
-local TOOLBAR_H   = 27    -- PrettyUI FancyButton height
-local TOOLBAR_PAD = 8     -- inset for tab-strip actions
-local TOOLBAR_GAP = 6     -- gap between toolbar buttons
-local BULK_BAR_H  = 30    -- bulk-action bar height when any row is selected
-local TREE_TOP    = TAB_BASELINE + 4 -- tree sits below the PrettyUI tab strip (no bulk bar)
-local TRANSFER_W  = 440
-local TRANSFER_H  = 420
-
-
 -- A scope descriptor the injected provider hands back: which Bucket, how to label its tab, and its
 -- tree to render. `key` is the Bucket's `PersistentDB` key (`global` / `player_<normalized>`) — the
 -- same string main.lua persists and resolves live graphs under, so a row-open can round-trip it.
@@ -70,7 +48,7 @@ local TRANSFER_H  = 420
 ---@field id integer                  # the Entry id (the key a row-open reports back)
 ---@field name string                 # display text
 ---@field kind "alert"|"group"
----@field depth integer               # 0 at root; each nesting level adds one (→ ROW_INDENT px)
+---@field depth integer               # 0 at root; each nesting level adds one (→ Theme.MANAGER_ROW_INDENT px)
 ---@field childCount integer|nil      # group only: number of DIRECT children
 ---@field expanded boolean            # group only: whether its children are shown (false for alerts)
 ---@field enabled boolean             # the Entry's own enabled flag (drives the row enable Check)
@@ -739,7 +717,7 @@ end
 
 -- The one-line label a row's name button renders: a chevron for a group (▾ open / ▸
 -- collapsed), an icon, the name, and a group's direct-child count. Nesting indent is layout
--- (ROW_INDENT on the name button), not leading spaces. Kept pure so the exact string is
+-- (Theme.MANAGER_ROW_INDENT on the name button), not leading spaces. Kept pure so the exact string is
 -- assertable in tests without a mounted component. Enable / rename / delete are sibling
 -- controls (#91), not baked into this string.
 ---@param row Watchdog.ManagerRow
@@ -897,7 +875,7 @@ function Manager:_ensureTabs()
             y = 0,
             width = 0,
             widthAnchor = 1.0,
-            height = TAB_BASELINE + 1,
+            height = Theme.MANAGER_TAB_BASELINE + 1,
             scrollable = false,
             activeIndex = activeIndex,
             onChange = function(_, _index, value, _page)
@@ -1141,13 +1119,13 @@ function Manager:_mountToolbar()
         importW = select(1, prettyui.FancyButton.getSize("Import", { variant = "neutral" }))
         exportW = select(1, prettyui.FancyButton.getSize("Export", { variant = "neutral" }))
     end)
-    local y = math.max(0, math.floor((TAB_BASELINE - TOOLBAR_H) / 2))
+    local y = math.max(0, math.floor((Theme.MANAGER_TAB_BASELINE - Theme.MANAGER_TOOLBAR_H) / 2))
     local group, alert, importBtn, exportBtn
     -- Right-edge packing: [Import][Export][+ Alert][+ Group]  (rightmost = Group)
-    local xGroup = -TOOLBAR_PAD - groupW
-    local xAlert = xGroup - TOOLBAR_GAP - alertW
-    local xExport = xAlert - TOOLBAR_GAP - exportW
-    local xImport = xExport - TOOLBAR_GAP - importW
+    local xGroup = -Theme.MANAGER_TOOLBAR_PAD - groupW
+    local xAlert = xGroup - Theme.MANAGER_TOOLBAR_GAP - alertW
+    local xExport = xAlert - Theme.MANAGER_TOOLBAR_GAP - exportW
+    local xImport = xExport - Theme.MANAGER_TOOLBAR_GAP - importW
     pcall(function()
         group = prettyui.FancyButton.new(root, "+ Group", function()
             local id = self:CreateGroup()
@@ -1216,16 +1194,16 @@ function Manager:_mountTransfer()
     local ok = pcall(function()
         win = prettyui.Window.new(parent, {
             title = title,
-            x = -math.floor(TRANSFER_W / 2),
-            y = -math.floor(TRANSFER_H / 2),
+            x = -math.floor(Theme.MANAGER_TRANSFER_W / 2),
+            y = -math.floor(Theme.MANAGER_TRANSFER_H / 2),
             xAnchor = 0.5,
             yAnchor = 0.5,
-            width = TRANSFER_W,
-            height = TRANSFER_H,
-            minWidth = TRANSFER_W,
-            minHeight = TRANSFER_H,
-            maxWidth = TRANSFER_W,
-            maxHeight = TRANSFER_H,
+            width = Theme.MANAGER_TRANSFER_W,
+            height = Theme.MANAGER_TRANSFER_H,
+            minWidth = Theme.MANAGER_TRANSFER_W,
+            minHeight = Theme.MANAGER_TRANSFER_H,
+            maxWidth = Theme.MANAGER_TRANSFER_W,
+            maxHeight = Theme.MANAGER_TRANSFER_H,
             destroyOnClose = true,
             onClose = function()
                 -- Window:Close will Destroy after this (destroyOnClose). Clear Lua refs only.
@@ -1304,7 +1282,7 @@ function Manager:_mountBulkBar(y)
     if self.contentParent == nil or prettyui == nil or prettyui.FancyButton == nil then return end
     local ids = self:SelectedIds()
     local x = 0
-    local gap = TOOLBAR_GAP
+    local gap = Theme.MANAGER_TOOLBAR_GAP
 
     local function addFancy(label, variant, onPress)
         local btn
@@ -1314,7 +1292,7 @@ function Manager:_mountBulkBar(y)
         end)
         pcall(function()
             btn = prettyui.FancyButton.new(self.contentParent, label, onPress, {
-                x = PAGE_PAD + x,
+                x = Theme.MANAGER_PAGE_PAD + x,
                 y = y,
                 variant = variant,
                 inline = true,
@@ -1369,7 +1347,7 @@ function Manager:_mountBulkBar(y)
             exportBtn = prettyui.SpriteButton.new(self.contentParent, "EXPORT", function()
                 self:BulkExport(ids)
             end, {
-                x = PAGE_PAD + x,
+                x = Theme.MANAGER_PAGE_PAD + x,
                 y = y,
                 inline = true,
                 tooltip = "Export selected",
@@ -1402,24 +1380,24 @@ function Manager:_rebuild()
     self:_mountToolbar()
 
     local hasSel = self:HasSelection()
-    local bulkY = TREE_TOP
-    local treeTop = TREE_TOP
+    local bulkY = Theme.MANAGER_TREE_TOP
+    local treeTop = Theme.MANAGER_TREE_TOP
     if hasSel then
         self:_mountBulkBar(bulkY)
-        treeTop = TREE_TOP + BULK_BAR_H + 4
+        treeTop = Theme.MANAGER_TREE_TOP + Theme.MANAGER_BULK_BAR_H + 4
     end
 
     -- Tree: sibling of Tabs under contentParent, below the tab strip (and bulk bar when raised).
     -- Do NOT assign scrollable — read-only on ComponentCollection; writing it aborts the pcall
     -- and leaves no tree.
-    local rowW = math.max(40, w - 2 * PAGE_PAD)
-    local treeH = math.max(40, h - treeTop - PAGE_PAD)
+    local rowW = math.max(40, w - 2 * Theme.MANAGER_PAGE_PAD)
+    local treeH = math.max(40, h - treeTop - Theme.MANAGER_PAGE_PAD)
     local treeOk = pcall(function()
         self.treePanel = ui.Panel.new(self.contentParent)
         self.treePanel.isVertical = true
         self.treePanel.spacing = 0
         self.treePanel.clickthrough = false
-        self.treePanel:SetPos(PAGE_PAD, treeTop)
+        self.treePanel:SetPos(Theme.MANAGER_PAGE_PAD, treeTop)
         self.treePanel:SetSize(rowW, treeH)
         self.treePanel:MoveToFront()
     end)
@@ -1431,31 +1409,31 @@ function Manager:_rebuild()
     local rows = self:VisibleRows()
     local treeParent = self.treePanel
     -- Native ui.Button ren/export/del — PrettyUI SpriteButton crashes client teardown after PluginShutdown.
-    local baseNameW = math.max(40, rowW - ENABLE_W - SELECT_W - REORDER_COUNT * REORDER_W
-        - ACT_COUNT * ACT_W - (ACT_COUNT + REORDER_COUNT + 2) * ROW_GAP)
+    local baseNameW = math.max(40, rowW - Theme.MANAGER_ENABLE_W - Theme.MANAGER_SELECT_W - Theme.MANAGER_REORDER_COUNT * Theme.MANAGER_REORDER_W
+        - Theme.MANAGER_ACT_COUNT * Theme.MANAGER_ACT_W - (Theme.MANAGER_ACT_COUNT + Theme.MANAGER_REORDER_COUNT + 2) * Theme.MANAGER_ROW_GAP)
     for _, row in ipairs(rows) do
         local capturedRow = row
         local rowPanel = treeParent
         local okRow = pcall(function()
             rowPanel = ui.Panel.new(treeParent)
             rowPanel.isVertical = false
-            rowPanel.spacing = ROW_GAP
+            rowPanel.spacing = Theme.MANAGER_ROW_GAP
             rowPanel.clickthrough = true
-            rowPanel:SetSize(rowW, ROW_H)
+            rowPanel:SetSize(rowW, Theme.MANAGER_ROW_H)
         end)
         if not okRow or rowPanel == nil then
             rowPanel = treeParent
         end
 
-        local selectX = ENABLE_W + ROW_GAP
-        local upX = selectX + SELECT_W + ROW_GAP
-        local downX = upX + REORDER_W + ROW_GAP
-        local liftX = downX + REORDER_W + ROW_GAP
+        local selectX = Theme.MANAGER_ENABLE_W + Theme.MANAGER_ROW_GAP
+        local upX = selectX + Theme.MANAGER_SELECT_W + Theme.MANAGER_ROW_GAP
+        local downX = upX + Theme.MANAGER_REORDER_W + Theme.MANAGER_ROW_GAP
+        local liftX = downX + Theme.MANAGER_REORDER_W + Theme.MANAGER_ROW_GAP
         -- Horizontal ui.Panel auto-layouts children (ADR-0007) — SetPos X is ignored. Indent by
         -- inserting a spacer before the name button; size it so spacer + layout gap + nameW
         -- equals baseNameW and the Rename column stays put across depths.
-        local indent = (row.depth or 0) * ROW_INDENT
-        local nameX = liftX + REORDER_W + ROW_GAP + indent
+        local indent = (row.depth or 0) * Theme.MANAGER_ROW_INDENT
+        local nameX = liftX + Theme.MANAGER_REORDER_W + Theme.MANAGER_ROW_GAP + indent
         local nameW = math.max(40, baseNameW - indent)
         local canUp, canDown, canLift = self:RowMoveCaps(row.id)
 
@@ -1467,8 +1445,8 @@ function Manager:_rebuild()
                 pcall(function()
                     check.stylesheetID = safeCheckStyle()
                     check:SetPos(0, 0)
-                    check:SetSize(ENABLE_W, ROW_H)
-                    check.buttonSize = math.min(ENABLE_W - 2, ROW_H - 2)
+                    check:SetSize(Theme.MANAGER_ENABLE_W, Theme.MANAGER_ROW_H)
+                    check.buttonSize = math.min(Theme.MANAGER_ENABLE_W - 2, Theme.MANAGER_ROW_H - 2)
                     check.value = row.enabled and true or false
                     check.label = ""
                     check:Subscribe(ui.Hook.ONBUTTONPRESSED, function()
@@ -1484,7 +1462,7 @@ function Manager:_rebuild()
         end
         if not enableMounted then
             local mark = row.enabled and "[x]" or "[ ]"
-            mountButton(rowPanel, 0, 0, ENABLE_W, ROW_H, mark, function()
+            mountButton(rowPanel, 0, 0, Theme.MANAGER_ENABLE_W, Theme.MANAGER_ROW_H, mark, function()
                 self.pendingDeleteId = nil
                 self.pendingBulkDelete = false
                 self:ToggleEnabled(capturedRow.id)
@@ -1501,8 +1479,8 @@ function Manager:_rebuild()
                 pcall(function()
                     sel.stylesheetID = safeCheckStyle()
                     sel:SetPos(selectX, 0)
-                    sel:SetSize(SELECT_W, ROW_H)
-                    sel.buttonSize = math.min(SELECT_W - 2, ROW_H - 2)
+                    sel:SetSize(Theme.MANAGER_SELECT_W, Theme.MANAGER_ROW_H)
+                    sel.buttonSize = math.min(Theme.MANAGER_SELECT_W - 2, Theme.MANAGER_ROW_H - 2)
                     sel.value = self.selected[row.id] and true or false
                     sel.label = ""
                     sel:Subscribe(ui.Hook.ONBUTTONPRESSED, function()
@@ -1517,7 +1495,7 @@ function Manager:_rebuild()
         end
         if not selectMounted then
             local mark = self.selected[row.id] and "[*]" or "[ ]"
-            mountButton(rowPanel, selectX, 0, SELECT_W, ROW_H, mark, function()
+            mountButton(rowPanel, selectX, 0, Theme.MANAGER_SELECT_W, Theme.MANAGER_ROW_H, mark, function()
                 self.pendingDeleteId = nil
                 self:ToggleSelection(capturedRow.id, isShiftDown())
                 self:_rebuild()
@@ -1548,7 +1526,7 @@ function Manager:_rebuild()
                     if isEnabled then iconBtn.spriteID = sprite end
                 end)
             end
-            mountIconButton(upX, 0, REORDER_W, ROW_H,
+            mountIconButton(upX, 0, Theme.MANAGER_REORDER_W, Theme.MANAGER_ROW_H,
                 id.Sprite.RS3_ICON_DIRECTION_UP_32PX_2,
                 id.Sprite.RS3_ICON_DIRECTION_UP_32PX_3,
                 id.Sprite.RS3_ICON_DIRECTION_UP_32PX_4,
@@ -1558,7 +1536,7 @@ function Manager:_rebuild()
                     self:ReorderSibling(capturedRow.id, -1)
                     self:_rebuild()
                 end)
-            mountIconButton(downX, 0, REORDER_W, ROW_H,
+            mountIconButton(downX, 0, Theme.MANAGER_REORDER_W, Theme.MANAGER_ROW_H,
                 id.Sprite.RS3_ICON_DIRECTION_DOWN_32PX_2,
                 id.Sprite.RS3_ICON_DIRECTION_DOWN_32PX_3,
                 id.Sprite.RS3_ICON_DIRECTION_DOWN_32PX_4,
@@ -1568,7 +1546,7 @@ function Manager:_rebuild()
                     self:ReorderSibling(capturedRow.id, 1)
                     self:_rebuild()
                 end)
-            mountIconButton(liftX, 0, REORDER_W, ROW_H,
+            mountIconButton(liftX, 0, Theme.MANAGER_REORDER_W, Theme.MANAGER_ROW_H,
                 id.Sprite.RS3_ICON_DIRECTION_LEFT_32PX_2,
                 id.Sprite.RS3_ICON_DIRECTION_LEFT_32PX_3,
                 id.Sprite.RS3_ICON_DIRECTION_LEFT_32PX_4,
@@ -1581,47 +1559,47 @@ function Manager:_rebuild()
         end
 
         -- Nesting indent: empty Panel so horizontal auto-layout shifts the name button right.
-        -- spacerW + ROW_GAP + nameW == baseNameW keeps Rename/Export/Delete column-aligned.
-        if indent > ROW_GAP then
-            local spacerW = indent - ROW_GAP
+        -- spacerW + Theme.MANAGER_ROW_GAP + nameW == baseNameW keeps Rename/Export/Delete column-aligned.
+        if indent > Theme.MANAGER_ROW_GAP then
+            local spacerW = indent - Theme.MANAGER_ROW_GAP
             local spacer
             local okSp = pcall(function()
                 spacer = ui.Panel.new(rowPanel)
                 spacer.isVertical = false
                 spacer.spacing = 0
                 spacer.clickthrough = true
-                spacer:SetSize(spacerW, ROW_H)
+                spacer:SetSize(spacerW, Theme.MANAGER_ROW_H)
             end)
         end
 
-        mountButton(rowPanel, nameX, 0, nameW, ROW_H, self:RowLabel(row), function()
+        mountButton(rowPanel, nameX, 0, nameW, Theme.MANAGER_ROW_H, self:RowLabel(row), function()
             self.pendingDeleteId = nil
             self.pendingBulkDelete = false
             self:_onRowPress(capturedRow)
             if capturedRow.kind == "group" then self:_rebuild() end
         end)
 
-        local renameX = nameX + nameW + ROW_GAP
-        mountButton(rowPanel, renameX, 0, ACT_W, ROW_H, "Rename", function()
+        local renameX = nameX + nameW + Theme.MANAGER_ROW_GAP
+        mountButton(rowPanel, renameX, 0, Theme.MANAGER_ACT_W, Theme.MANAGER_ROW_H, "Rename", function()
             self.pendingDeleteId = nil
             self.pendingBulkDelete = false
             local fieldY = 0
             pcall(function() fieldY = rowPanel.y or 0 end)
-            self:_beginRename(capturedRow.id, capturedRow.name, nameX, fieldY, nameW, ROW_H)
+            self:_beginRename(capturedRow.id, capturedRow.name, nameX, fieldY, nameW, Theme.MANAGER_ROW_H)
         end)
 
-        local exportX = renameX + ACT_W + ROW_GAP
-        mountButton(rowPanel, exportX, 0, ACT_W, ROW_H, "Export", function()
+        local exportX = renameX + Theme.MANAGER_ACT_W + Theme.MANAGER_ROW_GAP
+        mountButton(rowPanel, exportX, 0, Theme.MANAGER_ACT_W, Theme.MANAGER_ROW_H, "Export", function()
             self.pendingDeleteId = nil
             self.pendingBulkDelete = false
             self:ExportRow(capturedRow.id)
         end)
 
-        local deleteX = exportX + ACT_W + ROW_GAP
+        local deleteX = exportX + Theme.MANAGER_ACT_W + Theme.MANAGER_ROW_GAP
         local armed = self.pendingDeleteId == row.id
         local delLabel = armed and self:_deleteConfirmLabel(row.id) or "Delete"
-        local delW = math.max(ACT_W, 8 + 7 * #delLabel)
-        mountButton(rowPanel, deleteX, 0, delW, ROW_H, delLabel, function()
+        local delW = math.max(Theme.MANAGER_ACT_W, 8 + 7 * #delLabel)
+        mountButton(rowPanel, deleteX, 0, delW, Theme.MANAGER_ROW_H, delLabel, function()
             self.pendingBulkDelete = false
             self:_onDeletePress(capturedRow.id)
         end)
@@ -1630,13 +1608,13 @@ function Manager:_rebuild()
             self.pendingRenameId = nil
             local fieldY = 0
             pcall(function() fieldY = rowPanel.y or 0 end)
-            self:_beginRename(row.id, row.name, nameX, fieldY, nameW, ROW_H)
+            self:_beginRename(row.id, row.name, nameX, fieldY, nameW, Theme.MANAGER_ROW_H)
         end
     end
 
     if self.treePanel ~= nil then
         pcall(function()
-            self.treePanel:SetScrollSize(rowW, #rows * ROW_H)
+            self.treePanel:SetScrollSize(rowW, #rows * Theme.MANAGER_ROW_H)
         end)
     end
 

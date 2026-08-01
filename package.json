@@ -1,5 +1,6 @@
 {
   "scripts": {
+    "bundle": "powershell -NoProfile -ExecutionPolicy Bypass -File bundle.ps1",
     "sandcastle": "npx tsx .sandcastle/main.mts",
     "test": "lua tests/run.lua",
     "typecheck": "lua-language-server --check . --checklevel=Warning"
