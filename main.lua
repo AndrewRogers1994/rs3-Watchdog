@@ -506,6 +506,26 @@ local function onDelete(scopeKey, id)
 end
 
 ---@param scopeKey string
+---@param id integer
+---@param delta integer
+local function onReorderSibling(scopeKey, id, delta)
+    local doc, key = scopeBucket(scopeKey)
+    if doc == nil then return end
+    if not Store.ReorderSibling(doc, id, delta) then return end
+    Store.SaveTo(key, doc)
+end
+
+---@param scopeKey string
+---@param id integer
+local function onLift(scopeKey, id)
+    local doc, key = scopeBucket(scopeKey)
+    if doc == nil then return end
+    if not Store.LiftEntry(doc, id) then return end
+    Store.SaveTo(key, doc)
+    -- Enabled-chain is live over the Store doc (runtime AncestorsEnabled); no Enter replay.
+end
+
+---@param scopeKey string
 ---@return integer|nil
 local function onCreateAlert(scopeKey)
     local doc, key, list = scopeBucket(scopeKey)
@@ -785,6 +805,8 @@ manager = Manager.new({
     onToggleEnabled = onToggleEnabled,
     onRename = onRename,
     onDelete = onDelete,
+    onReorderSibling = onReorderSibling,
+    onLift = onLift,
     onCreateAlert = onCreateAlert,
     onCreateGroup = onCreateGroup,
     onBulkDelete = onBulkDelete,

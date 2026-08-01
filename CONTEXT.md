@@ -52,8 +52,9 @@ character Bucket's `player_<normalized>` key (#89). Only `Store.Load` runs the o
 migration — a character Bucket has no legacy predecessor.
 _(Landed: per-character `player_<…>` Buckets (#89), the one-shot legacy `watchdog_graphs` migration
 (#87), the read-only Alert Manager render + Editor↔Manager navigation (#90), Manager row
-editing ops — create / rename / delete / enable (#91), multi-select / bulk actions (#93), and
-export/import copy-paste with the 2,500-byte guard (#94). Not yet landed: drag-reorder (#92).)_
+editing ops — create / rename / delete / enable (#91), multi-select / bulk actions (#93),
+export/import copy-paste with the 2,500-byte guard (#94), and sibling ↑↓ + Lift buttons.
+Not yet landed: drag nest / cross-scope (#92).)_
 _Avoid_: Database, save system, persistence layer (in prose), serializer (that's the engine's)
 
 **Capture Layer**:
@@ -213,13 +214,13 @@ each term points at the ticket that fixed it.
 
 **Alert Manager**:
 The single management surface the F8 keybind and the LibPluginMenu button open (`ui/manager.lua`):
-a **tab bar** of Scopes over a tree of Entries, each row carrying select / drag / enable / icon /
-name / rename / delete controls. Double-clicking an alert row navigates into the Editor; the two are
+a **tab bar** of Scopes over a tree of Entries, each row carrying enable / select / ↑↓ / Lift /
+name / rename / export / delete controls. Double-clicking an alert row navigates into the Editor; the two are
 separate surfaces, mounted once, with at most one visible at a time (#76, #78, #80). #90 landed the
 scope tabs, tree render (icon + name, group chevron + child count, expand/collapse),
 double-click-to-open, and the nav owner; #91 adds the per-row enable / rename / delete ops and the
-per-tab + Alert / + Group actions. PrettyUI chrome migration (tabs, toolbar, sprite actions) is
-planned ahead of drag-reorder (#92) and multi-select (#93) — [`docs/alert-manager-prettyui.md`](docs/alert-manager-prettyui.md).
+per-tab + Alert / + Group actions. Sibling reorder (↑↓) and Lift are per-row buttons; drag nest /
+cross-scope remains #92 — [`docs/alert-manager-prettyui.md`](docs/alert-manager-prettyui.md).
 The tree/scope/expand/mutation logic is pure and headless-tested; the mount/render half is
 client-only, the same split the Editor uses.
 _Avoid_: Alert list, manager window, dashboard; the Editor (that is the Canvas graph surface)
@@ -229,6 +230,13 @@ A node in a Scope's persisted tree — `kind = "alert" | "group"` — carrying a
 is the `id`; **names carry no uniqueness constraint**, so every operation keys on `id`, never name.
 Ordering is array position within its parent's `children` (#75).
 _Avoid_: Item, record, row (that is an Entry's on-screen rendering); "graph entry" (legacy Store term)
+
+**Lift**:
+Reparenting an Entry one level toward the root: it leaves its parent Group and becomes a sibling of
+that Group (a root Entry if the parent was itself a root), inserted immediately before the former
+parent. Distinct from reordering among siblings (Up / Down). The reverse — nesting one level deeper —
+is not part of this vocabulary yet (drag nest stays on #92).
+_Avoid_: Promote, outdent, move out, unnest, demote
 
 **Alert**:
 A leaf Entry (`kind = "alert"`) bundling one saved graph with its Layout and an `enabled` flag —

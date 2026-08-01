@@ -17,7 +17,7 @@
 -- #90 landed the tree/scope/expand read-only cut; #91 adds the per-row editing ops; PrettyUI
 -- chrome migration replaces hand-laid tab buttons and ASCII ren/del. Multi-select + bulk
 -- actions are #93; export/import copy-paste (#94) is a transfer modal over a ui.InputField.
--- Drag-reorder is #92.
+-- Sibling Up/Down + Lift are per-row sprite buttons; drag nest / cross-scope stays on #92.
 --
 -- ## Two halves
 --
@@ -41,6 +41,8 @@ local ENABLE_W    = 22    -- enable toggle width
 local SELECT_W    = 22    -- multi-select checkbox column (#93)
 local ACT_W       = 64    -- ren/del action button width (also Export per row, #94)
 local ACT_COUNT   = 3     -- Rename + Export + Delete per row (#94)
+local REORDER_W   = 22    -- Up / Down / Lift sprite buttons after select
+local REORDER_COUNT = 3
 local ROW_GAP     = 2     -- gap between controls inside a row
 local ROW_INDENT  = 12    -- px the name button shifts right per nesting level
 local PAGE_PAD    = 8     -- inset from content edge for the tree
@@ -84,6 +86,8 @@ local TRANSFER_H  = 420
 ---@field onToggleEnabled fun(scopeKey: string, id: integer)|nil
 ---@field onRename fun(scopeKey: string, id: integer, name: string)|nil
 ---@field onDelete fun(scopeKey: string, id: integer)|nil
+---@field onReorderSibling fun(scopeKey: string, id: integer, delta: integer)|nil  # -1 up / +1 down
+---@field onLift fun(scopeKey: string, id: integer)|nil
 ---@field onCreateAlert fun(scopeKey: string): integer|nil   # returns the minted alert id
 ---@field onCreateGroup fun(scopeKey: string): integer|nil   # returns the minted group id
 ---@field onBulkDelete fun(scopeKey: string, ids: integer[])|nil
@@ -110,6 +114,8 @@ function Manager.new(opts)
         onToggleEnabled = opts and opts.onToggleEnabled,
         onRename = opts and opts.onRename,
         onDelete = opts and opts.onDelete,
+        onReorderSibling = opts and opts.onReorderSibling,
+        onLift = opts and opts.onLift,
         onCreateAlert = opts and opts.onCreateAlert,
         onCreateGroup = opts and opts.onCreateGroup,
         onBulkDelete = opts and opts.onBulkDelete,
@@ -364,6 +370,58 @@ function Manager:Delete(id)
     local scopeKey = self:ActiveScopeKey()
     if scopeKey == nil or self.onDelete == nil then return end
     pcall(self.onDelete, scopeKey, id)
+    bumpMutate(self)
+end
+
+-- Locates `id` in `entries`, returning the entry, its sibling array, index, and parent Entry
+-- (nil at root). Used for ↑/↓/Lift enablement without a Store dependency.
+---@param entries Watchdog.Entry[]|nil
+---@param id integer
+---@param parent Watchdog.Entry|nil
+---@return Watchdog.Entry|nil entry
+---@return Watchdog.Entry[]|nil siblings
+---@return integer|nil index
+---@return Watchdog.Entry|nil parent
+local function findInTree(entries, id, parent)
+    for i, e in ipairs(entries or {}) do
+        if e.id == id then return e, entries, i, parent end
+        if e.children ~= nil then
+            local found, siblings, index, p = findInTree(e.children, id, e)
+            if found ~= nil then return found, siblings, index, p end
+        end
+    end
+    return nil, nil, nil, nil
+end
+
+-- Whether ↑ / ↓ / Lift are legal for `id` in the active scope (tree siblings only).
+---@param id integer
+---@return boolean canUp
+---@return boolean canDown
+---@return boolean canLift
+function Manager:RowMoveCaps(id)
+    local scope = self:ActiveScope()
+    if scope == nil or scope.doc == nil then return false, false, false end
+    local entry, siblings, index, parent = findInTree(scope.doc.entries, id, nil)
+    if entry == nil or siblings == nil or index == nil then return false, false, false end
+    return index > 1, index < #siblings, parent ~= nil
+end
+
+-- Swaps the Entry one step among its siblings via the host (`delta` -1 = up, +1 = down).
+---@param id integer
+---@param delta integer
+function Manager:ReorderSibling(id, delta)
+    local scopeKey = self:ActiveScopeKey()
+    if scopeKey == nil or self.onReorderSibling == nil then return end
+    pcall(self.onReorderSibling, scopeKey, id, delta)
+    bumpMutate(self)
+end
+
+-- Lifts the Entry one level toward the root via the host (insert before former parent).
+---@param id integer
+function Manager:Lift(id)
+    local scopeKey = self:ActiveScopeKey()
+    if scopeKey == nil or self.onLift == nil then return end
+    pcall(self.onLift, scopeKey, id)
     bumpMutate(self)
 end
 
@@ -898,6 +956,7 @@ function Manager:_clearChildren()
 end
 
 -- Helper: mount a Button under `parent` with text `label`, at (x,y)/(w,h), wired to `onPress`.
+-- When `enabled` is false the button is shown disabled and presses are ignored.
 ---@param parent ui.ComponentCollection
 ---@param bucket table[]
 ---@param x number
@@ -906,8 +965,9 @@ end
 ---@param h number
 ---@param label string
 ---@param onPress fun()
+---@param enabled boolean|nil
 ---@return ui.Button|nil
-local function mountButton(parent, bucket, x, y, w, h, label, onPress)
+local function mountButton(parent, bucket, x, y, w, h, label, onPress, enabled)
     local button
     local okb = pcall(function() button = ui.Button.new(parent) end)
     if not okb or button == nil then return nil end
@@ -916,7 +976,10 @@ local function mountButton(parent, bucket, x, y, w, h, label, onPress)
     button:SetPos(x, y)
     button:SetSize(w, h)
     pcall(function() button.text.content = label end)
+    local isEnabled = enabled ~= false
+    pcall(function() button.enabled = isEnabled end)
     button:Subscribe(ui.Hook.ONBUTTONPRESSED, function()
+        if not isEnabled then return true end
         onPress()
         return true
     end)
@@ -1374,7 +1437,8 @@ function Manager:_rebuild()
     local rows = self:VisibleRows()
     local treeParent = self.treePanel
     -- Native ui.Button ren/export/del — PrettyUI SpriteButton crashes client teardown after PluginShutdown.
-    local baseNameW = math.max(40, rowW - ENABLE_W - SELECT_W - ACT_COUNT * ACT_W - (ACT_COUNT + 2) * ROW_GAP)
+    local baseNameW = math.max(40, rowW - ENABLE_W - SELECT_W - REORDER_COUNT * REORDER_W
+        - ACT_COUNT * ACT_W - (ACT_COUNT + REORDER_COUNT + 2) * ROW_GAP)
     for _, row in ipairs(rows) do
         local capturedRow = row
         local rowPanel = treeParent
@@ -1393,12 +1457,16 @@ function Manager:_rebuild()
         end
 
         local selectX = ENABLE_W + ROW_GAP
+        local upX = selectX + SELECT_W + ROW_GAP
+        local downX = upX + REORDER_W + ROW_GAP
+        local liftX = downX + REORDER_W + ROW_GAP
         -- Horizontal ui.Panel auto-layouts children (ADR-0007) — SetPos X is ignored. Indent by
         -- inserting a spacer before the name button; size it so spacer + layout gap + nameW
         -- equals baseNameW and the Rename column stays put across depths.
         local indent = (row.depth or 0) * ROW_INDENT
-        local nameX = selectX + SELECT_W + ROW_GAP + indent
+        local nameX = liftX + REORDER_W + ROW_GAP + indent
         local nameW = math.max(40, baseNameW - indent)
+        local canUp, canDown, canLift = self:RowMoveCaps(row.id)
 
         local enableMounted = false
         if ui.Check ~= nil then
@@ -1471,6 +1539,65 @@ function Manager:_rebuild()
                 self:ToggleSelection(capturedRow.id, isShiftDown())
                 self:_rebuild()
             end)
+        end
+
+        -- Sibling Up/Down/Lift: sprite icons after select (client fonts are ASCII-only).
+        -- Always visible; disabled sprite + no-op click when illegal.
+        do
+            local function mountIconButton(x, y, w, h, sprite, spriteHover, spriteDisabled, isEnabled, onClick)
+                local iconBtn
+                local ok = pcall(function() iconBtn = ui.Sprite.new(rowPanel) end)
+                if not ok or iconBtn == nil then return end
+                pcall(function()
+                    iconBtn.spriteID = isEnabled and sprite or spriteDisabled
+                    iconBtn:SetPos(x, y)
+                    iconBtn:SetSize(w, h)
+                end)
+                iconBtn:Subscribe(ui.Hook.ONCLICK, function()
+                    if not isEnabled then return true end
+                    onClick()
+                    return true
+                end)
+                iconBtn:Subscribe(ui.Hook.ONMOUSEOVER, function()
+                    if isEnabled then iconBtn.spriteID = spriteHover end
+                end)
+                iconBtn:Subscribe(ui.Hook.ONMOUSELEAVE, function()
+                    if isEnabled then iconBtn.spriteID = sprite end
+                end)
+                if rowPanel == treeParent then
+                    self.rowButtons[#self.rowButtons + 1] = iconBtn
+                end
+            end
+            mountIconButton(upX, 0, REORDER_W, ROW_H,
+                id.Sprite.RS3_ICON_DIRECTION_UP_32PX_2,
+                id.Sprite.RS3_ICON_DIRECTION_UP_32PX_3,
+                id.Sprite.RS3_ICON_DIRECTION_UP_32PX_4,
+                canUp, function()
+                    self.pendingDeleteId = nil
+                    self.pendingBulkDelete = false
+                    self:ReorderSibling(capturedRow.id, -1)
+                    self:_rebuild()
+                end)
+            mountIconButton(downX, 0, REORDER_W, ROW_H,
+                id.Sprite.RS3_ICON_DIRECTION_DOWN_32PX_2,
+                id.Sprite.RS3_ICON_DIRECTION_DOWN_32PX_3,
+                id.Sprite.RS3_ICON_DIRECTION_DOWN_32PX_4,
+                canDown, function()
+                    self.pendingDeleteId = nil
+                    self.pendingBulkDelete = false
+                    self:ReorderSibling(capturedRow.id, 1)
+                    self:_rebuild()
+                end)
+            mountIconButton(liftX, 0, REORDER_W, ROW_H,
+                id.Sprite.RS3_ICON_DIRECTION_LEFT_32PX_2,
+                id.Sprite.RS3_ICON_DIRECTION_LEFT_32PX_3,
+                id.Sprite.RS3_ICON_DIRECTION_LEFT_32PX_4,
+                canLift, function()
+                    self.pendingDeleteId = nil
+                    self.pendingBulkDelete = false
+                    self:Lift(capturedRow.id)
+                    self:_rebuild()
+                end)
         end
 
         -- Nesting indent: empty Panel so horizontal auto-layout shifts the name button right.

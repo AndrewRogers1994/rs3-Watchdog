@@ -352,6 +352,102 @@ function TestStore:testMoveSubtreeToMissingParentIsRefused()
     luaunit.assertEquals(#doc.entries, 1) -- still at root
 end
 
+--- Sibling reorder + Lift (MVP buttons; drag nest/scope stays on #92) ----------------------
+
+function TestStore:testReorderSiblingSwapsAdjacentAtRoot()
+    local doc = Store.Empty()
+    local a = seedAlert(self, doc, "a", true)
+    local b = seedAlert(self, doc, "b", true)
+    local c = seedAlert(self, doc, "c", true)
+    luaunit.assertTrue(Store.ReorderSibling(doc, b, -1))
+    luaunit.assertEquals({ doc.entries[1].id, doc.entries[2].id, doc.entries[3].id }, { b, a, c })
+    luaunit.assertTrue(Store.ReorderSibling(doc, b, 1))
+    luaunit.assertEquals({ doc.entries[1].id, doc.entries[2].id, doc.entries[3].id }, { a, b, c })
+end
+
+function TestStore:testReorderSiblingSwapsInsideGroup()
+    local doc = Store.Empty()
+    local groupId = Store.MintId(doc)
+    Store.InsertEntry(doc, Store.NewGroupEntry(groupId, "g", true, {}))
+    local a = seedAlert(self, doc, "a", true, groupId)
+    local b = seedAlert(self, doc, "b", true, groupId)
+    luaunit.assertTrue(Store.ReorderSibling(doc, a, 1))
+    local g = Store.FindById(doc, groupId)
+    luaunit.assertEquals({ g.children[1].id, g.children[2].id }, { b, a })
+end
+
+function TestStore:testReorderSiblingRefusesOutOfBounds()
+    local doc = Store.Empty()
+    local a = seedAlert(self, doc, "a", true)
+    local b = seedAlert(self, doc, "b", true)
+    luaunit.assertFalse(Store.ReorderSibling(doc, a, -1))
+    luaunit.assertFalse(Store.ReorderSibling(doc, b, 1))
+    luaunit.assertEquals({ doc.entries[1].id, doc.entries[2].id }, { a, b })
+end
+
+function TestStore:testReorderSiblingRefusesUnknownId()
+    local doc = Store.Empty()
+    seedAlert(self, doc, "a", true)
+    luaunit.assertFalse(Store.ReorderSibling(doc, 999, 1))
+end
+
+function TestStore:testLiftEntryInsertsBeforeFormerParentAtRoot()
+    -- child under G beside sibling S → Lift(child) ⇒ child, G, S
+    local doc = Store.Empty()
+    local groupId = Store.MintId(doc)
+    Store.InsertEntry(doc, Store.NewGroupEntry(groupId, "g", true, {}))
+    local sibling = seedAlert(self, doc, "s", true)
+    local child = seedAlert(self, doc, "c", true, groupId)
+    luaunit.assertTrue(Store.LiftEntry(doc, child))
+    luaunit.assertEquals(
+        { doc.entries[1].id, doc.entries[2].id, doc.entries[3].id },
+        { child, groupId, sibling }
+    )
+    local g = Store.FindById(doc, groupId)
+    luaunit.assertEquals(#(g.children or {}), 0)
+end
+
+function TestStore:testLiftEntryInsertsBeforeFormerParentNested()
+    -- outer > inner > leaf; Lift(leaf) ⇒ outer's children become leaf, inner
+    local doc = Store.Empty()
+    local outerId = Store.MintId(doc)
+    Store.InsertEntry(doc, Store.NewGroupEntry(outerId, "outer", true, {}))
+    local innerId = Store.MintId(doc)
+    Store.InsertEntry(doc, Store.NewGroupEntry(innerId, "inner", true, {}), outerId)
+    local leaf = seedAlert(self, doc, "leaf", true, innerId)
+    luaunit.assertTrue(Store.LiftEntry(doc, leaf))
+    local outer = Store.FindById(doc, outerId)
+    luaunit.assertEquals({ outer.children[1].id, outer.children[2].id }, { leaf, innerId })
+    local inner = Store.FindById(doc, innerId)
+    luaunit.assertEquals(#(inner.children or {}), 0)
+end
+
+function TestStore:testLiftEntryCarriesGroupSubtree()
+    local doc = Store.Empty()
+    local outerId = Store.MintId(doc)
+    Store.InsertEntry(doc, Store.NewGroupEntry(outerId, "outer", true, {}))
+    local innerId = Store.MintId(doc)
+    Store.InsertEntry(doc, Store.NewGroupEntry(innerId, "inner", true, {}), outerId)
+    local nested = seedAlert(self, doc, "n", true, innerId)
+    luaunit.assertTrue(Store.LiftEntry(doc, innerId))
+    luaunit.assertEquals({ doc.entries[1].id, doc.entries[2].id }, { innerId, outerId })
+    local inner = Store.FindById(doc, innerId)
+    luaunit.assertEquals(inner.children[1].id, nested)
+end
+
+function TestStore:testLiftEntryRefusesRoot()
+    local doc = Store.Empty()
+    local a = seedAlert(self, doc, "a", true)
+    luaunit.assertFalse(Store.LiftEntry(doc, a))
+    luaunit.assertEquals(#doc.entries, 1)
+end
+
+function TestStore:testLiftEntryRefusesUnknownId()
+    local doc = Store.Empty()
+    seedAlert(self, doc, "a", true)
+    luaunit.assertFalse(Store.LiftEntry(doc, 999))
+end
+
 --- Bulk helpers (#93): NearestCommonAncestor / GroupSelected / MoveEntryToBucket -------------
 
 function TestStore:testNearestCommonAncestorNilForRootSiblings()

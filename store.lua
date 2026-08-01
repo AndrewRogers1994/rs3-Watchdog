@@ -284,6 +284,67 @@ function Store.MoveSubtree(doc, id, newParentId)
     return Store.InsertEntry(doc, entry, newParentId)
 end
 
+-- Swaps the entry with `id` one step among its siblings (`delta` = -1 up, +1 down). Returns true
+-- on success; false when the id is missing or the move would leave the sibling array bounds.
+-- Same-parent only — does not reparent (see LiftEntry). Mutates `doc` in place.
+---@param doc Watchdog.Bucket
+---@param id integer
+---@param delta integer                            # -1 = toward index 1; +1 = toward end
+---@return boolean
+function Store.ReorderSibling(doc, id, delta)
+    if type(delta) ~= "number" or delta == 0 then return false end
+    local entry, siblings, index = Store.FindById(doc, id)
+    if entry == nil or siblings == nil or index == nil then return false end
+    local newIndex = index + delta
+    if newIndex < 1 or newIndex > #siblings then return false end
+    siblings[index], siblings[newIndex] = siblings[newIndex], siblings[index]
+    return true
+end
+
+-- Lift: reparent one level toward the root and insert immediately before the former parent.
+-- Carries the whole subtree when `id` is a group. Returns false when missing or already root.
+-- Mutates `doc` in place. Distinct from MoveSubtree (which appends at the destination).
+---@param doc Watchdog.Bucket
+---@param id integer
+---@return boolean
+function Store.LiftEntry(doc, id)
+    local entry, siblings, index = Store.FindById(doc, id)
+    if entry == nil or siblings == nil or index == nil then return false end
+    local ancestors = Store.AncestorIds(doc, id)
+    if #ancestors == 0 then return false end
+    local parentId = ancestors[#ancestors]
+    local newParentId = (#ancestors >= 2) and ancestors[#ancestors - 1] or nil
+    table.remove(siblings, index)
+    ---@type Watchdog.Entry[]
+    local dest
+    if newParentId == nil then
+        doc.entries = doc.entries or {}
+        dest = doc.entries
+    else
+        local grand = Store.FindById(doc, newParentId)
+        if grand == nil or grand.kind ~= "group" then
+            -- Destination vanished mid-op — put the entry back where it was.
+            table.insert(siblings, index, entry)
+            return false
+        end
+        grand.children = grand.children or {}
+        dest = grand.children
+    end
+    local insertAt = nil
+    for i, e in ipairs(dest) do
+        if e.id == parentId then
+            insertAt = i
+            break
+        end
+    end
+    if insertAt == nil then
+        table.insert(siblings, index, entry)
+        return false
+    end
+    table.insert(dest, insertAt, entry)
+    return true
+end
+
 --- Enabled-chain (#88) --------------------------------------------------------------------
 -- `enabled` is an inheritable master switch: an alert fires iff its own `enabled` AND every
 -- ancestor group's `enabled` are true — the enabled-chain. A group's flag is stored on the group

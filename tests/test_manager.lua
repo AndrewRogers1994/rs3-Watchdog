@@ -332,6 +332,57 @@ function TestManager:testHostMutationReflectedInVisibleRows()
     luaunit.assertEquals(mgr:VisibleRows(), {})
 end
 
+function TestManager:testRowMoveCapsAtRoot()
+    local doc = bucket({ alert(1, "a"), alert(2, "b"), alert(3, "c") })
+    local mgr = self:makeManager({ { key = "global", label = "Global", doc = doc } })
+    local u1, d1, l1 = mgr:RowMoveCaps(1)
+    local u2, d2, l2 = mgr:RowMoveCaps(2)
+    local u3, d3, l3 = mgr:RowMoveCaps(3)
+    luaunit.assertEquals({ u1, d1, l1 }, { false, true, false })
+    luaunit.assertEquals({ u2, d2, l2 }, { true, true, false })
+    luaunit.assertEquals({ u3, d3, l3 }, { true, false, false })
+end
+
+function TestManager:testRowMoveCapsNestedCanLift()
+    local doc = bucket({
+        group(10, "g", { alert(1, "child"), alert(2, "sib") }),
+        alert(3, "root"),
+    })
+    local mgr = self:makeManager({ { key = "global", label = "Global", doc = doc } })
+    local u1, d1, l1 = mgr:RowMoveCaps(1)
+    local u2, d2, l2 = mgr:RowMoveCaps(2)
+    local u10, d10, l10 = mgr:RowMoveCaps(10)
+    luaunit.assertEquals({ u1, d1, l1 }, { false, true, true })
+    luaunit.assertEquals({ u2, d2, l2 }, { true, false, true })
+    luaunit.assertEquals({ u10, d10, l10 }, { false, true, false })
+end
+
+function TestManager:testReorderSiblingReportsDelta()
+    local calls = {}
+    local doc = bucket({ alert(1, "a"), alert(2, "b") })
+    local mgr = self:makeManager(
+        { { key = "global", label = "Global", doc = doc } },
+        {
+            onReorderSibling = function(scopeKey, id, delta)
+                calls[#calls + 1] = { scopeKey, id, delta }
+            end,
+        }
+    )
+    mgr:ReorderSibling(2, -1)
+    luaunit.assertEquals(calls, { { "global", 2, -1 } })
+end
+
+function TestManager:testLiftReportsActiveScopeAndId()
+    local calls = {}
+    local doc = bucket({ group(10, "g", { alert(1, "child") }) })
+    local mgr = self:makeManager(
+        { { key = "global", label = "Global", doc = doc } },
+        { onLift = function(scopeKey, id) calls[#calls + 1] = { scopeKey, id } end }
+    )
+    mgr:Lift(1)
+    luaunit.assertEquals(calls, { { "global", 1 } })
+end
+
 function TestManager:testCreateGroupReturnsMintedIdFromHost()
     local mgr = self:makeManager(
         { { key = "global", label = "Global", doc = bucket({}) } },
