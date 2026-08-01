@@ -42,6 +42,7 @@ local SELECT_W    = 22    -- multi-select checkbox column (#93)
 local ACT_W       = 64    -- ren/del action button width (also Export per row, #94)
 local ACT_COUNT   = 3     -- Rename + Export + Delete per row (#94)
 local ROW_GAP     = 2     -- gap between controls inside a row
+local ROW_INDENT  = 12    -- px the name button shifts right per nesting level
 local PAGE_PAD    = 8     -- inset from content edge for the tree
 local TOOLBAR_H   = 27    -- PrettyUI FancyButton height
 local TOOLBAR_PAD = 8     -- inset for tab-strip actions
@@ -680,19 +681,19 @@ end
 
 --- Client view: rows glyphs ---------------------------------------------------------------
 
--- The one-line label a row's name button renders: indent, a chevron for a group (▾ open / ▸
--- collapsed), an icon, the name, and a group's direct-child count. Kept pure so the exact string
--- is assertable in tests without a mounted component. Enable / rename / delete are sibling
+-- The one-line label a row's name button renders: a chevron for a group (▾ open / ▸
+-- collapsed), an icon, the name, and a group's direct-child count. Nesting indent is layout
+-- (ROW_INDENT on the name button), not leading spaces. Kept pure so the exact string is
+-- assertable in tests without a mounted component. Enable / rename / delete are sibling
 -- controls (#91), not baked into this string.
 ---@param row Watchdog.ManagerRow
 ---@return string
 function Manager:RowLabel(row)
-    local indent = string.rep("  ", row.depth)
     if row.kind == "group" then
         local chevron = row.expanded and "v" or ">"
-        return indent .. chevron .. " | " .. row.name .. " (" .. tostring(row.childCount or 0) .. ")"
+        return chevron .. " | " .. row.name .. " (" .. tostring(row.childCount or 0) .. ")"
     end
-    return indent .. row.name
+    return row.name
 end
 
 --- Client view: mount / render (client-only, pcall-guarded) -------------------------------
@@ -1373,7 +1374,7 @@ function Manager:_rebuild()
     local rows = self:VisibleRows()
     local treeParent = self.treePanel
     -- Native ui.Button ren/export/del — PrettyUI SpriteButton crashes client teardown after PluginShutdown.
-    local nameW = math.max(40, rowW - ENABLE_W - SELECT_W - ACT_COUNT * ACT_W - (ACT_COUNT + 2) * ROW_GAP)
+    local baseNameW = math.max(40, rowW - ENABLE_W - SELECT_W - ACT_COUNT * ACT_W - (ACT_COUNT + 2) * ROW_GAP)
     for _, row in ipairs(rows) do
         local capturedRow = row
         local rowPanel = treeParent
@@ -1392,7 +1393,12 @@ function Manager:_rebuild()
         end
 
         local selectX = ENABLE_W + ROW_GAP
-        local nameX = selectX + SELECT_W + ROW_GAP
+        -- Horizontal ui.Panel auto-layouts children (ADR-0007) — SetPos X is ignored. Indent by
+        -- inserting a spacer before the name button; size it so spacer + layout gap + nameW
+        -- equals baseNameW and the Rename column stays put across depths.
+        local indent = (row.depth or 0) * ROW_INDENT
+        local nameX = selectX + SELECT_W + ROW_GAP + indent
+        local nameW = math.max(40, baseNameW - indent)
 
         local enableMounted = false
         if ui.Check ~= nil then
@@ -1465,6 +1471,23 @@ function Manager:_rebuild()
                 self:ToggleSelection(capturedRow.id, isShiftDown())
                 self:_rebuild()
             end)
+        end
+
+        -- Nesting indent: empty Panel so horizontal auto-layout shifts the name button right.
+        -- spacerW + ROW_GAP + nameW == baseNameW keeps Rename/Export/Delete column-aligned.
+        if indent > ROW_GAP then
+            local spacerW = indent - ROW_GAP
+            local spacer
+            local okSp = pcall(function()
+                spacer = ui.Panel.new(rowPanel)
+                spacer.isVertical = false
+                spacer.spacing = 0
+                spacer.clickthrough = true
+                spacer:SetSize(spacerW, ROW_H)
+            end)
+            if okSp and spacer ~= nil and rowPanel == treeParent then
+                self.rowButtons[#self.rowButtons + 1] = spacer
+            end
         end
 
         do

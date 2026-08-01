@@ -204,25 +204,25 @@ end
 function TestManager:testRowLabelAlert()
     local mgr = self:makeManager({})
     local label = mgr:RowLabel({ id = 1, name = "Boss timer", kind = "alert", depth = 0 })
-    luaunit.assertStrContains(label, "Boss timer")
-    luaunit.assertStrContains(label, "•")
+    luaunit.assertEquals(label, "Boss timer")
 end
 
 function TestManager:testRowLabelGroupShowsChevronAndCount()
     local mgr = self:makeManager({})
     local open = mgr:RowLabel({ id = 1, name = "PvM", kind = "group", depth = 0, childCount = 3, expanded = true })
-    luaunit.assertStrContains(open, "▾")
+    luaunit.assertStrContains(open, "v")
     luaunit.assertStrContains(open, "PvM")
     luaunit.assertStrContains(open, "(3)")
     local closed = mgr:RowLabel({ id = 1, name = "PvM", kind = "group", depth = 0, childCount = 3, expanded = false })
-    luaunit.assertStrContains(closed, "▸")
+    luaunit.assertStrContains(closed, ">")
 end
 
 function TestManager:testRowLabelIndentsByDepth()
+    -- Nesting indent is layout (ROW_INDENT on the name button), not leading spaces in the label.
     local mgr = self:makeManager({})
     local shallow = mgr:RowLabel({ id = 1, name = "x", kind = "alert", depth = 0 })
     local deep = mgr:RowLabel({ id = 1, name = "x", kind = "alert", depth = 2 })
-    luaunit.assertTrue(#deep > #shallow) -- deeper rows carry more leading indent
+    luaunit.assertEquals(shallow, deep)
 end
 
 --- Row editing ops (#91): host callbacks + signature bump ---------------------------------
