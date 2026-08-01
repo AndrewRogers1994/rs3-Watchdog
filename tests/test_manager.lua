@@ -375,3 +375,152 @@ function TestManager:testActiveScopeIndexFollowsSelection()
     mgr:SetActiveScope("player_alice")
     luaunit.assertEquals(mgr:_activeScopeIndex(), 2)
 end
+
+--- Multi-select (#93): antichain, shift-range, clear-on-collapse / scope-switch -------------
+-- Selection is a group-as-unit antichain over VisibleRows() order. Pure seam: ToggleSelection /
+-- NormalizeSelection / ClearSelection / SelectedIds / HasSelection; clear on scope switch and
+-- on collapse of a group that contains a selected id.
+
+local function selectedSet(mgr)
+    local set = {}
+    for _, id in ipairs(mgr:SelectedIds()) do set[id] = true end
+    return set
+end
+
+function TestManager:testSelectionStartsEmpty()
+    local mgr = self:makeManager({
+        { key = "global", label = "Global", doc = bucket({ alert(1, "a") }) },
+    })
+    luaunit.assertFalse(mgr:HasSelection())
+    luaunit.assertEquals(mgr:SelectedIds(), {})
+end
+
+function TestManager:testToggleSelectionAddsAndRemoves()
+    local doc = bucket({ alert(1, "a"), alert(2, "b") })
+    local mgr = self:makeManager({ { key = "global", label = "Global", doc = doc } })
+    mgr:ToggleSelection(1, false)
+    luaunit.assertTrue(mgr:HasSelection())
+    luaunit.assertEquals(selectedSet(mgr), { [1] = true })
+    mgr:ToggleSelection(1, false)
+    luaunit.assertFalse(mgr:HasSelection())
+    luaunit.assertEquals(mgr:SelectedIds(), {})
+end
+
+function TestManager:testToggleSelectionBumpsSelectVersionInSignature()
+    local mgr = self:makeManager({
+        { key = "global", label = "Global", doc = bucket({ alert(1, "a") }) },
+    })
+    local before = mgr:_signature()
+    mgr:ToggleSelection(1, false)
+    luaunit.assertNotEquals(mgr:_signature(), before)
+end
+
+function TestManager:testNormalizeSelectionDropsDescendantsOfSelectedGroup()
+    -- Group-as-unit antichain: selecting a group represents its subtree; no descendant stays
+    -- separately selected (no tri-state).
+    local doc = bucket({
+        group(1, "g", { alert(2, "a"), alert(3, "b") }),
+        alert(4, "tail"),
+    })
+    local mgr = self:makeManager({ { key = "global", label = "Global", doc = doc } })
+    mgr:ToggleSelection(2, false)
+    mgr:ToggleSelection(3, false)
+    mgr:ToggleSelection(1, false) -- selecting the group absorbs the children
+    luaunit.assertEquals(selectedSet(mgr), { [1] = true })
+end
+
+function TestManager:testNormalizeSelectionDropsChildWhenAncestorAlreadySelected()
+    local doc = bucket({
+        group(1, "g", { alert(2, "a") }),
+    })
+    local mgr = self:makeManager({ { key = "global", label = "Global", doc = doc } })
+    mgr:ToggleSelection(1, false)
+    mgr:ToggleSelection(2, false) -- child under selected group is dropped by antichain
+    luaunit.assertEquals(selectedSet(mgr), { [1] = true })
+end
+
+function TestManager:testShiftClickSelectsVisibleRange()
+    local doc = bucket({
+        alert(1, "a"),
+        alert(2, "b"),
+        alert(3, "c"),
+        alert(4, "d"),
+    })
+    local mgr = self:makeManager({ { key = "global", label = "Global", doc = doc } })
+    mgr:ToggleSelection(1, false)
+    mgr:ToggleSelection(3, true) -- Shift from last (1) → 3
+    luaunit.assertEquals(selectedSet(mgr), { [1] = true, [2] = true, [3] = true })
+end
+
+function TestManager:testShiftClickRangeUsesVisibleOrderNotCollapsedSubtree()
+    local doc = bucket({
+        alert(1, "a"),
+        group(2, "g", { alert(3, "hidden"), alert(4, "also") }),
+        alert(5, "e"),
+    })
+    local mgr = self:makeManager({ { key = "global", label = "Global", doc = doc } })
+    mgr:ToggleExpand("global", 2) -- collapse; visible = 1, 2, 5
+    mgr:ToggleSelection(1, false)
+    mgr:ToggleSelection(5, true)
+    luaunit.assertEquals(selectedSet(mgr), { [1] = true, [2] = true, [5] = true })
+    luaunit.assertNil(selectedSet(mgr)[3])
+    luaunit.assertNil(selectedSet(mgr)[4])
+end
+
+function TestManager:testSetActiveScopeClearsSelection()
+    local mgr = self:makeManager({
+        { key = "global", label = "Global", doc = bucket({ alert(1, "a") }) },
+        { key = "player_alice", label = "Alice", doc = bucket({ alert(9, "b") }) },
+    })
+    mgr:ToggleSelection(1, false)
+    luaunit.assertTrue(mgr:HasSelection())
+    mgr:SetActiveScope("player_alice")
+    luaunit.assertFalse(mgr:HasSelection())
+    luaunit.assertEquals(mgr:SelectedIds(), {})
+end
+
+function TestManager:testCollapseOfGroupContainingSelectionDropsInside()
+    local doc = bucket({
+        group(1, "g", { alert(2, "a"), alert(3, "b") }),
+        alert(4, "tail"),
+    })
+    local mgr = self:makeManager({ { key = "global", label = "Global", doc = doc } })
+    mgr:ToggleSelection(2, false)
+    mgr:ToggleSelection(4, false)
+    mgr:ToggleExpand("global", 1) -- collapse: drop selection inside g, keep outside
+    luaunit.assertEquals(selectedSet(mgr), { [4] = true })
+end
+
+function TestManager:testCollapseOfUnrelatedGroupPreservesSelection()
+    local doc = bucket({
+        group(1, "g", { alert(2, "a") }),
+        alert(3, "tail"),
+    })
+    local mgr = self:makeManager({ { key = "global", label = "Global", doc = doc } })
+    mgr:ToggleSelection(3, false)
+    mgr:ToggleExpand("global", 1) -- collapse a group that does not contain the selection
+    luaunit.assertEquals(selectedSet(mgr), { [3] = true })
+end
+
+function TestManager:testClearSelectionIsIdempotent()
+    local mgr = self:makeManager({
+        { key = "global", label = "Global", doc = bucket({ alert(1, "a") }) },
+    })
+    mgr:ToggleSelection(1, false)
+    mgr:ClearSelection()
+    mgr:ClearSelection()
+    luaunit.assertFalse(mgr:HasSelection())
+end
+
+function TestManager:testSelectedIdsFollowVisibleTreeOrder()
+    local doc = bucket({
+        alert(3, "c"),
+        alert(1, "a"),
+        alert(2, "b"),
+    })
+    local mgr = self:makeManager({ { key = "global", label = "Global", doc = doc } })
+    mgr:ToggleSelection(2, false)
+    mgr:ToggleSelection(3, false)
+    mgr:ToggleSelection(1, false)
+    luaunit.assertEquals(mgr:SelectedIds(), { 3, 1, 2 })
+end

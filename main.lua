@@ -541,6 +541,174 @@ local function onCreateGroup(scopeKey)
     return id
 end
 
+-- Deep-copy an Entry subtree (so export can drop ancestry above the selection without aliasing
+-- the live Bucket). Walks tables only; graph/layout payloads are shared-by-value tables already.
+---@param entry Watchdog.Entry
+---@return Watchdog.Entry
+local function cloneEntry(entry)
+    local copy = {
+        id = entry.id,
+        kind = entry.kind,
+        name = entry.name,
+        enabled = entry.enabled,
+        graph = entry.graph,
+        layout = entry.layout,
+    }
+    if entry.children ~= nil then
+        copy.children = {}
+        for i, child in ipairs(entry.children) do
+            copy.children[i] = cloneEntry(child)
+        end
+    end
+    return copy
+end
+
+-- Bulk delete (#93): one confirm (Manager-side) for the whole set; unbind Editor if the bound
+-- entry is in any deleted subtree; sync runtime + restored lists like single delete.
+---@param scopeKey string
+---@param ids integer[]
+local function onBulkDelete(scopeKey, ids)
+    local doc, key, list = scopeBucket(scopeKey)
+    if doc == nil or ids == nil then return end
+    for _, id in ipairs(ids) do
+        local entry = Store.FindById(doc, id)
+        if entry ~= nil then
+            local alertIds = {}
+            collectAlertIds(entry, alertIds)
+            if editor.boundId ~= nil and boundScope ~= nil and boundScope.key == key then
+                local function contains(e, target)
+                    if e.id == target then return true end
+                    for _, c in ipairs(e.children or {}) do
+                        if contains(c, target) then return true end
+                    end
+                    return false
+                end
+                if contains(entry, editor.boundId) then
+                    navBack()
+                end
+            end
+            Store.DeleteById(doc, id)
+            for _, aid in ipairs(alertIds) do
+                runtime:RemoveAlert(aid)
+            end
+            if list ~= nil then purgeAlertList(list, alertIds) end
+        end
+    end
+    Store.SaveTo(key, doc)
+end
+
+-- Bulk New-group (#93): nearest common ancestor, entries in the given (visible) order;
+-- selection retargets to the new group in the Manager.
+---@param scopeKey string
+---@param ids integer[]
+---@return integer|nil
+local function onBulkNewGroup(scopeKey, ids)
+    local doc, key = scopeBucket(scopeKey)
+    if doc == nil or ids == nil or #ids == 0 then return nil end
+    local newId = Store.GroupSelected(doc, ids, "New Group")
+    if newId == nil then return nil end
+    Store.SaveTo(key, doc)
+    return newId
+end
+
+-- Bulk move-between-scopes (#93): append each selected subtree at the destination root,
+-- id-preserving when free. Absent when logged out (Manager hides the button).
+---@param scopeKey string
+---@param destScopeKey string
+---@param ids integer[]
+local function onBulkMove(scopeKey, destScopeKey, ids)
+    local srcDoc, srcKey, srcList = scopeBucket(scopeKey)
+    local destDoc, destKey, destList = scopeBucket(destScopeKey)
+    if srcDoc == nil or destDoc == nil or ids == nil then return end
+    for _, id in ipairs(ids) do
+        local before = Store.FindById(srcDoc, id)
+        if before ~= nil then
+            local alertIds = {}
+            collectAlertIds(before, alertIds)
+            local snapshots = {}
+            if srcList ~= nil then
+                for _, aid in ipairs(alertIds) do
+                    for _, a in ipairs(srcList) do
+                        if a.id == aid then
+                            snapshots[#snapshots + 1] = a
+                            break
+                        end
+                    end
+                end
+            end
+            -- Unbind before the move if the Editor's bound entry is in this subtree.
+            if editor.boundId ~= nil and boundScope ~= nil and boundScope.key == srcKey then
+                local function contains(e, target)
+                    if e.id == target then return true end
+                    for _, c in ipairs(e.children or {}) do
+                        if contains(c, target) then return true end
+                    end
+                    return false
+                end
+                if contains(before, editor.boundId) then
+                    navBack()
+                end
+            end
+            local moved = Store.MoveEntryToBucket(srcDoc, destDoc, id)
+            if moved ~= nil then
+                if srcList ~= nil then purgeAlertList(srcList, alertIds) end
+                local leaves = {}
+                local function collectLeaves(e)
+                    if e.kind == "alert" then
+                        leaves[#leaves + 1] = e
+                    else
+                        for _, c in ipairs(e.children or {}) do collectLeaves(c) end
+                    end
+                end
+                collectLeaves(moved)
+                for i, leaf in ipairs(leaves) do
+                    local snap = snapshots[i]
+                    if snap ~= nil then
+                        runtime:RemoveAlert(snap.id)
+                        if destList ~= nil then
+                            destList[#destList + 1] = {
+                                id = leaf.id,
+                                name = snap.name,
+                                graph = snap.graph,
+                                layout = snap.layout,
+                                enabled = snap.enabled,
+                            }
+                        end
+                        runtime:AddAlert(leaf.id, snap.name, snap.graph, snap.enabled ~= false, destKey)
+                    end
+                end
+            end
+        end
+    end
+    Store.SaveTo(srcKey, srcDoc)
+    Store.SaveTo(destKey, destDoc)
+end
+
+-- Bulk export (#93): flat list of checked rows (ancestry above dropped). Export surface is #94;
+-- until then, stash the payload on PersistentDB for the mirror-log probe and log a notice.
+---@param scopeKey string
+---@param ids integer[]
+local function onBulkExport(scopeKey, ids)
+    local doc = select(1, scopeBucket(scopeKey))
+    if doc == nil or ids == nil then return end
+    local entries = {}
+    for _, id in ipairs(ids) do
+        local entry = Store.FindById(doc, id)
+        if entry ~= nil then entries[#entries + 1] = cloneEntry(entry) end
+    end
+    local encoded = Store.Encode({ version = 2, entries = entries })
+    if log ~= nil then
+        log(string.format("Watchdog: bulk export %d entr%s (%s bytes) — surface lands in #94",
+            #entries, #entries == 1 and "y" or "ies",
+            encoded and tostring(#encoded) or "?"))
+    end
+    pcall(function()
+        if PersistentDB ~= nil and encoded ~= nil then
+            PersistentDB:SetString("bulk_export_preview", encoded)
+        end
+    end)
+end
+
 manager = Manager.new({
     scopes = getScopes,
     onOpenAlert = navOpenAlert,
@@ -549,6 +717,10 @@ manager = Manager.new({
     onDelete = onDelete,
     onCreateAlert = onCreateAlert,
     onCreateGroup = onCreateGroup,
+    onBulkDelete = onBulkDelete,
+    onBulkNewGroup = onBulkNewGroup,
+    onBulkMove = onBulkMove,
+    onBulkExport = onBulkExport,
 })
 
 -- Shared prettyui.Window host: Manager/Editor mount into Content()/Overlay(); Push/Pop swaps
@@ -833,11 +1005,17 @@ Event.Draw.Subscribe(Events.Draw, onDraw)
 Event.KeyDown.Subscribe(Events.KeyDown, function(keyEvent)
     if keyEvent == nil or keyEvent.isRepeat then return end
     if keyEvent.gameKey == GameKey.ESCAPE then
-        -- Esc only means anything on the Editor surface: it dismisses a popup / cancels a marker
-        -- capture, or — as the last rung — navigates up. On the Manager (root) there is nowhere to
-        -- go up to, so Esc is inert there (the Manager selection-clear rung is #82, not this ticket).
-        if mux ~= nil and mux:IsVisible() and mux:IsTop("editor") and editor:IsVisible() then
-            pcall(function() editor:onEscape() end)
+        -- Esc cascade (#80/#93): on the Manager, clear an active selection first; else inert.
+        -- On the Editor: popup / marker-capture cancel, else navigate up.
+        if mux ~= nil and mux:IsVisible() then
+            if mux:IsTop("manager") and manager ~= nil and manager:IsVisible() then
+                if manager:HasSelection() then
+                    manager:ClearSelection()
+                    pcall(function() manager:_rebuild() end)
+                end
+            elseif mux:IsTop("editor") and editor:IsVisible() then
+                pcall(function() editor:onEscape() end)
+            end
         end
         return
     end
