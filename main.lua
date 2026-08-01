@@ -158,7 +158,7 @@ local charScope = nil
 -- Bucket off disk and restore its saved alerts as live graphs. The runtime calls this on a
 -- genuine character switch (and first login), then arms the returned alerts under the player
 -- Bucket. `global` alerts are loaded separately below; this only ever touches `player_<name>`
--- keys, and never runs the global-only legacy migration (Store.LoadKey, not Store.Load).
+-- keys (Store.LoadKey, not Store.Load).
 --
 -- It also stashes the loaded document + restored alerts into `charScope` (#90), so the Manager can
 -- render this character's Entry tree and the nav owner can bind the Editor to a row's live graph —
@@ -215,11 +215,7 @@ local function seedDemo()
     return graph, layout
 end
 
--- `migrationFailed` is set only when the one-shot legacy hop (#87) was attempted and failed:
--- `global` was left unwritten and the legacy key kept for a retry next startup. It gates the demo
--- seed below — seeding would write `global`, permanently closing the retry window and disguising
--- the failure as a fresh install (#81 §7). One-shot: dies with the migration in the #10 follow-up.
-local document, migrationFailed = Store.Load()
+local document = Store.Load()
 
 -- Instantiate *every* saved graph as a live alert (#27): triggers in all enabled alerts fire,
 -- not just the one the editor is viewing. `Store.RestoreAll` returns one live Graph per saved
@@ -233,10 +229,8 @@ do
     elseif log ~= nil then
         log("Watchdog: RestoreAll failed, seeding demo — " .. tostring(all))
     end
-    if #restored == 0 and not migrationFailed then
+    if #restored == 0 then
         -- Fresh install (empty `global` bucket): seed the demo as a single root-level alert Entry.
-        -- Suppressed when a legacy migration failed (#87): the Manager stays visibly empty and the
-        -- next startup retries from the intact legacy key, instead of the seed papering over it.
         local graph, layout = seedDemo()
         local id = Store.MintId(document)
         Store.InsertEntry(document, Store.NewAlertEntry(id, "default", graph, layout, true))
@@ -256,8 +250,8 @@ end
 -- there with nothing bound, and the persisted `current` pointer is gone entirely — the bound-entry
 -- id is now transient (`editor.boundId`, set only when a Manager row is opened). The Editor is
 -- mounted once at startup regardless of how many alerts exist (mounting is the fragile part), and a
--- double-click binds it to a live graph. `restored` being empty (a failed legacy migration, #87) is
--- no longer a special dormant path — the surfaces mount either way, the Manager just shows an empty tree.
+-- double-click binds it to a live graph. Surfaces mount either way; an empty `restored` just means
+-- the Manager shows an empty tree until the demo seed (or a later save) fills it.
 local editor = Editor.new(registry, runtime)
 
 -- Persistence hook for the alert enable/disable API: SetEnabled/Toggle write the flag straight
