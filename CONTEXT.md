@@ -51,9 +51,9 @@ over `Store.LoadKey(key)` / `Store.SaveTo(key, doc)`, and `Store.PlayerKey(displ
 character Bucket's `player_<normalized>` key (#89). Only `Store.Load` runs the one-shot legacy
 migration — a character Bucket has no legacy predecessor.
 _(Landed: per-character `player_<…>` Buckets (#89), the one-shot legacy `watchdog_graphs` migration
-(#87), the read-only Alert Manager render + Editor↔Manager navigation (#90), and Manager row
-editing ops — create / rename / delete / enable (#91). Not yet landed: drag-reorder (#92),
-multi-select / bulk actions (#93), export/import (#94).)_
+(#87), the read-only Alert Manager render + Editor↔Manager navigation (#90), Manager row
+editing ops — create / rename / delete / enable (#91), multi-select / bulk actions (#93), and
+export/import copy-paste with the 2,500-byte guard (#94). Not yet landed: drag-reorder (#92).)_
 _Avoid_: Database, save system, persistence layer (in prose), serializer (that's the engine's)
 
 **Capture Layer**:

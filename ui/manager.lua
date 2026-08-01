@@ -16,7 +16,8 @@
 --
 -- #90 landed the tree/scope/expand read-only cut; #91 adds the per-row editing ops; PrettyUI
 -- chrome migration replaces hand-laid tab buttons and ASCII ren/del. Multi-select + bulk
--- actions are #93; drag-reorder is #92.
+-- actions are #93; export/import copy-paste (#94) is a transfer modal over a ui.InputField.
+-- Drag-reorder is #92.
 --
 -- ## Two halves
 --
@@ -27,6 +28,7 @@
 -- pcall-guarded, the same split every other surface in this plugin uses.
 
 local Theme = require("ui/theme")
+local Export = require("export")
 
 local Manager = {}
 Manager.__index = Manager
@@ -37,14 +39,17 @@ local TAB_BASELINE = 42
 local ROW_H       = 22    -- one tree row
 local ENABLE_W    = 22    -- enable toggle width
 local SELECT_W    = 22    -- multi-select checkbox column (#93)
-local ACT_W       = 64    -- ren/del action button width
+local ACT_W       = 64    -- ren/del action button width (also Export per row, #94)
+local ACT_COUNT   = 3     -- Rename + Export + Delete per row (#94)
 local ROW_GAP     = 2     -- gap between controls inside a row
 local PAGE_PAD    = 8     -- inset from content edge for the tree
 local TOOLBAR_H   = 27    -- PrettyUI FancyButton height
-local TOOLBAR_PAD = 8     -- right inset for + Alert / + Group on the tab strip
-local TOOLBAR_GAP = 6     -- gap between create buttons
+local TOOLBAR_PAD = 8     -- inset for tab-strip actions
+local TOOLBAR_GAP = 6     -- gap between toolbar buttons
 local BULK_BAR_H  = 30    -- bulk-action bar height when any row is selected
 local TREE_TOP    = TAB_BASELINE + 4 -- tree sits below the PrettyUI tab strip (no bulk bar)
+local TRANSFER_W  = 440
+local TRANSFER_H  = 420
 
 
 -- A scope descriptor the injected provider hands back: which Bucket, how to label its tab, and its
@@ -83,7 +88,9 @@ local TREE_TOP    = TAB_BASELINE + 4 -- tree sits below the PrettyUI tab strip (
 ---@field onBulkDelete fun(scopeKey: string, ids: integer[])|nil
 ---@field onBulkNewGroup fun(scopeKey: string, ids: integer[]): integer|nil  # returns new group id
 ---@field onBulkMove fun(scopeKey: string, destScopeKey: string, ids: integer[])|nil
----@field onBulkExport fun(scopeKey: string, ids: integer[])|nil
+---@field onExportEntries fun(scopeKey: string, ids: integer[]|nil): boolean, string  # nil ids = whole scope; err or json
+---@field onImportJson fun(scopeKey: string, text: string): boolean, Watchdog.ImportReport|string
+---@field windowParent fun(): any|nil  # parent for the transfer prettyui.Window (game-area root)
 
 -- `scopes` is the injected scope provider: `fn() -> Watchdog.ManagerScope[]`, ordered (Global
 -- first, the current character second when logged in). Called live on every rebuild so a character
@@ -107,7 +114,9 @@ function Manager.new(opts)
         onBulkDelete = opts and opts.onBulkDelete,
         onBulkNewGroup = opts and opts.onBulkNewGroup,
         onBulkMove = opts and opts.onBulkMove,
-        onBulkExport = opts and opts.onBulkExport,
+        onExportEntries = opts and opts.onExportEntries,
+        onImportJson = opts and opts.onImportJson,
+        windowParent = opts and opts.windowParent,
         activeScope = nil,          -- resolved lazily; nil ⇒ "first scope" (Global)
         expanded = {},              -- expanded[scopeKey][id] = bool; absent ⇒ default (expanded)
         expandVersion = 0,          -- bumped on every toggle, part of the rebuild signature
@@ -142,6 +151,10 @@ function Manager.new(opts)
         pendingBulkDelete = false,
         -- After + Group (#78): begin inline rename on this id once the row is rebuilt.
         pendingRenameId = nil,
+        -- Transfer modal (#94): separate prettyui.Window (not an in-content overlay).
+        transfer = nil,             -- { mode, text, message }|nil
+        transferWindow = nil,
+        transferField = nil,
     }, Manager)
     return self
 end
@@ -533,12 +546,114 @@ end
 
 ---@param ids integer[]|nil
 function Manager:BulkExport(ids)
-    local scopeKey = self:ActiveScopeKey()
-    if scopeKey == nil or self.onBulkExport == nil then return end
     ids = ids or self:SelectedIds()
     if #ids == 0 then return end
     -- Preserve selection across export (#93).
-    pcall(self.onBulkExport, scopeKey, ids)
+    self:_runExport(ids)
+end
+
+-- Whole-scope export (#94 entry point 1): every root Entry in the active Bucket.
+function Manager:ExportScope()
+    self:_runExport(nil)
+end
+
+-- Single-row subtree export (#94 entry point 2).
+---@param id integer
+function Manager:ExportRow(id)
+    if type(id) ~= "number" then return end
+    self:_runExport({ id })
+end
+
+-- Shared encode → transfer modal path for every export entry point.
+---@param ids integer[]|nil  # nil ⇒ whole active scope
+function Manager:_runExport(ids)
+    local scopeKey = self:ActiveScopeKey()
+    if scopeKey == nil or self.onExportEntries == nil then return end
+    local okCall, ok, result = pcall(function()
+        return self.onExportEntries(scopeKey, ids)
+    end)
+    if not okCall then return end
+    if ok then
+        self:_openTransfer("export", result, "Select all and copy (Ctrl+A / Ctrl+C).")
+    else
+        self:_openTransfer("error", "", tostring(result))
+    end
+end
+
+-- Opens an empty import modal for the active scope (#94).
+function Manager:OpenImport()
+    self:_openTransfer("import", "", "Paste an export envelope, then Import.")
+end
+
+-- Tears down the transfer modal without applying.
+function Manager:CloseTransfer()
+    self.transfer = nil
+    local win = self.transferWindow
+    self.transferWindow = nil
+    self.transferField = nil
+    if win ~= nil then
+        pcall(function()
+            win.onClose = nil
+            win:Destroy()
+        end)
+    end
+end
+
+-- Commit the import field. Failures stay in the modal with the pasted text intact (#79).
+function Manager:ApplyImport()
+    if self.transfer == nil or self.transfer.mode ~= "import" then return end
+    local scopeKey = self:ActiveScopeKey()
+    if scopeKey == nil or self.onImportJson == nil then return end
+    local text = self.transfer.text or ""
+    pcall(function()
+        if self.transferField ~= nil and self.transferField.GetText ~= nil then
+            text = self.transferField:GetText() or text
+        end
+    end)
+    local okCall, ok, report = pcall(function()
+        return self.onImportJson(scopeKey, text)
+    end)
+    if not okCall then return end
+    if not ok then
+        self.transfer.text = text
+        self.transfer.message = tostring(report)
+        self:_remountTransfer()
+        return
+    end
+    local message = (type(report) == "table" and report.message) or "Imported."
+    self:CloseTransfer()
+    bumpMutate(self)
+    self:_openTransfer("notice", "", message)
+end
+
+---@param mode "export"|"import"|"error"|"notice"
+---@param text string|nil
+---@param message string|nil
+function Manager:_openTransfer(mode, text, message)
+    self.transfer = {
+        mode = mode,
+        text = text or "",
+        message = message,
+    }
+    self:_remountTransfer()
+end
+
+function Manager:_remountTransfer()
+    self:_destroyTransfer()
+    self:_mountTransfer()
+end
+
+-- Tear down the open transfer Window only — keeps `self.transfer` so remount can rebuild.
+function Manager:_destroyTransfer()
+    local win = self.transferWindow
+    self.transferWindow = nil
+    self.transferField = nil
+    if win ~= nil then
+        pcall(function()
+            win.onClose = nil
+            win:Destroy()
+        end)
+    end
 end
 
 --- Rebuild signature ----------------------------------------------------------------------
@@ -574,10 +689,10 @@ end
 function Manager:RowLabel(row)
     local indent = string.rep("  ", row.depth)
     if row.kind == "group" then
-        local chevron = row.expanded and "▾" or "▸"
-        return indent .. chevron .. " ▣ " .. row.name .. " (" .. tostring(row.childCount or 0) .. ")"
+        local chevron = row.expanded and "v" or ">"
+        return indent .. chevron .. " | " .. row.name .. " (" .. tostring(row.childCount or 0) .. ")"
     end
-    return indent .. "• " .. row.name
+    return indent .. row.name
 end
 
 --- Client view: mount / render (client-only, pcall-guarded) -------------------------------
@@ -952,29 +1067,36 @@ local function isShiftDown()
     return shift
 end
 
--- + Alert / + Group on the PrettyUI tab strip (right-aligned), visually inline with the tabs.
+-- + Alert / + Group / Import / Export on the PrettyUI tab strip (right-aligned), visually
+-- inline with the tabs. Import/Export sit left of the create buttons so they never cover
+-- the Global / character tab labels.
 -- PrettyUI Tabs has no trailing-actions API; parenting FancyButtons to tabs.root is the
 -- supported workaround.
 function Manager:_mountToolbar()
     if self.tabs == nil or self.tabs.root == nil or prettyui == nil then return end
     if prettyui.FancyButton == nil then return end
     local root = self.tabs.root
-    local alertW = 75
-    local groupW = 75
+    local alertW, groupW, importW, exportW = 75, 75, 70, 70
     pcall(function()
         alertW = select(1, prettyui.FancyButton.getSize("+ Alert", { variant = "positive" }))
         groupW = select(1, prettyui.FancyButton.getSize("+ Group", { variant = "neutral" }))
+        importW = select(1, prettyui.FancyButton.getSize("Import", { variant = "neutral" }))
+        exportW = select(1, prettyui.FancyButton.getSize("Export", { variant = "neutral" }))
     end)
     local y = math.max(0, math.floor((TAB_BASELINE - TOOLBAR_H) / 2))
-    local group
-    local alert
+    local group, alert, importBtn, exportBtn
+    -- Right-edge packing: [Import][Export][+ Alert][+ Group]  (rightmost = Group)
+    local xGroup = -TOOLBAR_PAD - groupW
+    local xAlert = xGroup - TOOLBAR_GAP - alertW
+    local xExport = xAlert - TOOLBAR_GAP - exportW
+    local xImport = xExport - TOOLBAR_GAP - importW
     pcall(function()
         group = prettyui.FancyButton.new(root, "+ Group", function()
             local id = self:CreateGroup()
             if type(id) == "number" then self.pendingRenameId = id end
             self:_rebuild()
         end, {
-            x = -TOOLBAR_PAD - groupW,
+            x = xGroup,
             y = y,
             xAnchor = 1.0,
             variant = "neutral",
@@ -983,14 +1105,136 @@ function Manager:_mountToolbar()
             self:CreateAlert()
             self:_rebuild()
         end, {
-            x = -TOOLBAR_PAD - groupW - TOOLBAR_GAP - alertW,
+            x = xAlert,
             y = y,
             xAnchor = 1.0,
             variant = "positive",
         })
+        exportBtn = prettyui.FancyButton.new(root, "Export", function()
+            self:ExportScope()
+        end, {
+            x = xExport,
+            y = y,
+            xAnchor = 1.0,
+            variant = "neutral",
+        })
+        importBtn = prettyui.FancyButton.new(root, "Import", function()
+            self:OpenImport()
+        end, {
+            x = xImport,
+            y = y,
+            xAnchor = 1.0,
+            variant = "neutral",
+        })
     end)
+    if importBtn ~= nil then self.toolbarButtons[#self.toolbarButtons + 1] = importBtn end
+    if exportBtn ~= nil then self.toolbarButtons[#self.toolbarButtons + 1] = exportBtn end
     if alert ~= nil then self.toolbarButtons[#self.toolbarButtons + 1] = alert end
     if group ~= nil then self.toolbarButtons[#self.toolbarButtons + 1] = group end
+end
+
+-- Copy-paste transfer as its own prettyui.Window (#94): titled chrome + AddText /
+-- AddTextField / AddFancyButton. Oversize exports open in error mode with no payload.
+-- Save-to-file is present but disabled pending a filesystem API.
+function Manager:_mountTransfer()
+    if self.transfer == nil then return end
+    if prettyui == nil or prettyui.Window == nil then return end
+    local parent
+    if self.windowParent ~= nil then
+        local ok, p = pcall(self.windowParent)
+        if ok then parent = p end
+    end
+    if parent == nil then return end
+
+    local mode = self.transfer.mode
+    local title = "Export"
+    if mode == "import" or mode == "notice" then title = "Import"
+    elseif mode == "error" then title = "Export / Import"
+    end
+
+    local win
+    local ok = pcall(function()
+        win = prettyui.Window.new(parent, {
+            title = title,
+            x = -math.floor(TRANSFER_W / 2),
+            y = -math.floor(TRANSFER_H / 2),
+            xAnchor = 0.5,
+            yAnchor = 0.5,
+            width = TRANSFER_W,
+            height = TRANSFER_H,
+            minWidth = TRANSFER_W,
+            minHeight = TRANSFER_H,
+            maxWidth = TRANSFER_W,
+            maxHeight = TRANSFER_H,
+            destroyOnClose = true,
+            onClose = function()
+                -- Window:Close will Destroy after this (destroyOnClose). Clear Lua refs only.
+                self.transfer = nil
+                self.transferWindow = nil
+                self.transferField = nil
+            end,
+        })
+    end)
+    if not ok or win == nil then return end
+    self.transferWindow = win
+
+    local msg = self.transfer.message or ""
+    if msg ~= "" then
+        pcall(function() win:AddText(msg) end)
+    end
+
+    if mode == "export" or mode == "import" then
+        local field
+        local okf = pcall(function()
+            field = win:AddTextField({
+                text = self.transfer.text or "",
+                placeholder = mode == "import" and "Paste export JSON here" or nil,
+                maxLength = Export.MAX_BYTES,
+                height = 280,
+                disabled = mode == "export",
+            })
+            field.root.text.maxLines = 10
+        end)
+        if okf and field ~= nil then
+            self.transferField = field
+            -- Export is copy-out: keep content selectable. PrettyUI `disabled` blocks focus;
+            -- leave enabled so Ctrl+A/C works, and ignore edits by resetting on change.
+            if mode == "export" then
+                pcall(function()
+                    if field.SetDisabled ~= nil then field:SetDisabled(false) end
+                    local frozen = self.transfer.text or ""
+                    field.onChange = function(f)
+                        if f:GetText() ~= frozen then f:SetText(frozen) end
+                    end
+                    field.root:Subscribe(ui.Hook.ONCLICK, function()
+                        -- not a thing right now
+                        if field.root.SelectAll ~= nil then field.root:SelectAll() end
+                        return true
+                    end)
+                end)
+            end
+        end
+    end
+
+    pcall(function()
+        win:AddFancyButton("Close", function()
+            self:CloseTransfer()
+        end)
+        if mode == "import" then
+            win:AddFancyButton("Import", function()
+                self:ApplyImport()
+                self:_rebuild()
+            end, { inline = true, variant = "positive" })
+        elseif mode == "export" then
+            win:AddFancyButton("Save to file", function() end, {
+                inline = true,
+                disabled = true,
+                tooltip = "File export needs a client filesystem API",
+            })
+        end
+    end)
+
+    pcall(function() win:Show() end)
 end
 
 -- Bulk-action bar (#93): Delete / New group / Move (when another scope exists) / Export.
@@ -1126,8 +1370,8 @@ function Manager:_rebuild()
 
     local rows = self:VisibleRows()
     local treeParent = self.treePanel
-    -- Native ui.Button ren/del — PrettyUI SpriteButton crashes client teardown after PluginShutdown.
-    local nameW = math.max(40, rowW - ENABLE_W - SELECT_W - 2 * ACT_W - 4 * ROW_GAP)
+    -- Native ui.Button ren/export/del — PrettyUI SpriteButton crashes client teardown after PluginShutdown.
+    local nameW = math.max(40, rowW - ENABLE_W - SELECT_W - ACT_COUNT * ACT_W - (ACT_COUNT + 2) * ROW_GAP)
     for _, row in ipairs(rows) do
         local capturedRow = row
         local rowPanel = treeParent
@@ -1243,7 +1487,17 @@ function Manager:_rebuild()
             end)
         end
 
-        local deleteX = renameX + ACT_W + ROW_GAP
+        local exportX = renameX + ACT_W + ROW_GAP
+        do
+            local bucket = (rowPanel == treeParent) and self.rowButtons or {}
+            mountButton(rowPanel, bucket, exportX, 0, ACT_W, ROW_H, "Export", function()
+                self.pendingDeleteId = nil
+                self.pendingBulkDelete = false
+                self:ExportRow(capturedRow.id)
+            end)
+        end
+
+        local deleteX = exportX + ACT_W + ROW_GAP
         local armed = self.pendingDeleteId == row.id
         local delLabel = armed and self:_deleteConfirmLabel(row.id) or "Delete"
         local delW = math.max(ACT_W, 8 + 7 * #delLabel)
@@ -1327,6 +1581,10 @@ function Manager:SetVisible(v)
     end
     setChildVisible(self.treePanel, self.visible)
     setChildVisible(componentRoot(self.renameField), self.visible)
+    -- Transfer is its own Window under the game root — close it when the Manager tucks away.
+    if not self.visible then
+        self:CloseTransfer()
+    end
     if becomingVisible and self.tabs ~= nil then
         self:_rebuild()
     end
@@ -1349,6 +1607,8 @@ function Manager:Unmount()
     self.pendingDeleteId = nil
     self.pendingBulkDelete = false
     self:_endRename(false)
+    -- Transfer Window lives under the game root (not mux content) — Destroy it on Stop.
+    self:CloseTransfer()
     self.toolbarButtons = {}
     self.bulkBarButtons = {}
     self.rowWidgets = {}

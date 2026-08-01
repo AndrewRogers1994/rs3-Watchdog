@@ -13,6 +13,7 @@ local Editor = require("ui/graph")
 local Manager = require("ui/manager")
 local Multiplexer = require("ui/multiplexer")
 local Store  = require("store")
+local Export = require("export")
 local Runtime = require("runtime")
 local ToastStack = require("toast")
 local Theme = require("ui/theme")
@@ -678,29 +679,104 @@ local function onBulkMove(scopeKey, destScopeKey, ids)
     Store.SaveTo(destKey, destDoc)
 end
 
--- Bulk export (#93): flat list of checked rows (ancestry above dropped). Export surface is #94;
--- until then, stash the payload on PersistentDB for the mirror-log probe and log a notice.
----@param scopeKey string
----@param ids integer[]
-local function onBulkExport(scopeKey, ids)
-    local doc = select(1, scopeBucket(scopeKey))
-    if doc == nil or ids == nil then return end
-    local entries = {}
-    for _, id in ipairs(ids) do
-        local entry = Store.FindById(doc, id)
-        if entry ~= nil then entries[#entries + 1] = cloneEntry(entry) end
-    end
-    local encoded = Store.Encode({ version = 2, entries = entries })
-    if log ~= nil then
-        log(string.format("Watchdog: bulk export %d entr%s (%s bytes) — surface lands in #94",
-            #entries, #entries == 1 and "y" or "ies",
-            encoded and tostring(#encoded) or "?"))
-    end
+-- Mirror the last transfer result into PersistentDB so an agent can verify in-client without
+-- scraping the console (#94 acceptance: in-client checks).
+---@param kind string
+---@param ok boolean
+---@param detail string
+local function mirrorTransfer(kind, ok, detail)
     pcall(function()
-        if PersistentDB ~= nil and encoded ~= nil then
-            PersistentDB:SetString("bulk_export_preview", encoded)
-        end
+        if PersistentDB == nil then return end
+        PersistentDB:SetString("transfer_last", string.format(
+            "%s\tok=%s\t%s", kind, tostring(ok), tostring(detail):sub(1, 500)))
     end)
+end
+
+-- Export any entry set (#94): nil ids ⇒ whole active scope; otherwise the listed subtrees
+-- (bulk selection or a single row). Encode applies the uniform 2,500-byte guard.
+---@param scopeKey string
+---@param ids integer[]|nil
+---@return boolean ok
+---@return string jsonOrErr
+local function onExportEntries(scopeKey, ids)
+    local doc = select(1, scopeBucket(scopeKey))
+    if doc == nil then return false, "no active scope" end
+    local entries = {}
+    if ids == nil then
+        for _, entry in ipairs(doc.entries or {}) do
+            entries[#entries + 1] = cloneEntry(entry)
+        end
+    else
+        for _, id in ipairs(ids) do
+            local entry = Store.FindById(doc, id)
+            if entry ~= nil then entries[#entries + 1] = cloneEntry(entry) end
+        end
+    end
+    local ok, result = Export.Encode(entries)
+    if ok then
+        mirrorTransfer("export", true, string.format("%d bytes / %d entries", #result, #entries))
+    else
+        mirrorTransfer("export", false, result)
+    end
+    return ok, result
+end
+
+-- Import paste (#94): append at the active scope root, then restore new alert leaves into the
+-- runtime. Failures reject before any write (Export.Import is atomic).
+---@param scopeKey string
+---@param text string
+---@return boolean ok
+---@return Watchdog.ImportReport|string
+local function onImportJson(scopeKey, text)
+    local doc, key, list = scopeBucket(scopeKey)
+    if doc == nil then return false, "no active scope" end
+    local before = {}
+    for _, leaf in ipairs(Store.Leaves(doc)) do
+        before[leaf.id] = true
+    end
+    local ok, report = Export.Import(doc, text, { registry = registry })
+    if not ok then
+        mirrorTransfer("import", false, tostring(report))
+        return false, report
+    end
+    Store.SaveTo(key, doc)
+    local newLeaves = {}
+    for _, leaf in ipairs(Store.Leaves(doc)) do
+        if not before[leaf.id] then
+            newLeaves[#newLeaves + 1] = leaf
+        end
+    end
+    if #newLeaves > 0 then
+        local temp = Store.Empty()
+        temp.entries = newLeaves
+        local restored = Store.RestoreAll(temp, registry)
+        for _, a in ipairs(restored) do
+            if list ~= nil then
+                list[#list + 1] = a
+            end
+            runtime:AddAlert(a.id, a.name, a.graph, a.enabled ~= false, key)
+        end
+    end
+    local msg = (type(report) == "table" and report.message) or "ok"
+    mirrorTransfer("import", true, msg)
+    return true, report
+end
+
+--- Client root parent (interface may not be loaded yet; retried on the Logic loop) ------
+
+local function getRootParent()
+    local candidates = { "TOPLEVEL_V2__GAME_AREA" }
+    for _, key in ipairs(candidates) do
+        local componentID = id.Component[key]
+        if componentID ~= nil then
+            -- Returns nil (not an error) if the interface isn't loaded yet.
+            local component = ui.Interfaces:GetComponent(componentID)
+            if component ~= nil then
+                return component
+            end
+        end
+    end
+    return nil
 end
 
 manager = Manager.new({
@@ -714,7 +790,9 @@ manager = Manager.new({
     onBulkDelete = onBulkDelete,
     onBulkNewGroup = onBulkNewGroup,
     onBulkMove = onBulkMove,
-    onBulkExport = onBulkExport,
+    onExportEntries = onExportEntries,
+    onImportJson = onImportJson,
+    windowParent = getRootParent,
 })
 
 -- Shared prettyui.Window host: Manager/Editor mount into Content()/Overlay(); Push/Pop swaps
@@ -747,23 +825,6 @@ editorSurface = {
     -- so pan/zoom survive; mux calls this instead of flipping surface visibility.
     OnShellHide = function() editor:OnShellHide() end,
 }
-
---- Client root parent (interface may not be loaded yet; retried on the Logic loop) ------
-
-local function getRootParent()
-    local candidates = { "TOPLEVEL_V2__GAME_AREA" }
-    for _, key in ipairs(candidates) do
-        local componentID = id.Component[key]
-        if componentID ~= nil then
-            -- Returns nil (not an error) if the interface isn't loaded yet.
-            local component = ui.Interfaces:GetComponent(componentID)
-            if component ~= nil then
-                return component
-            end
-        end
-    end
-    return nil
-end
 
 --- Event loops --------------------------------------------------------------------------
 
