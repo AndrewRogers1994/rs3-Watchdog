@@ -940,6 +940,58 @@ end
 ---@param onPress fun()
 ---@param enabled boolean|nil
 ---@return ui.Button|nil
+-- Column widths shared by the tree header and each row (depth 0 for the header).
+---@param rowW number
+---@param depth integer|nil
+---@return number baseNameW
+---@return number nameW
+---@return number moveW
+---@return number actionsW
+local function managerColumnWidths(rowW, depth)
+    local baseNameW = math.max(40, rowW - Theme.MANAGER_ENABLE_W - Theme.MANAGER_SELECT_W - Theme.MANAGER_REORDER_COUNT * Theme.MANAGER_REORDER_W
+        - Theme.MANAGER_ACT_COUNT * Theme.MANAGER_ACT_W - (Theme.MANAGER_ACT_COUNT + Theme.MANAGER_REORDER_COUNT + 2) * Theme.MANAGER_ROW_GAP)
+    local indent = (depth or 0) * Theme.MANAGER_ROW_INDENT
+    local nameW = math.max(40, baseNameW - indent)
+    local moveW = Theme.MANAGER_REORDER_COUNT * Theme.MANAGER_REORDER_W
+        + (Theme.MANAGER_REORDER_COUNT - 1) * Theme.MANAGER_ROW_GAP
+    local actionsW = Theme.MANAGER_ACT_COUNT * Theme.MANAGER_ACT_W
+        + (Theme.MANAGER_ACT_COUNT - 1) * Theme.MANAGER_ROW_GAP
+    return baseNameW, nameW, moveW, actionsW
+end
+
+-- One header label cell: fixed width in the row's horizontal auto-layout strip.
+---@param parent ui.ComponentCollection
+---@param w number
+---@param h number
+---@param text string
+---@param center boolean|nil
+local function mountHeaderCell(parent, w, h, text, center)
+    local label
+    local ok = pcall(function() label = ui.Text.new(parent) end)
+    if not ok or label == nil then return end
+    pcall(function()
+        label:SetSize(w, h)
+        label.content = text
+        label.clickthrough = true
+        label.isShadowed = true
+        label.maxLines = 1
+        if id ~= nil and id.Font ~= nil then
+            label.font = id.Font.MUSEO_SANS_15PT_REGULAR
+        end
+        -- ui.Text defaults to no visible colour without rgb/rgba (DevTools / LibUIToolkit pattern).
+        local c = Theme.COL_PALETTE_TEXT_DIM
+        local function ch(v) return math.floor((v or 1) * 255 + 0.5) end
+        local rgb = ch(c.r) * 0x1000000 + ch(c.g) * 0x10000 + ch(c.b) * 0x100 + ch(c.a)
+        label.rgb = rgb
+        label.rgba = rgb
+        if ui.AlignMode ~= nil then
+            label.alignHorizontal = center and ui.AlignMode.CENTRE or ui.AlignMode.LEFT
+            label.alignVertical = ui.AlignMode.CENTRE
+        end
+        label:MoveToFront()
+    end)
+end
+
 local function mountButton(parent, x, y, w, h, label, onPress, enabled)
     local button
     local okb = pcall(function() button = ui.Button.new(parent) end)
@@ -1409,8 +1461,19 @@ function Manager:_rebuild()
     local rows = self:VisibleRows()
     local treeParent = self.treePanel
     -- Native ui.Button ren/export/del — PrettyUI SpriteButton crashes client teardown after PluginShutdown.
-    local baseNameW = math.max(40, rowW - Theme.MANAGER_ENABLE_W - Theme.MANAGER_SELECT_W - Theme.MANAGER_REORDER_COUNT * Theme.MANAGER_REORDER_W
-        - Theme.MANAGER_ACT_COUNT * Theme.MANAGER_ACT_W - (Theme.MANAGER_ACT_COUNT + Theme.MANAGER_REORDER_COUNT + 2) * Theme.MANAGER_ROW_GAP)
+    local baseNameW, headerNameW, headerMoveW, headerActionsW = managerColumnWidths(rowW, 0)
+    pcall(function()
+        local header = ui.Panel.new(treeParent)
+        header.isVertical = false
+        header.spacing = Theme.MANAGER_ROW_GAP
+        header.clickthrough = true
+        header:SetSize(rowW, Theme.MANAGER_HEADER_H)
+        mountHeaderCell(header, Theme.MANAGER_ENABLE_W, Theme.MANAGER_HEADER_H, "Enabled", true)
+        mountHeaderCell(header, Theme.MANAGER_SELECT_W, Theme.MANAGER_HEADER_H, "Select", true)
+        mountHeaderCell(header, headerMoveW, Theme.MANAGER_HEADER_H, "Move", true)
+        mountHeaderCell(header, headerNameW, Theme.MANAGER_HEADER_H, "Alert", false)
+        mountHeaderCell(header, headerActionsW, Theme.MANAGER_HEADER_H, "Actions", true)
+    end)
     for _, row in ipairs(rows) do
         local capturedRow = row
         local rowPanel = treeParent
@@ -1434,7 +1497,7 @@ function Manager:_rebuild()
         -- equals baseNameW and the Rename column stays put across depths.
         local indent = (row.depth or 0) * Theme.MANAGER_ROW_INDENT
         local nameX = liftX + Theme.MANAGER_REORDER_W + Theme.MANAGER_ROW_GAP + indent
-        local nameW = math.max(40, baseNameW - indent)
+        local _, nameW = managerColumnWidths(rowW, row.depth)
         local canUp, canDown, canLift = self:RowMoveCaps(row.id)
 
         local enableMounted = false
@@ -1614,7 +1677,7 @@ function Manager:_rebuild()
 
     if self.treePanel ~= nil then
         pcall(function()
-            self.treePanel:SetScrollSize(rowW, #rows * Theme.MANAGER_ROW_H)
+            self.treePanel:SetScrollSize(rowW, Theme.MANAGER_HEADER_H + #rows * Theme.MANAGER_ROW_H)
         end)
     end
 

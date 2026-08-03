@@ -185,6 +185,7 @@ Theme.DOUBLECLICK_DIST  = 6   -- max screen-px drift between the two clicks
 -- PrettyUI Tabs uses MANAGER_TAB_BASELINE ≈ 42 for the tab header strip (see prettyui/src/tabs.lua).
 Theme.MANAGER_TAB_BASELINE   = 42
 Theme.MANAGER_ROW_H          = 22   -- one tree row
+Theme.MANAGER_HEADER_H       = 20   -- column-label row above the tree
 Theme.MANAGER_ENABLE_W       = 22   -- enable toggle width
 Theme.MANAGER_SELECT_W       = 22   -- multi-select checkbox column (#93)
 Theme.MANAGER_ACT_W          = 64   -- ren/del action button width (also Export per row, #94)
