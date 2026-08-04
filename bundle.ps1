@@ -14,11 +14,12 @@
     (Watchdog/, LibNodeGraph/, …).
 
 .PARAMETER Output
-    Path for the output zip. Defaults to Watchdog.zip beside this script.
+    Path for the output zip. Defaults to Watchdog-<version>.zip beside this script,
+    where <version> comes from plugin.json.
 
 .EXAMPLE
     powershell -NoProfile -ExecutionPolicy Bypass -File bundle.ps1
-    powershell -NoProfile -ExecutionPolicy Bypass -File bundle.ps1 -Output dist/Watchdog-0.1.0.zip
+    powershell -NoProfile -ExecutionPolicy Bypass -File bundle.ps1 -Output dist/Watchdog-custom.zip
 #>
 param(
     [string]$Output
@@ -239,7 +240,8 @@ try {
     }
 
     if (-not $Output) {
-        $Output = Join-Path $watchdogDir 'Watchdog.zip'
+        $version = if ($manifest.version) { $manifest.version } else { 'unknown' }
+        $Output = Join-Path $watchdogDir "Watchdog-$version.zip"
     }
     $Output = [System.IO.Path]::GetFullPath($Output)
     $outDir = Split-Path -Parent $Output
@@ -247,6 +249,11 @@ try {
         New-Item -ItemType Directory -Path $outDir -Force | Out-Null
     }
     if (Test-Path -LiteralPath $Output -PathType Leaf) {
+        $answer = Read-Host "Output file already exists:`n  $Output`nOverwrite? [y/N]"
+        if ($answer -notmatch '^[Yy]') {
+            Write-Host 'Bundle cancelled.' -ForegroundColor Yellow
+            exit 1
+        }
         Remove-Item -LiteralPath $Output -Force
     }
 
