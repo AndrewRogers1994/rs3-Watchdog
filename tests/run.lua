@@ -19,6 +19,7 @@ local luaunit = require("luaunit")
 
 require("test_text")
 require("test_util")
+require("test_iface_scale")
 require("test_matcher")
 require("test_runtime")
 require("test_poll")

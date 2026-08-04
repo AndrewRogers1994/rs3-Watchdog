@@ -24,6 +24,7 @@ local Placeholder = require("ui/placeholder")
 local Wire     = require("ui/wire")
 local Palette  = require("ui/palette")
 local ColorPopup = require("ui/color_popup")
+local IfaceScale = require("ui/iface_scale")
 
 local Editor = {}
 Editor.__index = Editor
@@ -238,7 +239,11 @@ end
 local function mousePos()
     if Mouse == nil or Mouse.GetPosition == nil then return nil end
     local ok, pos = pcall(function() return Mouse.GetPosition() end)
-    if ok and pos ~= nil then return pos.x, pos.y end
+    if ok and pos ~= nil then
+        -- Mouse is denser than interface units when InterfaceScale ≠ 100%; divide first
+        -- so toLocal / palette hits line up with Canvas draw (native ui.* already scales).
+        return IfaceScale.ToInterface(pos.x, pos.y)
+    end
     return nil
 end
 

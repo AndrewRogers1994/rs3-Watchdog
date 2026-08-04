@@ -38,6 +38,7 @@ local Effects = require("effects")
 local InfoBoxArea = require("ui/infobox")
 local ScreenMarkerCapture = require("ui/screen_marker_capture")
 local ObjectMarkerCapture = require("ui/object_marker_capture")
+local IfaceScale = require("ui/iface_scale")
 local Util = require("util")
 
 local Runtime = {}
@@ -359,10 +360,11 @@ function Runtime:Update(dt)
     self.effects:Update(dt)
 end
 
--- The last polled mouse position (x, y), or nil, nil before the first Update tick / when no
--- mouseSource is injected. Lets a Draw-pass caller (main.lua, for the InfoBox Area's hover
--- tooltip) reuse the same poll _pollMouseActivity already does each Logic tick, instead of a
--- second GetPosition call of its own.
+-- The last polled mouse position in **interface units** (x, y), or nil, nil before the
+-- first Update tick / when no mouseSource is injected. Canvas/effects consumers (screen
+-- marker drag follow, InfoBox hover) must use this rather than raw Mouse.GetPosition —
+-- see ui/iface_scale.lua. Lets a Draw-pass caller reuse the Logic-tick poll instead of a
+-- second GetPosition call.
 function Runtime:GetMousePos()
     local pos = self._lastMousePos
     if pos == nil then return nil, nil end
@@ -371,7 +373,8 @@ end
 
 -- Mouse position is poll-only (no move/click event on the client — see core/mouse.lua docs),
 -- hence advancing this from Update rather than a binding. `mouseSource` defaults to nil (no
--- client global set up) outside the client, so this is a no-op unless injected.
+-- client global set up) outside the client, so this is a no-op unless injected. Stored coords
+-- are interface-scaled so UpdateDrag / overlay draws line up with Canvas space.
 function Runtime:_pollMouseActivity()
     local mouse = self.mouseSource
     if mouse == nil or not mouse.IsAvailable() then
@@ -381,13 +384,14 @@ function Runtime:_pollMouseActivity()
     if not ok or pos == nil then
         return
     end
+    local ix, iy = IfaceScale.ToInterface(pos.x, pos.y)
     local last = self._lastMousePos
     -- The first poll only establishes a baseline — there's nothing to compare yet, so it
     -- must not itself count as "activity" (a plugin load/reload isn't a mouse movement).
-    if last ~= nil and (pos.x ~= last.x or pos.y ~= last.y) then
+    if last ~= nil and (ix ~= last.x or iy ~= last.y) then
         self.mouseActivityTick = self.mouseActivityTick + 1
     end
-    self._lastMousePos = { x = pos.x, y = pos.y }
+    self._lastMousePos = { x = ix, y = iy }
 end
 
 -- Registers a live graph as an alert the dispatcher fans out over. `enabled` defaults to true;

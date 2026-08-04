@@ -295,6 +295,20 @@ function TestRuntime:testMouseActivityTickIgnoredWhenMouseUnavailable()
     luaunit.assertEquals(runtime.mouseActivityTick, 0)
 end
 
+function TestRuntime:testGetMousePosAppliesInterfaceScale()
+    -- Screen-marker UpdateDrag (and InfoBox hover) read GetMousePos; raw Mouse must be
+    -- converted to interface units or the drag rubber-band drifts down-right of the cursor.
+    local prevGame = rawget(_G, "game")
+    rawset(_G, "game", { options = { InterfaceScale = { setting = 200 } } })
+    local mouse = newFakeMouse(400, 300)
+    local runtime = Runtime.new(self.source.source, mouse)
+    runtime:Update(1)
+    local mx, my = runtime:GetMousePos()
+    rawset(_G, "game", prevGame)
+    luaunit.assertEquals(mx, 200)
+    luaunit.assertEquals(my, 150)
+end
+
 --- Alert model: all-graphs-live fan-out + enable/disable (#27, #86) -----------------------
 
 -- A fake persistence hook standing in for the Store wiring: records every SetEnabled call and

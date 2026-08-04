@@ -13,6 +13,7 @@
 -- client-only, same disclaimer as ui/infobox.lua's own click-capture section.
 
 local Theme = require("ui/theme")
+local IfaceScale = require("ui/iface_scale")
 
 local ScreenMarkerCapture = {}
 ScreenMarkerCapture.__index = ScreenMarkerCapture
@@ -103,7 +104,9 @@ end
 local function mousePos()
     if Mouse == nil or Mouse.GetPosition == nil then return nil end
     local ok, pos = pcall(function() return Mouse.GetPosition() end)
-    if ok and pos ~= nil then return pos.x, pos.y end
+    if ok and pos ~= nil then
+        return IfaceScale.ToInterface(pos.x, pos.y)
+    end
     return nil
 end
 
