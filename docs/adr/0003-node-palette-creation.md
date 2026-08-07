@@ -34,8 +34,10 @@ filtering — a flat MiniMenu could not.
   in one gesture. A grab-from-input drag that lands on empty offers the same, rewiring the
   freed output into a fresh Node.
 - **Unfiltered.** A double-click on empty Viewport (paired within a short Logic-tick window)
-  or the toolbar **+** opens the Palette listing every Node Type; the new Node lands at the
-  open point.
+  or the toolbar **+** opens the Palette listing every Node Type. Double-click places the
+  new Node's origin at the open point; the toolbar **+** places the Node Body's center at
+  the center of the current Viewport (#96), while the panel itself still opens near the
+  button.
 
 Both go through a single Editor open path, so a future launcher (see below) can reuse it.
 

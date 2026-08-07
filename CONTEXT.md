@@ -99,7 +99,9 @@ The plugin-drawn popup for creating Nodes: a scrollable list of the Registry's N
 grouped by Category, drawn on the Editor's Canvas and hit-tested manually like everything
 else. Deliberately NOT the native RuneScape MiniMenu, which cannot be extended (ADR-0003).
 Modal while open. Opened filtered (Drag-to-Create) or unfiltered (double-click empty
-Viewport / the toolbar +). Named after Unreal Blueprints' palette.
+Viewport / the toolbar +). Double-click places the new Node's origin at the click; toolbar +
+places the Node Body's center at the Viewport center (#96). Named after Unreal Blueprints'
+palette.
 _Avoid_: Catalog, menu, context menu, MiniMenu, node browser
 
 **Drag-to-Create**:

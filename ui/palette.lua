@@ -74,8 +74,9 @@ function Palette.new()
         scrollDragging = false,  -- Editor sets this while dragging the scrollbar (thumb draws hot)
         screenX = 0,      -- where the panel was requested (clamped into the bounds rect at Draw)
         screenY = 0,
-        anchorGX = 0,     -- Graph-space point the new Node's origin is placed at
+        anchorGX = 0,     -- Graph-space placement point (origin, or Body center when centerOnAnchor)
         anchorGY = 0,
+        centerOnAnchor = false, -- + path (#96): place Node Body center on the anchor, not origin
         connect = nil,    -- { nodeId, entry } source Pin for drag-to-create; nil when unfiltered
         rect = nil,       -- last drawn panel rect + metrics, for hit-testing
     }, Palette)
@@ -83,7 +84,7 @@ end
 
 -- Builds the row list from the Registry. `filterFn(def)` returns the name of the Pin to
 -- auto-connect for a compatible Node Type, or nil to exclude it; pass nil to include every
--- type (unfiltered). `opts` = { screenX, screenY, anchorGX, anchorGY, connect }.
+-- type (unfiltered). `opts` = { screenX, screenY, anchorGX, anchorGY, centerOnAnchor, connect }.
 function Palette:Open(registry, filterFn, opts)
     self.rows = {}
     self.scroll = 0
@@ -92,6 +93,7 @@ function Palette:Open(registry, filterFn, opts)
     self.screenY = opts.screenY
     self.anchorGX = opts.anchorGX
     self.anchorGY = opts.anchorGY
+    self.centerOnAnchor = opts.centerOnAnchor == true
     self.connect = opts.connect
 
     -- Group the (compatible) Node Types by Category.
@@ -159,6 +161,7 @@ function Palette:Close()
     self.rows = {}
     self.rect = nil
     self.connect = nil
+    self.centerOnAnchor = false
     self.scrollDragging = false
 end
 

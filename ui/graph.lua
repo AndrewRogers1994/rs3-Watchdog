@@ -162,6 +162,16 @@ function Editor:toScreen(lx, ly)
     return lx + self.window.x, ly + self.window.y
 end
 
+-- Graph-space point under the Viewport's content-local center (accounts for pan/zoom).
+-- Used by the + button Palette so the new Node lands in the middle of what the user sees
+-- (#96), rather than under the toolbar chrome that opened the panel.
+---@return number gx
+---@return number gy
+function Editor:viewCenterGraph()
+    local w, h = self.window.w, self.window.h
+    return self.view:ToGraph(w * 0.5, h * 0.5)
+end
+
 -- Re-read the content parent's live screen rect into self.window. PrettyUI moves the window
 -- root on title-drag; nested content's raw .x/.y are parent-relative, so prefer PrettyUI's
 -- Tooltip context position resolver when present (absolute screen). Falls back to .x/.y.
@@ -787,22 +797,47 @@ end
 
 --- Palette (Node creation) --------------------------------------------------------------
 
--- Opens the Palette listing every Node Type; the new Node lands where it was opened.
--- `lx, ly` are Canvas-local (the caller's frame); the Palette draws in SCREEN space on its
--- own full-screen Canvas, so the anchor is converted with toScreen, while the new-node
--- position stays graph-space (view:ToGraph of the local point). Expands the Capture Layer to
--- full-screen so rows drawn past the Window edge are still clickable (closePalette restores it).
-function Editor:openPaletteUnfiltered(lx, ly)
-    -- The toolbar + is a real Button (bypasses beginPress's colorPopup-modal check), so
-    -- mutual exclusion with the color popup has to be enforced here too.
+-- Opens the Palette listing every Node Type. `lx, ly` are content-local: they place the
+-- panel (via toScreen) and, by default, the new-Node Graph-space origin (via ToGraph).
+-- `opts.anchorGX/GY` override that point; `opts.centerOnAnchor` places the Node Body's
+-- center on it instead of the origin (toolbar + → Viewport center, #96). Expands the
+-- Capture Layer to full-screen so rows drawn past the Window edge are still clickable
+-- (closePalette restores it). Single unfiltered open path (ADR-0003) — double-click,
+-- empty-space, and toolbar + all come through here.
+---@param lx number
+---@param ly number
+---@param opts { anchorGX: number, anchorGY: number, centerOnAnchor: boolean }|nil
+function Editor:openPaletteUnfiltered(lx, ly, opts)
+    -- Mutual exclusion with the color popup: the toolbar + is a real Button (bypasses
+    -- beginPress's colorPopup-modal check), so every unfiltered open enforces it here.
     self:closeColorPopup()
-    local gx, gy = self.view:ToGraph(lx, ly)
+    local gx, gy
+    if opts ~= nil and opts.anchorGX ~= nil and opts.anchorGY ~= nil then
+        gx, gy = opts.anchorGX, opts.anchorGY
+    else
+        gx, gy = self.view:ToGraph(lx, ly)
+    end
     local scx, scy = self:toScreen(lx, ly)
-    self.palette:Open(self.registry, nil,
-        { screenX = scx, screenY = scy, anchorGX = gx, anchorGY = gy, connect = nil })
+    self.palette:Open(self.registry, nil, {
+        screenX = scx, screenY = scy, anchorGX = gx, anchorGY = gy,
+        centerOnAnchor = opts ~= nil and opts.centerOnAnchor == true,
+        connect = nil,
+    })
     self:expandCapture()
     self.mode = "idle"
     self.selected = nil
+end
+
+-- Toolbar "+" entry (#96): panel near the button; Node Body center lands on the Viewport
+-- center so the new Node sits in the middle of what the user sees, not under the chrome.
+-- Delegates to openPaletteUnfiltered (ADR-0003 single open path).
+function Editor:openPaletteFromPlus()
+    local w = self.window.w
+    local bs = TOOLBAR_BTN
+    local gx, gy = self:viewCenterGraph()
+    self:openPaletteUnfiltered(w - 2 * bs - 12, TOOLBAR_PAD + bs, {
+        anchorGX = gx, anchorGY = gy, centerOnAnchor = true,
+    })
 end
 
 -- Opens the Palette filtered to Node Types with a Pin that could receive `source` (the
@@ -864,9 +899,11 @@ function Editor:handlePaletteClick(mx, my)
 end
 
 -- Creates the chosen Node Type at the Palette's anchor and, in drag-to-create mode,
--- auto-connects the source Pin to the recorded target Pin.
+-- auto-connects the source Pin to the recorded target Pin. When centerOnAnchor is set
+-- (#96 toolbar +), the Node Body's center is placed on the anchor rather than its origin.
 function Editor:placeFromPalette(row)
     local anchorGX, anchorGY = self.palette.anchorGX, self.palette.anchorGY
+    local centerOnAnchor = self.palette.centerOnAnchor
     local connect = self.palette.connect
     local targetPin = row.targetPin
     self:closePalette()
@@ -876,7 +913,14 @@ function Editor:placeFromPalette(row)
         if log ~= nil then log("Watchdog: AddNode failed — " .. tostring(newId)) end
         return
     end
-    self.layout[newId] = { x = anchorGX, y = anchorGY }
+    local x, y = anchorGX, anchorGY
+    if centerOnAnchor then
+        local pins = self.graph:GetPins(newId) or {}
+        local geom = Node.BuildGeometry(pins, 0, 0, Theme.NODE_WIDTH, { connected = {} })
+        x = anchorGX - geom.w * 0.5
+        y = anchorGY - geom.h * 0.5
+    end
+    self.layout[newId] = { x = x, y = y }
     self:bringToFront(newId)
     self.selected = newId
 
@@ -1725,8 +1769,7 @@ function Editor:mountToolbar(overlayParent)
         plus.clickthrough = false
         plus.text.content = "+"
         plus:Subscribe(ui.Hook.ONBUTTONPRESSED, function()
-            local w = self.window.w
-            self:openPaletteUnfiltered(w - 2 * bs - 12, TOOLBAR_PAD + bs)
+            self:openPaletteFromPlus()
             return true
         end)
         pcall(function()

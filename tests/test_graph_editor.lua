@@ -162,3 +162,76 @@ function TestGraphEditor:testEscapeNavigatesUpWhenNothingElseActive()
     editor:onEscape()
     luaunit.assertEquals(back, 1)
 end
+
+--- #96: + button palette places the new Node at the Viewport center -------------------------
+-- viewCenterGraph is the seam: Graph-space point under the Viewport's content-local center.
+-- The + path stores that as palette.anchorGX/GY with centerOnAnchor, so placeFromPalette
+-- offsets by half the Node Body and the Body's center lands on the Viewport center
+-- (double-click / wire-drop keep origin-at-click anchors).
+
+function TestGraphEditor:testViewCenterGraphAtDefaultFraming()
+    local editor = Editor.new(self.registry, nil)
+    editor.window.w, editor.window.h = 400, 300
+    -- Default View (pan 0, zoom 1): content-local center == Graph-space center.
+    local gx, gy = editor:viewCenterGraph()
+    luaunit.assertEquals(gx, 200)
+    luaunit.assertEquals(gy, 150)
+end
+
+function TestGraphEditor:testViewCenterGraphAccountsForPanAndZoom()
+    local editor = Editor.new(self.registry, nil)
+    editor.window.w, editor.window.h = 400, 300
+    editor.view.panX, editor.view.panY, editor.view.zoom = 40, -20, 2.0
+    -- ToGraph((400/2), (300/2)) = (200-40)/2, (150-(-20))/2 = 80, 85
+    local gx, gy = editor:viewCenterGraph()
+    luaunit.assertEquals(gx, 80)
+    luaunit.assertEquals(gy, 85)
+end
+
+function TestGraphEditor:testOpenPaletteFromPlusAnchorsAtViewCenter()
+    local editor = Editor.new(self.registry, nil)
+    editor.window.w, editor.window.h = 400, 300
+    editor.view.panX, editor.view.panY, editor.view.zoom = 40, -20, 2.0
+    -- expandCapture touches capture/ui.*; stub so the open path stays headless.
+    editor.expandCapture = function() end
+    editor.closeColorPopup = function() end
+
+    editor:openPaletteFromPlus()
+
+    luaunit.assertTrue(editor.palette.open)
+    luaunit.assertEquals(editor.palette.anchorGX, 80)
+    luaunit.assertEquals(editor.palette.anchorGY, 85)
+    luaunit.assertTrue(editor.palette.centerOnAnchor)
+end
+
+-- After picking a type from the + Palette, the Node Body's center (not its origin) sits on
+-- the Viewport center.
+function TestGraphEditor:testPlaceFromPlusCentersNodeBodyOnViewCenter()
+    local Theme = require("ui/theme")
+    local Node = require("ui/node")
+    local editor = Editor.new(self.registry, nil)
+    editor:BindEntry(1, self.graph, {})
+    editor.window.w, editor.window.h = 400, 300
+    editor.expandCapture = function() end
+    editor.closeColorPopup = function() end
+    editor.positionCapture = function() end
+
+    editor:openPaletteFromPlus()
+    local row
+    for _, r in ipairs(editor.palette.rows) do
+        if not r.header and r.typeKey == "fixture.trigger" then
+            row = r
+            break
+        end
+    end
+    luaunit.assertNotNil(row)
+
+    editor:placeFromPalette(row)
+
+    local id = editor.selected
+    luaunit.assertNotNil(id)
+    local pos = editor.layout[id]
+    local geom = Node.BuildGeometry(self.graph:GetPins(id), 0, 0, Theme.NODE_WIDTH)
+    luaunit.assertEquals(pos.x + geom.w * 0.5, 200)
+    luaunit.assertEquals(pos.y + geom.h * 0.5, 150)
+end
