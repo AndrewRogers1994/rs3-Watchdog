@@ -1029,9 +1029,11 @@ local function onDraw()
             local hx, hy = runtime:GetMousePos()
             runtime.infobox:Draw(runtime.effects.canvas, hx, hy)
         end)
-        -- The Screen Marker capture overlay (#39) draws its own dim + in-progress selection
-        -- box on the same overlay Canvas, as its own pass for the same reason.
+        -- The Screen Marker capture overlay (#39/#71) draws its dim (+ snipping hole) and
+        -- Capture Banner on the same overlay Canvas, as its own pass for the same reason.
         pcall(function() runtime.screenMarkerCapture:Draw(runtime.effects.canvas) end)
+        -- Object Marker Capture Banner (#71) — instruction-only; no dim (would block MiniMenu).
+        pcall(function() runtime.objectMarkerCapture:Draw(runtime.effects.canvas) end)
     end
 end
 

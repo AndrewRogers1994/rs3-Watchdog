@@ -60,6 +60,11 @@ function TestObjectMarkerRegistration:testRegistersActionObjectMarkerWithShowAnd
     luaunit.assertEquals(byName.width.dataType, "number")
     luaunit.assertEquals(byName.showLabel.dataType, "bool")
     luaunit.assertEquals(byName.sticky.dataType, "bool")
+    luaunit.assertEquals(byName.sticky.default, false)
+    -- #71: expose the existing TTL as a Toast-parity `hold` pin.
+    luaunit.assertEquals(byName.hold.dataType, "number")
+    luaunit.assertEquals(byName.hold.default, ObjectMarker.DEFAULT_TTL_SECONDS)
+    luaunit.assertEquals(byName.hold.default, 5.0)
 end
 
 --- run(): fired through a REAL LibNodeGraph, so ctx is the engine's genuine run context. ----
@@ -151,6 +156,29 @@ function TestObjectMarkerRun:testShowExpiresOnItsOwnAfterTTL()
     self.graph:FireInput(id, "show")
     for _ = 1, 6 do self.effects:Update(1.0) end -- 6s > 5s TTL
     luaunit.assertEquals(self.effects:StackCount(stateOf(self.graph, id)), 0)
+end
+
+function TestObjectMarkerRun:testShowRespectsCustomHoldPin()
+    local id = self.graph:AddNode("action.object_marker", {
+        object = sampleObject(),
+        hold = 1.0,
+    })
+    self.graph:FireInput(id, "show")
+    self.effects:Update(0.5)
+    luaunit.assertEquals(self.effects:StackCount(stateOf(self.graph, id)), 1)
+    self.effects:Update(0.6)
+    luaunit.assertEquals(self.effects:StackCount(stateOf(self.graph, id)), 0)
+end
+
+function TestObjectMarkerRun:testStickyIgnoresHold()
+    local id = self.graph:AddNode("action.object_marker", {
+        object = sampleObject(),
+        sticky = true,
+        hold = 0.1,
+    })
+    self.graph:FireInput(id, "show")
+    for _ = 1, 50 do self.effects:Update(1.0) end
+    luaunit.assertEquals(self.effects:StackCount(stateOf(self.graph, id)), 1)
 end
 
 --- TileCorners: pure re-projection (nil-any-corner => nothing) -----------------------------

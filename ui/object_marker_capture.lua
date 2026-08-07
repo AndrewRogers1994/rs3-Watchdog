@@ -155,6 +155,21 @@ function ObjectMarkerCapture:Cancel()
     self.nodeId, self.pinName, self.onCommit = nil, nil, nil
 end
 
+-- Capture Banner while armed (#71). Drawn on the always-on overlay Canvas from main.lua —
+-- non-interactive (a full-screen overlay would block MiniMenu hover).
+---@param canvas any
+function ObjectMarkerCapture:Draw(canvas)
+    if canvas == nil or not self.armed then
+        return
+    end
+    local CaptureBanner = require("ui/capture_banner")
+    local w = 1920
+    pcall(function()
+        if canvas.width and canvas.width > 0 then w = canvas.width end
+    end)
+    CaptureBanner.Draw(canvas, CaptureBanner.OBJECT_TEXT, w)
+end
+
 function ObjectMarkerCapture:_unsubscribe()
     if not self._subscribed then
         return

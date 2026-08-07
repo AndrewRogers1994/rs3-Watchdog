@@ -64,6 +64,16 @@ function TestCaptureDisplay:testUnsetShowsEmptySoThePlaceholderTakesOver()
     luaunit.assertEquals(objectCapture.Display(captureCtrl(nil)), "")
 end
 
+function TestCaptureDisplay:testArmedShowsCancelAffordance()
+    -- #71: while this pin's Capture Arm is live, the Control label is an explicit Cancel.
+    local ctrl = captureCtrl({ x = 1, y = 2, w = 3, h = 4 })
+    ctrl.captureArmed = true
+    luaunit.assertEquals(screenCapture.Display(ctrl), "Cancel")
+    local octrl = captureCtrl({ name = "Bank booth" })
+    octrl.captureArmed = true
+    luaunit.assertEquals(objectCapture.Display(octrl), "Cancel")
+end
+
 --- Geometry the Node delegates to ---------------------------------------------------------
 
 TestCaptureLayout = {}

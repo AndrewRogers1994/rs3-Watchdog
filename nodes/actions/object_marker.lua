@@ -10,7 +10,8 @@
 -- a nil / unavailable projection draws nothing that frame, no clamp. The mark is a Tile-outline
 -- built from 4 CoordFine corners at 512-fine offsets (the DevTools overlay.lua pattern), at the
 -- node's `color` + `width`, with the object `name` label above when `showLabel` is on. Lifecycle is
--- the Overlay idiom: a 5s TTL by default, or forever when `sticky` is set.
+-- Toast-parity Hold (#71): a configurable `hold` seconds by default (5s), or forever when `sticky`
+-- is set.
 --
 -- Mode is a 4-way multi-select, but only **Tile** is feasible on the RS3 Lua API — there is no
 -- LocEntity and no hull / clickbox / bounds / model geometry exposed, so Hull / Outline / Clickbox
@@ -168,7 +169,8 @@ end
 function ObjectMarker.BuildHandle(spec, project)
     spec = spec or {}
     local sticky = spec.sticky and true or false
-    local ttl = spec.ttl or DEFAULT_TTL_SECONDS
+    local ttl = spec.ttl
+    if type(ttl) ~= "number" then ttl = DEFAULT_TTL_SECONDS end
     local elapsed = 0
     return {
         kind = "object_marker",
@@ -224,6 +226,8 @@ function ObjectMarker.Register(registry, runtime)
             { name = "width", kind = "data", direction = "in", dataType = "number", default = DEFAULT_WIDTH },
             { name = "showLabel", kind = "data", direction = "in", dataType = "bool", default = true },
             { name = "sticky", kind = "data", direction = "in", dataType = "bool", default = false },
+            { name = "hold", kind = "data", direction = "in", dataType = "number",
+              default = DEFAULT_TTL_SECONDS },
         },
         run = function(ctx)
             ctx.state = ctx.state or {}
@@ -250,6 +254,9 @@ function ObjectMarker.Register(registry, runtime)
                 return -- a never-captured object never fires (AC)
             end
 
+            local hold = ctx:In("hold")
+            if type(hold) ~= "number" then hold = DEFAULT_TTL_SECONDS end
+
             local handle = ObjectMarker.BuildHandle({
                 object = object,
                 mode = ctx:In("mode"),
@@ -257,6 +264,7 @@ function ObjectMarker.Register(registry, runtime)
                 width = ctx:In("width"),
                 showLabel = ctx:In("showLabel"),
                 sticky = ctx:In("sticky"),
+                ttl = hold,
             })
             state.handle = handle
             runtime.effects:PushStack(state, handle, 1)

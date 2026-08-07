@@ -406,6 +406,10 @@ function Editor:buildGeoms()
             -- each sub-rect's display text and never branches on the control's kind. A mode row's
             -- checkbox tick/dim is derived at draw time from the baked `enabled` flag + the stored
             -- value (node.lua), so nothing else needs stamping here.
+            -- #71: Capture Controls show "Cancel" while this pin's Capture Arm is live.
+            if ctrl.kind == "capture" then
+                ctrl.captureArmed = self:isCaptureArmed(n.id, ctrl.pinName)
+            end
             ctrl.display = ctrl.pinControl.Display(ctrl)
         end
         self.geoms[n.id] = geom
@@ -938,34 +942,63 @@ function Editor:fireTestPin(nodeId, pinName)
     end
 end
 
---- Screen Marker capture (#39) -----------------------------------------------------------
+--- Marker Capture Arm (#39/#40/#71) ---------------------------------------------------------
 
--- Arms the shared full-screen "Draw on screen" capture overlay (runtime.screenMarkerCapture,
--- see ui/screen_marker_capture.lua) for this node's `rect` pin. The overlay owns its own
--- click-capture layer and drag state machine (mounted/driven from main.lua, same as the
--- InfoBox Area's own drag-as-unit capture) — the Editor's only job is arming it and handing
--- it a commit callback that writes the finished rect through the normal setControl path,
--- same as every other Control edit. Silent no-op if no runtime was wired in (e.g. a
--- headless Editor in a future test).
-function Editor:armScreenMarkerCapture(nodeId, pinName)
-    if self.runtime == nil or self.runtime.screenMarkerCapture == nil then return end
-    self.runtime.screenMarkerCapture:Arm(nodeId, pinName, function(rect)
-        self:setControl(nodeId, pinName, rect)
-    end)
+-- Shared arm/cancel/retarget for Screen + Object Capture Arms: cancel the *other* kind
+-- (mutual exclusion), same-Control re-click cancels, otherwise Arm with `onCommit`.
+---@param primary { IsArmed: fun(self): boolean, Cancel: fun(self), Arm: fun(self, any, string, function), nodeId: any, pinName: string|nil }|nil
+---@param other { IsArmed: fun(self): boolean, Cancel: fun(self) }|nil
+---@param nodeId any
+---@param pinName string
+---@param onCommit fun(value: any)
+local function toggleMarkerCapture(primary, other, nodeId, pinName, onCommit)
+    if primary == nil then return end
+    local CaptureArm = require("ui/capture_arm")
+    if other ~= nil and other:IsArmed() then
+        other:Cancel()
+    end
+    if CaptureArm.Decide(primary.nodeId, primary.pinName, nodeId, pinName) == "cancel"
+        and primary:IsArmed() then
+        primary:Cancel()
+        return
+    end
+    primary:Arm(nodeId, pinName, onCommit)
 end
 
---- Object Marker capture (#40) -----------------------------------------------------------
+-- Arms the shared full-screen "Draw on screen" capture overlay for this node's capture pin.
+-- Same-Control re-click cancels; arming cancels any live Object Marker Capture Arm.
+function Editor:armScreenMarkerCapture(nodeId, pinName)
+    if self.runtime == nil then return end
+    toggleMarkerCapture(
+        self.runtime.screenMarkerCapture,
+        self.runtime.objectMarkerCapture,
+        nodeId, pinName,
+        function(rect) self:setControl(nodeId, pinName, rect) end)
+end
 
--- Arms the shared MiniMenu select mode (runtime.objectMarkerCapture, see
--- ui/object_marker_capture.lua) for this node's `object` pin. Unlike Screen Marker's drag
--- overlay, the capture subscribes Event.MiniMenuEntrySelected and commits on an Examine of a LOC,
--- writing the captured `{ name, coordGrid, subjectHash }` back through the normal setControl path.
--- Silent no-op if no runtime was wired in (e.g. a headless Editor in a future test).
+-- Arms the shared MiniMenu select mode. Same-Control re-click cancels; arming cancels any
+-- live Screen Marker Capture Arm. Commits on Examine of a LOC.
 function Editor:armObjectMarkerCapture(nodeId, pinName)
-    if self.runtime == nil or self.runtime.objectMarkerCapture == nil then return end
-    self.runtime.objectMarkerCapture:Arm(nodeId, pinName, function(object)
-        self:setControl(nodeId, pinName, object)
-    end)
+    if self.runtime == nil then return end
+    toggleMarkerCapture(
+        self.runtime.objectMarkerCapture,
+        self.runtime.screenMarkerCapture,
+        nodeId, pinName,
+        function(object) self:setControl(nodeId, pinName, object) end)
+end
+
+-- True when the named Capture Control is the live Capture Arm target (#71 Cancel label).
+---@param nodeId integer
+---@param pinName string
+---@return boolean
+function Editor:isCaptureArmed(nodeId, pinName)
+    if self.runtime == nil then return false end
+    for _, cap in ipairs({ self.runtime.screenMarkerCapture, self.runtime.objectMarkerCapture }) do
+        if cap ~= nil and cap:IsArmed() and cap.nodeId == nodeId and cap.pinName == pinName then
+            return true
+        end
+    end
+    return false
 end
 
 

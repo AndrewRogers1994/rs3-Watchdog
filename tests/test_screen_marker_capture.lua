@@ -131,4 +131,36 @@ function TestScreenMarkerCaptureStateMachine:testReArmingRetargetsWithoutFiringT
     luaunit.assertEquals(secondCommitted, { x = 0, y = 0, w = 4, h = 8 })
 end
 
+--- DimRegions: snipping-tool hole (#71) ----------------------------------------------------
+
+TestScreenMarkerCaptureDimRegions = {}
+
+function TestScreenMarkerCaptureDimRegions:testNilHoleDimsTheWholeScreen()
+    local regions = ScreenMarkerCapture.DimRegions(800, 600, nil)
+    luaunit.assertEquals(regions, { { x = 0, y = 0, w = 800, h = 600 } })
+end
+
+function TestScreenMarkerCaptureDimRegions:testHoleSplitsIntoFourSurroundingRects()
+    -- Selection at (100,50) size 200x100 inside 800x600.
+    local regions = ScreenMarkerCapture.DimRegions(800, 600, { x = 100, y = 50, w = 200, h = 100 })
+    luaunit.assertEquals(#regions, 4)
+    -- top band
+    luaunit.assertEquals(regions[1], { x = 0, y = 0, w = 800, h = 50 })
+    -- left of hole
+    luaunit.assertEquals(regions[2], { x = 0, y = 50, w = 100, h = 100 })
+    -- right of hole
+    luaunit.assertEquals(regions[3], { x = 300, y = 50, w = 500, h = 100 })
+    -- bottom band
+    luaunit.assertEquals(regions[4], { x = 0, y = 150, w = 800, h = 450 })
+end
+
+function TestScreenMarkerCaptureDimRegions:testZeroSizeHoleStillDimsWholeScreenAsFourBands()
+    local regions = ScreenMarkerCapture.DimRegions(100, 100, { x = 40, y = 40, w = 0, h = 0 })
+    luaunit.assertEquals(#regions, 4)
+    luaunit.assertEquals(regions[1], { x = 0, y = 0, w = 100, h = 40 })
+    luaunit.assertEquals(regions[2], { x = 0, y = 40, w = 40, h = 0 })
+    luaunit.assertEquals(regions[3], { x = 40, y = 40, w = 60, h = 0 })
+    luaunit.assertEquals(regions[4], { x = 0, y = 40, w = 100, h = 60 })
+end
+
 return TestScreenMarkerCaptureRect

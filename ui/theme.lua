@@ -254,10 +254,14 @@ Theme.COL_CHECK_MARK     = col(245, 205, 70, 1.0)   -- mode checkbox tick — go
 Theme.COL_CHECKER_LIGHT = col(150, 150, 150, 1.0)
 Theme.COL_CHECKER_DARK  = col(90, 90, 90, 1.0)
 
--- Screen Marker's "Draw on screen" full-screen capture overlay (#39): a dim wash over the
--- whole screen while a drag is in progress, and the in-progress selection box drawn on top.
+-- Screen Marker's "Draw on screen" full-screen capture overlay (#39/#71): dim wash while
+-- Capture-Armed (snipping-tool hole while dragging), and the in-progress selection outline.
 Theme.COL_SCREEN_MARKER_DIM  = col(0, 0, 0, 0.35)
 Theme.COL_SCREEN_MARKER_DRAG = col(255, 255, 255, 1.0)
+
+-- Shared Capture Banner (#71): top instruction strip while a marker Capture Arm is live.
+Theme.COL_CAPTURE_BANNER_BG = col(20, 20, 28, 0.92)
+Theme.COL_CAPTURE_BANNER_FG = col(240, 240, 245, 1.0)
 
 -- Execution pins and wires use one fixed neutral color (they carry no Type Tag).
 Theme.COL_EXEC        = col(242, 242, 242, 1.0)

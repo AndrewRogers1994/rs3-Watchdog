@@ -306,6 +306,30 @@ _Avoid_: Backup; "sync" (import is append, not sync); clipboard (no API); "seria
 
 ## Node domain
 
+**Hold**:
+The lifetime in seconds of a non-sticky visual effect before it auto-expires. A sticky effect
+ignores Hold and remains until dismissed. Shared pin name and semantics across Toast, Popup
+(Popup's Hold is the full-opacity middle of its in/out ramp), Screen Marker, and Object Marker.
+_Avoid_: TTL, duration, timeout (as the pin/prose name)
+
+**Screen Marker** (`action.screen_marker`):
+An Action that draws a screen-space rectangle outline on the always-on overlay. Authored by a
+Capture Arm drag ("Draw on screen"); shown via `show`, cleared via `dismiss` or (when non-sticky)
+when Hold elapses. Defaults match Toast (`sticky=false`, `hold=5`).
+_Avoid_: overlay box, screen rect, snipping region (those name the capture gesture, not the effect)
+
+**Object Marker** (`action.object_marker`):
+An Action that draws a world-anchored tile mark (optional name label) on the always-on overlay,
+re-projected every frame from a Capture-Arm Examine of a LOC. Same Hold/sticky lifetime as Toast;
+Tile is the only feasible draw mode on the current API.
+_Avoid_: ground marker, tile marker (as the node name); "object" alone (ambiguous with game objs)
+
+**Capture Banner**:
+A top-of-screen instruction strip shown while a Screen or Object Marker capture is waiting for
+input (drag a region / Examine a LOC). Non-interactive — cancel is Esc or re-click of the same
+Capture Control. Screen Marker also dims the screen behind it (Snipping-Tool hole while dragging).
+_Avoid_: toast, notification, armed banner, overlay prompt
+
 **Chat Trigger**:
 A Trigger Node that fires on the client's `ChatMessage` event. There are two, split by who
 authored the line: the **Game Message** trigger (system/engine/broadcast/examine lines) and

@@ -43,6 +43,26 @@ function ScreenMarkerCapture.Rect(x0, y0, x1, y1)
     }
 end
 
+-- Snipping-tool dim bands (#71): rectangles that cover the screen *except* `hole`.
+-- A nil hole yields one full-screen band (Capture-Armed idle). Returns axis-aligned
+-- {x,y,w,h} tables; zero-area bands are kept so callers don't special-case edges.
+---@param screenW number
+---@param screenH number
+---@param hole { x: number, y: number, w: number, h: number }|nil
+---@return { x: number, y: number, w: number, h: number }[]
+function ScreenMarkerCapture.DimRegions(screenW, screenH, hole)
+    if hole == nil then
+        return { { x = 0, y = 0, w = screenW, h = screenH } }
+    end
+    local hx, hy, hw, hh = hole.x, hole.y, hole.w, hole.h
+    return {
+        { x = 0, y = 0, w = screenW, h = hy },                       -- top
+        { x = 0, y = hy, w = hx, h = hh },                           -- left
+        { x = hx + hw, y = hy, w = screenW - (hx + hw), h = hh },    -- right
+        { x = 0, y = hy + hh, w = screenW, h = screenH - (hy + hh) }, -- bottom
+    }
+end
+
 --- State machine ---------------------------------------------------------------------------
 
 -- Arms a capture for one node/pin: the next BeginDrag starts the actual corner-to-corner
@@ -169,11 +189,10 @@ end
 
 --- Draw (client-only; untested under the bare Lua harness) ---------------------------------
 
--- Dims the whole screen and outlines the in-progress rect while dragging, onto `canvas` (the
--- always-on overlay Canvas -- see effects.lua). No-op unless actively dragging (an
--- armed-but-not-yet-dragging capture draws nothing, matching a plain unpressed button).
+-- Capture-Armed (#71): dims the whole screen + Capture Banner. Dragging: snipping-tool hole
+-- (undimmed selection interior) + outline. Idle: no-op.
 function ScreenMarkerCapture:Draw(canvas)
-    if canvas == nil or not self.dragging then
+    if canvas == nil or not self.armed then
         return
     end
     local w, h = 1920, 1080
@@ -181,14 +200,26 @@ function ScreenMarkerCapture:Draw(canvas)
         if canvas.width and canvas.width > 0 then w = canvas.width end
         if canvas.height and canvas.height > 0 then h = canvas.height end
     end)
-    pcall(function()
-        canvas:AddRectangle(0, 0, w, h, Theme.Vec4(Theme.COL_SCREEN_MARKER_DIM))
-    end)
-    local r = ScreenMarkerCapture.Rect(self.startX, self.startY, self.curX, self.curY)
-    pcall(function()
-        canvas:AddOutline(r.x, r.y, r.w, r.h, Theme.BORDER_THICKNESS,
-            Theme.Vec4(Theme.COL_SCREEN_MARKER_DRAG))
-    end)
+    local hole = nil
+    if self.dragging then
+        hole = ScreenMarkerCapture.Rect(self.startX, self.startY, self.curX, self.curY)
+    end
+    local dim = Theme.Vec4(Theme.COL_SCREEN_MARKER_DIM)
+    for _, r in ipairs(ScreenMarkerCapture.DimRegions(w, h, hole)) do
+        if r.w > 0 and r.h > 0 then
+            pcall(function()
+                canvas:AddRectangle(r.x, r.y, r.w, r.h, dim)
+            end)
+        end
+    end
+    local CaptureBanner = require("ui/capture_banner")
+    CaptureBanner.Draw(canvas, CaptureBanner.SCREEN_TEXT, w)
+    if hole ~= nil then
+        pcall(function()
+            canvas:AddOutline(hole.x, hole.y, hole.w, hole.h, Theme.BORDER_THICKNESS,
+                Theme.Vec4(Theme.COL_SCREEN_MARKER_DRAG))
+        end)
+    end
 end
 
 return ScreenMarkerCapture

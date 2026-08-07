@@ -1,5 +1,5 @@
--- Exercises the action.screen_marker node (nodes/actions/screen_marker.lua, #39) through its
--- pure seams: the persistent (never-auto-expiring) effect handle it builds, and `run` pushing/
+-- Exercises the action.screen_marker node (nodes/actions/screen_marker.lua, #39/#71) through its
+-- pure seams: the Toast-parity hold/sticky effect handle it builds, and `run` pushing/
 -- dismissing that handle on a real EffectRegistry -- no LibNodeGraph required, matching
 -- test_popup's/test_infobox_node's convention (a fake registry + fake ctx driving a real
 -- EffectRegistry). The Canvas draw is a client primitive, asserted only for not-erroring
@@ -49,6 +49,12 @@ function TestScreenMarkerRegistration:testRegistersActionScreenMarkerWithShowAnd
     luaunit.assertNil(byName.rect.default) -- a never-drawn rect never fires
     luaunit.assertEquals(byName.thickness.dataType, "number")
     luaunit.assertEquals(byName.color.dataType, "color")
+    -- #71 Toast-parity lifetime pins (defaults match Toast: sticky=false, hold=5).
+    luaunit.assertEquals(byName.sticky.dataType, "bool")
+    luaunit.assertEquals(byName.sticky.default, false)
+    luaunit.assertEquals(byName.hold.dataType, "number")
+    luaunit.assertEquals(byName.hold.default, ScreenMarker.DEFAULT_TTL_SECONDS)
+    luaunit.assertEquals(byName.hold.default, 5.0)
 end
 
 --- run(): fired through a REAL LibNodeGraph, so ctx is the engine's genuine run context rather
@@ -119,7 +125,7 @@ function TestScreenMarkerRun:testExternalFireWithNoExecPinFallsBackToShowBehavio
     luaunit.assertEquals(self.effects:StackCount(stateOf(self.graph, id)), 1)
 end
 
---- BuildHandle: a persistent effect handle that never auto-expires -------------------------
+--- BuildHandle: Toast-parity hold + sticky (#71) -------------------------------------------
 
 function TestScreenMarkerRun:testBuildHandleIsAWellFormedEffectHandle()
     local h = ScreenMarker.BuildHandle({ x = 0, y = 0, w = 10, h = 10 })
@@ -128,11 +134,59 @@ function TestScreenMarkerRun:testBuildHandleIsAWellFormedEffectHandle()
     luaunit.assertEquals(type(h.draw), "function")
 end
 
-function TestScreenMarkerRun:testHandleUpdateNeverExpiresOnItsOwn()
+function TestScreenMarkerRun:testHandleExpiresAfterTheDefaultHold()
     local h = ScreenMarker.BuildHandle({ x = 0, y = 0, w = 10, h = 10 })
+    luaunit.assertTrue(h.update(4.9))
+    luaunit.assertFalse(h.update(0.2)) -- 5.1s total -> expired
+end
+
+function TestScreenMarkerRun:testStickyHandleNeverExpires()
+    local h = ScreenMarker.BuildHandle({ x = 0, y = 0, w = 10, h = 10 }, nil, nil, { sticky = true })
     for _ = 1, 1000 do
-        luaunit.assertTrue(h.update(0.02))
+        luaunit.assertTrue(h.update(1.0))
     end
+end
+
+function TestScreenMarkerRun:testCustomHoldExpiresSooner()
+    local h = ScreenMarker.BuildHandle({ x = 0, y = 0, w = 10, h = 10 }, nil, nil, { ttl = 1.0 })
+    luaunit.assertTrue(h.update(0.9))
+    luaunit.assertFalse(h.update(0.2))
+end
+
+function TestScreenMarkerRun:testShowExpiresOnItsOwnAfterHold()
+    local id = self.graph:AddNode("action.screen_marker", {
+        rect = { x = 1, y = 2, w = 3, h = 4 },
+    })
+    self.graph:FireInput(id, "show")
+    for _ = 1, 6 do self.effects:Update(1.0) end -- 6s > 5s hold
+    luaunit.assertEquals(self.effects:StackCount(stateOf(self.graph, id)), 0)
+end
+
+function TestScreenMarkerRun:testShowRespectsStickyThroughTheEffectRegistry()
+    local id = self.graph:AddNode("action.screen_marker", {
+        rect = { x = 1, y = 2, w = 3, h = 4 },
+        sticky = true,
+    })
+    self.graph:FireInput(id, "show")
+    for _ = 1, 500 do self.effects:Update(1.0) end
+    luaunit.assertEquals(self.effects:StackCount(stateOf(self.graph, id)), 1)
+end
+
+function TestScreenMarkerRun:testShowRespectsCustomHoldPin()
+    local id = self.graph:AddNode("action.screen_marker", {
+        rect = { x = 1, y = 2, w = 3, h = 4 },
+        hold = 1.0,
+    })
+    self.graph:FireInput(id, "show")
+    self.effects:Update(0.5)
+    luaunit.assertEquals(self.effects:StackCount(stateOf(self.graph, id)), 1)
+    self.effects:Update(0.6)
+    luaunit.assertEquals(self.effects:StackCount(stateOf(self.graph, id)), 0)
+end
+
+function TestScreenMarkerRun:testZeroHoldExpiresImmediately()
+    local h = ScreenMarker.BuildHandle({ x = 0, y = 0, w = 1, h = 1 }, nil, nil, { ttl = 0 })
+    luaunit.assertFalse(h.update(0))
 end
 
 -- A fake overlay Canvas recording the outline draw call's arguments.

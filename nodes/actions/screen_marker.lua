@@ -1,8 +1,8 @@
--- action.screen_marker (#39) — a dismiss-only static screen-space border box on the always-on
--- overlay Canvas (effects.lua, #29): a self-drawn EffectRegistry effect whose `update` reports
--- alive forever (there's no TTL/animation -- Dismiss is the only way out), keyed by the node's
--- own persistent ctx.state table, the same "Stack capped at 1" idempotent-replace idiom as
--- action.screen_flash (re-Show restarts; different nodes stack).
+-- action.screen_marker (#39/#71) — a Toast-parity hold/sticky static screen-space border box on
+-- the always-on overlay Canvas (effects.lua, #29): a self-drawn EffectRegistry effect whose
+-- non-sticky `update` expires after `hold` seconds (default 5), sticky stays until Dismiss,
+-- keyed by the node's own persistent ctx.state table, the same "Stack capped at 1"
+-- idempotent-replace idiom as action.screen_flash (re-Show restarts; different nodes stack).
 --
 -- The rect itself is draw-only, never a typed field: the sole Control on the `rect` pin is the
 -- "Draw on screen" capture button (ui/screen_marker_capture.lua, kind == "capture" in
@@ -20,6 +20,10 @@ local Controls = require("ui/controls")
 
 local ScreenMarker = {}
 
+-- Toast-parity default Hold (#71). Own constant — no require of toast.lua.
+local DEFAULT_TTL_SECONDS = 5.0
+ScreenMarker.DEFAULT_TTL_SECONDS = DEFAULT_TTL_SECONDS
+
 -- capture (#39): a single value-column box (not composite) showing a "x,y wxh" summary of the
 -- captured rect, or "" (falls back to the box's placeholder text) when nothing's been drawn
 -- yet -- the "Draw on screen" button itself lives in ui/node.lua's capture-kind box building.
@@ -35,16 +39,28 @@ Controls.Register("screen_marker.rect", {
 local DEFAULT_COLOR = { r = 255, g = 0, b = 0, a = 255 }
 local DEFAULT_THICKNESS = 2
 
--- Builds the uniform effect handle (effects.lua). `update` never expires on its own -- this is
--- a persistent marker, not an auto-expiring effect -- only Dismiss removes it. `draw` is a
+-- Builds the uniform effect handle (effects.lua). Non-sticky handles expire after `opts.ttl`
+-- (default 5s, Toast-parity Hold); sticky ignores Hold and stays until Dismiss. `draw` is a
 -- single Canvas AddOutline at the captured rect.
-function ScreenMarker.BuildHandle(rect, thickness, color)
+---@param rect { x: number, y: number, w: number, h: number }
+---@param thickness number|nil
+---@param color { r: integer, g: integer, b: integer, a: integer|nil }|nil
+---@param opts { sticky: boolean|nil, ttl: number|nil }|nil
+function ScreenMarker.BuildHandle(rect, thickness, color, opts)
+    opts = opts or {}
+    local sticky = opts.sticky and true or false
+    local ttl = opts.ttl
+    if type(ttl) ~= "number" then ttl = DEFAULT_TTL_SECONDS end
+    local elapsed = 0
     local col = color or DEFAULT_COLOR
     local a = (col.a == nil) and 255 or col.a
     return {
         kind = "screen_marker",
         state = {},
-        update = function(_dt) return true end,
+        update = function(dt)
+            elapsed = elapsed + (tonumber(dt) or 0)
+            return sticky or elapsed < ttl
+        end,
         draw = function(canvas)
             canvas:AddOutline(rect.x, rect.y, rect.w, rect.h, thickness or DEFAULT_THICKNESS,
                 Vector4.new((col.r or 0) / 255, (col.g or 0) / 255, (col.b or 0) / 255, a / 255))
@@ -63,6 +79,9 @@ function ScreenMarker.Register(registry, runtime)
             { name = "rect", kind = "data", direction = "in", dataType = "screen_marker.rect", default = nil },
             { name = "thickness", kind = "data", direction = "in", dataType = "number", default = DEFAULT_THICKNESS },
             { name = "color", kind = "data", direction = "in", dataType = "color", default = DEFAULT_COLOR },
+            { name = "sticky", kind = "data", direction = "in", dataType = "bool", default = false },
+            { name = "hold", kind = "data", direction = "in", dataType = "number",
+              default = DEFAULT_TTL_SECONDS },
         },
         run = function(ctx)
             ctx.state = ctx.state or {}
@@ -92,8 +111,13 @@ function ScreenMarker.Register(registry, runtime)
 
             local thickness = ctx:In("thickness") or DEFAULT_THICKNESS
             local color = ctx:In("color") or DEFAULT_COLOR
+            local hold = ctx:In("hold")
+            if type(hold) ~= "number" then hold = DEFAULT_TTL_SECONDS end
 
-            local handle = ScreenMarker.BuildHandle(rect, thickness, color)
+            local handle = ScreenMarker.BuildHandle(rect, thickness, color, {
+                sticky = ctx:In("sticky"),
+                ttl = hold,
+            })
             state.handle = handle
             runtime.effects:PushStack(state, handle, 1)
         end,

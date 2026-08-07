@@ -42,6 +42,9 @@ function Capture.new(opts)
     ---@param ctrl table
     ---@return string
     function M.Display(ctrl)
+        if ctrl.captureArmed then
+            return "Cancel"
+        end
         if format ~= nil then
             local ok, s = pcall(format, ctrl.value)
             if ok and s ~= nil then return tostring(s) end
