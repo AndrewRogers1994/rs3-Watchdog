@@ -224,6 +224,12 @@ function Multiplexer:Content()
     return self.window.content
 end
 
+--- PrettyUI Window host (Add* / Layout.manage). Prefer over Content() for PrettyUI widgets.
+---@return Watchdog.MuxWindow|nil
+function Multiplexer:Window()
+    return self.window
+end
+
 ---@return any
 function Multiplexer:Overlay()
     return self._overlay

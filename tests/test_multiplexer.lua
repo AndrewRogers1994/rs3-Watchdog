@@ -255,6 +255,7 @@ end
 function TestMuxVisibility:testContentAndOverlayAccessors()
     luaunit.assertEquals(self.mux:Content().kind, "content")
     luaunit.assertEquals(self.mux:Overlay().kind, "overlay")
+    luaunit.assertEquals(self.mux:Window(), self.win)
 end
 
 function TestMuxVisibility:testHideAlsoHidesOverlaySibling()

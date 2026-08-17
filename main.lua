@@ -960,7 +960,7 @@ local function onLogic()
             end
             if state.muxMounted then
                 if not state.managerMounted then
-                    pcall(function() manager:Mount(mux:Content()) end)
+                    pcall(function() manager:Mount(mux:Content(), mux:Window()) end)
                     state.managerMounted = manager:IsMounted()
                 end
                 if not state.mounted then
@@ -1130,9 +1130,6 @@ print("Watchdog editor loaded")
 -- MUST NOT :Destroy() UI here — client tears the tree down after.
 function PluginShutdown()
     pcall(persistNow)
-    pcall(function() Event.Logic.Unsubscribe(Events.Logic) end)
-    pcall(function() Event.Draw.Unsubscribe(Events.Draw) end)
-    pcall(function() Event.KeyDown.Unsubscribe(Events.KeyDown) end)
 end
 
 return Watchdog

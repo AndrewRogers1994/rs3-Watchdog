@@ -7,12 +7,13 @@
 -- NOT the Editor's Canvas — a scrolling list has neither pan nor zoom.
 --
 -- Window chrome (title bar, frame, drag) lives on the host Multiplexer / PrettyUI window.
--- This module mounts **content only** into an external parent (`mux:Content()`):
--- PrettyUI Tabs sized to the tab strip only + FancyButtons on tabs.root + a sibling native
--- tree Panel below the strip. Tabs must NOT fill the window height — a full-height Tabs
--- paints empty page content over the tree. Mid-session rebuild destroys tree/toolbar via
--- parent Panel; Stop/Unmount only clears Lua refs (mux window Destroy owns native teardown —
--- Destroying Tabs then the window double-frees after Show).
+-- Native tree mounts under `mux:Content()`; PrettyUI chrome uses `mux:Window():Add*` so
+-- Layout.manage owns teardown (unmanaged `prettyui.*.new` under a Layer hard-crashes on
+-- poff — see .memory/spritebutton-teardown-crash.md). Tabs are strip-height only — a
+-- full-height Tabs paints empty page content over the tree. Mid-session rebuild Destroys
+-- managed widgets while the window stays alive (Layout.remove); Stop/Unmount only clears
+-- Lua refs (mux window Destroy owns native teardown — Destroying Tabs then the window
+-- double-frees after Show).
 --
 -- #90 landed the tree/scope/expand read-only cut; #91 adds the per-row editing ops; PrettyUI
 -- chrome migration replaces hand-laid tab buttons and ASCII ren/del. Multi-select + bulk
@@ -119,11 +120,13 @@ function Manager.new(opts)
         },
         -- Client-only component handles (nil until Mount); see the render half below.
         contentParent = nil,        -- external parent (mux Content / rootWindow.content)
-        tabs = nil,                 -- prettyui.Tabs instance
+        layoutHost = nil,           -- prettyui.Window (Add* / Layout.manage host)
+        tabs = nil,                 -- prettyui.Tabs instance (via layoutHost:AddTabs)
         tabsScopeSig = nil,         -- scope key:label signature Tabs was built from
         treePanel = nil,
-        bulkBarButtons = {},        -- PrettyUI FancyButtons / SpriteButton on the bulk bar
-        toolbarButtons = {},        -- PrettyUI FancyButtons on the active tab page
+        treeTop = 0,                -- content-local Y of treePanel (rename AddTextField coords)
+        bulkBarButtons = {},        -- PrettyUI FancyButtons on the bulk bar (via Add*)
+        toolbarButtons = {},        -- PrettyUI FancyButtons on the tab strip (via Add*)
         lastSignature = nil,        -- last-rendered rebuild signature (skip no-op rebuilds)
         -- Inline rename: PrettyUI TextField + the Entry id it's editing, or nil when idle.
         renameField = nil,
@@ -800,7 +803,7 @@ function Manager:_activeScopeIndex()
     return 1
 end
 
--- Destroys create-toolbar FancyButtons parented to tabs.root.
+-- Destroys create-toolbar FancyButtons (layoutHost:AddFancyButton).
 function Manager:_destroyToolbar()
     for _, b in ipairs(self.toolbarButtons) do
         pcall(function() b:Destroy() end)
@@ -808,7 +811,7 @@ function Manager:_destroyToolbar()
     self.toolbarButtons = {}
 end
 
--- Destroys bulk-action bar FancyButtons / SpriteButtons (#93).
+-- Destroys bulk-action bar FancyButtons (#93).
 function Manager:_destroyBulkBar()
     for _, b in ipairs(self.bulkBarButtons) do
         pcall(function() b:Destroy() end)
@@ -842,7 +845,7 @@ end
 -- otherwise syncs the active tab without notifying (avoids rebuild re-entrancy).
 ---@return boolean
 function Manager:_ensureTabs()
-    if prettyui == nil or prettyui.Tabs == nil or self.contentParent == nil then
+    if self.layoutHost == nil or self.layoutHost.AddTabs == nil then
         return false
     end
     local scopes = self:ScopeList()
@@ -870,7 +873,8 @@ function Manager:_ensureTabs()
     local ok, err = pcall(function()
         -- Height = tab strip only. A full-height Tabs root paints an empty page over the
         -- sibling tree Panel and hides every row (MoveToFront is not enough against that).
-        tabs = prettyui.Tabs.new(self.contentParent, entries, {
+        -- AddTabs → Layout.manage (safe on poff); Tabs.new under content Layer is not.
+        tabs = self.layoutHost:AddTabs(entries, {
             x = 0,
             y = 0,
             width = 0,
@@ -895,22 +899,25 @@ function Manager:_ensureTabs()
 end
 
 ---@param contentParent ui.ComponentCollection
-function Manager:Mount(contentParent)
+---@param layoutHost any  # prettyui.Window (Add* host); required for PrettyUI chrome
+function Manager:Mount(contentParent, layoutHost)
     if ui == nil or ui.Panel == nil then
         if log ~= nil then log("Watchdog: ui.Panel unavailable, Manager Mount aborted") end
         return
     end
-    if prettyui == nil or prettyui.Tabs == nil then
-        if log ~= nil then log("Watchdog: prettyui.Tabs unavailable, Manager Mount aborted") end
+    if layoutHost == nil or layoutHost.AddTabs == nil then
+        if log ~= nil then log("Watchdog: layoutHost.AddTabs unavailable, Manager Mount aborted") end
         return
     end
 
     self.contentParent = contentParent
+    self.layoutHost = layoutHost
     local w, h = contentSize(contentParent)
     self.window.w, self.window.h = w, h
 
     if not self:_ensureTabs() then
         self.contentParent = nil
+        self.layoutHost = nil
         return
     end
 
@@ -1050,6 +1057,7 @@ function Manager:_endRename(commit)
 end
 
 -- Mounts a transient PrettyUI TextField over the name slot for Entry `id`.
+-- Content-local absolute coords on layoutHost (treePanel is native — not a Layout host).
 ---@param id integer
 ---@param name string
 ---@param x number
@@ -1058,10 +1066,10 @@ end
 ---@param h number
 function Manager:_beginRename(id, name, x, y, w, h)
     self:_endRename(false)
-    if self.treePanel == nil or prettyui == nil or prettyui.TextField == nil then return end
+    if self.layoutHost == nil or self.layoutHost.AddTextField == nil then return end
     local field
     local ok = pcall(function()
-        field = prettyui.TextField.new(self.treePanel, {
+        field = self.layoutHost:AddTextField({
             text = name or "",
             x = x,
             y = y,
@@ -1155,15 +1163,12 @@ local function isShiftDown()
     return shift
 end
 
--- + Alert / + Group / Import / Export on the PrettyUI tab strip (right-aligned), visually
--- inline with the tabs. Import/Export sit left of the create buttons so they never cover
--- the Global / character tab labels.
--- PrettyUI Tabs has no trailing-actions API; parenting FancyButtons to tabs.root is the
--- supported workaround.
+-- Trailing create/import/export actions on the tab strip row.
+-- PrettyUI Tabs has no trailing-actions API and Tabs itself is not a ContentMethods host
+-- (only TabPage is) — mount via layoutHost:AddFancyButton with absolute coords.
 function Manager:_mountToolbar()
-    if self.tabs == nil or self.tabs.root == nil or prettyui == nil then return end
-    if prettyui.FancyButton == nil then return end
-    local root = self.tabs.root
+    if self.layoutHost == nil or self.layoutHost.AddFancyButton == nil then return end
+    if prettyui == nil or prettyui.FancyButton == nil then return end
     local alertW, groupW, importW, exportW = 75, 75, 70, 70
     pcall(function()
         alertW = select(1, prettyui.FancyButton.getSize("+ Alert", { variant = "positive" }))
@@ -1179,7 +1184,7 @@ function Manager:_mountToolbar()
     local xExport = xAlert - Theme.MANAGER_TOOLBAR_GAP - exportW
     local xImport = xExport - Theme.MANAGER_TOOLBAR_GAP - importW
     pcall(function()
-        group = prettyui.FancyButton.new(root, "+ Group", function()
+        group = self.layoutHost:AddFancyButton("+ Group", function()
             local id = self:CreateGroup()
             if type(id) == "number" then self.pendingRenameId = id end
             self:_rebuild()
@@ -1189,7 +1194,7 @@ function Manager:_mountToolbar()
             xAnchor = 1.0,
             variant = "neutral",
         })
-        alert = prettyui.FancyButton.new(root, "+ Alert", function()
+        alert = self.layoutHost:AddFancyButton("+ Alert", function()
             self:CreateAlert()
             self:_rebuild()
         end, {
@@ -1198,7 +1203,7 @@ function Manager:_mountToolbar()
             xAnchor = 1.0,
             variant = "positive",
         })
-        exportBtn = prettyui.FancyButton.new(root, "Export", function()
+        exportBtn = self.layoutHost:AddFancyButton("Export", function()
             self:ExportScope()
         end, {
             x = xExport,
@@ -1206,7 +1211,7 @@ function Manager:_mountToolbar()
             xAnchor = 1.0,
             variant = "neutral",
         })
-        importBtn = prettyui.FancyButton.new(root, "Import", function()
+        importBtn = self.layoutHost:AddFancyButton("Import", function()
             self:OpenImport()
         end, {
             x = xImport,
@@ -1328,10 +1333,11 @@ function Manager:_mountTransfer()
 end
 
 -- Bulk-action bar (#93): Delete / New group / Move (when another scope exists) / Export.
--- Sibling of Tabs under contentParent, between the tab strip and the tree.
+-- Sibling of Tabs under content, between the tab strip and the tree — via layoutHost:Add*.
 function Manager:_mountBulkBar(y)
     if not self:HasSelection() then return end
-    if self.contentParent == nil or prettyui == nil or prettyui.FancyButton == nil then return end
+    if self.layoutHost == nil or self.layoutHost.AddFancyButton == nil then return end
+    if prettyui == nil or prettyui.FancyButton == nil then return end
     local ids = self:SelectedIds()
     local x = 0
     local gap = Theme.MANAGER_TOOLBAR_GAP
@@ -1343,7 +1349,7 @@ function Manager:_mountBulkBar(y)
             w = select(1, prettyui.FancyButton.getSize(label, { variant = variant, inline = true }))
         end)
         pcall(function()
-            btn = prettyui.FancyButton.new(self.contentParent, label, onPress, {
+            btn = self.layoutHost:AddFancyButton(label, onPress, {
                 x = Theme.MANAGER_PAGE_PAD + x,
                 y = y,
                 variant = variant,
@@ -1393,26 +1399,9 @@ function Manager:_mountBulkBar(y)
         end)
     end
 
-    if prettyui.SpriteButton ~= nil then
-        local exportBtn
-        pcall(function()
-            exportBtn = prettyui.SpriteButton.new(self.contentParent, "EXPORT", function()
-                self:BulkExport(ids)
-            end, {
-                x = Theme.MANAGER_PAGE_PAD + x,
-                y = y,
-                inline = true,
-                tooltip = "Export selected",
-            })
-        end)
-        if exportBtn ~= nil then
-            self.bulkBarButtons[#self.bulkBarButtons + 1] = exportBtn
-        end
-    else
-        addFancy("Export", "neutral", function()
-            self:BulkExport(ids)
-        end)
-    end
+    addFancy("Export", "neutral", function()
+        self:BulkExport(ids)
+    end)
 end
 
 -- Rebuilds toolbar + bulk bar + tree rows. Tabs recreate only when the scope-list signature changes.
@@ -1438,6 +1427,7 @@ function Manager:_rebuild()
         self:_mountBulkBar(bulkY)
         treeTop = Theme.MANAGER_TREE_TOP + Theme.MANAGER_BULK_BAR_H + 4
     end
+    self.treeTop = treeTop
 
     -- Tree: sibling of Tabs under contentParent, below the tab strip (and bulk bar when raised).
     -- Do NOT assign scrollable — read-only on ComponentCollection; writing it aborts the pcall
@@ -1460,7 +1450,7 @@ function Manager:_rebuild()
 
     local rows = self:VisibleRows()
     local treeParent = self.treePanel
-    -- Native ui.Button ren/export/del — PrettyUI SpriteButton crashes client teardown after PluginShutdown.
+    -- Native ui.Button ren/export/del; enable/select ui.Check; move arrows ui.Sprite.
     local baseNameW, headerNameW, headerMoveW, headerActionsW = managerColumnWidths(rowW, 0)
     pcall(function()
         local header = ui.Panel.new(treeParent)
@@ -1648,7 +1638,15 @@ function Manager:_rebuild()
             self.pendingBulkDelete = false
             local fieldY = 0
             pcall(function() fieldY = rowPanel.y or 0 end)
-            self:_beginRename(capturedRow.id, capturedRow.name, nameX, fieldY, nameW, Theme.MANAGER_ROW_H)
+            -- content-local for layoutHost:AddTextField (not treePanel-local)
+            self:_beginRename(
+                capturedRow.id,
+                capturedRow.name,
+                Theme.MANAGER_PAGE_PAD + nameX,
+                (self.treeTop or 0) + fieldY,
+                nameW,
+                Theme.MANAGER_ROW_H
+            )
         end)
 
         local exportX = renameX + Theme.MANAGER_ACT_W + Theme.MANAGER_ROW_GAP
@@ -1671,7 +1669,14 @@ function Manager:_rebuild()
             self.pendingRenameId = nil
             local fieldY = 0
             pcall(function() fieldY = rowPanel.y or 0 end)
-            self:_beginRename(row.id, row.name, nameX, fieldY, nameW, Theme.MANAGER_ROW_H)
+            self:_beginRename(
+                row.id,
+                row.name,
+                Theme.MANAGER_PAGE_PAD + nameX,
+                (self.treeTop or 0) + fieldY,
+                nameW,
+                Theme.MANAGER_ROW_H
+            )
         end
     end
 
@@ -1770,9 +1775,11 @@ function Manager:Unmount()
     self.toolbarButtons = {}
     self.bulkBarButtons = {}
     self.treePanel = nil
+    self.treeTop = 0
     self.tabs = nil
     self.tabsScopeSig = nil
     self.contentParent = nil
+    self.layoutHost = nil
 end
 
 return Manager
