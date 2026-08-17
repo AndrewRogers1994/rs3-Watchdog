@@ -66,6 +66,7 @@ local function validTarget(target)
 end
 
 ---@param registry LibNodeGraph.Registry
+---@param runtime Watchdog.Runtime
 function Location.Register(registry, runtime)
     registry:RegisterNodeType("trigger.location", {
         category = "trigger",

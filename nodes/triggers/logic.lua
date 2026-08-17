@@ -46,6 +46,7 @@ local function shouldFire(ctx)
 end
 
 ---@param registry LibNodeGraph.Registry
+---@param runtime Watchdog.Runtime
 function Logic.Register(registry, runtime)
     registry:RegisterNodeType("trigger.logic", {
         category = "trigger",

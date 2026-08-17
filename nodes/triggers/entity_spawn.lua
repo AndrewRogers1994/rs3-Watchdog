@@ -134,6 +134,7 @@ local function passesFilter(payload, node)
 end
 
 ---@param registry LibNodeGraph.Registry
+---@param runtime Watchdog.Runtime
 function EntitySpawn.Register(registry, runtime)
     -- Register the `kind` enum Control Spec (curated dropdown), reusing ADR-0004's Control Spec
     -- seam the same way action.popup does. Guarded so a headless/test require (no ui layer) still

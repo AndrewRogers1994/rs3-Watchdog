@@ -16,6 +16,7 @@
 local Node = {}
 
 ---@param registry LibNodeGraph.Registry
+---@param runtime Watchdog.Runtime
 function Node.Register(registry, runtime)
     registry:RegisterNodeType("action.alert_toggle", {
         category = "action",

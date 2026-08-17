@@ -103,6 +103,7 @@ local function skillMatches(payload, node)
 end
 
 ---@param registry LibNodeGraph.Registry
+---@param runtime Watchdog.Runtime
 function Skill.Register(registry, runtime)
     registry:RegisterNodeType("trigger.xp_drop", {
         category = "trigger",

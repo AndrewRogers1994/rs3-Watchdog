@@ -41,6 +41,66 @@ local ObjectMarkerCapture = require("ui/object_marker_capture")
 local IfaceScale = require("ui/iface_scale")
 local Util = require("util")
 
+---A live alert the dispatcher fans out over (#27/#86). `id` is the Entry identity persistence
+---keys on; `name` is free-text display (not unique); `bucketKey` is which Bucket owns it (#89).
+---@class Watchdog.RuntimeAlert
+---@field id integer|nil
+---@field name string|nil
+---@field graph LibNodeGraph.Graph|nil
+---@field enabled boolean
+---@field bucketKey string
+
+---Read-only handle handed to a binding `filter` and a node-type `preload` hook.
+---@class Watchdog.NodeHandle
+---@field id integer
+---@field typeKey string
+---@field GetControl fun(pinName: string): any
+
+---One BindTrigger entry: subscribe `event` once, then transform → filter → Fire.
+---@class Watchdog.TriggerBinding
+---@field event string
+---@field kind "event"|"poll"|nil                          # default "event"
+---@field transform (fun(raw: any): any)|nil               # identity if omitted
+---@field filter (fun(payload: any, node: Watchdog.NodeHandle): boolean)|nil  # always-pass if omitted
+
+---Injectable stand-in for the client `Player` identity read (#89).
+---@class Watchdog.IdentitySource
+---@field Resolve fun(self: Watchdog.IdentitySource): string|nil
+
+---Injected persistence hook for name-targeted SetEnabled/Toggle (keyed by Entry id).
+---@class Watchdog.RuntimePersistence
+---@field SetEnabled fun(id: integer, enabled: boolean)
+
+---The live dispatcher: event subscriptions, alert fan-out, effects, and capture overlays.
+---Public methods and fields only — underscore-prefixed internals are not part of this type.
+---@class Watchdog.Runtime
+---@field alerts Watchdog.RuntimeAlert[]
+---@field effects any                                      # EffectRegistry (effects.lua)
+---@field infobox any                                      # InfoBox Area (ui/infobox.lua)
+---@field screenMarkerCapture any                          # ui/screen_marker_capture.lua
+---@field objectMarkerCapture any                          # ui/object_marker_capture.lua
+---@field toast any|nil                                    # ToastStack, wired by main.lua
+---@field keyboardActivityTick integer
+---@field mouseActivityTick integer
+---@field new fun(eventSource: any|nil, mouseSource: any|nil, identitySource: Watchdog.IdentitySource|nil): Watchdog.Runtime
+---@field SetBucketLoader fun(self: Watchdog.Runtime, loader: fun(normalizedName: string): Watchdog.RestoredAlert[])
+---@field GetActiveCharacter fun(self: Watchdog.Runtime): string|nil, string|nil
+---@field Update fun(self: Watchdog.Runtime, dt: number)
+---@field GetMousePos fun(self: Watchdog.Runtime): number|nil, number|nil
+---@field AddAlert fun(self: Watchdog.Runtime, id: integer|nil, name: string|nil, graph: LibNodeGraph.Graph|nil, enabled: boolean|nil, bucketKey: string|nil): Watchdog.RuntimeAlert
+---@field RemoveAlert fun(self: Watchdog.Runtime, id: integer): boolean
+---@field SetAlertEnabled fun(self: Watchdog.Runtime, id: integer, enabled: boolean): boolean
+---@field RenameAlert fun(self: Watchdog.Runtime, id: integer, name: string): boolean
+---@field SetRegistry fun(self: Watchdog.Runtime, registry: LibNodeGraph.Registry)
+---@field PreloadGraph fun(self: Watchdog.Runtime, graph: LibNodeGraph.Graph|nil)
+---@field PreloadNode fun(self: Watchdog.Runtime, graph: LibNodeGraph.Graph, nodeId: integer)
+---@field SetGraph fun(self: Watchdog.Runtime, graph: LibNodeGraph.Graph|nil)
+---@field SetPersistence fun(self: Watchdog.Runtime, persistence: Watchdog.RuntimePersistence)
+---@field SetEnabledResolver fun(self: Watchdog.Runtime, resolver: fun(id: integer): boolean)
+---@field SetEnabled fun(self: Watchdog.Runtime, name: string, enabled: boolean): boolean
+---@field Toggle fun(self: Watchdog.Runtime, name: string): integer|nil
+---@field BindTrigger fun(self: Watchdog.Runtime, typeKey: string, entries: Watchdog.TriggerBinding[])
+---@field Stop fun(self: Watchdog.Runtime)
 local Runtime = {}
 Runtime.__index = Runtime
 
@@ -81,6 +141,10 @@ end
 -- (`Player.IsAvailable()` ∧ `entity.isValid`, see main.lua's wrapper), or nil otherwise. Defaults
 -- to nil: with no identity source the runtime never opens a character Bucket — only `global` is
 -- ever armed — so every existing single-source test keeps its behavior unchanged.
+---@param eventSource any|nil
+---@param mouseSource any|nil
+---@param identitySource Watchdog.IdentitySource|nil
+---@return Watchdog.Runtime
 function Runtime.new(eventSource, mouseSource, identitySource)
     local self = setmetatable({
         eventSource = eventSource or Event,
@@ -333,6 +397,7 @@ end
 -- Injects the character-Bucket loader (see `_bucketLoader`). Kept as its own seam like
 -- SetPersistence/SetRegistry rather than a Runtime.new param, since main.lua builds it (over the
 -- Store + registry) after constructing the runtime.
+---@param loader fun(normalizedName: string): Watchdog.RestoredAlert[]
 function Runtime:SetBucketLoader(loader)
     self._bucketLoader = loader
 end
@@ -354,6 +419,7 @@ end
 
 -- Advances the effect registry and polls mouse-activity by position change. Called once per
 -- Logic tick (see main.lua); `dt` is forwarded verbatim to every live effect handle's update.
+---@param dt number
 function Runtime:Update(dt)
     self:_drainPendingResolve()
     self:_pollMouseActivity()
@@ -365,6 +431,8 @@ end
 -- marker drag follow, InfoBox hover) must use this rather than raw Mouse.GetPosition —
 -- see ui/iface_scale.lua. Lets a Draw-pass caller reuse the Logic-tick poll instead of a
 -- second GetPosition call.
+---@return number|nil x
+---@return number|nil y
 function Runtime:GetMousePos()
     local pos = self._lastMousePos
     if pos == nil then return nil, nil end
@@ -409,7 +477,7 @@ end
 ---@param graph LibNodeGraph.Graph|nil
 ---@param enabled boolean|nil
 ---@param bucketKey string|nil  # which Bucket owns this alert; defaults to `global` (#89)
----@return { id: integer|nil, name: string|nil, graph: LibNodeGraph.Graph|nil, enabled: boolean, bucketKey: string }
+---@return Watchdog.RuntimeAlert
 function Runtime:AddAlert(id, name, graph, enabled, bucketKey)
     local alert = { id = id, name = name, graph = graph, enabled = enabled ~= false,
         bucketKey = bucketKey or GLOBAL_BUCKET }
@@ -477,6 +545,7 @@ end
 -- Injects the node-type registry (#33) so PreloadNode/PreloadGraph can look up a node's
 -- descriptor by typeKey. Kept as its own seam (like SetPersistence) rather than a Runtime.new
 -- param, since main.lua constructs the registry after the runtime.
+---@param registry LibNodeGraph.Registry
 function Runtime:SetRegistry(registry)
     self._registry = registry
 end
@@ -496,6 +565,7 @@ end
 -- Runs every node's `preload(node)` node-type hook (if it has one) for one graph. A no-op
 -- until SetRegistry has been called (e.g. AddAlert during early startup, before the registry
 -- exists) or when `graph` is nil.
+---@param graph LibNodeGraph.Graph|nil
 function Runtime:PreloadGraph(graph)
     if graph == nil or self._registry == nil then
         return
@@ -510,6 +580,8 @@ end
 -- resource-backed node (e.g. action.custom_sound) preloads the instant its dropdown Control is
 -- picked, not just at graph-restore. `node` (the hook's argument) exposes the same
 -- `{ id, typeKey, GetControl(pinName) }` shape as the dispatcher's own filter nodeHandle.
+---@param graph LibNodeGraph.Graph
+---@param nodeId integer
 function Runtime:PreloadNode(graph, nodeId)
     if graph == nil or self._registry == nil then
         return
@@ -524,6 +596,7 @@ end
 
 -- Back-compat convenience (and the single-graph test path): replace the whole alert set with one
 -- anonymous, always-enabled alert. main.lua uses AddAlert for the real multi-alert startup.
+---@param graph LibNodeGraph.Graph|nil
 function Runtime:SetGraph(graph)
     self.alerts = {}
     self._alertsByName = {}
@@ -536,6 +609,7 @@ end
 -- `SetEnabled(id, enabled)` (main.lua wires it to Store.SetEnabled + Store.Save; tests pass a
 -- fake that records calls). Keyed by the Entry `id` (#86), since names aren't unique. Kept as a
 -- seam so the runtime's dispatch logic never touches the client PersistentDB directly.
+---@param persistence Watchdog.RuntimePersistence
 function Runtime:SetPersistence(persistence)
     self._persistence = persistence
 end
@@ -634,6 +708,8 @@ end
 -- transition of that predicate — see `_firePollBindingInGraph`. A poll entry is expected to bind
 -- a per-tick channel (e.g. "Logic") and declare a `transform` that returns nil when the source is
 -- unreadable (logged out), which freezes edge state for that tick.
+---@param typeKey string
+---@param entries Watchdog.TriggerBinding[]
 function Runtime:BindTrigger(typeKey, entries)
     assert(type(typeKey) == "string" and typeKey ~= "", "BindTrigger requires a typeKey")
     assert(type(entries) == "table" and #entries > 0, "BindTrigger requires at least one binding entry")

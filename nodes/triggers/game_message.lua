@@ -50,6 +50,7 @@ local function passesFilter(payload, node)
 end
 
 ---@param registry LibNodeGraph.Registry
+---@param runtime Watchdog.Runtime
 function GameMessage.Register(registry, runtime)
     -- Register this node's Chat Type Group dropdown Control Spec (ADR-0004's enum widget),
     -- guarded so a headless/test require (no ui layer) still registers the node itself.

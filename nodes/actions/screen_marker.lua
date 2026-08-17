@@ -69,6 +69,7 @@ function ScreenMarker.BuildHandle(rect, thickness, color, opts)
 end
 
 ---@param registry LibNodeGraph.Registry
+---@param runtime Watchdog.Runtime
 function ScreenMarker.Register(registry, runtime)
     registry:RegisterNodeType("action.screen_marker", {
         category = "action",

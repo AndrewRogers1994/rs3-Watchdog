@@ -188,6 +188,7 @@ end
 --- Node registration -----------------------------------------------------------------------
 
 ---@param registry LibNodeGraph.Registry
+---@param runtime Watchdog.Runtime
 function ObjectMarker.Register(registry, runtime)
     -- Register the two Control Specs the config pins use (the capture button + the mode
     -- multi-select), reusing ADR-0004's Control Spec seam. Guarded so a headless/test require of

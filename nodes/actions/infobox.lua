@@ -38,6 +38,7 @@ function Node.IconChoices()
 end
 
 ---@param registry LibNodeGraph.Registry
+---@param runtime Watchdog.Runtime
 function Node.Register(registry, runtime)
     -- Registers the curated icon dropdown's Control Spec (ADR-0004's enum widget), the same
     -- seam action.popup uses for its own icon/theme dropdowns. Guarded so a headless require

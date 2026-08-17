@@ -110,6 +110,7 @@ local function makeHandle(color, inShape, outShape, dismissOn, baseline, runtime
 end
 
 ---@param registry LibNodeGraph.Registry
+---@param runtime Watchdog.Runtime
 function ScreenFlash.Register(registry, runtime)
     registry:RegisterNodeType("action.screen_flash", {
         category = "action",

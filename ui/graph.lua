@@ -44,7 +44,7 @@ Editor.__index = Editor
 -- The View (pan/zoom) is intentionally NOT restored: it resets to the default origin on every open
 -- and every BindEntry (see resetView), so there's nothing to thread in or persist.
 ---@param registry LibNodeGraph.Registry
----@param runtime table|nil
+---@param runtime Watchdog.Runtime|nil
 function Editor.new(registry, runtime)
     local self = setmetatable({
         graph = nil,               -- bound via BindEntry (#80); nil ⇒ inert/unbound

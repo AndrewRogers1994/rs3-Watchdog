@@ -16,6 +16,7 @@ local Toast = {}
 local DEFAULT_COLOR = { r = 240, g = 160, b = 32, a = 255 }
 
 ---@param registry LibNodeGraph.Registry
+---@param runtime Watchdog.Runtime
 function Toast.Register(registry, runtime)
     registry:RegisterNodeType("action.toast", {
         category = "action",
