@@ -3,6 +3,7 @@
 	"workspace.library": [
 		"../runescape-api-stubs/types.lua",
 		"../runescape-api-stubs/generated/",
+		"../runescape-api-stubs/consts/",
 		"../LibNodeGraph"
 	],
 	"diagnostics.globals": ["Watchdog", "LibNodeGraph", "LibNodeGraphStd", "LibPluginMenu", "prettyui"],
