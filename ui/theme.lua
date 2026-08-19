@@ -17,7 +17,7 @@ end
 Theme.NODE_WIDTH       = 250   -- default node body width
 Theme.HEADER_HEIGHT    = 26    -- category-colored title band
 Theme.PIN_ROW_HEIGHT   = 24    -- vertical stride between pin rows
-Theme.BODY_PAD_TOP     = 8     -- gap between header and first pin row
+Theme.BODY_PAD_TOP     = 8     -- gap between header (or mode strip) and first pin row
 Theme.BODY_PAD_BOTTOM  = 10    -- gap below the last pin row
 Theme.PIN_MARGIN_X     = 10    -- inset of a pin glyph's center from the node edge
 Theme.PIN_GLYPH        = 12    -- pin glyph bounding size (square/triangle extent)
@@ -30,6 +30,9 @@ Theme.CLOSE_MARGIN     = 14    -- inset of the close glyph's center from the nod
 -- via a transient real InputField/ComboField. The box sits in a "value column" to the right
 -- of the pin label; on rows that also carry an output pin it stops short to leave room.
 Theme.CONTROL_H            = 16    -- value box height within a PIN_ROW_HEIGHT row
+-- Node-type Mode strip (ADR-0011): a dropdown under the header, not a Pin. Pushes pin rows down.
+Theme.MODE_STRIP_PAD       = 4     -- gap between header bottom and the dropdown box
+Theme.MODE_STRIP_H         = Theme.MODE_STRIP_PAD + Theme.CONTROL_H + Theme.MODE_STRIP_PAD
 Theme.CONTROL_LABEL_CHAR_W = 7     -- approx per-char label width (graph units) for reserving room
 Theme.CONTROL_LABEL_GAP    = 8     -- gap kept between the input label and the value box
 Theme.CONTROL_OUT_RESERVE  = 52    -- space kept for an output pin+label sharing the row

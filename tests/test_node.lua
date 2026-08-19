@@ -313,3 +313,32 @@ function TestMigratedControlRouting:testInlineScalarsReserveNoBand()
         + 2 * Theme.PIN_ROW_HEIGHT + Theme.BODY_PAD_BOTTOM
     luaunit.assertAlmostEquals(geom.h, expected, 1e-9)
 end
+
+TestNodeModes = {}
+
+function TestNodeModes:testSortedModesOrdersByLabelThenKey()
+    local nt = {
+        modes = {
+            zebra = { key = "zebra", label = "B" },
+            alpha = { key = "alpha", label = "A" },
+            beta = { key = "beta", label = "A" },
+        },
+    }
+    local list = Node.SortedModes(nt)
+    luaunit.assertEquals(#list, 3)
+    luaunit.assertEquals(list[1].key, "alpha")
+    luaunit.assertEquals(list[2].key, "beta")
+    luaunit.assertEquals(list[3].key, "zebra")
+end
+
+function TestNodeModes:testModeLabelReservesStripAndPushesPins()
+    local pins = { numberPin("a") }
+    local plain = Node.BuildGeometry(pins, 0, 0, Theme.NODE_WIDTH)
+    local geom = Node.BuildGeometry(pins, 0, 0, Theme.NODE_WIDTH, { modeLabel = "Count" })
+
+    luaunit.assertNotNil(geom.modeStrip)
+    luaunit.assertEquals(geom.modeStrip.label, "Count")
+    luaunit.assertAlmostEquals(geom.byName.a.cy, plain.byName.a.cy + Theme.MODE_STRIP_H, 1e-9)
+    luaunit.assertAlmostEquals(geom.h, plain.h + Theme.MODE_STRIP_H, 1e-9)
+    luaunit.assertIsNil(plain.modeStrip)
+end

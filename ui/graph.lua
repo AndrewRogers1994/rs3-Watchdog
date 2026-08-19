@@ -261,6 +261,38 @@ local function dataCompatible(a, b)
     return a == b or a == "any" or b == "any"
 end
 
+-- First pin on `def` that can receive `want` (matching kind, opposite direction, compatible
+-- Type Tag). Walks every Mode's pinOrder in SortedModes order so a pin that exists only on a
+-- non-default Mode is still found. Returns pinName, modeKey (modeKey nil when the type has
+-- no modes).
+---@param def table
+---@param want { kind: string, direction: string, dataType: string|nil }
+---@return string|nil pinName
+---@return string|nil modeKey
+function Editor.FirstCompatiblePin(def, want)
+    local wantDir = (want.direction == "out") and "in" or "out"
+    local function inSet(pins, pinOrder)
+        for _, pinName in ipairs(pinOrder or {}) do
+            local p = pins[pinName]
+            if p ~= nil and p.kind == want.kind and p.direction == wantDir then
+                if p.kind ~= "data" or dataCompatible(p.dataType, want.dataType) then
+                    return pinName
+                end
+            end
+        end
+        return nil
+    end
+    if def.modes ~= nil then
+        for _, m in ipairs(Node.SortedModes(def)) do
+            local modeDef = def.modes[m.key]
+            local pinName = inSet(modeDef.pins, modeDef.pinOrder)
+            if pinName ~= nil then return pinName, m.key end
+        end
+        return nil, nil
+    end
+    return inSet(def.pins, def.pinOrder), nil
+end
+
 -- An InputField's raw text content / pre-parsed numeric quantity (honors suffixes like
 -- 1K/1M), read defensively since a field can be mid-teardown when these are read. Handed to a
 -- Pin Control's own onChange commit callback when the host-mounted field changes.
@@ -401,6 +433,12 @@ function Editor:buildGeoms()
         else
             pins = self.graph:GetPins(n.id) or {}
             opts = { connected = connectedIn[n.id] or {} }
+            local nt = self.registry:GetNodeType(n.typeKey)
+            if nt ~= nil and nt.modes ~= nil then
+                local key = self.graph:GetMode(n.id)
+                local modeDef = key and nt.modes[key]
+                opts.modeLabel = (modeDef and modeDef.label) or key
+            end
         end
         local geom = Node.BuildGeometry(pins, pos.x, pos.y, Theme.NODE_WIDTH, opts)
         geom.typeKey = n.typeKey
@@ -509,6 +547,18 @@ function Editor:closeAt(sx, sy)
     return nil
 end
 
+-- Topmost node whose Mode strip is under a screen point: nodeId or nil.
+function Editor:modeStripAt(sx, sy)
+    for i = #self.nodeOrder, 1, -1 do
+        local id = self.nodeOrder[i]
+        local geom = self.geoms[id]
+        if geom ~= nil and Node.HitModeStrip(geom, self.view, sx, sy) then
+            return id
+        end
+    end
+    return nil
+end
+
 function Editor:connectionInto(nodeId, pinName)
     for _, c in ipairs(self.graph:GetConnections()) do
         if c.toNode == nodeId and c.toPin == pinName then return c end
@@ -595,6 +645,18 @@ function Editor:beginPress()
         self.pressed = false
         self:positionCapture()
         self:deleteNode(hitClose)
+        return
+    end
+
+    -- Mode strip (ADR-0011): reconstructs pins via Graph:SetMode, not a Control. Before pin
+    -- glyphs so a click on the dropdown isn't stolen as a wire start.
+    local hitMode = self:modeStripAt(lx, ly)
+    if hitMode ~= nil then
+        self.pressed = false
+        self:positionCapture()
+        self.selected = hitMode
+        self:bringToFront(hitMode)
+        self:openNodeModeDropdown(hitMode)
         return
     end
 
@@ -842,22 +904,14 @@ end
 
 -- Opens the Palette filtered to Node Types with a Pin that could receive `source` (the
 -- dragged Wire's Pin): matching kind, opposite direction, and (for Data) a compatible
--- Type Tag. The first such Pin per type is recorded as the auto-connect target.
+-- Type Tag. The first such Pin per type (across every Mode) is recorded as the auto-connect
+-- target, with `targetMode` when the match lives on a non-default pin-set.
 function Editor:openPaletteFiltered(lx, ly, source)
     local gx, gy = self.view:ToGraph(lx, ly)
     local scx, scy = self:toScreen(lx, ly)
     local want = source.entry
-    local wantDir = (want.direction == "out") and "in" or "out"
     local filter = function(def)
-        for _, pinName in ipairs(def.pinOrder) do
-            local p = def.pins[pinName]
-            if p.kind == want.kind and p.direction == wantDir then
-                if p.kind ~= "data" or dataCompatible(p.dataType, want.dataType) then
-                    return pinName
-                end
-            end
-        end
-        return nil
+        return Editor.FirstCompatiblePin(def, want)
     end
     self.palette:Open(self.registry, filter, {
         screenX = scx, screenY = scy, anchorGX = gx, anchorGY = gy,
@@ -908,7 +962,9 @@ function Editor:placeFromPalette(row)
     local targetPin = row.targetPin
     self:closePalette()
 
-    local ok, newId = pcall(function() return self.graph:AddNode(row.typeKey) end)
+    local ok, newId = pcall(function()
+        return self.graph:AddNode(row.typeKey, nil, row.targetMode)
+    end)
     if not ok or newId == nil then
         if log ~= nil then log("Watchdog: AddNode failed — " .. tostring(newId)) end
         return
@@ -916,7 +972,14 @@ function Editor:placeFromPalette(row)
     local x, y = anchorGX, anchorGY
     if centerOnAnchor then
         local pins = self.graph:GetPins(newId) or {}
-        local geom = Node.BuildGeometry(pins, 0, 0, Theme.NODE_WIDTH, { connected = {} })
+        local opts = { connected = {} }
+        local nt = self.registry:GetNodeType(row.typeKey)
+        if nt ~= nil and nt.modes ~= nil then
+            local key = self.graph:GetMode(newId)
+            local modeDef = key and nt.modes[key]
+            opts.modeLabel = (modeDef and modeDef.label) or key
+        end
+        local geom = Node.BuildGeometry(pins, 0, 0, Theme.NODE_WIDTH, opts)
         x = anchorGX - geom.w * 0.5
         y = anchorGY - geom.h * 0.5
     end
@@ -932,6 +995,54 @@ function Editor:placeFromPalette(row)
             self:linkPins(newId, targetPin, connect.nodeId, src.name, src.kind == "data")
         end
     end
+end
+
+-- Reconstructs `nodeId` into `key` via Graph:SetMode. After a successful reconstruct, dismiss
+-- an inline Control editor whose pin no longer exists on the new pin-set.
+---@param nodeId integer
+---@param key string
+---@return boolean
+function Editor:applyNodeMode(nodeId, key)
+    if not self.graph:SetMode(nodeId, key) then return false end
+    local e = self.editing
+    if e ~= nil and e.nodeId == nodeId and e.kind ~= "nodeMode" then
+        local stillThere = false
+        for _, p in ipairs(self.graph:GetPins(nodeId) or {}) do
+            if p.name == e.pinName then stillThere = true break end
+        end
+        if not stillThere then self:closeControlEditor() end
+    end
+    return true
+end
+
+-- Mounts the same ComboField path enum Controls use, over the Mode strip. Picked label maps
+-- back to a mode key via SortedModes (stable label-then-key order).
+function Editor:openNodeModeDropdown(nodeId)
+    local geom = self.geoms[nodeId]
+    if geom == nil or geom.modeStrip == nil then return end
+    local node = self.graph.nodes[nodeId]
+    if node == nil then return end
+    local nt = self.registry:GetNodeType(node.typeKey)
+    local modes = Node.SortedModes(nt)
+    if #modes == 0 then return end
+    local labels = {}
+    for i, m in ipairs(modes) do labels[i] = m.label end
+    local current = self.graph:GetMode(nodeId)
+    local initial = current
+    if nt ~= nil and nt.modes ~= nil and current ~= nil and nt.modes[current] ~= nil then
+        initial = nt.modes[current].label or current
+    end
+    local strip = geom.modeStrip
+    local ctrl = { x = strip.x, y = strip.y, w = strip.w, h = strip.h, kind = "nodeMode" }
+    self:mountControlDropdown(nil, nodeId, ctrl, { labels = labels, initial = initial },
+        function(label)
+            for _, m in ipairs(modes) do
+                if m.label == label then
+                    self:applyNodeMode(nodeId, m.key)
+                    return
+                end
+            end
+        end)
 end
 
 function Editor:onScroll(...)

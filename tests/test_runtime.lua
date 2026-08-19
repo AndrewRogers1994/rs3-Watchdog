@@ -197,6 +197,52 @@ function TestRuntime:testFilterCanSourceMatchByNodeControl()
     luaunit.assertNil(self.graph:GetLastValue(objId, "value"))
 end
 
+function TestRuntime:testFilterSeesNodeMode()
+    self.registry:RegisterNodeType("fixture.modeful", {
+        category = "trigger",
+        defaultMode = "full",
+        modes = {
+            {
+                key = "full",
+                label = "Full",
+                pins = {
+                    { name = "out", kind = "exec", direction = "out" },
+                    { name = "value", kind = "data", direction = "out", dataType = "any" },
+                },
+            },
+            {
+                key = "count",
+                label = "Count",
+                pins = {
+                    { name = "out", kind = "exec", direction = "out" },
+                    { name = "value", kind = "data", direction = "out", dataType = "any" },
+                },
+            },
+        },
+        run = function(ctx)
+            ctx:Out("value", ctx.payload)
+            ctx:Fire("out")
+        end,
+    })
+
+    self.runtime:BindTrigger("fixture.modeful", {
+        {
+            event = "Custom",
+            filter = function(_, node)
+                return node.mode == "count"
+            end,
+        },
+    })
+
+    local fullId = self.graph:AddNode("fixture.modeful")
+    local countId = self.graph:AddNode("fixture.modeful", nil, "count")
+
+    self.source:Push("Custom", "hit")
+
+    luaunit.assertNil(self.graph:GetLastValue(fullId, "value"))
+    luaunit.assertEquals(self.graph:GetLastValue(countId, "value"), "hit")
+end
+
 function TestRuntime:testTransformComputedOnceRegardlessOfNodeCount()
     local transformCalls = 0
     registerEchoTrigger(self.registry, "fixture.echo")

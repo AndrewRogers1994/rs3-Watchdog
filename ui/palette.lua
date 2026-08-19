@@ -83,8 +83,9 @@ function Palette.new()
 end
 
 -- Builds the row list from the Registry. `filterFn(def)` returns the name of the Pin to
--- auto-connect for a compatible Node Type, or nil to exclude it; pass nil to include every
--- type (unfiltered). `opts` = { screenX, screenY, anchorGX, anchorGY, centerOnAnchor, connect }.
+-- auto-connect for a compatible Node Type (and optionally a second value, the Mode key to
+-- create the Node in), or nil to exclude it; pass nil to include every type (unfiltered).
+-- `opts` = { screenX, screenY, anchorGX, anchorGY, centerOnAnchor, connect }.
 function Palette:Open(registry, filterFn, opts)
     self.rows = {}
     self.scroll = 0
@@ -106,8 +107,8 @@ function Palette:Open(registry, filterFn, opts)
     end
     for key, def in pairs(registry.nodeTypes) do
         if def.hidden then goto continue end
-        local targetPin = true
-        if filterFn ~= nil then targetPin = filterFn(def) end
+        local targetPin, targetMode = true, nil
+        if filterFn ~= nil then targetPin, targetMode = filterFn(def) end
         if targetPin then
             local cat = def.category or "other"
             ensureCat(cat)
@@ -118,8 +119,9 @@ function Palette:Open(registry, filterFn, opts)
                 -- Optional inline blurb (#52), rendered the same dimmed-suffix way as an
                 -- unavailable row's "why"; nil for the many types that don't set one.
                 description = def.description,
-                -- Only carried in filtered mode; unfiltered opens leave it nil.
+                -- Only carried in filtered mode; unfiltered opens leave them nil.
                 targetPin = (filterFn ~= nil) and targetPin or nil,
+                targetMode = (filterFn ~= nil) and targetMode or nil,
             }
         end
         ::continue::

@@ -54,6 +54,7 @@ local Util = require("util")
 ---@class Watchdog.NodeHandle
 ---@field id integer
 ---@field typeKey string
+---@field mode string|nil
 ---@field GetControl fun(pinName: string): any
 
 ---One BindTrigger entry: subscribe `event` once, then transform → filter → Fire.
@@ -123,11 +124,14 @@ end
 
 -- The read-only `nodeHandle` handed to every node-authored hook — a filter's second arg
 -- (`_fireBindingInGraph`) and the preload hook's arg (`_preloadNode`). One builder keeps the
--- `{ id, typeKey, GetControl(pinName) }` shape identical across both call sites.
+-- `{ id, typeKey, mode, GetControl(pinName) }` shape identical across both call sites.
+-- `mode` is nil when the type has no modes (ADR-0011).
 local function makeNodeHandle(graph, node)
     return {
         id = node.id,
         typeKey = node.typeKey,
+        -- GetNodes() is an id/typeKey projection; mode lives on the live node (ADR-0011).
+        mode = graph:GetMode(node.id),
         GetControl = function(pinName) return graph:GetControl(node.id, pinName) end,
     }
 end

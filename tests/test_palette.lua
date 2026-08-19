@@ -277,4 +277,21 @@ function TestPalette:testDrawClampsPanelWidthToViewport()
     luaunit.assertEquals(self.palette.rect.w, 100)
 end
 
+function TestPalette:testFilteredOpenCarriesTargetMode()
+    self.registry.nodeTypes["live.modes"] = {
+        key = "live.modes", category = "pure", displayName = "Modey",
+    }
+    local filterFn = function() return "n", "count" end
+    self.palette:Open(self.registry, filterFn, { screenX = 10, screenY = 10, anchorGX = 0, anchorGY = 0 })
+
+    local found
+    for _, r in ipairs(itemRows(self.palette.rows)) do
+        if r.typeKey == "live.modes" then found = r end
+        luaunit.assertNil(r.unavailable)
+    end
+    luaunit.assertNotNil(found)
+    luaunit.assertEquals(found.targetPin, "n")
+    luaunit.assertEquals(found.targetMode, "count")
+end
+
 return TestPalette

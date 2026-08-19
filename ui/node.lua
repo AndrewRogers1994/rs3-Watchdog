@@ -7,6 +7,7 @@
 local Theme    = require("ui/theme")
 local Controls = require("ui/controls")
 local Box      = require("ui/widgets/box")
+local Dropdown = require("ui/widgets/dropdown")
 
 local Node = {}
 
@@ -14,7 +15,8 @@ local Node = {}
 -- Graph-space center relative to the node origin. Returns a geometry table consumed by
 -- Draw, PinAt and HitBody. `pins` is the list from graph:GetPins(nodeId). `opts.connected`
 -- is a set { [pinName] = true } of input pins that already have an incoming Connection —
--- those get a wire, not a Control box (ADR-0004).
+-- those get a wire, not a Control box (ADR-0004). `opts.modeLabel` (when set) reserves a Mode
+-- strip under the header — instance metadata, not a Pin.
 
 -- The Pin Control module for a data-input pin eligible for a Control box: unconnected, kind
 -- "data", and its Type Tag is registered (ADR-0005). Returns nil for anything else (exec pins,
@@ -25,6 +27,22 @@ local Node = {}
 local function pinControlFor(pin, connected)
     if pin.kind ~= "data" or connected[pin.name] then return nil end
     return Controls.PinControlFor(pin.dataType)
+end
+
+-- Stable ComboField / filter order for a type's modes (engine `modes` is a keyed table).
+---@param nodeType table|nil
+---@return { key: string, label: string }[]
+function Node.SortedModes(nodeType)
+    if nodeType == nil or nodeType.modes == nil then return {} end
+    local list = {}
+    for key, def in pairs(nodeType.modes) do
+        list[#list + 1] = { key = key, label = def.label or key }
+    end
+    table.sort(list, function(a, b)
+        if a.label == b.label then return a.key < b.key end
+        return a.label < b.label
+    end)
+    return list
 end
 
 function Node.BuildGeometry(pins, x, y, width, opts)
@@ -46,6 +64,11 @@ function Node.BuildGeometry(pins, x, y, width, opts)
 
     local rows = math.max(#inputs, #outputs)
 
+    -- Mode strip (ADR-0011) sits under the header when this instance's type has modes.
+    -- Not a pin: `opts.modeLabel` is the current mode's display label, or nil.
+    local modeLabel = (not placeholder) and opts and opts.modeLabel or nil
+    local modeStripH = (modeLabel ~= nil) and Theme.MODE_STRIP_H or 0
+
     -- Row tops, cumulative (#25): row i normally advances by a fixed PIN_ROW_HEIGHT, but a
     -- composite Control on that row's input pin (e.g. coordgrid) reserves extra band height
     -- below it via spec.extraH(pin), pushing every later row down. Scalar/no-control rows
@@ -54,7 +77,7 @@ function Node.BuildGeometry(pins, x, y, width, opts)
     -- vertically aligned even when only the input side grew.
     local rowTop = {}
     do
-        local cy = Theme.HEADER_HEIGHT + Theme.BODY_PAD_TOP
+        local cy = Theme.HEADER_HEIGHT + modeStripH + Theme.BODY_PAD_TOP
         for i = 1, rows do
             rowTop[i] = cy
             local extraH = 0
@@ -79,6 +102,15 @@ function Node.BuildGeometry(pins, x, y, width, opts)
     -- Delete button center, in the header, Graph-space relative to the node origin. Shared
     -- by Draw and HitClose so the glyph and its hit-target can't disagree.
     geom.close = { cx = width - Theme.CLOSE_MARGIN, cy = Theme.HEADER_HEIGHT * 0.5 }
+    if modeLabel ~= nil then
+        geom.modeStrip = {
+            x = Theme.PIN_MARGIN_X,
+            y = Theme.HEADER_HEIGHT + Theme.MODE_STRIP_PAD,
+            w = width - Theme.PIN_MARGIN_X * 2,
+            h = Theme.CONTROL_H,
+            label = modeLabel,
+        }
+    end
 
     local function place(list, cx)
         for i, pin in ipairs(list) do
@@ -237,6 +269,23 @@ function Node.Draw(canvas, view, geom, meta, opts)
         canvas:AddLine(ccx - arm, ccy + arm, ccx + arm, ccy - arm, t, col)
     end
 
+    -- Mode strip (ADR-0011): ComboField-lookalike under the header. Skipped while the
+    -- transient dropdown is mounted over it (`editingKind == "nodeMode"`).
+    if view.zoom >= Theme.CONTROL_MIN_ZOOM and geom.modeStrip ~= nil
+        and opts.editingKind ~= "nodeMode" then
+        local ms = geom.modeStrip
+        local bx, by = view:ToScreen(geom.x + ms.x, geom.y + ms.y)
+        local bw, bh = view:Scale(ms.w), view:Scale(ms.h)
+        local hot = opts.mouseX ~= nil
+            and opts.mouseX >= bx and opts.mouseX <= bx + bw
+            and opts.mouseY >= by and opts.mouseY <= by + bh
+        local font = Theme.Font(11 * view.zoom)
+        local scale = function(n) return view:Scale(n) end
+        Dropdown:Draw(canvas, { x = bx, y = by, w = bw, h = bh },
+            { display = ms.label },
+            { hot = hot, font = font, zoom = view.zoom, scale = scale })
+    end
+
     -- Pins.
     local hs = view:Scale(Theme.PIN_GLYPH) * 0.5
     local labelFont = showLabels and Theme.Font(12 * view.zoom) or nil
@@ -373,6 +422,16 @@ function Node.HitClose(geom, view, sx, sy)
     local half = view:Scale(Theme.CLOSE_SIZE) * 0.5 + Theme.PIN_HIT_PAD
     return sx >= ccx - half and sx <= ccx + half
         and sy >= ccy - half and sy <= ccy + half
+end
+
+-- Whether the screen point is over this node's Mode strip. Gated on CONTROL_MIN_ZOOM so it
+-- matches Draw — an undrawn strip is never clickable.
+function Node.HitModeStrip(geom, view, sx, sy)
+    if geom.modeStrip == nil or view.zoom < Theme.CONTROL_MIN_ZOOM then return false end
+    local ms = geom.modeStrip
+    local bx, by = view:ToScreen(geom.x + ms.x, geom.y + ms.y)
+    local bw, bh = view:Scale(ms.w), view:Scale(ms.h)
+    return sx >= bx and sx <= bx + bw and sy >= by and sy <= by + bh
 end
 
 -- Whether the screen point is over this node's body rect.

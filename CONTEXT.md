@@ -74,6 +74,15 @@ The category-colored band at the top of a Node Body showing its title. Its color
 off the Node Type's Category.
 _Avoid_: Title bar, caption, banner
 
+**Mode**:
+A named pin-set on a Node Type (LibNodeGraph ADR-0011). A live Node stores `mode` as instance
+metadata — not a Pin and not a Control. LibNodeGraph's Control glossary still says every
+editable field is a Control; Watchdog's editor is the exception: the header Mode strip is a
+dropdown that calls `Graph:SetMode`, which reconstructs the Node's pin list in place. Shown
+only when `GetNodeType(typeKey).modes` is set. Do not name this `Editor.mode` — that field
+is the input state machine (`idle` / `pan` / …).
+_Avoid_: Variant, preset, Control (the strip is not a Control), Pin
+
 **Pin Glyph**:
 The clickable mark drawn for a Pin: a triangle for an Execution Pin (matching Blueprints'
 exec shape), a small filled square/diamond for a Data Pin, tinted by its Type Tag color.
@@ -106,9 +115,10 @@ _Avoid_: Catalog, menu, context menu, MiniMenu, node browser
 
 **Drag-to-Create**:
 Creating a Node by dragging a Wire off a Pin and releasing it on empty Viewport: opens the
-Palette filtered to Node Types with a Pin that can receive the Wire, and auto-connects the
-chosen Node's matching Pin. The typed, one-gesture creation path (as opposed to the
-unfiltered double-click / toolbar-+ path).
+Palette filtered to Node Types with a Pin that can receive the Wire (walking every Mode's
+pin-set, not just the type default), creates the Node in the matching Mode when needed, and
+auto-connects the chosen Node's matching Pin. The typed, one-gesture creation path (as opposed
+to the unfiltered double-click / toolbar-+ path).
 _Avoid_: Pull-to-create, drag-off, quick-connect
 
 **Control Box**:
