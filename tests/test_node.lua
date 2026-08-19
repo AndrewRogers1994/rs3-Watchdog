@@ -342,3 +342,17 @@ function TestNodeModes:testModeLabelReservesStripAndPushesPins()
     luaunit.assertAlmostEquals(geom.h, plain.h + Theme.MODE_STRIP_H, 1e-9)
     luaunit.assertIsNil(plain.modeStrip)
 end
+
+function TestNodeModes:testModeDropdownChoicesDisambiguatesDuplicateLabels()
+    local nt = {
+        modes = {
+            zebra = { key = "zebra", label = "Same" },
+            alpha = { key = "alpha", label = "Same" },
+        },
+    }
+    local choices = Node.ModeDropdownChoices(nt)
+    luaunit.assertEquals(choices[1].key, "alpha")
+    luaunit.assertEquals(choices[1].display, "Same (alpha)")
+    luaunit.assertEquals(choices[2].key, "zebra")
+    luaunit.assertEquals(choices[2].display, "Same (zebra)")
+end

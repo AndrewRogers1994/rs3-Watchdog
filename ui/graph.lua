@@ -25,6 +25,7 @@ local Wire     = require("ui/wire")
 local Palette  = require("ui/palette")
 local ColorPopup = require("ui/color_popup")
 local IfaceScale = require("ui/iface_scale")
+local Registry = require("registry")
 
 local Editor = {}
 Editor.__index = Editor
@@ -257,6 +258,20 @@ local function mousePos()
     return nil
 end
 
+local function modeLabelOf(nt, key)
+    if nt == nil or nt.modes == nil then return nil end
+    local modeDef = key and nt.modes[key]
+    return (modeDef and modeDef.label) or key
+end
+
+local function pinExists(graph, nodeId, pinName)
+    if pinName == nil then return false end
+    for _, p in ipairs(graph:GetPins(nodeId) or {}) do
+        if p.name == pinName then return true end
+    end
+    return false
+end
+
 local function dataCompatible(a, b)
     return a == b or a == "any" or b == "any"
 end
@@ -271,7 +286,7 @@ end
 ---@return string|nil modeKey
 function Editor.FirstCompatiblePin(def, want)
     local wantDir = (want.direction == "out") and "in" or "out"
-    local function inSet(pins, pinOrder)
+    local function firstCompatibleInOrder(pins, pinOrder)
         for _, pinName in ipairs(pinOrder or {}) do
             local p = pins[pinName]
             if p ~= nil and p.kind == want.kind and p.direction == wantDir then
@@ -284,13 +299,14 @@ function Editor.FirstCompatiblePin(def, want)
     end
     if def.modes ~= nil then
         for _, m in ipairs(Node.SortedModes(def)) do
-            local modeDef = def.modes[m.key]
-            local pinName = inSet(modeDef.pins, modeDef.pinOrder)
+            local pins, pinOrder = Registry.pinSet(def, m.key)
+            local pinName = firstCompatibleInOrder(pins, pinOrder)
             if pinName ~= nil then return pinName, m.key end
         end
         return nil, nil
     end
-    return inSet(def.pins, def.pinOrder), nil
+    local pins, pinOrder = Registry.pinSet(def, nil)
+    return firstCompatibleInOrder(pins, pinOrder), nil
 end
 
 -- An InputField's raw text content / pre-parsed numeric quantity (honors suffixes like
@@ -435,9 +451,7 @@ function Editor:buildGeoms()
             opts = { connected = connectedIn[n.id] or {} }
             local nt = self.registry:GetNodeType(n.typeKey)
             if nt ~= nil and nt.modes ~= nil then
-                local key = self.graph:GetMode(n.id)
-                local modeDef = key and nt.modes[key]
-                opts.modeLabel = (modeDef and modeDef.label) or key
+                opts.modeLabel = modeLabelOf(nt, self.graph:GetMode(n.id))
             end
         end
         local geom = Node.BuildGeometry(pins, pos.x, pos.y, Theme.NODE_WIDTH, opts)
@@ -599,16 +613,12 @@ function Editor:beginPress()
     local lx, ly = self:toLocal(mx, my)
     self.mouse.x, self.mouse.y = lx, ly
 
-    -- Any press that reaches the Capture Layer landed OUTSIDE the transient editor field
-    -- (which captures its own clicks), so it's a click-away: commit and close the editor
-    -- before doing anything else. A press that then lands on another Control reopens below.
-    if self.editing ~= nil then self:closeControlEditor() end
-
     -- The Palette is modal: while it's open, a click either picks a Node Type or dismisses
     -- it — never a drag gesture, so this is handled before pressed/expandCapture. It hit-tests
     -- in SCREEN space (it draws on the full-screen paletteCanvas), so pass the raw mouse, not
     -- the toLocal'd coords.
     if self.palette.open then
+        if self.editing ~= nil then self:closeControlEditor() end
         self:handlePaletteClick(mx, my)
         return
     end
@@ -617,8 +627,23 @@ function Editor:beginPress()
     -- field, hue strip, R/G/B/A rows) DO drag — handleColorPopupClick sets up pressed/
     -- expandCapture itself for those, so it's not a plain return-only branch like above.
     if self.colorPopup.open then
+        if self.editing ~= nil then self:closeControlEditor() end
         self:handleColorPopupClick(lx, ly)
         return
+    end
+
+    -- Click-away commits a pin editor, but not when the press is on the Mode strip: that
+    -- ComboField parks the pin editor until SetMode (drop if the pin vanished, restore if not).
+    local onModeStrip = self:modeStripAt(lx, ly)
+    if self.editing ~= nil then
+        if self.editing.kind == "nodeMode" then
+            if not onModeStrip then
+                self:closeControlEditor()
+                return
+            end
+        elseif not onModeStrip then
+            self:closeControlEditor()
+        end
     end
 
     -- The toolbar Back/+ are real Buttons on the overlay (above capture) with their own
@@ -975,9 +1000,7 @@ function Editor:placeFromPalette(row)
         local opts = { connected = {} }
         local nt = self.registry:GetNodeType(row.typeKey)
         if nt ~= nil and nt.modes ~= nil then
-            local key = self.graph:GetMode(newId)
-            local modeDef = key and nt.modes[key]
-            opts.modeLabel = (modeDef and modeDef.label) or key
+            opts.modeLabel = modeLabelOf(nt, self.graph:GetMode(newId))
         end
         local geom = Node.BuildGeometry(pins, 0, 0, Theme.NODE_WIDTH, opts)
         x = anchorGX - geom.w * 0.5
@@ -998,50 +1021,81 @@ function Editor:placeFromPalette(row)
 end
 
 -- Reconstructs `nodeId` into `key` via Graph:SetMode. After a successful reconstruct, dismiss
--- an inline Control editor whose pin no longer exists on the new pin-set.
+-- an inline Control editor (or one parked under the Mode ComboField) whose pin is gone.
 ---@param nodeId integer
 ---@param key string
 ---@return boolean
 function Editor:applyNodeMode(nodeId, key)
     if not self.graph:SetMode(nodeId, key) then return false end
-    local e = self.editing
-    if e ~= nil and e.nodeId == nodeId and e.kind ~= "nodeMode" then
-        local stillThere = false
-        for _, p in ipairs(self.graph:GetPins(nodeId) or {}) do
-            if p.name == e.pinName then stillThere = true break end
-        end
-        if not stillThere then self:closeControlEditor() end
-    end
+    self:dropVanishedParkedOrEditing(nodeId)
     return true
 end
 
--- Mounts the same ComboField path enum Controls use, over the Mode strip. Picked label maps
--- back to a mode key via SortedModes (stable label-then-key order).
+-- Parks a pin Control editor under the Mode ComboField so a cancelled/surviving reconstruct
+-- can restore it. Does not Destroy the field.
+function Editor:parkControlEditor()
+    local e = self.editing
+    if e == nil or e.kind == "nodeMode" then return end
+    self._modeEditStash = e
+    self.editing = nil
+    if e.field ~= nil then pcall(function() e.field.visible = false end) end
+end
+
+function Editor:discardParkedEditor()
+    local e = self._modeEditStash
+    self._modeEditStash = nil
+    if e ~= nil and e.field ~= nil then pcall(function() e.field:Destroy() end) end
+end
+
+function Editor:unparkControlEditor()
+    local e = self._modeEditStash
+    if e == nil then return end
+    self._modeEditStash = nil
+    self.editing = e
+    if e.field ~= nil then pcall(function() e.field.visible = true end) end
+    self:frontOverlayInteractives()
+end
+
+function Editor:dropVanishedParkedOrEditing(nodeId)
+    local e = self.editing
+    if e ~= nil and e.kind ~= "nodeMode" and e.nodeId == nodeId
+        and not pinExists(self.graph, nodeId, e.pinName) then
+        self:closeControlEditor()
+    end
+    local s = self._modeEditStash
+    if s ~= nil and s.nodeId == nodeId and not pinExists(self.graph, nodeId, s.pinName) then
+        self:discardParkedEditor()
+    end
+end
+
+-- Mounts the same ComboField path enum Controls use, over the Mode strip. ComboField labels
+-- are unique displays from ModeDropdownChoices (key suffix when labels collide).
 function Editor:openNodeModeDropdown(nodeId)
     local geom = self.geoms[nodeId]
     if geom == nil or geom.modeStrip == nil then return end
     local node = self.graph.nodes[nodeId]
     if node == nil then return end
     local nt = self.registry:GetNodeType(node.typeKey)
-    local modes = Node.SortedModes(nt)
-    if #modes == 0 then return end
+    local choices = Node.ModeDropdownChoices(nt)
+    if #choices == 0 then return end
+    self:parkControlEditor()
     local labels = {}
-    for i, m in ipairs(modes) do labels[i] = m.label end
+    local byDisplay = {}
+    for i, c in ipairs(choices) do
+        labels[i] = c.display
+        byDisplay[c.display] = c.key
+    end
     local current = self.graph:GetMode(nodeId)
-    local initial = current
-    if nt ~= nil and nt.modes ~= nil and current ~= nil and nt.modes[current] ~= nil then
-        initial = nt.modes[current].label or current
+    local initial
+    for _, c in ipairs(choices) do
+        if c.key == current then initial = c.display break end
     end
     local strip = geom.modeStrip
     local ctrl = { x = strip.x, y = strip.y, w = strip.w, h = strip.h, kind = "nodeMode" }
     self:mountControlDropdown(nil, nodeId, ctrl, { labels = labels, initial = initial },
-        function(label)
-            for _, m in ipairs(modes) do
-                if m.label == label then
-                    self:applyNodeMode(nodeId, m.key)
-                    return
-                end
-            end
+        function(display)
+            local key = byDisplay[display]
+            if key ~= nil then self:applyNodeMode(nodeId, key) end
         end)
 end
 
@@ -1431,7 +1485,10 @@ end
 ---@param opts { labels: string[]|nil, initial: string|nil }
 ---@param onSelect fun(label: string)
 function Editor:mountControlDropdown(pinControl, nodeId, ctrl, opts, onSelect)
-    if self.editing ~= nil then self:closeControlEditor() end
+    if self.editing ~= nil then
+        -- Remounting the Mode ComboField must not unpark the pin editor parked under it.
+        self:closeControlEditor({ skipUnpark = ctrl.kind == "nodeMode" })
+    end
     local parent = self:interactiveParent()
     if parent == nil or ui == nil then return end
     local geom = self.geoms[nodeId]
@@ -1530,12 +1587,16 @@ function Editor:onControlContent(cause, _newContent)
 end
 
 -- Commits the active edit and destroys the transient editor.
-function Editor:closeControlEditor()
+---@param opts { skipUnpark: boolean }|nil
+function Editor:closeControlEditor(opts)
     local e = self.editing
     if e == nil then return end
     self:commitField()
     self.editing = nil
     if e.field ~= nil then pcall(function() e.field:Destroy() end) end
+    if e.kind == "nodeMode" and not (opts and opts.skipUnpark) then
+        self:unparkControlEditor()
+    end
 end
 
 --- Drawing -------------------------------------------------------------------------------

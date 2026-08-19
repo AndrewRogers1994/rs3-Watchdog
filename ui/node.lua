@@ -45,6 +45,27 @@ function Node.SortedModes(nodeType)
     return list
 end
 
+-- ComboField matches by label text and re-sorts alphabetically, so duplicate mode labels
+-- would collide. Disambiguate with the key when the same label appears twice.
+---@param nodeType table|nil
+---@return { key: string, label: string, display: string }[]
+function Node.ModeDropdownChoices(nodeType)
+    local modes = Node.SortedModes(nodeType)
+    local counts = {}
+    for _, m in ipairs(modes) do
+        counts[m.label] = (counts[m.label] or 0) + 1
+    end
+    local choices = {}
+    for _, m in ipairs(modes) do
+        local display = m.label
+        if counts[m.label] > 1 then
+            display = m.label .. " (" .. m.key .. ")"
+        end
+        choices[#choices + 1] = { key = m.key, label = m.label, display = display }
+    end
+    return choices
+end
+
 function Node.BuildGeometry(pins, x, y, width, opts)
     width = width or Theme.NODE_WIDTH
     local connected = (opts and opts.connected) or {}

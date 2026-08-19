@@ -246,6 +246,7 @@ local function registerModeFixture(registry)
                 label = "Full",
                 pins = {
                     { name = "in", kind = "exec", direction = "in", terminates = true },
+                    { name = "tag", kind = "data", direction = "in", dataType = "string", default = "" },
                     { name = "item", kind = "data", direction = "in", dataType = "string", default = "" },
                 },
             },
@@ -254,6 +255,7 @@ local function registerModeFixture(registry)
                 label = "Count",
                 pins = {
                     { name = "in", kind = "exec", direction = "in", terminates = true },
+                    { name = "tag", kind = "data", direction = "in", dataType = "string", default = "" },
                     { name = "n", kind = "data", direction = "in", dataType = "number", default = 0 },
                 },
             },
@@ -311,4 +313,111 @@ function TestGraphEditor:testApplyNodeModeRebuildsPinsAndDropsVanishedEditor()
     for _, p in ipairs(self.graph:GetPins(id)) do names[p.name] = true end
     luaunit.assertTrue(names.n)
     luaunit.assertNil(names.item)
+end
+
+function TestGraphEditor:testFilteredPaletteFindsNonDefaultModeAndAddsInIt()
+    registerModeFixture(self.registry)
+    local editor = Editor.new(self.registry, nil)
+    editor:BindEntry(1, self.graph, {})
+    editor.expandCapture = function() end
+    editor.positionCapture = function() end
+
+    local want = { kind = "data", direction = "out", dataType = "number" }
+    editor.palette:Open(self.registry, function(def)
+        return Editor.FirstCompatiblePin(def, want)
+    end, { screenX = 0, screenY = 0, anchorGX = 0, anchorGY = 0 })
+
+    local row
+    for _, r in ipairs(editor.palette.rows) do
+        if r.typeKey == "fixture.modes" then row = r break end
+    end
+    luaunit.assertNotNil(row)
+    luaunit.assertEquals(row.targetPin, "n")
+    luaunit.assertEquals(row.targetMode, "count")
+
+    editor:placeFromPalette(row)
+    luaunit.assertEquals(self.graph:GetMode(editor.selected), "count")
+end
+
+function TestGraphEditor:testApplyNodeModeGeometryMatchesGetPins()
+    local Theme = require("ui/theme")
+    local Node = require("ui/node")
+    registerModeFixture(self.registry)
+    local editor = Editor.new(self.registry, nil)
+    editor:BindEntry(1, self.graph, {})
+    local id = self.graph:AddNode("fixture.modes")
+    editor.layout[id] = { x = 0, y = 0 }
+
+    editor:buildGeoms()
+    luaunit.assertNotNil(editor.geoms[id].byName.item)
+    luaunit.assertNotNil(editor.geoms[id].modeStrip)
+
+    luaunit.assertTrue(editor:applyNodeMode(id, "count"))
+    editor:buildGeoms()
+    local geom = editor.geoms[id]
+    luaunit.assertNotNil(geom.byName.n)
+    luaunit.assertNil(geom.byName.item)
+    luaunit.assertNotNil(geom.modeStrip)
+    luaunit.assertEquals(geom.modeStrip.label, "Count")
+    luaunit.assertAlmostEquals(geom.h, Node.BuildGeometry(
+        self.graph:GetPins(id), 0, 0, Theme.NODE_WIDTH, { modeLabel = "Count" }).h, 1e-9)
+end
+
+function TestGraphEditor:testApplyNodeModeKeepsSurvivingPinEditor()
+    registerModeFixture(self.registry)
+    local id = self.graph:AddNode("fixture.modes")
+    local closed = false
+    local editor = setmetatable({
+        graph = self.graph,
+        editing = { nodeId = id, pinName = "tag", kind = "field" },
+        closeControlEditor = function(self)
+            closed = true
+            self.editing = nil
+        end,
+    }, { __index = Editor })
+
+    luaunit.assertTrue(editor:applyNodeMode(id, "count"))
+    luaunit.assertFalse(closed)
+    luaunit.assertEquals(editor.editing.pinName, "tag")
+end
+
+function TestGraphEditor:testParkedEditorRestoredWhenPinSurvives()
+    registerModeFixture(self.registry)
+    local id = self.graph:AddNode("fixture.modes")
+    local destroyed = false
+    local editor = setmetatable({
+        graph = self.graph,
+        editing = { kind = "nodeMode", nodeId = id, field = nil },
+        _modeEditStash = {
+            nodeId = id, pinName = "tag", kind = "field",
+            field = { Destroy = function() destroyed = true end },
+        },
+    }, { __index = Editor })
+
+    luaunit.assertTrue(editor:applyNodeMode(id, "count"))
+    luaunit.assertFalse(destroyed)
+    luaunit.assertNotNil(editor._modeEditStash)
+    editor:closeControlEditor()
+    luaunit.assertEquals(editor.editing.pinName, "tag")
+    luaunit.assertNil(editor._modeEditStash)
+end
+
+function TestGraphEditor:testParkedEditorDroppedWhenPinVanishes()
+    registerModeFixture(self.registry)
+    local id = self.graph:AddNode("fixture.modes")
+    local destroyed = false
+    local editor = setmetatable({
+        graph = self.graph,
+        editing = { kind = "nodeMode", nodeId = id, field = nil },
+        _modeEditStash = {
+            nodeId = id, pinName = "item", kind = "field",
+            field = { Destroy = function() destroyed = true end },
+        },
+    }, { __index = Editor })
+
+    luaunit.assertTrue(editor:applyNodeMode(id, "count"))
+    luaunit.assertTrue(destroyed)
+    luaunit.assertNil(editor._modeEditStash)
+    editor:closeControlEditor()
+    luaunit.assertNil(editor.editing)
 end
