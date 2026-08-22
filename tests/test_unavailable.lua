@@ -3,8 +3,8 @@ local Unavailable = require("nodes/unavailable")
 
 TestUnavailable = {}
 
-function TestUnavailable:testShipsSevenEntries()
-    luaunit.assertEquals(#Unavailable, 7)
+function TestUnavailable:testShipsSixEntries()
+    luaunit.assertEquals(#Unavailable, 6)
 end
 
 function TestUnavailable:testEveryEntryHasDisplayNameCategoryAndDescription()

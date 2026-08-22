@@ -5,6 +5,11 @@
 -- no Control" rule). These tests exercise that the built-ins and the descriptor kinds each land a
 -- Pin Control, and that the per-kind config (an enum's choices) reaches it via its Display.
 
+id = id or {}
+id.Inv = id.Inv or {}
+id.Inv.INV = id.Inv.INV or 93
+id.Inv.BANK = id.Inv.BANK or 95
+
 local luaunit = require("luaunit")
 local Controls = require("ui/controls")
 
@@ -96,6 +101,23 @@ function TestSkillControl:testSkillValuesFormatToLabels()
     luaunit.assertEquals(self.pc.Display({ value = 0 }), "Attack")
     luaunit.assertEquals(self.pc.Display({ value = 28 }), "Necromancy")
     luaunit.assertEquals(self.pc.Display({ value = "any" }), "Any")
+end
+
+TestInvContainerControl = {}
+
+function TestInvContainerControl:setUp()
+    require("nodes/triggers/inventory")
+    self.pc = Controls.PinControlFor("invContainer")
+end
+
+function TestInvContainerControl:testRegisteredAsAnEnumPinControl()
+    luaunit.assertNotNil(self.pc)
+    luaunit.assertTrue(self.pc.Inline)
+end
+
+function TestInvContainerControl:testValuesFormatToInventoryAndBank()
+    luaunit.assertEquals(self.pc.Display({ value = 93 }), "Inventory")
+    luaunit.assertEquals(self.pc.Display({ value = 95 }), "Bank")
 end
 
 return {}

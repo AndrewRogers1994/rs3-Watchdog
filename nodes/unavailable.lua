@@ -13,7 +13,6 @@
 return {
     { displayName = "Overhead Text",   category = "trigger", description = "no overhead-text event" },
     { displayName = "Sound Fired",     category = "trigger", description = "no sound-played event" },
-    { displayName = "Inventory",       category = "trigger", description = "no inventory-read API" },
     { displayName = "Game Message",    category = "action",  description = "no chat-injection API" },
     { displayName = "Overhead",        category = "action",  description = "no overhead-text API" },
     { displayName = "Request Focus",   category = "action",  description = "no focus-request API" },

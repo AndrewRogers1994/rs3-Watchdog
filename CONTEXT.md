@@ -359,6 +359,43 @@ folds quick-chat into its parent channel. A Chat Trigger exposes only its own Gr
 **Any** means the union of that Trigger's Groups, never the whole enum.
 _Avoid_: Chat category, chat kind, chat class; "chat type" (that is the raw engine `ChatType`)
 
+**Container**:
+Which client inventory an Inventory Trigger watches. v1 is two engine `InvType`s, labeled
+**Inventory** (`Inv.INV`, the backpack) and **Bank** (`Inv.BANK`) — not the rest of the `Inv`
+enum. The backpack label is the same word as the Trigger; that collision is accepted.
+_Avoid_: InvType (that is the raw engine config); bag; Backpack (rejected as the Control label)
+
+**Inventory Trigger**:
+A Trigger Node that Fires on the client's `InventoryUpdated` event for one Container. One
+pin-set, no Modes, no Matcher — item identity is not this Trigger's job. It republishes
+occupancy (previous and current used slot counts, whether the Container is full or empty)
+and the previous and current Inventory Snapshot. `InventoryAdded` / `InventoryRemoved` do
+not Fire this Trigger (they only affect whether a Container is present to snapshot).
+_Avoid_: Inventory node; query; RuneLite-style full/empty/count/amount/changed Modes;
+a Matcher on this Trigger; Firing on Added/Removed
+
+**Inventory Snapshot**:
+The contents of one Container at one moment, relative to a single `InventoryUpdated`
+(previous or current). A frozen copy (not a live `Inv` handle) carried on a Data Pin with
+Type Tag `invSnapshot`, consumed by inventory-Category Pure Nodes. Each slot carries enough
+to Matcher the display `ObjType.name` and to apply a Note Filter (`configName` prefix).
+_Avoid_: inventory, Inv, bag, slotDiff (diffs are not a Pin)
+
+**Note Filter**:
+A three-way enum on Item Count: **Noted**, **Unnoted**, or **Both** (default Both = no-op).
+AND’d with the Matcher. Notedness is `ObjType.configName` starting with `CERT_` — noted and
+unnoted pairs share the same display `name`, so the Matcher cannot tell them apart. Authors
+never see ids or the `CERT_` prefix.
+_Avoid_: isNoted, note mode, treating display name as the noted bit; exposing `CERT_` as a Control
+
+**Item Count**:
+A Pure Node in the inventory Category (the only one in that Category for v1): one Inventory
+Snapshot plus a Matcher plus a Note Filter in, one number out — the sum of matching slot
+quantities. Empty Matcher needle still means every name; occupancy (used slots) stays on the
+Inventory Trigger. Threshold crossing is two Item Counts (previous and current Snapshots)
+plus Compare, not a pin on this node.
+_Avoid_: query node; GetTotal; amount Mode; putting ids on a Control
+
 **Webhook** (`action.webhook`):
 An Action Node that POSTs a JSON body to an HTTP endpoint when exec'd. The endpoint is a
 **Base** (chosen from the manifest's `Plugin.urls` allowlist — the client refuses any URL not

@@ -38,8 +38,8 @@ Target: mirror the trigger/notification list from https://github.com/adamk33n3r/
   - NO EVENT. The `audio` module is output-only (`audio.Play`, `SoundInstance:Start/Stop/...`); there is no hook for game-played sounds. Not achievable with the current API.
 - [x] Spawned Object — object/player/npc spawn or despawn
   - `Event.NPCEntityAdded` / `Event.NPCEntityRemoved` (`npcEntity`), `Event.PlayerEntityAdded` / `Event.PlayerEntityRemoved` (`playerEntity`), `Event.ObjStackEntityAdded` / `Event.ObjStackEntityRemoved` / `Event.ObjStackEntityChanged` (`objStackEntity`, `objType`, `count`/`old+newCount`). One node likely fans out over all three entity kinds + add/remove.
-- [ ] Inventory — full, empty, or contains certain items
-  - NO DIRECT API. No inventory/container-contents read and no inventory-change event exist (`InvType` is config only — id/size/stockCount). Partial signals may be derivable from `Event.VarTransmit` for specific inventory-related varbits (`var`, `oldValue`, `newValue`), but there is no general "what's in my inventory" query. Needs investigation / likely blocked on a Jagex-side container API.
+- [x] Inventory — occupancy + snapshots (`trigger.inventory`, #98)
+  - `Event.InventoryUpdated` for Container Inventory (`Inv.INV`) or Bank (`Inv.BANK`). Occupancy outs (prev/current used slots, isFull, isEmpty) and frozen `invSnapshot` pins. Item matching is Item Count (#97), not Modes on this Trigger.
 - [x] Location — near a set location
   - NO EVENT, but POLLABLE. No position-change event; poll `Player.GetEntity().coordGrid` (CoordGrid) or `.position` (Vector3) on `Event.Logic` (~50/s) and test distance against the target coord. `Player.IsAvailable()` guards logged-out state.
 

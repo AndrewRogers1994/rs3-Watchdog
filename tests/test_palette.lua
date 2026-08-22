@@ -60,7 +60,7 @@ function TestPalette:testUnfilteredOpenInterleavesUnavailableAlphabeticallyPerCa
     for _, r in ipairs(items) do names[#names + 1] = r.displayName end
 
     luaunit.assertEquals(names, {
-        "Alarm", "Inventory", "Overhead Text", "Sound Fired", "Zebra Trigger",
+        "Alarm", "Overhead Text", "Sound Fired", "Zebra Trigger",
         "Alert Action", "Game Message", "Overhead", "Request Focus", "Text to Speech",
     })
 end
@@ -81,8 +81,8 @@ function TestPalette:testUnavailableRowsCarryNoTypeKeyOrTargetPin()
     end
     -- Spot-check one concrete description string against nodes/unavailable.lua.
     for _, r in ipairs(itemRows(self.palette.rows)) do
-        if r.displayName == "Inventory" then
-            luaunit.assertEquals(r.description, "no inventory-read API")
+        if r.displayName == "Overhead Text" then
+            luaunit.assertEquals(r.description, "no overhead-text event")
         end
     end
 end
@@ -103,12 +103,12 @@ function TestPalette:testUnavailableRowIsInertUnderRowAt()
     self.palette:Open(self.registry, nil, { screenX = 10, screenY = 10, anchorGX = 0, anchorGY = 0 })
     self.palette:Draw(mockCanvas(), 0, 0, 800, 600, -1, -1)
 
-    -- Row order (see interleave test): 1 header, 2 Alarm, 3 Inventory (unavailable), ...
+    -- Row order (see interleave test): 1 header, 2 Alarm, 3 Overhead Text (unavailable), ...
     local rowH, pad, px, py = Theme.PALETTE_ROW_H, Theme.PALETTE_PAD, 10, 10
     local function midY(rowIndex) return py + pad + (rowIndex - 1) * rowH + math.floor(rowH / 2) end
     local mx = px + 50
 
-    luaunit.assertIsNil(self.palette:RowAt(mx, midY(3)))   -- Inventory: click does nothing
+    luaunit.assertIsNil(self.palette:RowAt(mx, midY(3)))   -- Overhead Text: click does nothing
 
     local live = self.palette:RowAt(mx, midY(2))            -- Alarm: still clickable
     luaunit.assertNotNil(live)
@@ -128,12 +128,12 @@ function TestPalette:testDrawShowsDimmedReasonOnUnavailableRowsOnly()
     luaunit.assertEquals(byText["Alarm"].color, Theme.Vec4(Theme.COL_PALETTE_TEXT))
 
     -- Unavailable row: name and description are drawn as separate calls, both dimmed.
-    luaunit.assertNotNil(byText["Inventory"])
-    luaunit.assertEquals(byText["Inventory"].color, Theme.Vec4(Theme.COL_PALETTE_TEXT_DIM))
-    local inventoryDesc = " - no inventory-read API"
-    luaunit.assertNotNil(byText[inventoryDesc],
-        "expected an inline description drawn for the unavailable Inventory row")
-    luaunit.assertEquals(byText[inventoryDesc].color, Theme.Vec4(Theme.COL_PALETTE_TEXT_DIM))
+    luaunit.assertNotNil(byText["Overhead Text"])
+    luaunit.assertEquals(byText["Overhead Text"].color, Theme.Vec4(Theme.COL_PALETTE_TEXT_DIM))
+    local overheadDesc = " - no overhead-text event"
+    luaunit.assertNotNil(byText[overheadDesc],
+        "expected an inline description drawn for the unavailable Overhead Text row")
+    luaunit.assertEquals(byText[overheadDesc].color, Theme.Vec4(Theme.COL_PALETTE_TEXT_DIM))
 end
 
 -- A live Node Type carrying a `description` (#52, e.g. Client Tick's "Fires 50x/sec") renders
@@ -163,7 +163,7 @@ function TestPalette:testDrawShowsInlineDescriptionOnLiveNodeType()
     -- And it's a real, clickable row (unlike an unavailable one): RowAt returns it.
     local rowH, pad, px, py = Theme.PALETTE_ROW_H, Theme.PALETTE_PAD, 10, 10
     -- Row order within the trigger group is alphabetical by displayName; "Client Tick" sorts
-    -- after "Alarm" (row 2) and the interleaved unavailable "Inventory"/"Overhead Text"/
+    -- after "Alarm" (row 2) and the interleaved unavailable "Overhead Text"/
     -- "Sound Fired" — but we don't need its exact index: assert the drawn call carried a
     -- typeKey-bearing item row by finding it back through the rows list.
     local found
@@ -194,7 +194,7 @@ end
 function TestPalette:testScrollbarOnlyWhenListOverflows()
     self.palette:Open(self.registry, nil, { screenX = 10, screenY = 10, anchorGX = 0, anchorGY = 0 })
 
-    -- Tall draw rect: all 12 rows (2 headers + 10 items) fit, so no scrollbar.
+    -- Tall draw rect: all 11 rows (2 headers + 9 items) fit, so no scrollbar.
     self.palette:Draw(mockCanvas(), 0, 0, 800, 600, -1, -1)
     luaunit.assertIsNil(self.palette.rect.scrollbar)
     luaunit.assertEquals(self.palette.maxScroll, 0)

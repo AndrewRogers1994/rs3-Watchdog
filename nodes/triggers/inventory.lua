@@ -1,224 +1,219 @@
-local Matcher = require('matcher')
+local Controls = require("ui/controls")
 
----@class InventoryCache.InventoryCacheEntry
----@field slots InvSlot[]
----@field slotCount Int
+local InventoryTrigger = {}
+
+---@class Watchdog.InvSnapshotSlot
+---@field name string|nil
+---@field configName string|nil
+---@field count number|nil
+
+---@class Watchdog.InvSnapshot
+---@field slots Watchdog.InvSnapshotSlot[]
+---@field usedSlotCount integer
+---@field slotCount integer
+
+---@class Watchdog.Payload.InventoryUpdated
+---@field inventoryType InvType|nil
+---@field prevUsedSlots integer
+---@field usedSlots integer
+---@field isFull boolean
+---@field isEmpty boolean
+---@field prevSnapshot Watchdog.InvSnapshot
+---@field snapshot Watchdog.InvSnapshot
 
 ---@class InventoryCache
----@field [InvType] InventoryCache.InventoryCacheEntry
+---@field [InvType] Watchdog.InvSnapshot
 
 ---@type InventoryCache
 local CACHE = {}
 
-Event.InventoryAdded.Subscribe("inventory.added", function(event)
-    print("InventoryAdded:", event.inv.configName)
-    local inv = Inventory.Find(event.inv)
-    if inv == nil or not inv.isValid then
-        return
-    end
-    print(type(inv))
-
-    if not CACHE[event.inv] then
-        CACHE[event.inv] = { slots = {} }
-    end
-
-    local slots = inv:GetSlots()
-    for i, slot in ipairs(slots) do
-        CACHE[event.inv].slots[i] = slot
-    end
-end)
-
--- idk if i want to do this?
-Event.InventoryRemoved.Subscribe("inventory.removed", function(event)
-    print("InventoryRemoved:", event.inv.configName)
-    CACHE[event.inv] = nil
-end)
-
-local InventoryTrigger = {}
-
----@class Watchdog.Payload.InventoryUpdated
----@field inventoryType InvType The inventory type that was updated.
----@field prevSlotCount Int The number of used slots before the update
----@field newSlotCount Int The number of used slots after the update
----@field slotDiff { slotIndex: Int, oldSlot: InvSlot, newSlot: InvSlot, diffCount: Int, isDiffObj: Bool }[] A list of slot changes, each containing the slot index, the old and new InvSlot data, the difference in count, and whether the object in the slot changed.
-
-local function inventoryModeChoices()
-    local choices = {
-        { value = "full", label = "Full" },
-        { value = "empty", label = "Empty" },
-        { value = "count", label = "Count" },
-        { value = "amount", label = "Amount" },
-        { value = "changed", label = "Changed By" },
-    }
-    return choices
-end
-
-local Controls = require("ui/controls")
-Controls.Register("inventoryMode", {
+Controls.Register("invContainer", {
     widget = "enum",
-    choices = inventoryModeChoices(),
+    choices = {
+        { value = id.Inv.INV, label = "Inventory" },
+        { value = id.Inv.BANK, label = "Bank" },
+    },
 })
 
----@param raw InventoryUpdated
----@return Watchdog.Payload.InventoryUpdated
-local transform = function(raw)
-    local inv = Inventory.Find(raw.inv)
-    ---@type Watchdog.Payload.InventoryUpdated
-    local retData = {
-        inventoryType = raw.inv,
-        prevSlotCount = CACHE[raw.inv].slotCount,
-        newSlotCount = -1,
-        slotDiff = {}
+---@param invType any
+---@return Inv|nil
+local function findInv(invType)
+    if Inventory == nil or Inventory.Find == nil then
+        return nil
+    end
+    return Inventory.Find(invType)
+end
+
+---@param raw InventoryUpdated|InventoryAdded|InventoryRemoved|nil
+---@return integer
+local function invTypeSize(raw)
+    local invType = raw and raw.inv
+    local size = invType and invType.size
+    if type(size) == "number" then
+        return size
+    end
+    return 0
+end
+
+local function copyOccupiedSlot(s)
+    if s == nil or s.obj == nil then
+        return nil
+    end
+    return {
+        name = s.obj.name,
+        configName = s.obj.configName,
+        count = s.count,
     }
+end
 
-
-    for i, slotIdx in ipairs(raw.slotsUpdated) do
-        local slot = inv:GetSlot(slotIdx)
-        if slot ~= nil then
-            local oldSlotData = CACHE[raw.inv].slots[slotIdx]
-            local diff = slot.count - oldSlotData.count
-            local isDiffObj = slot.obj.id ~= oldSlotData.obj.id
-            -- update the cache with the new slot data
-            CACHE[raw.inv].slots[slotIdx] = slot
-
-            table.insert(retData.slotDiff, {
-                slotIndex = slotIdx,
-                oldSlot = oldSlotData,
-                newSlot = slot,
-                diffCount = diff,
-                isDiffObj = isDiffObj
-            })
-        else
-            -- TODO: check this
-            CACHE[raw.inv].slots[slotIdx] = nil
+---@param inv Inv|nil
+---@param fallbackSize integer
+---@return Watchdog.InvSnapshot
+local function freezeInv(inv, fallbackSize)
+    if inv == nil then
+        return { slots = {}, usedSlotCount = 0, slotCount = fallbackSize }
+    end
+    local slots = {}
+    local cap = inv.slotCount or fallbackSize
+    local rawSlots = inv.GetSlots and inv:GetSlots()
+    if type(rawSlots) == "table" then
+        local n = cap
+        if #rawSlots > n then
+            n = #rawSlots
+        end
+        for i = 1, n do
+            local copied = copyOccupiedSlot(rawSlots[i])
+            if copied ~= nil then
+                slots[#slots + 1] = copied
+            end
+        end
+    elseif inv.GetSlot ~= nil then
+        for i = 1, cap do
+            local copied = copyOccupiedSlot(inv:GetSlot(i))
+            if copied ~= nil then
+                slots[#slots + 1] = copied
+            end
         end
     end
+    return {
+        slots = slots,
+        usedSlotCount = inv.usedSlotCount or 0,
+        slotCount = cap,
+    }
+end
 
-    CACHE[raw.inv].slotCount = inv.usedSlotCount
-    retData.newSlotCount = inv.usedSlotCount
+---@param raw InventoryUpdated|InventoryAdded|nil
+---@return Watchdog.InvSnapshot
+local function snapshotNow(raw)
+    return freezeInv(findInv(raw and raw.inv), invTypeSize(raw))
+end
 
-    return retData
+---@param raw InventoryUpdated|nil
+---@return Watchdog.Payload.InventoryUpdated
+local transform = function(raw)
+    local inventoryType = raw and raw.inv
+    local current = snapshotNow(raw)
+    local prev = CACHE[inventoryType]
+    if prev == nil then
+        prev = { slots = {}, usedSlotCount = 0, slotCount = current.slotCount }
+    end
+    if inventoryType ~= nil then
+        CACHE[inventoryType] = current
+    end
+    local used = current.usedSlotCount
+    local cap = current.slotCount
+    return {
+        inventoryType = inventoryType,
+        prevUsedSlots = prev.usedSlotCount,
+        usedSlots = used,
+        isFull = used == cap,
+        isEmpty = used == 0,
+        prevSnapshot = prev,
+        snapshot = current,
+    }
+end
+
+---@param raw InventoryAdded|nil
+---@return { inventoryType: InvType|nil }
+local function transformAdded(raw)
+    local inventoryType = raw and raw.inv
+    if inventoryType ~= nil then
+        CACHE[inventoryType] = snapshotNow(raw)
+    end
+    return { inventoryType = inventoryType }
+end
+
+---@param raw InventoryRemoved|nil
+---@return { inventoryType: InvType|nil }
+local function transformRemoved(raw)
+    local inventoryType = raw and raw.inv
+    if inventoryType ~= nil then
+        CACHE[inventoryType] = nil
+    end
+    return { inventoryType = inventoryType }
+end
+
+---@param payload Watchdog.Payload.InventoryUpdated|{ inventoryType: InvType|nil }
+---@param node { GetControl: fun(pinName: string): any }
+---@return boolean
+local function containerMatches(payload, node)
+    if payload == nil or payload.inventoryType == nil then
+        return false
+    end
+    local sel = node.GetControl("container")
+    if sel == nil then
+        sel = id.Inv.INV
+    end
+    return payload.inventoryType.id == sel
+end
+
+local function neverFire()
+    return false
 end
 
 ---@param registry LibNodeGraph.Registry
 ---@param runtime Watchdog.Runtime
 function InventoryTrigger.Register(registry, runtime)
-    local itemNamePin = { name = "nameMatch", kind = "data", direction = "in", dataType = "matcher", default = { needle = "", mode = "substring" } }
-    local countPin = { name = "count", kind = "data", direction = "in", dataType = "number" }
-    local edgeOnlyPin = { name = "edgeOnly", kind = "data", direction = "in", dataType = "boolean" }
-    local outPin = { name = "out", kind = "exec", direction = "out" }
-    local itemPin = { name = "item", kind = "data", direction = "out", dataType = "string" }
-    local countOfMatchedPin = { name = "countOfMatched", kind = "data", direction = "out", dataType = "number" }
-    local changedByPin = { name = "changedBy", kind = "data", direction = "out", dataType = "number" }
+    for k in pairs(CACHE) do
+        CACHE[k] = nil
+    end
+
     registry:RegisterNodeType("trigger.inventory", {
         category = "trigger",
         displayName = "Inventory",
-        description = "Inventory changes",
-        modes = {
-            { key = "full", label = "Full", pins = { edgeOnlyPin, outPin } },
-            { key = "empty", label = "Empty", pins = { edgeOnlyPin, outPin } },
-            { key = "count", label = "Count", pins = { countPin, edgeOnlyPin, outPin, changedByPin } },
-            { key = "amount", label = "Amount", pins = { itemNamePin, countPin, edgeOnlyPin, outPin, itemPin, countOfMatchedPin, changedByPin } },
-            { key = "changed", label = "Changed By", pins = { itemNamePin, countPin, edgeOnlyPin, outPin, itemPin, countOfMatchedPin, changedByPin } },
+        description = "Fires on every Inventory or Bank update for the chosen Container",
+        pins = {
+            { name = "container", kind = "data", direction = "in", dataType = "invContainer",
+              label = "Container", default = id.Inv.INV },
+            { name = "out", kind = "exec", direction = "out" },
+            { name = "prevUsedSlots", kind = "data", direction = "out", dataType = "number",
+              label = "Prev used slots" },
+            { name = "usedSlots", kind = "data", direction = "out", dataType = "number",
+              label = "Used slots" },
+            { name = "isFull", kind = "data", direction = "out", dataType = "bool" },
+            { name = "isEmpty", kind = "data", direction = "out", dataType = "bool" },
+            { name = "prevSnapshot", kind = "data", direction = "out", dataType = "invSnapshot",
+              label = "Prev snapshot" },
+            { name = "snapshot", kind = "data", direction = "out", dataType = "invSnapshot",
+              label = "Snapshot" },
         },
-        defaultMode = "full",
         ---@param ctx LibNodeGraph.RunContext<Watchdog.Payload.InventoryUpdated>
         run = function (ctx)
             local p = ctx.payload
-            if ctx.mode == "full" or ctx.mode == "empty" then
-                -- nothing to output
-            elseif ctx.mode == "count" then
-                ctx:Out("countOfMatched", p.newSlotCount)
-                ctx:Out("changedBy", p.newSlotCount - p.prevSlotCount)
-            elseif ctx.mode == "amount" or ctx.mode == "changed" then
-                local totalCount = 0
-                local totalChanged = 0
-                for _, slotChange in ipairs(p.slotDiff) do
-                    totalCount = totalCount + slotChange.newSlot.count
-                    totalChanged = totalChanged + slotChange.diffCount
-                end
-                -- output the item name that triggered the event
-                ctx:Out("item", p.slotDiff[1] and p.slotDiff[1].newSlot.obj.name or "")
-                ctx:Out("countOfMatched", totalCount)
-                ctx:Out("changedBy", totalChanged)
-            end
+            ctx:Out("prevUsedSlots", p.prevUsedSlots)
+            ctx:Out("usedSlots", p.usedSlots)
+            ctx:Out("isFull", p.isFull)
+            ctx:Out("isEmpty", p.isEmpty)
+            ctx:Out("prevSnapshot", p.prevSnapshot)
+            ctx:Out("snapshot", p.snapshot)
             ctx:Fire("out")
-        end
+        end,
     })
 
     runtime:BindTrigger("trigger.inventory", {
-        {
-            event = "InventoryUpdated",
-            ---@param payload Watchdog.Payload.InventoryUpdated
-            filter = function(payload, node)
-                -- only support INV type right now
-                if payload.inventoryType ~= config.Inv.INV then
-                    print("not supported inv type:", payload.inventoryType.configName)
-                    return false
-                end
-                local mode = node.GetControl("mode")
-                local itemMatcher = node.GetControl("nameMatch")
-                local count = node.GetControl("count")
-                local edgeOnly = node.GetControl("edgeOnly")
-
-                if mode == "full" then
-                    if payload.newSlotCount == payload.inventoryType.size then
-                        if edgeOnly then
-                            return payload.prevSlotCount < payload.inventoryType.size
-                        end
-                        return true
-                    end
-                    return false
-                elseif mode == "empty" then
-                    if payload.newSlotCount == 0 then
-                        if edgeOnly then
-                            return payload.prevSlotCount > 0
-                        end
-                        return true
-                    end
-                    return false
-                elseif mode == "count" then
-                    if payload.newSlotCount == count then
-                        if edgeOnly then
-                            return payload.prevSlotCount ~= count
-                        end
-                        return true
-                    end
-                    return false
-                elseif mode == "amount" then
-                    local totalCount = 0
-                    for _, slotChange in ipairs(payload.slotDiff) do
-                        if Matcher.Test(itemMatcher, slotChange.newSlot.obj.name) then
-                            totalCount = totalCount + slotChange.newSlot.count
-                        end
-                    end
-                    if totalCount == count then
-                        if edgeOnly then
-                            return payload.prevSlotCount ~= count
-                        end
-                        return true
-                    end
-                    return false
-                elseif mode == "changed" then
-                    local totalChanged = 0
-                    for _, slotChange in ipairs(payload.slotDiff) do
-                        if slotChange.newSlot.obj.name == itemMatcher then
-                            totalChanged = totalChanged + slotChange.diffCount
-                        end
-                    end
-                    if totalChanged == count then
-                        if edgeOnly then
-                            return payload.prevSlotCount ~= count
-                        end
-                        return true
-                    end
-                    return false
-                end
-
-                return true
-            end,
-            transform = transform,
-        }
+        { event = "InventoryUpdated", transform = transform, filter = containerMatches },
+        { event = "InventoryAdded", transform = transformAdded, filter = neverFire },
+        { event = "InventoryRemoved", transform = transformRemoved, filter = neverFire },
     })
 end
 
