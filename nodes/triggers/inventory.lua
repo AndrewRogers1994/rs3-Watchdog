@@ -1,3 +1,5 @@
+local Matcher = require('matcher')
+
 ---@class InventoryCache.InventoryCacheEntry
 ---@field slots InvSlot[]
 ---@field slotCount Int
@@ -101,26 +103,45 @@ end
 ---@param registry LibNodeGraph.Registry
 ---@param runtime Watchdog.Runtime
 function InventoryTrigger.Register(registry, runtime)
+    local itemNamePin = { name = "nameMatch", kind = "data", direction = "in", dataType = "matcher", default = { needle = "", mode = "substring" } }
+    local countPin = { name = "count", kind = "data", direction = "in", dataType = "number" }
+    local edgeOnlyPin = { name = "edgeOnly", kind = "data", direction = "in", dataType = "boolean" }
+    local outPin = { name = "out", kind = "exec", direction = "out" }
+    local itemPin = { name = "item", kind = "data", direction = "out", dataType = "string" }
+    local countOfMatchedPin = { name = "countOfMatched", kind = "data", direction = "out", dataType = "number" }
+    local changedByPin = { name = "changedBy", kind = "data", direction = "out", dataType = "number" }
     registry:RegisterNodeType("trigger.inventory", {
         category = "trigger",
         displayName = "Inventory",
         description = "Inventory changes",
-        pins = {
-            { name = "mode", kind = "data", direction = "in", dataType = "inventoryMode" },
-            { name = "itemName", kind = "data", direction = "in", dataType = "string" },
-            { name = "count", kind = "data", direction = "in", dataType = "string" },
-            { name = "edgeOnly", kind = "data", direction = "in", dataType = "boolean" },
-            { name = "out", kind = "exec", direction = "out" },
-            { name = "item", kind = "data", direction = "out", dataType = "string" },
-            { name = "countOfMatched", kind = "data", direction = "out", dataType = "number" },
-            { name = "changedBy", kind = "data", direction = "out", dataType = "number" },
+        modes = {
+            { key = "full", label = "Full", pins = { edgeOnlyPin, outPin } },
+            { key = "empty", label = "Empty", pins = { edgeOnlyPin, outPin } },
+            { key = "count", label = "Count", pins = { countPin, edgeOnlyPin, outPin, changedByPin } },
+            { key = "amount", label = "Amount", pins = { itemNamePin, countPin, edgeOnlyPin, outPin, itemPin, countOfMatchedPin, changedByPin } },
+            { key = "changed", label = "Changed By", pins = { itemNamePin, countPin, edgeOnlyPin, outPin, itemPin, countOfMatchedPin, changedByPin } },
         },
+        defaultMode = "full",
         ---@param ctx LibNodeGraph.RunContext<Watchdog.Payload.InventoryUpdated>
         run = function (ctx)
             local p = ctx.payload
-            -- ctx:Out("item", p)
-            -- ctx:Out("countOfMatched")
-            -- ctx:Out("changedBy")
+            if ctx.mode == "full" or ctx.mode == "empty" then
+                -- nothing to output
+            elseif ctx.mode == "count" then
+                ctx:Out("countOfMatched", p.newSlotCount)
+                ctx:Out("changedBy", p.newSlotCount - p.prevSlotCount)
+            elseif ctx.mode == "amount" or ctx.mode == "changed" then
+                local totalCount = 0
+                local totalChanged = 0
+                for _, slotChange in ipairs(p.slotDiff) do
+                    totalCount = totalCount + slotChange.newSlot.count
+                    totalChanged = totalChanged + slotChange.diffCount
+                end
+                -- output the item name that triggered the event
+                ctx:Out("item", p.slotDiff[1] and p.slotDiff[1].newSlot.obj.name or "")
+                ctx:Out("countOfMatched", totalCount)
+                ctx:Out("changedBy", totalChanged)
+            end
             ctx:Fire("out")
         end
     })
@@ -136,7 +157,7 @@ function InventoryTrigger.Register(registry, runtime)
                     return false
                 end
                 local mode = node.GetControl("mode")
-                local itemMatcher = node.GetControl("itemName")
+                local itemMatcher = node.GetControl("nameMatch")
                 local count = node.GetControl("count")
                 local edgeOnly = node.GetControl("edgeOnly")
 
@@ -167,7 +188,7 @@ function InventoryTrigger.Register(registry, runtime)
                 elseif mode == "amount" then
                     local totalCount = 0
                     for _, slotChange in ipairs(payload.slotDiff) do
-                        if slotChange.newSlot.obj.name == itemMatcher then
+                        if Matcher.Test(itemMatcher, slotChange.newSlot.obj.name) then
                             totalCount = totalCount + slotChange.newSlot.count
                         end
                     end

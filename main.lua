@@ -1132,6 +1132,7 @@ print("Watchdog editor loaded")
 -- MUST NOT :Destroy() UI here — client tears the tree down after.
 function PluginShutdown()
     pcall(persistNow)
+    ribbon:Destroy()
 end
 
 return Watchdog
