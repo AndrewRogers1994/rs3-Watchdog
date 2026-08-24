@@ -1,21 +1,23 @@
-id = id or {}
-id.Inv = id.Inv or {}
-id.Inv.INV = 93
-id.Inv.BANK = 95
+config = config or {}
+config.Inv = config.Inv or {}
+config.Inv.INV = config.Inv.INV or { id = 93, size = 28 }
+config.Inv.BANK = config.Inv.BANK or { id = 95, size = 28 }
 
 local luaunit = require("luaunit")
 local Registry = require("registry")
 local Graph = require("graph")
+local Serialize = require("serialize")
+local Json = require("json")
 local Runtime = require("runtime")
 local newFakeEventSource = require("fake_event_source")
 local InventoryTrigger = require("nodes/triggers/inventory")
 
-local INV, BANK = id.Inv.INV, id.Inv.BANK
+local INV, BANK = config.Inv.INV, config.Inv.BANK
 
 TestInventory = {}
 
 function TestInventory:setUp()
-    id.Inv = { INV = INV, BANK = BANK }
+    config.Inv = { INV = INV, BANK = BANK }
 
     self.registry = Registry.new()
     self.source = newFakeEventSource()
@@ -34,10 +36,9 @@ function TestInventory:setUp()
     })
 
     self.invs = {}
-    self.invTypes = {}
     _G.Inventory = {
         Find = function(invType)
-            return t.invs[invType.id]
+            return t.invs[invType]
         end,
     }
 end
@@ -46,22 +47,10 @@ function TestInventory:tearDown()
     _G.Inventory = nil
 end
 
--- Same InvType table per id: CACHE is keyed by InvType identity, like the client userdata.
-function TestInventory:invType(id, size)
-    local t = self.invTypes[id]
-    if t == nil then
-        t = { id = id, size = size or 28 }
-        self.invTypes[id] = t
-    elseif size ~= nil then
-        t.size = size
-    end
-    return t
-end
-
-function TestInventory:setInv(id, opts)
+function TestInventory:setInv(invType, opts)
     opts = opts or {}
     local slots = opts.slots or {}
-    self.invs[id] = {
+    self.invs[invType] = {
         usedSlotCount = opts.usedSlotCount or #slots,
         slotCount = opts.slotCount or 28,
         isValid = true,
@@ -70,21 +59,25 @@ function TestInventory:setInv(id, opts)
 end
 
 function TestInventory:addWired(controls)
+    controls = controls or { container = INV }
     local id = self.graph:AddNode("trigger.inventory", controls)
     self.graph:Connect(id, "out", self.graph:AddNode("fixture.mark"), "in")
     return id
 end
 
-function TestInventory:pushUpdated(id, size)
-    self.source:Push("InventoryUpdated", { inv = self:invType(id, size), slotsUpdated = {} })
+function TestInventory:pushUpdated(invType, size)
+    if size ~= nil then
+        invType.size = size
+    end
+    self.source:Push("InventoryUpdated", { inv = invType, slotsUpdated = {} })
 end
 
-function TestInventory:pushAdded(id, size)
-    self.source:Push("InventoryAdded", { inv = self:invType(id, size) })
+function TestInventory:pushAdded(invType)
+    self.source:Push("InventoryAdded", { inv = invType })
 end
 
-function TestInventory:pushRemoved(id, size)
-    self.source:Push("InventoryRemoved", { inv = self:invType(id, size) })
+function TestInventory:pushRemoved(invType)
+    self.source:Push("InventoryRemoved", { inv = invType })
 end
 
 local function slot(name, configName, count)
@@ -104,6 +97,13 @@ function TestInventory:testNodeHasNoModesAndNoMatcher()
     luaunit.assertEquals(nt.pins.prevSnapshot.dataType, "invSnapshot")
     luaunit.assertEquals(nt.pins.isFull.dataType, "bool")
     luaunit.assertEquals(nt.pins.isEmpty.dataType, "bool")
+end
+
+function TestInventory:testConfigInvTypesCompareEqualByIdentity()
+    luaunit.assertTrue(config.Inv.INV == INV)
+    luaunit.assertTrue(config.Inv.BANK == BANK)
+    luaunit.assertFalse(config.Inv.INV == config.Inv.BANK)
+    luaunit.assertFalse(config.Inv.INV == { id = 93, size = 28 })
 end
 
 function TestInventory:testNNodesCostExactlyOneUpdatedSubscription()
@@ -257,6 +257,25 @@ function TestInventory:testSnapshotHasNoLiveInvHandle()
     luaunit.assertEquals(snap.slots[1].name, "Shark")
     luaunit.assertEquals(snap.slots[1].configName, "SHARK")
     luaunit.assertEquals(snap.slots[1].count, 1)
+end
+
+function TestInventory:testInvContainerCodecPersistsIdNotProxy()
+    local nodeId = self:addWired({ container = BANK })
+    local data = Serialize.Serialize(self.graph)
+    luaunit.assertEquals(data.nodes[1].controls.container, BANK.id)
+    luaunit.assertEquals(type(data.nodes[1].controls.container), "number")
+    luaunit.assertNotNil(Json.Default.encode(data))
+
+    local rebuilt = Serialize.Deserialize(data, self.registry)
+    luaunit.assertTrue(rebuilt:GetControl(nodeId, "container") == BANK)
+end
+
+function TestInventory:testInvContainerCodecUnknownIdFallsBackToInventory()
+    local nodeId = self:addWired()
+    local data = Serialize.Serialize(self.graph)
+    data.nodes[1].controls.container = 0
+    local rebuilt = Serialize.Deserialize(data, self.registry)
+    luaunit.assertTrue(rebuilt:GetControl(nodeId, "container") == INV)
 end
 
 function TestInventory:testAddedSeedsPrevForNextUpdated()

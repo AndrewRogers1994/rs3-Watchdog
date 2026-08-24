@@ -30,10 +30,39 @@ local CACHE = {}
 Controls.Register("invContainer", {
     widget = "enum",
     choices = {
-        { value = id.Inv.INV, label = "Inventory" },
-        { value = id.Inv.BANK, label = "Bank" },
+        { value = config.Inv.INV, label = "Inventory" },
+        { value = config.Inv.BANK, label = "Bank" },
     },
 })
+
+---@param value any
+---@return integer
+local function encodeInvContainer(value)
+    if type(value) == "number" then
+        return value
+    end
+    if value == config.Inv.BANK then
+        return config.Inv.BANK.id
+    end
+    if value == config.Inv.INV then
+        return config.Inv.INV.id
+    end
+    local id = value and value.id
+    if type(id) == "number" then
+        return id
+    end
+    return config.Inv.INV.id
+end
+
+---@param raw any
+---@return InvType
+local function decodeInvContainer(raw)
+    local bank = config.Inv.BANK
+    if raw == bank or (type(raw) == "number" and bank ~= nil and raw == bank.id) then
+        return bank
+    end
+    return config.Inv.INV
+end
 
 ---@param invType any
 ---@return Inv|nil
@@ -162,9 +191,9 @@ local function containerMatches(payload, node)
     end
     local sel = node.GetControl("container")
     if sel == nil then
-        sel = id.Inv.INV
+        sel = config.Inv.INV
     end
-    return payload.inventoryType.id == sel
+    return payload.inventoryType == sel
 end
 
 local function neverFire()
@@ -178,13 +207,18 @@ function InventoryTrigger.Register(registry, runtime)
         CACHE[k] = nil
     end
 
+    registry:RegisterDataType("invContainer", {
+        encode = encodeInvContainer,
+        decode = decodeInvContainer,
+    })
+
     registry:RegisterNodeType("trigger.inventory", {
         category = "trigger",
         displayName = "Inventory",
         description = "Fires on every Inventory or Bank update for the chosen Container",
         pins = {
             { name = "container", kind = "data", direction = "in", dataType = "invContainer",
-              label = "Container", default = id.Inv.INV },
+              label = "Container", default = config.Inv.INV },
             { name = "out", kind = "exec", direction = "out" },
             { name = "prevUsedSlots", kind = "data", direction = "out", dataType = "number",
               label = "Prev used slots" },

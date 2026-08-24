@@ -362,7 +362,9 @@ _Avoid_: Chat category, chat kind, chat class; "chat type" (that is the raw engi
 **Container**:
 Which client inventory an Inventory Trigger watches. v1 is two engine `InvType`s, labeled
 **Inventory** (`Inv.INV`, the backpack) and **Bank** (`Inv.BANK`) — not the rest of the `Inv`
-enum. The backpack label is the same word as the Trigger; that collision is accepted.
+enum. The backpack label is the same word as the Trigger; that collision is accepted. Live
+Controls hold the `InvType` userdata; persist/share stores `InvType.id` (JSON cannot encode
+proxy types) and decode maps the id back onto `config.Inv.INV` / `config.Inv.BANK`.
 _Avoid_: InvType (that is the raw engine config); bag; Backpack (rejected as the Control label)
 
 **Inventory Trigger**:

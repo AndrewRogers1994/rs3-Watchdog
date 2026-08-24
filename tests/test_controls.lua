@@ -5,13 +5,15 @@
 -- no Control" rule). These tests exercise that the built-ins and the descriptor kinds each land a
 -- Pin Control, and that the per-kind config (an enum's choices) reaches it via its Display.
 
-id = id or {}
-id.Inv = id.Inv or {}
-id.Inv.INV = id.Inv.INV or 93
-id.Inv.BANK = id.Inv.BANK or 95
+config = config or {}
+config.Inv = config.Inv or {}
+config.Inv.INV = config.Inv.INV or { id = 93, size = 28 }
+config.Inv.BANK = config.Inv.BANK or { id = 95, size = 28 }
 
 local luaunit = require("luaunit")
 local Controls = require("ui/controls")
+
+local INV, BANK = config.Inv.INV, config.Inv.BANK
 
 --- Built-in registrations land a Pin Control ----------------------------------------------
 
@@ -106,6 +108,7 @@ end
 TestInvContainerControl = {}
 
 function TestInvContainerControl:setUp()
+    config.Inv = { INV = INV, BANK = BANK }
     require("nodes/triggers/inventory")
     self.pc = Controls.PinControlFor("invContainer")
 end
@@ -116,8 +119,8 @@ function TestInvContainerControl:testRegisteredAsAnEnumPinControl()
 end
 
 function TestInvContainerControl:testValuesFormatToInventoryAndBank()
-    luaunit.assertEquals(self.pc.Display({ value = 93 }), "Inventory")
-    luaunit.assertEquals(self.pc.Display({ value = 95 }), "Bank")
+    luaunit.assertEquals(self.pc.Display({ value = config.Inv.INV }), "Inventory")
+    luaunit.assertEquals(self.pc.Display({ value = config.Inv.BANK }), "Bank")
 end
 
 return {}
