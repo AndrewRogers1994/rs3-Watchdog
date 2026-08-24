@@ -267,11 +267,30 @@ end
 function TestGraphEditor:testFirstCompatiblePinFindsNonDefaultMode()
     registerModeFixture(self.registry)
     local def = self.registry:GetNodeType("fixture.modes")
-    local pin, mode = Editor.FirstCompatiblePin(def, {
+    local pin, mode = Editor.FirstCompatiblePin(self.registry, def, {
         kind = "data", direction = "out", dataType = "number",
     })
     luaunit.assertEquals(pin, "n")
     luaunit.assertEquals(mode, "count")
+end
+
+-- Drag-to-empty filtered palette walks modeless types first (line 308 on the bad
+-- require("registry") commit). pinSet must come from the instance, not a module upvalue.
+function TestGraphEditor:testFirstCompatiblePinOnModelessType()
+    local def = self.registry:GetNodeType("fixture.action")
+    local pin, mode = Editor.FirstCompatiblePin(self.registry, def, {
+        kind = "exec", direction = "out",
+    })
+    luaunit.assertEquals(pin, "in")
+    luaunit.assertNil(mode)
+end
+
+function TestGraphEditor:testFirstCompatiblePinHasNoRegistryModuleUpvalue()
+    for i = 1, 20 do
+        local name = debug.getupvalue(Editor.FirstCompatiblePin, i)
+        if name == nil then break end
+        luaunit.assertNotEquals(name, "Registry")
+    end
 end
 
 function TestGraphEditor:testPlaceFromPaletteCreatesInTargetMode()
@@ -324,7 +343,7 @@ function TestGraphEditor:testFilteredPaletteFindsNonDefaultModeAndAddsInIt()
 
     local want = { kind = "data", direction = "out", dataType = "number" }
     editor.palette:Open(self.registry, function(def)
-        return Editor.FirstCompatiblePin(def, want)
+        return Editor.FirstCompatiblePin(self.registry, def, want)
     end, { screenX = 0, screenY = 0, anchorGX = 0, anchorGY = 0 })
 
     local row

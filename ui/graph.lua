@@ -25,7 +25,6 @@ local Wire     = require("ui/wire")
 local Palette  = require("ui/palette")
 local ColorPopup = require("ui/color_popup")
 local IfaceScale = require("ui/iface_scale")
-local Registry = require("registry")
 
 local Editor = {}
 Editor.__index = Editor
@@ -279,12 +278,13 @@ end
 -- First pin on `def` that can receive `want` (matching kind, opposite direction, compatible
 -- Type Tag). Walks every Mode's pinOrder in SortedModes order so a pin that exists only on a
 -- non-default Mode is still found. Returns pinName, modeKey (modeKey nil when the type has
--- no modes).
+-- no modes). pinSet comes from the live Registry instance (client cannot require engine modules).
+---@param registry LibNodeGraph.Registry
 ---@param def table
 ---@param want { kind: string, direction: string, dataType: string|nil }
 ---@return string|nil pinName
 ---@return string|nil modeKey
-function Editor.FirstCompatiblePin(def, want)
+function Editor.FirstCompatiblePin(registry, def, want)
     local wantDir = (want.direction == "out") and "in" or "out"
     local function firstCompatibleInOrder(pins, pinOrder)
         for _, pinName in ipairs(pinOrder or {}) do
@@ -299,13 +299,13 @@ function Editor.FirstCompatiblePin(def, want)
     end
     if def.modes ~= nil then
         for _, m in ipairs(Node.SortedModes(def)) do
-            local pins, pinOrder = Registry.pinSet(def, m.key)
+            local pins, pinOrder = registry.pinSet(def, m.key)
             local pinName = firstCompatibleInOrder(pins, pinOrder)
             if pinName ~= nil then return pinName, m.key end
         end
         return nil, nil
     end
-    local pins, pinOrder = Registry.pinSet(def, nil)
+    local pins, pinOrder = registry.pinSet(def, nil)
     return firstCompatibleInOrder(pins, pinOrder), nil
 end
 
@@ -936,7 +936,7 @@ function Editor:openPaletteFiltered(lx, ly, source)
     local scx, scy = self:toScreen(lx, ly)
     local want = source.entry
     local filter = function(def)
-        return Editor.FirstCompatiblePin(def, want)
+        return Editor.FirstCompatiblePin(self.registry, def, want)
     end
     self.palette:Open(self.registry, filter, {
         screenX = scx, screenY = scy, anchorGX = gx, anchorGY = gy,
