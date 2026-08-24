@@ -247,6 +247,22 @@ function TestInventory:testFrozenPrevAcrossTwoUpdates()
     luaunit.assertEquals(self.graph:GetLastValue(nodeId, "snapshot").slots[1].count, 5)
 end
 
+function TestInventory:testSnapshotTostringListsItems()
+    self:setInv(INV, {
+        slots = { slot("Shark", "SHARK", 1), slot("Lobster", "LOBSTER", 5) },
+        usedSlotCount = 2,
+        slotCount = 28,
+    })
+    local nodeId = self:addWired()
+    self:pushUpdated(INV)
+    luaunit.assertEquals(
+        tostring(self.graph:GetLastValue(nodeId, "snapshot")),
+        "2/28: Shark x1, Lobster x5")
+    luaunit.assertEquals(
+        tostring(self.graph:GetLastValue(nodeId, "prevSnapshot")),
+        "0/28")
+end
+
 function TestInventory:testSnapshotHasNoLiveInvHandle()
     self:setInv(INV, { slots = { slot("Shark", "SHARK", 1) } })
     local nodeId = self:addWired()

@@ -95,12 +95,48 @@ local function copyOccupiedSlot(s)
     }
 end
 
+-- std.tostring calls Lua tostring(); this is what a Snapshot pin prints.
+local SNAPSHOT_MT = {
+    __tostring = function(snap)
+        local slots = snap.slots or {}
+        local used = snap.usedSlotCount or #slots
+        local cap = snap.slotCount or 0
+        local header = tostring(used) .. "/" .. tostring(cap)
+        if #slots == 0 then
+            return header
+        end
+        local parts = {}
+        for i = 1, #slots do
+            local s = slots[i]
+            local name = s.name or s.configName or "?"
+            if s.count ~= nil then
+                parts[i] = name .. " x" .. tostring(s.count)
+            else
+                parts[i] = name
+            end
+        end
+        return header .. ": " .. table.concat(parts, ", ")
+    end,
+}
+
+---@param slots Watchdog.InvSnapshotSlot[]|nil
+---@param used integer|nil
+---@param cap integer|nil
+---@return Watchdog.InvSnapshot
+local function snapshotOf(slots, used, cap)
+    return setmetatable({
+        slots = slots or {},
+        usedSlotCount = used or 0,
+        slotCount = cap or 0,
+    }, SNAPSHOT_MT)
+end
+
 ---@param inv Inv|nil
 ---@param fallbackSize integer
 ---@return Watchdog.InvSnapshot
 local function freezeInv(inv, fallbackSize)
     if inv == nil then
-        return { slots = {}, usedSlotCount = 0, slotCount = fallbackSize }
+        return snapshotOf({}, 0, fallbackSize)
     end
     local slots = {}
     local cap = inv.slotCount or fallbackSize
@@ -124,11 +160,7 @@ local function freezeInv(inv, fallbackSize)
             end
         end
     end
-    return {
-        slots = slots,
-        usedSlotCount = inv.usedSlotCount or 0,
-        slotCount = cap,
-    }
+    return snapshotOf(slots, inv.usedSlotCount or 0, cap)
 end
 
 ---@param raw InventoryUpdated|InventoryAdded|nil
@@ -144,7 +176,7 @@ local transform = function(raw)
     local current = snapshotNow(raw)
     local prev = CACHE[inventoryType]
     if prev == nil then
-        prev = { slots = {}, usedSlotCount = 0, slotCount = current.slotCount }
+        prev = snapshotOf({}, 0, current.slotCount)
     end
     if inventoryType ~= nil then
         CACHE[inventoryType] = current
