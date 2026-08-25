@@ -65,6 +65,22 @@ function TestInventory:addWired(controls)
     return id
 end
 
+local function sub(needle) return { needle = needle, mode = "substring" } end
+local function pat(needle) return { needle = needle, mode = "pattern" } end
+
+-- Item Count is a Pure Node: connect a Trigger Snapshot, Fire the count node, read `count`.
+function TestInventory:addItemCount(triggerId, snapshotPin, controls)
+    local id = self.graph:AddNode("inventory.item_count", controls)
+    local ok, err = self.graph:Connect(triggerId, snapshotPin or "snapshot", id, "snapshot")
+    luaunit.assertNotNil(ok, err)
+    return id
+end
+
+function TestInventory:pullCount(itemCountId)
+    self.graph:Fire(itemCountId)
+    return self.graph:GetLastValue(itemCountId, "count")
+end
+
 function TestInventory:pushUpdated(invType, size)
     if size ~= nil then
         invType.size = size
@@ -309,6 +325,137 @@ function TestInventory:testAddedSeedsPrevForNextUpdated()
     luaunit.assertEquals(self.graph:GetLastValue(nodeId, "prevUsedSlots"), 1)
     luaunit.assertEquals(self.graph:GetLastValue(nodeId, "usedSlots"), 2)
     luaunit.assertEquals(self.graph:GetLastValue(nodeId, "prevSnapshot").slots[1].name, "Shark")
+end
+
+--- Item Count (#99) ----------------------------------------------------------------------
+
+function TestInventory:testItemCountIsInventoryCategoryPureNode()
+    local nt = self.registry:GetNodeType("inventory.item_count")
+    luaunit.assertEquals(nt.displayName, "Item Count")
+    luaunit.assertEquals(nt.category, "inventory")
+    luaunit.assertNil(nt.modes)
+    luaunit.assertEquals(nt.pins.snapshot.dataType, "invSnapshot")
+    luaunit.assertEquals(nt.pins.snapshot.direction, "in")
+    luaunit.assertEquals(nt.pins.nameMatch.dataType, "matcher")
+    luaunit.assertEquals(nt.pins.noteFilter.dataType, "invNoteFilter")
+    luaunit.assertEquals(nt.pins.noteFilter.default, "both")
+    luaunit.assertEquals(nt.pins.count.dataType, "number")
+    luaunit.assertEquals(nt.pins.count.direction, "out")
+    for _, pin in pairs(nt.pins) do
+        luaunit.assertNotEquals(pin.kind, "exec")
+    end
+end
+
+function TestInventory:testEmptyMatcherCountsEveryNameAsStackSum()
+    self:setInv(INV, {
+        slots = {
+            slot("Rune arrow", "RUNE_ARROW", 13254),
+            slot("Shark", "SHARK", 2),
+        },
+        usedSlotCount = 2,
+    })
+    local triggerId = self:addWired()
+    local countId = self:addItemCount(triggerId)
+    self:pushUpdated(INV)
+    luaunit.assertEquals(self:pullCount(countId), 13256)
+end
+
+function TestInventory:testCountIsStackQuantitiesNotUsedSlots()
+    self:setInv(INV, {
+        slots = { slot("Rune arrow", "RUNE_ARROW", 13254) },
+        usedSlotCount = 1,
+    })
+    local triggerId = self:addWired()
+    local countId = self:addItemCount(triggerId)
+    self:pushUpdated(INV)
+    luaunit.assertEquals(self.graph:GetLastValue(triggerId, "usedSlots"), 1)
+    luaunit.assertEquals(self:pullCount(countId), 13254)
+end
+
+function TestInventory:testMatcherNeedleUsesDisplayName()
+    self:setInv(INV, {
+        slots = {
+            slot("Rune arrow", "RUNE_ARROW", 10),
+            slot("Shark", "SHARK", 3),
+        },
+        usedSlotCount = 2,
+    })
+    local triggerId = self:addWired()
+    local countId = self:addItemCount(triggerId, "snapshot", { nameMatch = sub("rune arrow") })
+    self:pushUpdated(INV)
+    luaunit.assertEquals(self:pullCount(countId), 10)
+end
+
+function TestInventory:testPatternMatcherAnchorsOnDisplayNameOnly()
+    self:setInv(INV, {
+        slots = {
+            slot("Rune arrow", "CERT_RUNE_ARROW", 5),
+            slot("Rune arrow (p)", "RUNE_ARROW_P", 2),
+        },
+        usedSlotCount = 2,
+    })
+    local triggerId = self:addWired()
+    local countId = self:addItemCount(triggerId, "snapshot", { nameMatch = pat("^Rune arrow$") })
+    self:pushUpdated(INV)
+    luaunit.assertEquals(self:pullCount(countId), 5)
+end
+
+function TestInventory:testNoteFilterAndMatcherOnSharedDisplayName()
+    self:setInv(INV, {
+        slots = {
+            slot("Rune arrow", "RUNE_ARROW", 10),
+            slot("Rune arrow", "CERT_RUNE_ARROW", 5),
+            slot("Shark", "SHARK", 1),
+        },
+        usedSlotCount = 3,
+    })
+    local triggerId = self:addWired()
+    self:pushUpdated(INV)
+
+    local both = self:addItemCount(triggerId, "snapshot", {
+        nameMatch = sub("rune arrow"),
+    })
+    luaunit.assertEquals(self:pullCount(both), 15)
+
+    local noted = self:addItemCount(triggerId, "snapshot", {
+        nameMatch = sub("rune arrow"),
+        noteFilter = "noted",
+    })
+    luaunit.assertEquals(self:pullCount(noted), 5)
+
+    local unnoted = self:addItemCount(triggerId, "snapshot", {
+        nameMatch = sub("rune arrow"),
+        noteFilter = "unnoted",
+    })
+    luaunit.assertEquals(self:pullCount(unnoted), 10)
+end
+
+function TestInventory:testDefaultNoteFilterIsBoth()
+    self:setInv(INV, {
+        slots = {
+            slot("Rune arrow", "RUNE_ARROW", 10),
+            slot("Rune arrow", "CERT_RUNE_ARROW", 5),
+        },
+        usedSlotCount = 2,
+    })
+    local triggerId = self:addWired()
+    local countId = self:addItemCount(triggerId)
+    self:pushUpdated(INV)
+    luaunit.assertEquals(self.graph:GetControl(countId, "noteFilter"), "both")
+    luaunit.assertEquals(self:pullCount(countId), 15)
+end
+
+function TestInventory:testPrevSnapshotItemCountIsIndependent()
+    self:setInv(INV, { slots = { slot("Rune arrow", "RUNE_ARROW", 10) }, usedSlotCount = 1 })
+    local triggerId = self:addWired()
+    self:pushUpdated(INV)
+    self:setInv(INV, { slots = { slot("Rune arrow", "RUNE_ARROW", 13254) }, usedSlotCount = 1 })
+    self:pushUpdated(INV)
+
+    local prevCount = self:addItemCount(triggerId, "prevSnapshot")
+    local curCount = self:addItemCount(triggerId, "snapshot")
+    luaunit.assertEquals(self:pullCount(prevCount), 10)
+    luaunit.assertEquals(self:pullCount(curCount), 13254)
 end
 
 return TestInventory

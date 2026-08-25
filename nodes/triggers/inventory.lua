@@ -1,4 +1,5 @@
 local Controls = require("ui/controls")
+local Matcher = require("matcher")
 
 local InventoryTrigger = {}
 
@@ -32,6 +33,15 @@ Controls.Register("invContainer", {
     choices = {
         { value = config.Inv.INV, label = "Inventory" },
         { value = config.Inv.BANK, label = "Bank" },
+    },
+})
+
+Controls.Register("invNoteFilter", {
+    widget = "enum",
+    choices = {
+        { value = "both", label = "Both" },
+        { value = "noted", label = "Noted" },
+        { value = "unnoted", label = "Unnoted" },
     },
 })
 
@@ -232,6 +242,47 @@ local function neverFire()
     return false
 end
 
+---@param slot Watchdog.InvSnapshotSlot|nil
+---@return boolean
+local function configNameHasCertPrefix(slot)
+    local configName = slot and slot.configName
+    return type(configName) == "string" and configName:sub(1, 5) == "CERT_"
+end
+
+---@param filter string|nil
+---@param slot Watchdog.InvSnapshotSlot
+---@return boolean
+local function noteFilterPasses(filter, slot)
+    if filter == "noted" then
+        return configNameHasCertPrefix(slot)
+    end
+    if filter == "unnoted" then
+        return not configNameHasCertPrefix(slot)
+    end
+    return true
+end
+
+---@param ctx LibNodeGraph.RunContext
+local function runItemCount(ctx)
+    local snap = ctx:In("snapshot")
+    local matcher = ctx:In("nameMatch")
+    local filter = ctx:In("noteFilter")
+    local total = 0
+    local slots = snap and snap.slots
+    if type(slots) == "table" then
+        for i = 1, #slots do
+            local s = slots[i]
+            if s ~= nil and noteFilterPasses(filter, s) and Matcher.Test(matcher, s.name) then
+                local n = s.count
+                if type(n) == "number" then
+                    total = total + n
+                end
+            end
+        end
+    end
+    ctx:Out("count", total)
+end
+
 ---@param registry LibNodeGraph.Registry
 ---@param runtime Watchdog.Runtime
 function InventoryTrigger.Register(registry, runtime)
@@ -274,6 +325,22 @@ function InventoryTrigger.Register(registry, runtime)
             ctx:Out("snapshot", p.snapshot)
             ctx:Fire("out")
         end,
+    })
+
+    registry:RegisterNodeType("inventory.item_count", {
+        category = "inventory",
+        displayName = "Item Count",
+        description = "Sum of matching stack quantities; stays high across later updates until you Compare previous vs current",
+        pins = {
+            { name = "snapshot", kind = "data", direction = "in", dataType = "invSnapshot",
+              label = "Snapshot" },
+            { name = "nameMatch", kind = "data", direction = "in", dataType = "matcher",
+              label = "Name", default = { needle = "", mode = "substring" } },
+            { name = "noteFilter", kind = "data", direction = "in", dataType = "invNoteFilter",
+              label = "Notes", default = "both" },
+            { name = "count", kind = "data", direction = "out", dataType = "number" },
+        },
+        run = runItemCount,
     })
 
     runtime:BindTrigger("trigger.inventory", {

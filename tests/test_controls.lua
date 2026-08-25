@@ -123,4 +123,22 @@ function TestInvContainerControl:testValuesFormatToInventoryAndBank()
     luaunit.assertEquals(self.pc.Display({ value = config.Inv.BANK }), "Bank")
 end
 
+TestInvNoteFilterControl = {}
+
+function TestInvNoteFilterControl:setUp()
+    require("nodes/triggers/inventory")
+    self.pc = Controls.PinControlFor("invNoteFilter")
+end
+
+function TestInvNoteFilterControl:testRegisteredAsAnEnumPinControl()
+    luaunit.assertNotNil(self.pc)
+    luaunit.assertTrue(self.pc.Inline)
+end
+
+function TestInvNoteFilterControl:testValuesFormatToNotedUnnotedBoth()
+    luaunit.assertEquals(self.pc.Display({ value = "both" }), "Both")
+    luaunit.assertEquals(self.pc.Display({ value = "noted" }), "Noted")
+    luaunit.assertEquals(self.pc.Display({ value = "unnoted" }), "Unnoted")
+end
+
 return {}
