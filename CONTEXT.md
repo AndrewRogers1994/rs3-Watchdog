@@ -379,24 +379,34 @@ a Matcher on this Trigger; Firing on Added/Removed
 **Inventory Snapshot**:
 The contents of one Container at one moment, relative to a single `InventoryUpdated`
 (previous or current). A frozen copy (not a live `Inv` handle) carried on a Data Pin with
-Type Tag `invSnapshot`, consumed by inventory-Category Pure Nodes. Each slot carries enough
+Type Tag `invSnapshot`, consumed by Item Count and Item Count Changed. Each slot carries enough
 to Matcher the display `ObjType.name` and to apply a Note Filter (`configName` prefix).
 _Avoid_: inventory, Inv, bag, slotDiff (diffs are not a Pin)
 
 **Note Filter**:
-A three-way enum on Item Count: **Noted**, **Unnoted**, or **Both** (default Both = no-op).
-AND’d with the Matcher. Notedness is `ObjType.configName` starting with `CERT_` — noted and
-unnoted pairs share the same display `name`, so the Matcher cannot tell them apart. Authors
-never see ids or the `CERT_` prefix.
+A three-way enum on Item Count and Item Count Changed: **Noted**, **Unnoted**, or **Both**
+(default Both = no-op). AND'd with the Matcher. Notedness is `ObjType.configName` starting
+with `CERT_` — noted and unnoted pairs share the same display `name`, so the Matcher cannot
+tell them apart. Authors never see ids or the `CERT_` prefix.
 _Avoid_: isNoted, note mode, treating display name as the noted bit; exposing `CERT_` as a Control
 
 **Item Count**:
-A Pure Node in the inventory Category (the only one in that Category for v1): one Inventory
-Snapshot plus a Matcher plus a Note Filter in, one number out — the sum of matching slot
-quantities. Empty Matcher needle still means every name; occupancy (used slots) stays on the
-Inventory Trigger. Threshold crossing is two Item Counts (previous and current Snapshots)
-plus Compare, not a pin on this node.
+A Pure Node in the inventory Category: one Inventory Snapshot plus a Matcher plus a Note
+Filter in, one number out — the sum of matching slot quantities. Empty Matcher needle still
+means every name; occupancy (used slots) stays on the Inventory Trigger. Threshold crossing
+is Compare on Item Count Changed's `count` / `prevCount` (or two Item Counts), not a pin on
+this node.
 _Avoid_: query node; GetTotal; amount Mode; putting ids on a Control
+
+**Item Count Changed**:
+An execution node in the inventory Category: Inventory `out` plus previous and current
+Inventory Snapshots, the same Matcher and Note Filter as Item Count. Always publishes
+`count`, `prevCount`, and signed `delta`; Fires `changed` only when those two sums differ.
+Empty needle means the Container's total stack quantity moved, not that a slot identity swapped.
+Previous count comes from the Trigger's frozen prev Snapshot, not `ctx.state`. Thresholds
+and "gained only" stay Compare/Branch on the published numbers.
+_Avoid_: Matcher on the Inventory Trigger; amount Mode; `unchanged` exec out; remembering
+last-count in node state; per-slot identity tracking
 
 **Webhook** (`action.webhook`):
 An Action Node that POSTs a JSON body to an HTTP endpoint when exec'd. The endpoint is a

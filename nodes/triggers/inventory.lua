@@ -274,11 +274,11 @@ local function noteFilterPasses(filter, slot)
     return true
 end
 
----@param ctx LibNodeGraph.RunContext
-local function runItemCount(ctx)
-    local snap = ctx:In("snapshot")
-    local matcher = ctx:In("nameMatch")
-    local filter = ctx:In("noteFilter")
+---@param snap Watchdog.InvSnapshot|nil
+---@param matcher Watchdog.MatcherValue|nil
+---@param filter string|nil
+---@return number
+local function matchingSum(snap, matcher, filter)
     local total = 0
     local slots = snap and snap.slots
     if type(slots) == "table" then
@@ -292,7 +292,26 @@ local function runItemCount(ctx)
             end
         end
     end
-    ctx:Out("count", total)
+    return total
+end
+
+---@param ctx LibNodeGraph.RunContext
+local function runItemCount(ctx)
+    ctx:Out("count", matchingSum(ctx:In("snapshot"), ctx:In("nameMatch"), ctx:In("noteFilter")))
+end
+
+---@param ctx LibNodeGraph.RunContext
+local function runItemCountChanged(ctx)
+    local matcher = ctx:In("nameMatch")
+    local filter = ctx:In("noteFilter")
+    local count = matchingSum(ctx:In("snapshot"), matcher, filter)
+    local prevCount = matchingSum(ctx:In("prevSnapshot"), matcher, filter)
+    ctx:Out("count", count)
+    ctx:Out("prevCount", prevCount)
+    ctx:Out("delta", count - prevCount)
+    if count ~= prevCount then
+        ctx:Fire("changed")
+    end
 end
 
 ---@param registry LibNodeGraph.Registry
@@ -353,6 +372,28 @@ function InventoryTrigger.Register(registry, runtime)
             { name = "count", kind = "data", direction = "out", dataType = "number" },
         },
         run = runItemCount,
+    })
+
+    registry:RegisterNodeType("inventory.item_count_changed", {
+        category = "inventory",
+        displayName = "Item Count Changed",
+        description = "Fires changed when matching stack quantity moved (empty Name = Container total, not slot swaps)",
+        pins = {
+            { name = "in", kind = "exec", direction = "in" },
+            { name = "changed", kind = "exec", direction = "out" },
+            { name = "snapshot", kind = "data", direction = "in", dataType = "invSnapshot",
+              label = "Snapshot" },
+            { name = "prevSnapshot", kind = "data", direction = "in", dataType = "invSnapshot",
+              label = "Prev snapshot" },
+            { name = "nameMatch", kind = "data", direction = "in", dataType = "matcher",
+              label = "Name", default = { needle = "", mode = "substring" } },
+            { name = "noteFilter", kind = "data", direction = "in", dataType = "invNoteFilter",
+              label = "Notes", default = "both" },
+            { name = "count", kind = "data", direction = "out", dataType = "number" },
+            { name = "prevCount", kind = "data", direction = "out", dataType = "number" },
+            { name = "delta", kind = "data", direction = "out", dataType = "number" },
+        },
+        run = runItemCountChanged,
     })
 
     runtime:BindTrigger("trigger.inventory", {

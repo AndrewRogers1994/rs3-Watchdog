@@ -28,11 +28,17 @@ function TestInventory:setUp()
     InventoryTrigger.Register(self.registry, self.runtime)
 
     self.fires = 0
+    self.changedFires = 0
     local t = self
     self.registry:RegisterNodeType("fixture.mark", {
         category = "action",
         pins = { { name = "in", kind = "exec", direction = "in", terminates = true } },
         run = function() t.fires = t.fires + 1 end,
+    })
+    self.registry:RegisterNodeType("fixture.changed", {
+        category = "action",
+        pins = { { name = "in", kind = "exec", direction = "in", terminates = true } },
+        run = function() t.changedFires = t.changedFires + 1 end,
     })
 
     self.invs = {}
@@ -82,6 +88,19 @@ end
 function TestInventory:pullCount(itemCountId)
     self.graph:Fire(itemCountId)
     return self.graph:GetLastValue(itemCountId, "count")
+end
+
+function TestInventory:addItemCountChanged(triggerId, controls)
+    local id = self.graph:AddNode("inventory.item_count_changed", controls)
+    local ok, err = self.graph:Connect(triggerId, "out", id, "in")
+    luaunit.assertNotNil(ok, err)
+    ok, err = self.graph:Connect(triggerId, "snapshot", id, "snapshot")
+    luaunit.assertNotNil(ok, err)
+    ok, err = self.graph:Connect(triggerId, "prevSnapshot", id, "prevSnapshot")
+    luaunit.assertNotNil(ok, err)
+    ok, err = self.graph:Connect(id, "changed", self.graph:AddNode("fixture.changed"), "in")
+    luaunit.assertNotNil(ok, err)
+    return id
 end
 
 function TestInventory:pushUpdated(invType, size)
@@ -485,6 +504,273 @@ function TestInventory:testPrevSnapshotItemCountIsIndependent()
     local curCount = self:addItemCount(triggerId, "snapshot")
     luaunit.assertEquals(self:pullCount(prevCount), 10)
     luaunit.assertEquals(self:pullCount(curCount), 13254)
+end
+
+--- Item Count Changed (#100) --------------------------------------------------------------
+
+function TestInventory:testItemCountChangedIsInventoryCategoryExecNode()
+    local nt = self.registry:GetNodeType("inventory.item_count_changed")
+    luaunit.assertEquals(nt.displayName, "Item Count Changed")
+    luaunit.assertEquals(nt.category, "inventory")
+    luaunit.assertNil(nt.modes)
+    luaunit.assertEquals(nt.pins["in"].kind, "exec")
+    luaunit.assertEquals(nt.pins["in"].direction, "in")
+    luaunit.assertEquals(nt.pins.changed.kind, "exec")
+    luaunit.assertEquals(nt.pins.changed.direction, "out")
+    luaunit.assertNil(nt.pins.unchanged)
+    luaunit.assertEquals(nt.pins.snapshot.dataType, "invSnapshot")
+    luaunit.assertEquals(nt.pins.snapshot.direction, "in")
+    luaunit.assertEquals(nt.pins.prevSnapshot.dataType, "invSnapshot")
+    luaunit.assertEquals(nt.pins.prevSnapshot.direction, "in")
+    luaunit.assertEquals(nt.pins.nameMatch.dataType, "matcher")
+    luaunit.assertEquals(nt.pins.noteFilter.dataType, "invNoteFilter")
+    luaunit.assertEquals(nt.pins.noteFilter.default, "both")
+    luaunit.assertEquals(nt.pins.count.dataType, "number")
+    luaunit.assertEquals(nt.pins.prevCount.dataType, "number")
+    luaunit.assertEquals(nt.pins.delta.dataType, "number")
+    luaunit.assertNotNil(nt.description)
+end
+
+function TestInventory:testDragonMatcherIgnoresEggPickup()
+    self:setInv(INV, { slots = { slot("Dragon", "DRAGON", 1) }, usedSlotCount = 1 })
+    local triggerId = self:addWired()
+    self:addItemCountChanged(triggerId, { nameMatch = sub("Dragon") })
+    self:pushUpdated(INV)
+    luaunit.assertEquals(self.fires, 1)
+    self.changedFires = 0
+
+    self:setInv(INV, {
+        slots = { slot("Dragon", "DRAGON", 1), slot("Egg", "EGG", 1) },
+        usedSlotCount = 2,
+    })
+    self:pushUpdated(INV)
+    luaunit.assertEquals(self.fires, 2)
+    luaunit.assertEquals(self.changedFires, 0)
+end
+
+function TestInventory:testDragonPickupFiresChangedWithPositiveDelta()
+    self:setInv(INV, { slots = {}, usedSlotCount = 0 })
+    local triggerId = self:addWired()
+    local id = self:addItemCountChanged(triggerId, { nameMatch = sub("Dragon") })
+    self:pushUpdated(INV)
+    luaunit.assertEquals(self.changedFires, 0)
+
+    self:setInv(INV, { slots = { slot("Dragon", "DRAGON", 1) }, usedSlotCount = 1 })
+    self:pushUpdated(INV)
+    luaunit.assertEquals(self.changedFires, 1)
+    luaunit.assertEquals(self.graph:GetLastValue(id, "count"), 1)
+    luaunit.assertEquals(self.graph:GetLastValue(id, "prevCount"), 0)
+    luaunit.assertEquals(self.graph:GetLastValue(id, "delta"), 1)
+end
+
+function TestInventory:testDroppingLastMatchFiresWithCountZero()
+    self:setInv(INV, { slots = { slot("Dragon", "DRAGON", 1) }, usedSlotCount = 1 })
+    local triggerId = self:addWired()
+    local id = self:addItemCountChanged(triggerId, { nameMatch = sub("Dragon") })
+    self:pushUpdated(INV)
+    self.changedFires = 0
+
+    self:setInv(INV, { slots = {}, usedSlotCount = 0 })
+    self:pushUpdated(INV)
+    luaunit.assertEquals(self.changedFires, 1)
+    luaunit.assertEquals(self.graph:GetLastValue(id, "count"), 0)
+    luaunit.assertEquals(self.graph:GetLastValue(id, "prevCount"), 1)
+    luaunit.assertEquals(self.graph:GetLastValue(id, "delta"), -1)
+end
+
+function TestInventory:testStackQuantityUpFiresWithUsedSlotsUnchanged()
+    self:setInv(INV, { slots = { slot("Rune arrow", "RUNE_ARROW", 13254) }, usedSlotCount = 1 })
+    local triggerId = self:addWired()
+    local id = self:addItemCountChanged(triggerId, { nameMatch = sub("Rune arrow") })
+    self:pushUpdated(INV)
+    luaunit.assertEquals(self.graph:GetLastValue(triggerId, "usedSlots"), 1)
+    self.changedFires = 0
+
+    self:setInv(INV, { slots = { slot("Rune arrow", "RUNE_ARROW", 13255) }, usedSlotCount = 1 })
+    self:pushUpdated(INV)
+    luaunit.assertEquals(self.graph:GetLastValue(triggerId, "usedSlots"), 1)
+    luaunit.assertEquals(self.changedFires, 1)
+    luaunit.assertEquals(self.graph:GetLastValue(id, "count"), 13255)
+    luaunit.assertEquals(self.graph:GetLastValue(id, "delta"), 1)
+end
+
+function TestInventory:testEmptyNeedleSameTotalSwapDoesNotFire()
+    self:setInv(INV, { slots = { slot("Shark", "SHARK", 1) }, usedSlotCount = 1 })
+    local triggerId = self:addWired()
+    self:addItemCountChanged(triggerId)
+    self:pushUpdated(INV)
+    self.changedFires = 0
+
+    self:setInv(INV, { slots = { slot("Lobster", "LOBSTER", 1) }, usedSlotCount = 1 })
+    self:pushUpdated(INV)
+    luaunit.assertEquals(self.fires, 2)
+    luaunit.assertEquals(self.changedFires, 0)
+end
+
+function TestInventory:testEmptyNeedlePickupThatMovesTotalFires()
+    self:setInv(INV, { slots = {}, usedSlotCount = 0 })
+    local triggerId = self:addWired()
+    local id = self:addItemCountChanged(triggerId)
+    self:pushUpdated(INV)
+    luaunit.assertEquals(self.changedFires, 0)
+
+    self:setInv(INV, { slots = { slot("Shark", "SHARK", 1) }, usedSlotCount = 1 })
+    self:pushUpdated(INV)
+    luaunit.assertEquals(self.changedFires, 1)
+    luaunit.assertEquals(self.graph:GetLastValue(id, "delta"), 1)
+end
+
+function TestInventory:testNoteFilterAndOnSharedNameCertFixture()
+    self:setInv(INV, {
+        slots = {
+            slot("Dragon", "DRAGON", 10),
+            slot("Dragon", "CERT_DRAGON", 5),
+        },
+        usedSlotCount = 2,
+    })
+    local triggerId = self:addWired()
+    local both = self:addItemCountChanged(triggerId, { nameMatch = sub("Dragon") })
+    local noted = self:addItemCountChanged(triggerId, {
+        nameMatch = sub("Dragon"),
+        noteFilter = "noted",
+    })
+    local unnoted = self:addItemCountChanged(triggerId, {
+        nameMatch = sub("Dragon"),
+        noteFilter = "unnoted",
+    })
+    self:pushUpdated(INV)
+    self.changedFires = 0
+
+    self:setInv(INV, {
+        slots = {
+            slot("Dragon", "DRAGON", 10),
+            slot("Dragon", "CERT_DRAGON", 6),
+        },
+        usedSlotCount = 2,
+    })
+    self:pushUpdated(INV)
+    luaunit.assertEquals(self.changedFires, 2)
+    luaunit.assertEquals(self.graph:GetLastValue(both, "count"), 16)
+    luaunit.assertEquals(self.graph:GetLastValue(both, "delta"), 1)
+    luaunit.assertEquals(self.graph:GetLastValue(noted, "count"), 6)
+    luaunit.assertEquals(self.graph:GetLastValue(noted, "delta"), 1)
+    luaunit.assertEquals(self.graph:GetLastValue(unnoted, "count"), 10)
+    luaunit.assertEquals(self.graph:GetLastValue(unnoted, "delta"), 0)
+end
+
+function TestInventory:testColdStartNonZeroMatchFiresChanged()
+    self:setInv(INV, { slots = { slot("Dragon", "DRAGON", 2) }, usedSlotCount = 1 })
+    local triggerId = self:addWired()
+    local id = self:addItemCountChanged(triggerId, { nameMatch = sub("Dragon") })
+    self:pushUpdated(INV)
+    luaunit.assertEquals(self.changedFires, 1)
+    luaunit.assertEquals(self.graph:GetLastValue(id, "count"), 2)
+    luaunit.assertEquals(self.graph:GetLastValue(id, "prevCount"), 0)
+    luaunit.assertEquals(self.graph:GetLastValue(id, "delta"), 2)
+end
+
+function TestInventory:testDataOutsUpdateWhenChangedDoesNotFire()
+    self:setInv(INV, { slots = { slot("Dragon", "DRAGON", 3) }, usedSlotCount = 1 })
+    local triggerId = self:addWired()
+    local id = self:addItemCountChanged(triggerId, { nameMatch = sub("Dragon") })
+    self:pushUpdated(INV)
+
+    self:setInv(INV, {
+        slots = { slot("Dragon", "DRAGON", 3), slot("Egg", "EGG", 1) },
+        usedSlotCount = 2,
+    })
+    self:pushUpdated(INV)
+    luaunit.assertEquals(self.graph:GetLastValue(id, "count"), 3)
+    luaunit.assertEquals(self.graph:GetLastValue(id, "prevCount"), 3)
+    luaunit.assertEquals(self.graph:GetLastValue(id, "delta"), 0)
+end
+
+function TestInventory:testMissingSnapshotsCountAsZero()
+    self:setInv(INV, { slots = { slot("Dragon", "DRAGON", 1) }, usedSlotCount = 1 })
+    local triggerId = self:addWired()
+    local id = self.graph:AddNode("inventory.item_count_changed")
+    local ok, err = self.graph:Connect(triggerId, "out", id, "in")
+    luaunit.assertNotNil(ok, err)
+    ok, err = self.graph:Connect(id, "changed", self.graph:AddNode("fixture.changed"), "in")
+    luaunit.assertNotNil(ok, err)
+    self:pushUpdated(INV)
+    luaunit.assertEquals(self.fires, 1)
+    luaunit.assertEquals(self.changedFires, 0)
+    luaunit.assertEquals(self.graph:GetLastValue(id, "count"), 0)
+    luaunit.assertEquals(self.graph:GetLastValue(id, "prevCount"), 0)
+    luaunit.assertEquals(self.graph:GetLastValue(id, "delta"), 0)
+end
+
+function TestInventory:testChangedUsesTriggerPrevThroughDistinctInvTypeProxies()
+    local mt = {
+        __eq = function(a, b)
+            return a ~= nil and b ~= nil and a.id == b.id
+        end,
+    }
+    local function proxy()
+        return setmetatable({ id = INV.id, size = 28 }, mt)
+    end
+
+    self:setInv(INV, { slots = { slot("Dragon", "DRAGON", 1) }, usedSlotCount = 1 })
+    local triggerId = self:addWired({ container = proxy() })
+    local id = self:addItemCountChanged(triggerId, { nameMatch = sub("Dragon") })
+    self:pushUpdated(proxy())
+    luaunit.assertEquals(self.changedFires, 1)
+    self.changedFires = 0
+
+    self:setInv(INV, {
+        slots = { slot("Dragon", "DRAGON", 1), slot("Egg", "EGG", 1) },
+        usedSlotCount = 2,
+    })
+    self:pushUpdated(proxy())
+    luaunit.assertEquals(self.changedFires, 0)
+    luaunit.assertEquals(self.graph:GetLastValue(id, "count"), 1)
+    luaunit.assertEquals(self.graph:GetLastValue(id, "prevCount"), 1)
+end
+
+function TestInventory:testBankSnapshotsDriveItemCountChanged()
+    self:setInv(BANK, { slots = { slot("Dragon", "DRAGON", 1) }, usedSlotCount = 1, slotCount = 10 })
+    local triggerId = self:addWired({ container = BANK })
+    local id = self:addItemCountChanged(triggerId, { nameMatch = sub("Dragon") })
+    self:pushUpdated(BANK, 10)
+    luaunit.assertEquals(self.changedFires, 1)
+    luaunit.assertEquals(self.graph:GetLastValue(id, "count"), 1)
+end
+
+function TestInventory:testPatternMatcherUsesDisplayNameOnly()
+    self:setInv(INV, {
+        slots = {
+            slot("Dragon", "CERT_DRAGON", 1),
+            slot("Dragon bones", "DRAGON_BONES", 2),
+        },
+        usedSlotCount = 2,
+    })
+    local triggerId = self:addWired()
+    local id = self:addItemCountChanged(triggerId, { nameMatch = pat("^Dragon$") })
+    self:pushUpdated(INV)
+    luaunit.assertEquals(self.graph:GetLastValue(id, "count"), 1)
+end
+
+function TestInventory:testSubstringMatcherIsCaseInsensitive()
+    self:setInv(INV, { slots = { slot("Dragon", "DRAGON", 4) }, usedSlotCount = 1 })
+    local triggerId = self:addWired()
+    local id = self:addItemCountChanged(triggerId, { nameMatch = sub("dragon") })
+    self:pushUpdated(INV)
+    luaunit.assertEquals(self.graph:GetLastValue(id, "count"), 4)
+end
+
+function TestInventory:testTwoChangedNodesWatchInventoryAndBank()
+    self:setInv(INV, { slots = { slot("Dragon", "DRAGON", 1) }, usedSlotCount = 1 })
+    self:setInv(BANK, { slots = { slot("Shark", "SHARK", 2) }, usedSlotCount = 1, slotCount = 10 })
+    local invTrigger = self:addWired()
+    local bankTrigger = self:addWired({ container = BANK })
+    local invChanged = self:addItemCountChanged(invTrigger, { nameMatch = sub("Dragon") })
+    local bankChanged = self:addItemCountChanged(bankTrigger, { nameMatch = sub("Shark") })
+    self:pushUpdated(INV)
+    self:pushUpdated(BANK, 10)
+    luaunit.assertEquals(self.graph:GetLastValue(invChanged, "count"), 1)
+    luaunit.assertEquals(self.graph:GetLastValue(bankChanged, "count"), 2)
+    luaunit.assertEquals(self.changedFires, 2)
 end
 
 return TestInventory
