@@ -38,7 +38,10 @@ function TestInventory:setUp()
     self.invs = {}
     _G.Inventory = {
         Find = function(invType)
-            return t.invs[invType]
+            if invType == nil then
+                return nil
+            end
+            return t.invs[invType.id] or t.invs[invType]
         end,
     }
 end
@@ -50,7 +53,7 @@ end
 function TestInventory:setInv(invType, opts)
     opts = opts or {}
     local slots = opts.slots or {}
-    self.invs[invType] = {
+    self.invs[invType.id or invType] = {
         usedSlotCount = opts.usedSlotCount or #slots,
         slotCount = opts.slotCount or 28,
         isValid = true,
@@ -261,6 +264,32 @@ function TestInventory:testFrozenPrevAcrossTwoUpdates()
     live.count = 99
     luaunit.assertEquals(self.graph:GetLastValue(nodeId, "prevSnapshot").slots[1].count, 1)
     luaunit.assertEquals(self.graph:GetLastValue(nodeId, "snapshot").slots[1].count, 5)
+end
+
+-- Client InvType userdata compares equal by id (__eq) but each event is a new proxy.
+-- Lua table keys use identity, so CACHE[event.inv] misses every update and prev stays 0/28.
+function TestInventory:testPrevSnapshotSurvivesDistinctInvTypeProxies()
+    local mt = {
+        __eq = function(a, b)
+            return a ~= nil and b ~= nil and a.id == b.id
+        end,
+    }
+    local function proxy()
+        return setmetatable({ id = INV.id, size = 28 }, mt)
+    end
+
+    self:setInv(INV, { slots = { slot("Shark", "SHARK", 1) }, usedSlotCount = 1, slotCount = 28 })
+    local nodeId = self:addWired({ container = proxy() })
+    self:pushUpdated(proxy())
+    luaunit.assertEquals(self.fires, 1)
+    luaunit.assertEquals(self.graph:GetLastValue(nodeId, "snapshot").slots[1].name, "Shark")
+    luaunit.assertEquals(self.graph:GetLastValue(nodeId, "prevSnapshot").slots, {})
+
+    self:setInv(INV, { slots = { slot("Shark", "SHARK", 1), slot("Egg", "EGG", 1) }, usedSlotCount = 2 })
+    self:pushUpdated(proxy())
+    luaunit.assertEquals(self.fires, 2)
+    luaunit.assertEquals(tostring(self.graph:GetLastValue(nodeId, "prevSnapshot")), "1/28: Shark x1")
+    luaunit.assertEquals(self.graph:GetLastValue(nodeId, "snapshot").slots[2].name, "Egg")
 end
 
 function TestInventory:testSnapshotTostringListsItems()

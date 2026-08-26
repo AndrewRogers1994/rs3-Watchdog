@@ -23,7 +23,7 @@ local InventoryTrigger = {}
 ---@field snapshot Watchdog.InvSnapshot
 
 ---@class InventoryCache
----@field [InvType] Watchdog.InvSnapshot
+---@field [integer] Watchdog.InvSnapshot
 
 ---@type InventoryCache
 local CACHE = {}
@@ -173,6 +173,15 @@ local function freezeInv(inv, fallbackSize)
     return snapshotOf(slots, inv.usedSlotCount or 0, cap)
 end
 
+---@param invType any
+---@return integer|nil
+local function cacheKey(invType)
+    if invType == nil then
+        return nil
+    end
+    return encodeInvContainer(invType)
+end
+
 ---@param raw InventoryUpdated|InventoryAdded|nil
 ---@return Watchdog.InvSnapshot
 local function snapshotNow(raw)
@@ -183,13 +192,14 @@ end
 ---@return Watchdog.Payload.InventoryUpdated
 local transform = function(raw)
     local inventoryType = raw and raw.inv
+    local key = cacheKey(inventoryType)
     local current = snapshotNow(raw)
-    local prev = CACHE[inventoryType]
+    local prev = key ~= nil and CACHE[key] or nil
     if prev == nil then
         prev = snapshotOf({}, 0, current.slotCount)
     end
-    if inventoryType ~= nil then
-        CACHE[inventoryType] = current
+    if key ~= nil then
+        CACHE[key] = current
     end
     local used = current.usedSlotCount
     local cap = current.slotCount
@@ -208,8 +218,9 @@ end
 ---@return { inventoryType: InvType|nil }
 local function transformAdded(raw)
     local inventoryType = raw and raw.inv
-    if inventoryType ~= nil then
-        CACHE[inventoryType] = snapshotNow(raw)
+    local key = cacheKey(inventoryType)
+    if key ~= nil then
+        CACHE[key] = snapshotNow(raw)
     end
     return { inventoryType = inventoryType }
 end
@@ -218,8 +229,9 @@ end
 ---@return { inventoryType: InvType|nil }
 local function transformRemoved(raw)
     local inventoryType = raw and raw.inv
-    if inventoryType ~= nil then
-        CACHE[inventoryType] = nil
+    local key = cacheKey(inventoryType)
+    if key ~= nil then
+        CACHE[key] = nil
     end
     return { inventoryType = inventoryType }
 end
@@ -235,7 +247,7 @@ local function containerMatches(payload, node)
     if sel == nil then
         sel = config.Inv.INV
     end
-    return payload.inventoryType == sel
+    return encodeInvContainer(payload.inventoryType) == encodeInvContainer(sel)
 end
 
 local function neverFire()
