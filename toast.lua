@@ -1,32 +1,3 @@
--- toast.lua — ToastStack: the shared, registry-level substrate every `action.toast`
--- node (#36) draws its toasts onto. Rides on top of effects.lua's EffectRegistry (its
--- Stack policy already gives cap+evict-oldest+onDone for free) via ONE shared owner key
--- (`Toast.OWNER`) so every Toast node in every graph competes for the same 10 slots,
--- oldest evicted first — "One shared registry-level stack for all Toast nodes" (#36 AC).
---
--- On top of that shared Stack, this module keeps its own bookkeeping the EffectRegistry has
--- no concept of:
---   - `live`: the ordered list of currently-visible toasts (mirrors the shared Stack's
---     order), used to lay out the vertical stack under the anchor at draw time.
---   - `byOwner`: nodeKey -> { handle, ... }, so a node re-firing `show` STACKS a new toast
---     alongside its earlier ones (rather than replacing), and `dismiss` can clear every
---     live toast that belongs to that one node without touching another node's.
---   - `anchor`: one shared, draggable {dx, dy} pixel offset from the default top-center
---     point, persisted via the injected `persistence` hook (`{ Load()->pos|nil, Save(pos) }`,
---     mirrors store.lua's own PersistentDB seam) so the position survives a reload.
---
--- TTL/sticky lifecycle rides the same uniform `update(dt) -> alive` contract as every other
--- effect (#29's EffectRegistry): a non-sticky toast counts its own `remaining` down and goes
--- not-alive at zero (default 5s, RuneLite parity); a sticky one always returns true and is
--- only ever removed by an explicit Dismiss.
---
--- Drag is modeled as three pure calls — BeginDrag/DragTo/EndDrag — driven by mouse press
--- state a caller (main.lua) polls off the client `Mouse` global and a small capture
--- component, mirroring the Editor's own press-then-poll gesture (ui/graph.lua's
--- beginPress/positionCapture); only EndDrag persists, so a live drag doesn't spam
--- PersistentDB every tick. See `Mount`/`Update` below for the client-only (untested under
--- the bare interpreter) half of that wiring.
-
 local Util = require("util")
 local Theme = require("ui/theme")
 

@@ -1,16 +1,4 @@
--- screen_marker_capture.lua — the transient full-screen capture overlay behind
--- action.screen_marker's "Draw on screen" button (#39): drag corner-to-corner anywhere on
--- screen to write one {x, y, w, h} rect (pixels, no clamp) back to the pin's Control value;
--- Esc cancels. Mirrors ui/infobox.lua's Mount/Reposition/Unmount click-capture idiom (#41) --
--- its own alpha-0 ui.Button, sized to the true full screen only while armed/dragging
--- (0,0,1.0,1.0, matching effects.lua's own Mount), never the windowed editor Canvas (see
--- ui/graph.lua's coordinate-model note: the editor Canvas is Window-sized, not full-screen,
--- so it can't host this overlay's drag capture or draw). Its dim/selection-box Draw is meant
--- to ride the always-on overlay Canvas (runtime.effects), same as every other effect.
---
--- The state machine (Arm/Cancel/BeginDrag/UpdateDrag/EndDrag + the static Rect() normalizer)
--- is pure and unit-tested directly, no client globals; Mount/Reposition/Unmount/Draw are
--- client-only, same disclaimer as ui/infobox.lua's own click-capture section.
+-- Editor canvas is window-sized; this overlay must be true full-screen.
 
 local Theme = require("ui/theme")
 local IfaceScale = require("ui/iface_scale")

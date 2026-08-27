@@ -1,25 +1,4 @@
--- object_marker_capture.lua — the global-modal "Select object" mode behind action.object_marker's
--- `object` Control (#40). Unlike Screen Marker's mouse-drag capture (ui/screen_marker_capture.lua),
--- the source here is an authoring-time *capture*, not a pin: arming subscribes to
--- Event.MiniMenuEntrySelected and captures on an **Examine of a LOC** — `actionVerbType == EXAMINE`
--- && `actionEntryType == LOC`. Examine is the only side-effect-free verb, so capturing on it never
--- perturbs the game; a capture *overlay* was ruled out because a full-screen layer would block the
--- game hover that populates the MiniMenu in the first place. Non-LOC / non-Examine entries are
--- ignored (the mode stays armed); a matching entry commits once and disarms (single-shot).
---
--- The event source is injectable (`ObjectMarkerCapture.new(eventSource)`, defaulting to the client
--- `Event` global) so the whole arm/commit/disarm flow runs under the standalone test harness
--- through tests/fake_event_source.lua, the same seam runtime.lua's dispatcher uses.
---
--- BUILD-VERIFY: the exact MiniMenuEntrySelected payload shape is unconfirmed against a live client.
--- The docs example reads `event.entry.actionEntryType` (the callback arg WRAPS the selected
--- MiniMenuEntry in an `.entry` field), while the scraped stub flattens everything onto MiniMenu, so
--- we can't tell statically whether the arg is the entry or a wrapper. Rather than guess, `_entryOf`
--- normalizes BOTH shapes: it unwraps `.entry` when present, else treats the arg as the entry. The
--- coord fields (`coordGridX`/`coordGridZ`) and the coord *level* are read defensively too — from the
--- entry, or nested under `locData`, with level falling back `coordGridLevel` -> `level` -> 0 — so a
--- differing real shape degrades gracefully instead of silently never capturing. Confirm the real
--- payload in-client and tighten this.
+-- Capture on Examine of a LOC only. A full-screen overlay would block MiniMenu hover.
 
 local Util = require("util")
 

@@ -1,9 +1,3 @@
--- node.lua — Node Body geometry, drawing, and pin/body hit-testing.
---
--- Geometry is computed once per frame (BuildGeometry, pure Graph-space) and shared by
--- Draw and the hit helpers, so what you see and what you click can never disagree.
--- All stored geometry is Graph-space; the View converts to Screen-space at draw/hit time.
-
 local Theme    = require("ui/theme")
 local Controls = require("ui/controls")
 local Box      = require("ui/widgets/box")
@@ -11,16 +5,6 @@ local Dropdown = require("ui/widgets/dropdown")
 
 local Node = {}
 
--- Splits a node's pins into left (inputs) / right (outputs) columns and assigns each a
--- Graph-space center relative to the node origin. Returns a geometry table consumed by
--- Draw, PinAt and HitBody. `pins` is the list from graph:GetPins(nodeId). `opts.connected`
--- is a set { [pinName] = true } of input pins that already have an incoming Connection —
--- those get a wire, not a Control box (ADR-0004). `opts.modeLabel` (when set) reserves a Mode
--- strip under the header — instance metadata, not a Pin.
-
--- The Pin Control module for a data-input pin eligible for a Control box: unconnected, kind
--- "data", and its Type Tag is registered (ADR-0005). Returns nil for anything else (exec pins,
--- connected inputs, tags with no Pin Control — which then get no Control, ADR-0004).
 ---@param pin table
 ---@param connected table<string, boolean>
 ---@return table|nil
@@ -29,7 +13,6 @@ local function pinControlFor(pin, connected)
     return Controls.PinControlFor(pin.dataType)
 end
 
--- Stable ComboField / filter order for a type's modes (engine `modes` is a keyed table).
 ---@param nodeType table|nil
 ---@return { key: string, label: string }[]
 function Node.SortedModes(nodeType)
@@ -240,21 +223,14 @@ function Node.BuildGeometry(pins, x, y, width, opts)
     return geom
 end
 
--- Absolute Graph-space center of a pin (for wire endpoints).
 function Node.PinCenter(geom, pinName)
     local p = geom.byName[pinName]
     if p == nil then return nil end
     return geom.x + p.cx, geom.y + p.cy
 end
 
--- The node's own title/pin labels build the same 1-line shadowed TextDataConfig the control-box
--- Widgets do, so both share Box.TextData (a Node → Widget-helper dependency is allowed; the reverse
--- is not — ADR-0005). Aliased locally so the call sites below read unchanged.
 local createTextDataConfig = Box.TextData
 
--- Draws the node body, header, title, and pin glyphs/labels through the View.
--- meta = { title, category }; opts = { selected = bool, mouseX, mouseY } — the local-space
--- cursor (opts.mouseX/Y) lets the header delete button light up when hovered.
 function Node.Draw(canvas, view, geom, meta, opts)
     opts = opts or {}
     local sx, sy = view:ToScreen(geom.x, geom.y)
@@ -405,8 +381,6 @@ function Node.Draw(canvas, view, geom, meta, opts)
     end
 end
 
--- Returns the test-button entry under the screen point (sx,sy), or nil. Gated on the same zoom
--- threshold as Draw so an undrawn button is never clickable.
 function Node.TestButtonAt(geom, view, sx, sy)
     if view.zoom < Theme.CONTROL_MIN_ZOOM then return nil end
     for _, tb in ipairs(geom.testButtons) do
@@ -419,8 +393,6 @@ function Node.TestButtonAt(geom, view, sx, sy)
     return nil
 end
 
--- Returns the pin entry under the screen point (sx,sy), or nil. Hit area is the glyph
--- plus a constant screen-space pad so pins stay clickable when zoomed out.
 function Node.PinAt(geom, view, sx, sy)
     local half = view:Scale(Theme.PIN_GLYPH) * 0.5 + Theme.PIN_HIT_PAD
     for _, pin in ipairs(geom.pins) do
@@ -433,8 +405,6 @@ function Node.PinAt(geom, view, sx, sy)
     return nil
 end
 
--- Returns the control entry under the screen point (sx,sy), or nil. Gated on the same zoom
--- threshold as Draw so an undrawn box is never clickable.
 function Node.ControlAt(geom, view, sx, sy)
     if view.zoom < Theme.CONTROL_MIN_ZOOM then return nil end
     for _, ctrl in ipairs(geom.controls) do
@@ -447,9 +417,6 @@ function Node.ControlAt(geom, view, sx, sy)
     return nil
 end
 
--- Whether the screen point is over this node's header delete button. Gated on title zoom
--- so it matches Draw — the glyph isn't drawn (and mustn't be hittable) when zoomed too far
--- out to read the header.
 function Node.HitClose(geom, view, sx, sy)
     if geom.close == nil or view.zoom < Theme.TITLE_MIN_ZOOM then return false end
     local ccx, ccy = view:ToScreen(geom.x + geom.close.cx, geom.y + geom.close.cy)
@@ -458,8 +425,6 @@ function Node.HitClose(geom, view, sx, sy)
         and sy >= ccy - half and sy <= ccy + half
 end
 
--- Whether the screen point is over this node's Mode strip. Gated on CONTROL_MIN_ZOOM so it
--- matches Draw — an undrawn strip is never clickable.
 function Node.HitModeStrip(geom, view, sx, sy)
     if geom.modeStrip == nil or view.zoom < Theme.CONTROL_MIN_ZOOM then return false end
     local ms = geom.modeStrip
@@ -468,7 +433,6 @@ function Node.HitModeStrip(geom, view, sx, sy)
     return sx >= bx and sx <= bx + bw and sy >= by and sy <= by + bh
 end
 
--- Whether the screen point is over this node's body rect.
 function Node.HitBody(geom, view, sx, sy)
     local x0, y0 = view:ToScreen(geom.x, geom.y)
     local x1, y1 = view:ToScreen(geom.x + geom.w, geom.y + geom.h)

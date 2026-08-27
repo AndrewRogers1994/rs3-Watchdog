@@ -1,17 +1,8 @@
--- checkbox.lua — the checkbox Widget (ADR-0005 / #40): one mode-row draw — a label plus a small,
--- right-aligned box with a gold tick when checked. The mode Pin Control routes each of its rows here.
--- A disabled row (an unavailable mode, "needs render API") dims both the label and the tick and never
--- lights its border, matching the unavailable-node idiom. Depends only on Theme/Box (a Widget helper).
-
 local Theme = require("ui/theme")
 local Box   = require("ui/widgets/box")
 
 local Checkbox = {}
 
--- Draws one mode row at an already-projected screen `rect`. `ctrl` carries the row's baked `enabled`
--- flag, its `axis` (the row's key in the stored `{ [key] = boolean }` table), the current `value`
--- table, and the decorated `display` label. `dctx = { hot, font, zoom, scale }` — `font` is nil when
--- the zoom is too small to letter, and then only the box glyph is drawn.
 ---@param canvas any
 ---@param rect { x: number, y: number, w: number, h: number }
 ---@param ctrl table
@@ -27,8 +18,6 @@ function Checkbox.Draw(canvas, rect, ctrl, dctx)
         canvas:AddText(rect.x + scale(Theme.CONTROL_PAD_X), rect.y + rect.h * 0.5 - scale(6),
             tw, 0, text, Box.TextData(dctx.font, Theme.Vec4(labelCol)))
     end
-    -- The checkbox: a small square right-aligned in the row, with a gold tick when checked. Box
-    -- border tracks hot (unless disabled) so it reads as clickable.
     local boxSz = rect.h * 0.72
     local boxX = rect.x + rect.w - scale(Theme.CONTROL_PAD_X) - boxSz
     local boxY = rect.y + (rect.h - boxSz) * 0.5

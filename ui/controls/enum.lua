@@ -1,8 +1,3 @@
--- enum.lua — the enum Pin Control factory (ADR-0005): the inline Control that picks one value from a
--- fixed choice list (the `bool` demonstrator and every domain enum tag). Drawn with a dropdown caret
--- and edited through a host-mounted ComboField. Selection round-trips by LABEL, never id (ADR-0004),
--- so a nil-valued choice ("None") is distinguished from "no match" by the Widget's `found` flag.
-
 local Inline   = require("ui/controls/inline")
 local Dropdown = require("ui/widgets/dropdown")
 

@@ -1,9 +1,3 @@
--- capture.lua — the capture Pin Control (ADR-0005 / #60): the inline Control for a pin whose value is
--- authored by ARMING a capture rather than typed. Two flavors share this module, chosen by
--- `captureKind`: "screen" arms the drag overlay (ui/screen_marker_capture.lua), "object" the MiniMenu
--- select mode (ui/object_marker_capture.lua). This module only TRIGGERS the right one through the
--- host's ArmCapture; the overlay keeps its own lifecycle and commits the finished value itself.
-
 local Inline = require("ui/controls/inline")
 local Button = require("ui/widgets/button")
 

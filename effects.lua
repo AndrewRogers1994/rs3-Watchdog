@@ -1,23 +1,3 @@
--- effects.lua — EffectRegistry: the shared substrate every self-drawn on-screen effect node
--- (Overlay, Screen Flash, Popup, Screen/Object Marker, InfoBox) draws onto. Owns its own
--- always-on full-screen overlay Canvas, mounted on root and separate from the editor's own
--- window Canvas, so effects keep drawing while the editor Window is closed.
---
--- Uniform effect handle: `{ kind, state, update(dt) -> alive, draw(canvas), onDone }`. TTL
--- and animation fold into `update`; there are no bounds and no ids — dismissal is by direct
--- handle reference. In-memory only, never serialized (persistence rides each effect node's
--- own params instead). Reached via `runtime.effects` (see runtime.lua); advanced on Logic,
--- drawn on Draw; `Clear()` empties it on Stop.
---
--- Two concurrency policies, picked per owner key by the caller:
---   Stack — up to `max` concurrent handles live at once (nil max = unbounded); pushing past
---           `max` evicts the oldest. Every live handle advances and draws every frame.
---   Queue — at most one handle per owner is ever live; the rest wait. When the live handle
---           leaves the live set (expires or is dismissed), the next pending handle is
---           promoted automatically.
--- In both cases, "leaving the live set" (natural expiry via update() returning falsy, or an
--- explicit Dismiss) fires the handle's onDone. Clear() is a silent teardown wipe — no onDone.
-
 local Util = require("util")
 
 -- A bad node-authored update/draw/onDone can't be allowed to break every other live effect.

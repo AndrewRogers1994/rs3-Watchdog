@@ -1,6 +1,3 @@
--- Inventory Viewer overlay: a PrettyUI ItemGrid parked on overlayParent above the Capture
--- Layer (ADR-0010). Window math is pure; native ItemGrid is created only in-client.
-
 local Theme = require("ui/theme")
 
 local InvViewer = {}

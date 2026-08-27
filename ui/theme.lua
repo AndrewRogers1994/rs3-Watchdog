@@ -1,13 +1,5 @@
--- theme.lua — colors, sizing, and font resolution for the graph Editor and Alert Manager.
---
--- Pure data + a couple of defensive lookups. Colors are stored as plain {r,g,b,a}
--- tables (channels 0..1) and converted to the client's Vector4 only at draw time via
--- Theme.Vec4, so this module has no hard dependency on client globals at load. All
--- sizes are in Graph-space interface units at zoom = 1.0; the View scales them.
-
 local Theme = {}
 
--- Builds a color table from 0..255 RGB and 0..1 alpha.
 local function col(r, g, b, a)
     return { r / 255, g / 255, b / 255, a or 1 }
 end
@@ -26,11 +18,7 @@ Theme.PIN_HIT_PAD      = 4     -- extra hit-test padding around a pin glyph
 Theme.CLOSE_SIZE       = 14    -- delete-button glyph bounding size, in the header
 Theme.CLOSE_MARGIN     = 14    -- inset of the close glyph's center from the node's right edge
 
--- Inline Control value box (ADR-0004): drawn on an unconnected data-input Pin's row, edited
--- via a transient real InputField/ComboField. The box sits in a "value column" to the right
--- of the pin label; on rows that also carry an output pin it stops short to leave room.
 Theme.CONTROL_H            = 16    -- value box height within a PIN_ROW_HEIGHT row
--- Node-type Mode strip (ADR-0011): a dropdown under the header, not a Pin. Pushes pin rows down.
 Theme.MODE_STRIP_PAD       = 4     -- gap between header bottom and the dropdown box
 Theme.MODE_STRIP_H         = Theme.MODE_STRIP_PAD + Theme.CONTROL_H + Theme.MODE_STRIP_PAD
 Theme.CONTROL_LABEL_CHAR_W = 7     -- approx per-char label width (graph units) for reserving room
@@ -46,9 +34,6 @@ Theme.CONTROL_MIN_ZOOM     = 0.45  -- below this the box/text is unreadable, so 
 Theme.CONTROL_EDIT_MIN_W   = 60    -- min screen width for the transient editor component
 Theme.CONTROL_EDIT_H       = 24    -- fixed screen height for the transient editor component
 
--- coordgrid composite control (#25): a full-width band below the pin's own row, holding 3
--- inline x/z/level fields and a "Set to current position" button. Reuses CONTROL_MIN_ZOOM for
--- its own draw/hit gating; its height is what a pin row's extraH reserves.
 Theme.COORDGRID_TOP_GAP    = 4     -- gap between the pin row and the field row
 Theme.COORDGRID_FIELD_H    = 16    -- x/z/level field height
 Theme.COORDGRID_MID_GAP    = 4     -- gap between the field row and the button row
@@ -58,9 +43,6 @@ Theme.COORDGRID_FIELD_GAP  = 4     -- horizontal gap between the 3 fields
 Theme.COORDGRID_BAND_H     = Theme.COORDGRID_TOP_GAP + Theme.COORDGRID_FIELD_H
     + Theme.COORDGRID_MID_GAP + Theme.COORDGRID_BUTTON_H + Theme.COORDGRID_BOTTOM_GAP
 
--- matcher composite control (#56): a single-row band below the pin's own row, holding a text
--- field (the needle) and a 2-way Substring/Pattern toggle button after it. Same CONTROL_MIN_ZOOM
--- draw/hit gating as coordgrid; its height is what a matcher pin row's extraH reserves.
 Theme.MATCHER_TOP_GAP    = 4     -- gap between the pin row and the field/toggle row
 Theme.MATCHER_FIELD_H    = 16    -- needle field / toggle button height
 Theme.MATCHER_GAP        = 4     -- horizontal gap between the needle field and the toggle
@@ -68,34 +50,20 @@ Theme.MATCHER_TOGGLE_W   = 64    -- toggle button width (fits "Substring")
 Theme.MATCHER_BOTTOM_GAP = 4     -- gap kept below the row, before the next pin row
 Theme.MATCHER_BAND_H     = Theme.MATCHER_TOP_GAP + Theme.MATCHER_FIELD_H + Theme.MATCHER_BOTTOM_GAP
 
--- object_marker mode multi-select (#40): a full-width composite band below the pin's own row,
--- holding one checkbox row per mode. Same CONTROL_MIN_ZOOM draw/hit gating as coordgrid. These are
--- per-row sizes only — the number of rows (and thus the band height) is derived from the node's own
--- mode list via Theme.ModeBandH(count), so the row count lives in ONE place (ObjectMarker.MODES).
 Theme.MODE_TOP_GAP    = 4      -- gap between the pin row and the first checkbox row
 Theme.MODE_ROW_H      = 16     -- one checkbox row height
 Theme.MODE_ROW_GAP    = 3      -- vertical gap between checkbox rows
 Theme.MODE_BOTTOM_GAP = 4      -- gap kept below the last row, before the next pin row
 
--- The extraH a mode band of `count` checkbox rows reserves below its pin row.
 function Theme.ModeBandH(count)
     if count <= 0 then return Theme.MODE_TOP_GAP + Theme.MODE_BOTTOM_GAP end
     return Theme.MODE_TOP_GAP + count * Theme.MODE_ROW_H
         + (count - 1) * Theme.MODE_ROW_GAP + Theme.MODE_BOTTOM_GAP
 end
 
--- color swatch control (#30): the on-pin chip is a value-column box like a scalar Control
--- (Theme.CONTROL_H tall), but a fixed, narrower width so it reads as a color chip rather
--- than a text field. Checker cell is graph-space (scales with zoom like everything else on
--- the node); the popup's own checker (behind the SV/alpha previews) is screen-space fixed,
--- since the popup itself doesn't scale with the View (see Theme.COLOR_POPUP_* below).
 Theme.SWATCH_W             = 46
 Theme.SWATCH_CHECKER_CELL  = 4
 
--- color-picker popup (#30): a Canvas-drawn transient layer opened from the swatch chip,
--- positioned in the same fixed screen-space as the Palette (not scaled by the View — see
--- ui/color_popup.lua). Sized to comfortably fit the SV field, hue strip, prev/cur swatches,
--- hex field, and R/G/B/A rows stacked top-to-bottom.
 Theme.COLOR_POPUP_W        = 220   -- popup width
 Theme.COLOR_POPUP_PAD      = 10    -- inner padding around the body content
 Theme.COLOR_POPUP_HEADER_H = 22    -- title band height
@@ -105,10 +73,6 @@ Theme.COLOR_POPUP_ROW_H    = 18    -- prev/cur, hex, and each R/G/B/A row share 
 Theme.COLOR_POPUP_ROW_GAP  = 6     -- vertical gap between stacked rows
 Theme.COLOR_POPUP_CHECKER_CELL = 6 -- screen-px checker cell behind the alpha preview
 
--- Toast (#36): a small draggable notification drawn on the always-on effect overlay
--- Canvas (effects.lua), NOT the editor's own Canvas — fixed screen-space, not scaled by the
--- View. Body + a left accent bar (the `color` data pin's dynamic tint) + outline + optional
--- icon sprite + text, stacked vertically below the shared, draggable anchor.
 Theme.TOAST_W            = 240   -- toast width
 Theme.TOAST_H            = 48    -- toast height
 Theme.TOAST_GAP          = 6     -- vertical gap between stacked toasts
@@ -121,9 +85,6 @@ Theme.COL_TOAST_BG     = col(24, 24, 28, 0.92)
 Theme.COL_TOAST_BORDER = col(10, 10, 12, 1.0)
 Theme.COL_TOAST_TEXT   = col(230, 230, 236, 1.0)
 
--- InfoBox strip (#41): a wrapping row of fixed square icon+text tiles drawn on the effect
--- overlay Canvas (like the toast, fixed screen-space), one tile per action.infobox
--- node, laid out left-to-right from a shared draggable anchor and wrapping past a width.
 Theme.INFOBOX_BOX_SIZE   = 36    -- side of each fixed square icon+text tile
 Theme.INFOBOX_GAP        = 2     -- gap between adjacent tiles (both axes)
 Theme.INFOBOX_DEFAULT_X  = 8     -- default anchor: top-left corner, small inset

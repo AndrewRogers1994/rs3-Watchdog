@@ -1,12 +1,6 @@
--- multiplexer.lua — stack-based host for one prettyui.Window and push/pop content surfaces.
---
--- Owns the shared window chrome + an overlay layer (sibling of the window, for full-screen
--- capture/palette). Surfaces duck-type { id, title, SetVisible }; Push/Pop swap which one is
--- visible inside window.content and retitle the chrome. Window Show/Close is independent of
--- stack depth (F8/ribbon/close hide without clearing the stack).
---
--- Headless tests inject a fake window via opts.window (+ optional opts.overlay) so Push/Pop /
--- title / visibility bookkeeping run without prettyui or ui.*.
+-- multiplexer.lua — one prettyui.Window host; Push/Pop surfaces inside window.content.
+-- Overlay Layer is a sibling of the window (full-screen capture/palette). Show/Close is
+-- independent of stack depth (F8/ribbon/close hide without clearing the stack).
 
 ---@class Watchdog.MuxSurface
 ---@field id string                         # stable id for debugging / IsTop
@@ -105,12 +99,10 @@ function Multiplexer.new(opts)
         _useParentAsRoot = opts.useParentAsRoot == true,
     }, Multiplexer)
 
-    -- Headless / test seam: bind a fake window up front so stack methods work without Mount.
     if opts.window ~= nil then
         self.window = opts.window
         self._overlay = opts.overlay or {}
         self._injected = true
-        -- Fakes that invoke onClose from Close get the same re-entrancy guard as Mount.
         if self.window.onClose == nil then
             self.window.onClose = bindOnClose(self)
         end
@@ -125,7 +117,7 @@ end
 ---@return Watchdog.Multiplexer
 function Multiplexer:Mount(parent)
     if self.window ~= nil then
-        return self -- already mounted or injected
+        return self
     end
 
     local rootLayer
@@ -224,7 +216,6 @@ function Multiplexer:Content()
     return self.window.content
 end
 
---- PrettyUI Window host (Add* / Layout.manage). Prefer over Content() for PrettyUI widgets.
 ---@return Watchdog.MuxWindow|nil
 function Multiplexer:Window()
     return self.window
@@ -235,7 +226,7 @@ function Multiplexer:Overlay()
     return self._overlay
 end
 
---- Title / surface visibility helpers -----------------------------------------------------
+--- Title / visibility ---------------------------------------------------------------------
 
 ---@param surface Watchdog.MuxSurface|nil
 ---@return string
@@ -258,7 +249,6 @@ local function applyTitle(self)
     self.window:SetTitle(resolveTitle(top))
 end
 
--- Enforce at most one surface visible: only `top` is shown (and only when the window is up).
 ---@param self Watchdog.Multiplexer
 ---@param showTop boolean
 local function applySurfaceVisibility(self, showTop)

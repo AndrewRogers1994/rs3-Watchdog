@@ -1,22 +1,3 @@
--- action.screen_flash (#37) — a long-running repeating full-screen pulse for an unmissable,
--- AFK-safe alert: a dismiss-only EffectRegistry effect (effects.lua) drawn on the always-on
--- overlay Canvas. Two hardcoded 25-tick segments (rise, then fall — no timing params) repeat
--- forever until dismissed; each segment is independently shaped `instant` (step straight to
--- the segment's target and hold) or `fade` (linear ramp across it) by the `inShape`/`outShape`
--- Controls -- instant+instant is a ~1Hz square blink, the RuneLite-parity default feel.
---
--- Dismissed by the `dismiss` exec pin, or automatically once the runtime-owned
--- `keyboardActivityTick`/`mouseActivityTick` (see runtime.lua) move past the tick recorded at
--- Show, per the `dismissOn` Control (none/mouse/keyboard/both; none = exec-only AFK case).
--- Concurrency is Replace (re-Show restarts): a Stack capped at 1 per node, keyed by the node's
--- own persistent `ctx.state` table, evicts the node's own still-live handle before pushing the
--- new one. No exec-out.
---
--- This node has two independent exec-in pins. `run(ctx)` is invoked once per firing with
--- `ctx.exec` naming which exec-in pin fired (LibNodeGraph/graph.lua's _makeCtx), mirroring
--- `ctx:Fire(name)` for exec-outs. The shaping/dismiss-on math below is pure and unit-tested
--- (tests/test_screen_flash.lua) independent of this wiring.
-
 local Controls = require("ui/controls")
 
 local ScreenFlash = {}
@@ -24,8 +5,6 @@ local ScreenFlash = {}
 local SEGMENT_TICKS = 25
 local CYCLE_TICKS = SEGMENT_TICKS * 2
 
--- No existing enum tag fits (ADR-0004: "if a genuinely pin-specific enum is ever needed,
--- register a distinct tag for it"). Both are pin-specific to this node.
 Controls.Register("shape", {
     widget = "enum",
     choices = {
@@ -44,12 +23,8 @@ Controls.Register("dismissOn", {
     },
 })
 
--- Full opaque red: a loud, unmissable default so a never-configured node still visibly fires.
 local DEFAULT_COLOR = { r = 255, g = 0, b = 0, a = 127 }
 
--- Alpha (0..`peak`) at `tick` (0-based within one CYCLE_TICKS-long rise/fall cycle).
--- `instant` steps straight to the segment's target value and holds it for the whole segment;
--- `fade` ramps linearly across it, reaching the target exactly on the segment's last tick.
 function ScreenFlash.AlphaAt(tick, peak, inShape, outShape)
     local cycleTick = tick % CYCLE_TICKS
     if cycleTick < SEGMENT_TICKS then

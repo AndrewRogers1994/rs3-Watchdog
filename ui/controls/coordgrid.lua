@@ -1,10 +1,3 @@
--- coordgrid.lua — the coordgrid Pin Control (ADR-0005): the composite BAND that binds three number
--- fields + a grab button to a `coordgrid` Pin's stored `{x, z, level}` value. The ADR-0005
--- proof-of-concept — it exercises the most mechanics at once: composite band, self-owned layout,
--- multiple Widgets, per-axis read-modify-write, a host-mounted field, and a one-shot action. Reading
--- the live player position for the grab button is a plain client-API call (per ADR-0005 not a host
--- capability); everything Editor-side goes through the passed `host`.
-
 local Theme       = require("ui/theme")
 local Util        = require("util")
 local NumberField = require("ui/widgets/number_field")

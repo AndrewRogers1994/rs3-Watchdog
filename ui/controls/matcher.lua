@@ -1,9 +1,3 @@
--- matcher.lua — the matcher Pin Control (ADR-0005): the composite BAND for the reusable Matcher's
--- `{ needle, mode }` table Control (#56) — a needle text field beside a Substring/Pattern toggle on
--- one row below the pin. It binds both Widgets to the table read-modify-write, so writing the needle
--- preserves the mode and vice versa. Unlike coordgrid's numeric axes, an EMPTY needle is meaningful
--- (an empty Matcher matches every line), so it commits verbatim — no empty-box guard on the needle.
-
 local Theme     = require("ui/theme")
 local TextField = require("ui/widgets/text_field")
 local Toggle    = require("ui/widgets/toggle")

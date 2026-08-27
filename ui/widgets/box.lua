@@ -1,15 +1,6 @@
--- box.lua — the labeled-box Widget helper (ADR-0005): the shared value box every text-like Widget
--- paints — a filled rect, a hot-aware outline, and left-aligned text (or a dimmed placeholder when
--- empty). text_field/number_field/dropdown/button/toggle all route their Draw through it, so the box
--- look lives in one place instead of a per-`kind` branch in node.lua (the render seam this closes).
--- Depends only on Theme/Color/ui.* — never a Pin Control, the Editor, the Store, or the engine
--- (the Widget dependency rule, ADR-0005).
-
 local Theme = require("ui/theme")
 local Color = require("ui/color")
 
--- The projected draw context the Node hands every Widget's Draw: the screen-space projection facts a
--- Widget needs but must never derive itself (it never sees `view`/ToScreen/Scale — ADR-0005 §1).
 ---@class DrawContext
 ---@field hot boolean                    # the cursor is over this control box
 ---@field font any                       # the draw-size font id (Theme.Font), or nil when zoomed too small to letter
@@ -18,9 +9,6 @@ local Color = require("ui/color")
 
 local Box = {}
 
--- The 1-line, shadowed TextDataConfig every control-box label uses, mirroring node.lua's own
--- createTextDataConfig so a Widget's text matches the node's labels exactly (same shadow, maxLines).
--- `colVec4` is an already-resolved Vector4 (Theme.Vec4 of a color constant).
 ---@param font any
 ---@param colVec4 any
 ---@return ui.TextDataConfig
@@ -35,9 +23,6 @@ function Box.TextData(font, colVec4)
     return textData
 end
 
--- The hot-aware outline every control box shares: a 1px (scaled) border, lit COL_CONTROL_HOT when
--- `hot`, else COL_CONTROL_BORDER. Kept separate from Box.Draw so the swatch and checkbox — whose
--- fills differ, so they can't route through Box.Draw — still frame themselves with the same rule.
 ---@param canvas any
 ---@param x number
 ---@param y number
@@ -50,11 +35,6 @@ function Box.Outline(canvas, x, y, w, h, scale, hot)
         Theme.Vec4(hot and Theme.COL_CONTROL_HOT or Theme.COL_CONTROL_BORDER))
 end
 
--- Draws a value box at an already-projected screen `rect`: a `bg`-filled rectangle, a hot-aware
--- outline, and the display text left-aligned inside it. An empty/nil `display` falls back to
--- `placeholder` (or "…") in the dim empty color — the empty-state cue #30/#40 rely on. `bg` is a
--- Theme color constant; `dctx = { hot, font, zoom, scale }` carries the projected draw context —
--- `font` is nil when zoomed too small to letter, and then only the box (rect + outline) is drawn.
 ---@param canvas any
 ---@param rect { x: number, y: number, w: number, h: number }
 ---@param display string|nil

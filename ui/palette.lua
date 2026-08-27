@@ -1,32 +1,3 @@
--- palette.lua — the Palette: the popup Node-Type chooser used to create Nodes.
---
--- A Canvas-drawn, immediate-mode popup listing the Registry's Node Types grouped by
--- Category. The Editor opens it two ways: filtered to Node Types that have a Pin
--- compatible with a dragged Wire (drag-to-create), or unfiltered (double-click empty
--- Viewport / the toolbar +). Like everything in the Editor it is inert — drawn each
--- frame by the Editor and hit-tested manually.
---
--- The Palette owns no graph state. On Open it flattens the Registry into an ordered list
--- of rows (Category headers interleaved with item rows); the Editor reads the chosen
--- item back out and performs the AddNode/Connect itself. It draws in whatever coordinate
--- frame the Editor hands Draw a bounds rect for and clamps itself inside that rect: the
--- Editor passes the FULL SCREEN (on a dedicated full-screen paletteCanvas) so rows can spill
--- past the Window edges, and expands its Capture Layer to full-screen while open so those
--- out-of-window rows stay clickable. (The rect is arbitrary — tests pass a fake viewport.)
---
--- Unfiltered opens also interleave the dimmed, inert rows from nodes/unavailable.lua so a
--- Node Type that can't be built on the current API is visible (with why) instead of just
--- silently absent. Filtered/drag-to-create opens never show them — there's nothing there
--- to auto-connect to.
---
--- Any row may carry a `description`: a short blurb rendered as an inline dimmed suffix after
--- the display name (`displayName - description`). An unavailable row's "why" and a live Node
--- Type's own `description` (#52, e.g. Client Tick's "Fires 50x/sec") are the same field, so
--- there's one concept, not two. The description is *always* drawn dimmed — it's a secondary
--- blurb that shouldn't compete with the name — so the two are drawn as separate text calls:
--- the name in the row's own color (dim only when the row is also unavailable), the suffix in
--- the dim color regardless.
-
 local Theme = require("ui/theme")
 local Unavailable = require("nodes/unavailable")
 

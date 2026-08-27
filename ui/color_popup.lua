@@ -1,16 +1,4 @@
--- color_popup.lua — the color-picker popup (#30): a Canvas-drawn transient layer opened by
--- clicking a "swatch" Control's chip. Like the Palette (ui/palette.lua) it is modal editor
--- state, not part of any node's geom.controls, drawn in fixed screen-space (not scaled by
--- the View) and clamped inside the Viewport, with hit-testing against the rect Draw last
--- recorded. Unlike the Palette its clicks can start a drag (the SV field, hue strip, and
--- R/G/B/A rows all drag live); only the hex row is a real transient InputField (ADR-0004),
--- mounted/torn down by the Editor the same way a Control's own inline editor is.
---
--- HSV is kept as this popup's own source of truth (self.h/s/v), separate from the derived
--- self.value {r,g,b,a} table it commits through Graph:SetControl. Dragging the SV field or
--- hue strip only ever writes FROM hsv TO rgb, so hue survives a drag to s=0 or v=0/1 (an
--- achromatic RGB has no hue to recover otherwise). Dragging an R/G/B row or typing hex goes
--- the other way (rgb -> hsv) via Color.RGBtoHSV, same as the prototype's adoptRGB.
+-- HSV is source of truth so hue survives a drag to s=0 / v=0.
 
 local Theme = require("ui/theme")
 local Color = require("ui/color")

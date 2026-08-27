@@ -1,9 +1,3 @@
--- scalar.lua — the scalar Pin Control factory (ADR-0005): the inline `number`/`string` Control that
--- edits one whole value through a single field Widget. The Control value IS the field value (no
--- read-modify-write); the only difference between number and string is the codec + filter, so one
--- factory builds both. The number codec's empty-box guard (Parse -> nil) is what lets a cleared
--- number field leave the stored value alone, while an empty text field commits verbatim.
-
 local Inline = require("ui/controls/inline")
 
 ---@class ScalarPinControl

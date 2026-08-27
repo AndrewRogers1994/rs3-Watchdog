@@ -1,6 +1,3 @@
--- capture_banner.lua — shared top-of-screen instruction strip for Screen/Object Marker
--- Capture Arm (#71). Non-interactive Canvas draw; Esc / same-Control re-click cancel.
-
 local Theme = require("ui/theme")
 
 local CaptureBanner = {}
@@ -11,7 +8,6 @@ CaptureBanner.OBJECT_TEXT = "Examine an object · Esc to cancel"
 local BANNER_H = 40
 local BANNER_PAD_Y = 8
 
--- Draws a full-width Capture Banner across the top of `canvas` (#71).
 ---@param canvas any
 ---@param text string
 ---@param screenW number|nil

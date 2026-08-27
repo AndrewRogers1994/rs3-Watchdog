@@ -1,9 +1,4 @@
--- Watchdog — a node-graph editor plugin.
---
--- Orchestrator: builds a live LibNodeGraph Graph over the standard + Watchdog node sets,
--- mounts the Editor UI onto the client's root component, and wires the per-frame draw /
--- per-tick update loops. Follows the idempotent load/reload pattern (CLAUDE.md): tear down
--- any prior instance up top, publish this instance as the global `watchdog` at the end.
+-- Watchdog: LibNodeGraph editor + Alert Manager. Reload tears down the previous instance first.
 
 if Watchdog ~= nil and Watchdog.Stop ~= nil then
     pcall(function() Watchdog.Stop() end)
@@ -25,50 +20,29 @@ local function RegisterToPluginMenu()
         id = "watchdog",
         name = "Watchdog",
         icon = "W",
-        -- icon = id.Sprite.AIF_COINS_ICON,
         onClick = function()
-            -- Hide/show the whole plugin UI at the current stack depth (#80) — never navigates, so
-            -- the button reopens whichever surface (Manager or Editor) you last had up.
             pcall(function() Watchdog.Toggle() end)
         end
     })
 end
 Event.OptionalDependencyChanged.Subscribe('opdepchanged', function(dep)
-    log('op dep changed:', dep.pluginIdentifier, dep.enabled, LibPluginMenu, dep.pluginIdentifier == 'LibPluginMenu')
     if LibPluginMenu ~= nil then
         RegisterToPluginMenu()
     end
 end)
 
--- log("LibPluginMenu is available: " .. tostring(LibPluginMenu ~= nil))
-
--- ExecuteConsoleCommand("pon LibPluginMenu")
-
--- log("LibPluginMenu is available: " .. tostring(LibPluginMenu ~= nil))
-
-log(LibPluginMenu)
 if LibPluginMenu ~= nil then
     RegisterToPluginMenu()
 end
 
--- Names used to Subscribe/Unsubscribe each editor-lifecycle event we hook directly (mount
--- loop, draw loop, the F8 toggle). Every *game* event (chat, stat changes, ...) is owned by
--- runtime.lua's dispatcher instead — see the registry/runtime setup below. Events are
--- sandboxed per-plugin by the client, so these don't need a plugin-specific prefix — just
--- enough to be unique within this file and reused between Subscribe and Unsubscribe.
 local Events = {
     Logic = "logic",
     Draw = "draw",
     KeyDown = "key",
 }
 
--- Key that toggles the editor Window. Any GameKey member name (see core/keyboard docs:
--- GameKey.F8, GameKey.P, GameKey.SPACE, ...). Change this one string to rebind.
 local TOGGLE_KEY = "F8"
-
--- Approximate seconds per Event.Logic tick (~0.02s, see CLAUDE.md). Logic doesn't hand back
--- a measured dt, so runtime.effects' handles (TTL/animation) advance against this fixed
--- per-tick delta, the same tick-counting convention SAVE_INTERVAL_TICKS below already uses.
+-- Logic has no measured dt; effects TTL uses this (~0.02s per tick).
 local LOGIC_TICK_SECONDS = 0.02
 
 if Plugin.HasPermission(PluginPermissions.httpAccess) then
@@ -78,17 +52,7 @@ else
 end
 
 --- Runtime dispatcher + registry + node types --------------------------------------------
--- `runtime` owns every game-event Subscribe/Unsubscribe (see runtime.lua); a trigger node
--- declares its own binding inside its own Register(registry, runtime) call below via
--- runtime:BindTrigger(...), so adding a new trigger never means editing dispatch code here.
--- Its live graph is set once we know which graph we're editing (further down).
 
--- The injectable identity source (#89): the runtime's seam onto the client `Player` global,
--- mirroring how the event/`Mouse` sources are injected. `Resolve()` returns the current
--- character's display name only when actually logged in and in-world (`Player.IsAvailable()` ∧
--- `entity.isValid`, per research #74) — otherwise nil, which the runtime treats as "not readable
--- yet" and retries. This is the only client-coupled half of player scoping; everything else is
--- headless-tested through a fake identity source.
 local playerIdentity = {
     Resolve = function()
         if Player == nil or not Player.IsAvailable() then return nil end
@@ -100,10 +64,6 @@ local playerIdentity = {
 
 local runtime = Runtime.new(nil, nil, playerIdentity)
 
--- Toast action (#36): one shared, draggable toast stack riding on runtime.effects, keyed
--- off `runtime.toast` the same way `runtime.effects` already is, so nodes/actions/toast.lua
--- only needs the (registry, runtime) it's already handed. Anchor position persists under its
--- own persistentdb key, independent of the graph document store.lua owns.
 local TOAST_ANCHOR_KEY = "watchdog_toast_anchor"
 runtime.toast = ToastStack.new(runtime.effects, {
     Load = function()
@@ -144,49 +104,22 @@ require("nodes/actions/object_marker").Register(registry, runtime)
 require("nodes/actions/toast").Register(registry, runtime)
 require("nodes/actions/alert_toggle").Register(registry, runtime)
 
--- The generalized `preload(node)` node-type hook (#33): AddAlert (below) already runs the
--- graph-restore preload pass through this; the Editor (ui/graph.lua) calls
--- runtime:PreloadNode after every Graph:SetControl for the control-commit pass.
 runtime:SetRegistry(registry)
 
--- The one resident character Scope, or nil when no character is loaded (#90). Holds the character
--- Bucket's live document + restored alerts so the Alert Manager can render that character's tree
--- and the nav owner can resolve a row-open to its live graph. Populated by the bucket loader below
--- (which the runtime calls on first login / a genuine switch) and read live through `getScopes` /
--- `resolveAlert`. Declared before the loader so the closure can capture it.
 ---@type { key: string, displayName: string, doc: Watchdog.Bucket, alerts: Watchdog.RestoredAlert[] }|nil
 local charScope = nil
 
--- The character-Bucket loader (#89): given a normalized display name, read that character's
--- Bucket off disk and restore its saved alerts as live graphs. The runtime calls this on a
--- genuine character switch (and first login), then arms the returned alerts under the player
--- Bucket. `global` alerts are loaded separately below; this only ever touches `player_<name>`
--- keys (Store.LoadKey, not Store.Load).
---
--- It also stashes the loaded document + restored alerts into `charScope` (#90), so the Manager can
--- render this character's Entry tree and the nav owner can bind the Editor to a row's live graph —
--- the *same* live instance the runtime fires, so edits and firing stay in sync. `displayName` is
--- read back off the runtime (which holds the pretty name) once the load has set `_characterBucketKey`.
 runtime:SetBucketLoader(function(normalized)
     local key = Store.PlayerKey(normalized)
     local playerDoc = Store.LoadKey(key)
     local restoredChar = {}
     local ok, r = pcall(function() return Store.RestoreAll(playerDoc, registry) end)
     if ok and r ~= nil then restoredChar = r end
-    -- The runtime hasn't returned the pretty display name to the loader, so fall back to the
-    -- normalized key for the tab label until GetActiveCharacter (read live in getScopes) supplies it.
+    -- Loader has no pretty name yet; getScopes replaces this with GetActiveCharacter.
     charScope = { key = key, displayName = normalized, doc = playerDoc, alerts = restoredChar }
     return restoredChar
 end)
 
---- Graph: restore the saved alerts, or seed a demo on first run --------------------------
--- Persistence backend lives in store.lua: the `global` Bucket, an Entry tree keyed by minted
--- `id` (#86). Every alert leaf restores as a live alert; the editor opens the first one. The
--- multi-alert Manager UI (and per-character buckets) build on this additively.
-
--- The demo graph, built only when there's nothing saved yet: a small, deliberately varied
--- graph so the Editor has real content — an event flow (Game Message -> Log, exec + data)
--- and a pure data chain (Add -> Multiply).
 local function seedDemo()
     local graph = LibNodeGraph.NewGraph(registry)
 
@@ -196,7 +129,6 @@ local function seedDemo()
     local addNode  = graph:AddNode("std.add", { a = 2, b = 3 })
     local mulNode  = graph:AddNode("std.multiply", { a = 4, b = 5 })
 
-    -- Guard each connect so one bad edge can't stop the plugin from loading.
     local function tryConnect(fromN, fromP, toN, toP)
         local id, reason = graph:Connect(fromN, fromP, toN, toP)
         if id == nil and log ~= nil then
@@ -220,10 +152,6 @@ end
 
 local document = Store.Load()
 
--- Instantiate *every* saved graph as a live alert (#27): triggers in all enabled alerts fire,
--- not just the one the editor is viewing. `Store.RestoreAll` returns one live Graph per saved
--- entry with its persisted `enabled` flag; each is registered with the runtime dispatcher below.
--- If there's nothing saved (or the whole set is unrestorable), seed the demo as the sole alert.
 local restored = {}
 do
     local ok, all = pcall(function() return Store.RestoreAll(document, registry) end)
@@ -233,7 +161,6 @@ do
         log("Watchdog: RestoreAll failed, seeding demo — " .. tostring(all))
     end
     if #restored == 0 then
-        -- Fresh install (empty `global` bucket): seed the demo as a single root-level alert Entry.
         local graph, layout = seedDemo()
         local id = Store.MintId(document)
         Store.InsertEntry(document, Store.NewAlertEntry(id, "default", graph, layout, true))
@@ -242,24 +169,12 @@ do
     end
 end
 
--- Register each restored alert as a live alert the dispatcher fans out over. When the Manager opens
--- one, the Editor binds that same live instance (see navOpenAlert), so its triggers fire mid-edit
--- like the rest; the runtime checks `enabled` at fire time so a disabled alert stays live but silent.
 for _, alert in ipairs(restored) do
     runtime:AddAlert(alert.id, alert.name, alert.graph, alert.enabled)
 end
 
--- The Editor is constructed **unbound** (#80): the Manager is the root surface, so a reload lands
--- there with nothing bound, and the persisted `current` pointer is gone entirely — the bound-entry
--- id is now transient (`editor.boundId`, set only when a Manager row is opened). The Editor is
--- mounted once at startup regardless of how many alerts exist (mounting is the fragile part), and a
--- double-click binds it to a live graph. Surfaces mount either way; an empty `restored` just means
--- the Manager shows an empty tree until the demo seed (or a later save) fills it.
 local editor = Editor.new(registry, runtime)
 
--- Persistence hook for the alert enable/disable API: SetEnabled/Toggle write the flag straight
--- to the saved document and flush, so an alert toggled off (by the user or an Alert Toggle node,
--- #35) stays off across reloads. Independent of the editor autosave loop below.
 runtime:SetPersistence({
     SetEnabled = function(id, enabled)
         Store.SetEnabled(document, id, enabled)
@@ -267,10 +182,6 @@ runtime:SetPersistence({
     end,
 })
 
--- Enabled-chain gate (#88): the runtime ANDs each alert's own `enabled` with whether every
--- ancestor group is enabled. Resolved live over the alert's own Bucket doc (global or the
--- resident character), so a group toggle or a subtree move re-evaluates on the next fire with
--- nothing cached. A root-level alert has no ancestors and always passes.
 runtime:SetEnabledResolver(function(id)
     for _, alert in ipairs(runtime.alerts) do
         if alert.id == id then
@@ -287,8 +198,6 @@ runtime:SetEnabledResolver(function(id)
     return true
 end)
 
--- Restore the InfoBox Area's (#41) persisted anchor, if any was ever saved, then wire its own
--- EndDrag persistence hook the same seam shape as the alert enable/disable one above.
 do
     local ax, ay = Store.GetInfoBoxAnchor(document)
     if ax ~= nil and ay ~= nil then
@@ -302,15 +211,8 @@ runtime.infobox:SetPersistence({
     end,
 })
 
---- Alert Manager + Editor↔Manager navigation (#90) --------------------------------------
--- Two surfaces share one Multiplexer window: Manager is the stack root; Editor is Push'd on
--- double-click and Pop'd via "← Alerts" / Esc. F8 / ribbon / window-close toggle *shell*
--- visibility only — the stack is preserved in memory.
+--- Alert Manager + Editor navigation ----------------------------------------------------
 
--- id-keyed live-graph lookup: given a scope key + entry id, the live Graph + Layout the runtime
--- fires (so binding the Editor to it keeps edits and firing in sync) plus the Bucket doc/key the
--- debounced write-back must target. Global reads `restored` + `document`; the character scope reads
--- the resident `charScope`. nil for an unknown scope/id (a since-deleted or wrong-scope row).
 ---@param scopeKey string
 ---@param id integer
 ---@return { graph: LibNodeGraph.Graph, layout: Watchdog.Layout, doc: Watchdog.Bucket, key: string }|nil
@@ -331,10 +233,6 @@ local function resolveAlert(scopeKey, id)
     return nil
 end
 
--- The Manager's scope provider (#90): `Global` always, plus the resident character second when one
--- is logged in. The character tab's pretty display name comes from the runtime (which holds it),
--- while its tree comes from `charScope.doc`; the two are matched on the Bucket key so a stale
--- `charScope` from a just-departed character is skipped rather than mislabeled.
 ---@return Watchdog.ManagerScope[]
 local function getScopes()
     local scopes = { { key = "global", label = "Global", doc = document } }
@@ -345,24 +243,16 @@ local function getScopes()
     return scopes
 end
 
--- The bound scope's doc + key while an alert is open (nil on the Manager). The debounced write-back
--- keys on this, so an alert opened from the character tab persists back to its own Bucket, not the
--- global one. `boundLastEncoded` diffs that specific doc so an idle editor doesn't re-write.
 ---@type { doc: Watchdog.Bucket, key: string }|nil
 local boundScope = nil
 local boundLastEncoded = nil
-local persistNow -- forward ref: the debounced bound-entry write-back (assigned below)
+local persistNow -- assigned below
 
--- Multiplexer owns the prettyui.Window + stack; thin surface wrappers forward SetVisible.
--- Declared here so navOpenAlert/navBack can close over them; constructed after Manager.new.
 local mux ---@type Watchdog.Multiplexer
 local managerSurface ---@type Watchdog.MuxSurface
 local editorSurface ---@type Watchdog.MuxSurface
-local manager -- forward ref (constructed below)
+local manager
 
--- A Manager alert row was double-clicked: bind the Editor to that entry's live graph and Push
--- the editor surface. Records the bound scope so the write-back targets the right Bucket. A row
--- that no longer resolves (deleted/wrong scope) is a silent no-op — the Manager stays put.
 ---@param scopeKey string
 ---@param entryId integer
 local function navOpenAlert(scopeKey, entryId)
@@ -377,8 +267,6 @@ local function navOpenAlert(scopeKey, entryId)
     end
 end
 
--- Pop to the Manager: flush the bound entry to its Bucket, unbind the Editor, drop the bound
--- scope. Shell visibility carries over — going back doesn't hide the UI.
 local function navBack()
     if persistNow ~= nil then pcall(persistNow) end -- flush before unbinding
     editor:Unbind()
@@ -389,8 +277,6 @@ end
 
 editor.onBack = navBack
 
--- Scope → live Bucket doc + alert list the Manager mutations write through (#91). nil for an
--- unknown / departed scope. `list` is the parallel restored-alerts array resolveAlert reads.
 ---@param scopeKey string
 ---@return Watchdog.Bucket|nil doc
 ---@return string|nil key
@@ -404,7 +290,6 @@ local function scopeBucket(scopeKey)
     return nil
 end
 
--- Walk an Entry subtree collecting every alert leaf id (so a group delete can RemoveAlert each).
 ---@param entry Watchdog.Entry
 ---@param out integer[]
 local function collectAlertIds(entry, out)
@@ -417,8 +302,6 @@ local function collectAlertIds(entry, out)
     end
 end
 
--- Drop every matching id from a restored-alerts list (keeps resolveAlert from resurrecting a
--- just-deleted Entry).
 ---@param list Watchdog.RestoredAlert[]
 ---@param ids integer[]
 local function purgeAlertList(list, ids)
@@ -428,10 +311,6 @@ local function purgeAlertList(list, ids)
         if drop[list[i].id] then table.remove(list, i) end
     end
 end
-
--- Manager mutation host (#91): each op writes the Bucket immediately, keeps the runtime live set
--- in sync, and (for delete of the bound entry) unbinds the Editor. No undo — Manager writes are
--- immediate by design (#78/#82).
 
 ---@param scopeKey string
 ---@param id integer
@@ -443,10 +322,8 @@ local function onToggleEnabled(scopeKey, id)
     local nextEnabled = not (entry.enabled ~= false)
     Store.SetEnabled(doc, id, nextEnabled)
     Store.SaveTo(key, doc)
-    -- Groups aren't live alerts; the enabled-chain resolver reads the Store doc on the next fire.
     if entry.kind == "alert" then
         runtime:SetAlertEnabled(id, nextEnabled)
-        -- Keep the parallel restored list in sync so a later BindEntry still sees the flag.
         local _, _, list = scopeBucket(scopeKey)
         if list ~= nil then
             for _, a in ipairs(list) do
@@ -482,11 +359,8 @@ local function onDelete(scopeKey, id)
     if doc == nil then return end
     local entry = Store.FindById(doc, id)
     if entry == nil then return end
-    -- Collect alert leaf ids *before* splicing so we can sync the runtime + restored list.
     local alertIds = {}
     collectAlertIds(entry, alertIds)
-    -- Unbind the Editor if its bound entry is in the deleted subtree (AC: deleting the bound
-    -- entry unbinds). Check while the entry still exists, then navigate up.
     if editor.boundId ~= nil and boundScope ~= nil and boundScope.key == key then
         local function contains(e, target)
             if e.id == target then return true end
@@ -524,7 +398,6 @@ local function onLift(scopeKey, id)
     if doc == nil then return end
     if not Store.LiftEntry(doc, id) then return end
     Store.SaveTo(key, doc)
-    -- Enabled-chain is live over the Store doc (runtime AncestorsEnabled); no Enter replay.
 end
 
 ---@param scopeKey string
@@ -542,7 +415,6 @@ local function onCreateAlert(scopeKey)
         list[#list + 1] = { id = id, name = name, graph = graph, layout = layout, enabled = true }
     end
     runtime:AddAlert(id, name, graph, true, key)
-    -- + Alert opens the Editor immediately (#78).
     navOpenAlert(scopeKey, id)
     return id
 end
@@ -558,8 +430,6 @@ local function onCreateGroup(scopeKey)
     return id
 end
 
--- Deep-copy an Entry subtree (so export can drop ancestry above the selection without aliasing
--- the live Bucket). Walks tables only; graph/layout payloads are shared-by-value tables already.
 ---@param entry Watchdog.Entry
 ---@return Watchdog.Entry
 local function cloneEntry(entry)
@@ -580,8 +450,6 @@ local function cloneEntry(entry)
     return copy
 end
 
--- Bulk delete (#93): one confirm (Manager-side) for the whole set; unbind Editor if the bound
--- entry is in any deleted subtree; sync runtime + restored lists like single delete.
 ---@param scopeKey string
 ---@param ids integer[]
 local function onBulkDelete(scopeKey, ids)
@@ -614,8 +482,6 @@ local function onBulkDelete(scopeKey, ids)
     Store.SaveTo(key, doc)
 end
 
--- Bulk New-group (#93): nearest common ancestor, entries in the given (visible) order;
--- selection retargets to the new group in the Manager.
 ---@param scopeKey string
 ---@param ids integer[]
 ---@return integer|nil
@@ -628,8 +494,6 @@ local function onBulkNewGroup(scopeKey, ids)
     return newId
 end
 
--- Bulk move-between-scopes (#93): append each selected subtree at the destination root,
--- id-preserving when free. Absent when logged out (Manager hides the button).
 ---@param scopeKey string
 ---@param destScopeKey string
 ---@param ids integer[]
@@ -653,7 +517,6 @@ local function onBulkMove(scopeKey, destScopeKey, ids)
                     end
                 end
             end
-            -- Unbind before the move if the Editor's bound entry is in this subtree.
             if editor.boundId ~= nil and boundScope ~= nil and boundScope.key == srcKey then
                 local function contains(e, target)
                     if e.id == target then return true end
@@ -701,8 +564,6 @@ local function onBulkMove(scopeKey, destScopeKey, ids)
     Store.SaveTo(destKey, destDoc)
 end
 
--- Mirror the last transfer result into PersistentDB so an agent can verify in-client without
--- scraping the console (#94 acceptance: in-client checks).
 ---@param kind string
 ---@param ok boolean
 ---@param detail string
@@ -714,8 +575,6 @@ local function mirrorTransfer(kind, ok, detail)
     end)
 end
 
--- Export any entry set (#94): nil ids ⇒ whole active scope; otherwise the listed subtrees
--- (bulk selection or a single row). Encode applies the uniform 2,500-byte guard.
 ---@param scopeKey string
 ---@param ids integer[]|nil
 ---@return boolean ok
@@ -743,8 +602,6 @@ local function onExportEntries(scopeKey, ids)
     return ok, result
 end
 
--- Import paste (#94): append at the active scope root, then restore new alert leaves into the
--- runtime. Failures reject before any write (Export.Import is atomic).
 ---@param scopeKey string
 ---@param text string
 ---@return boolean ok
@@ -823,8 +680,6 @@ manager = Manager.new({
     end,
 })
 
--- Shared prettyui.Window host: Manager/Editor mount into Content()/Overlay(); Push/Pop swaps
--- which surface is visible. Close = hide (stack preserved). onHide keeps the ribbon in sync.
 mux = Multiplexer.new({
     x = Theme.WINDOW_X,
     y = Theme.WINDOW_Y,
@@ -857,10 +712,6 @@ editorSurface = {
 
 --- Event loops --------------------------------------------------------------------------
 
--- `muxMounted` / `mounted` / `managerMounted` track the Multiplexer shell + Editor + Manager
--- respectively; `effectsMounted` / `infoboxMounted` / `screenMarkerMounted` track always-on
--- overlays that must keep working while the window is closed. The Toast stack (#36) rides on
--- the effects Canvas. `rootPushed` is true once managerSurface is on the mux stack.
 local state = {
     muxMounted = false,
     mounted = false,
@@ -872,19 +723,12 @@ local state = {
     infoboxWasDragging = false,
 }
 
--- Debounced autosave, but only while an alert is **bound and the Editor visible** — that's the only
--- time the graph can be edited, so during normal play (or while on the Manager) we stay off
--- persistentdb entirely instead of re-encoding every couple of seconds. Rather than thread a "dirty"
--- flag through every interaction we periodically re-encode and persist only when the encoding
--- actually changed — graphs are tiny, so this diff is cheap. ~2s cadence at the ~0.02s Logic tick.
--- On the visible -> hidden / unbind transition we flush once so edits made right before leaving
--- aren't lost. The write-back keys on the **bound scope** (`boundScope`), so an alert opened from
--- the character tab persists to its own Bucket, and on `editor.boundId` (never the name — #75).
+-- Autosave only while a bound editor is visible (~2s). Flush on hide/unbind. Keys on boundScope + boundId.
 local SAVE_INTERVAL_TICKS = 100
 local saveState = { tick = 0, wasOpen = false }
 
 persistNow = function()
-    if editor.boundId == nil or boundScope == nil then return end -- on the Manager: nothing bound
+    if editor.boundId == nil or boundScope == nil then return end
     Store.UpdateAlertGraph(boundScope.doc, editor.boundId, editor.graph, editor:GetLayout())
     local encoded = Store.Encode(boundScope.doc)
     if encoded ~= nil and encoded ~= boundLastEncoded then
@@ -895,14 +739,9 @@ persistNow = function()
 end
 
 local function onLogic()
-    -- Advances the effect registry (and polls mouse activity) every tick, independent of
-    -- whether the editor Window has mounted yet.
     pcall(function() runtime:Update(LOGIC_TICK_SECONDS) end)
     pcall(function() runtime.toast:Update(LOGIC_TICK_SECONDS) end)
 
-    -- The InfoBox Area's click-capture layer tracks the strip's own Bounds (grows/shrinks as
-    -- tiles are added/removed) and its drag needs to follow the cursor every tick same as any
-    -- other polled interaction here — both independent of whether the capture just mounted.
     if state.infoboxMounted then
         pcall(function() runtime.infobox:Reposition() end)
         local dragging = runtime.infobox:IsDragging()
@@ -912,17 +751,12 @@ local function onLogic()
                 pcall(function() runtime.infobox:Drag(mx, my) end)
             end
         elseif state.infoboxWasDragging then
-            -- The drag fronted the InfoBox capture over the window's hit layer so a fast cursor
-            -- crossing into it couldn't steal the hover and drop the grab. Restore the mux shell
-            -- (window + overlay) to the front once the drag ends.
+            -- Drag raised infobox capture over the window; restore mux so hover isn't stolen.
             pcall(function() mux:RaiseToFront() end)
         end
         state.infoboxWasDragging = dragging
     end
 
-    -- The Screen Marker capture overlay's (#39) click-capture layer needs no per-tick
-    -- Reposition the way InfoBox's does — its size only ever changes on Arm/Cancel — but its
-    -- drag does need to follow the cursor every tick, same as any other polled interaction.
     if state.screenMarkerMounted and runtime.screenMarkerCapture:IsDragging() then
         local mx, my = runtime:GetMousePos()
         if mx ~= nil then
@@ -936,9 +770,7 @@ local function onLogic()
         if parent ~= nil then
             if not state.effectsMounted then
                 pcall(function() runtime.effects:Mount(parent) end)
-                -- Mount swallows its own errors (logs, leaves canvas nil), so success is
-                -- read back off the registry rather than the pcall's `ok` — mirrors the
-                -- surface Mount retry-on-failure pattern below.
+                -- Mount swallows errors (canvas stays nil); don't trust pcall ok.
                 state.effectsMounted = runtime.effects:IsMounted()
                 pcall(function() runtime.toast:Mount(parent) end)
             end
@@ -950,8 +782,6 @@ local function onLogic()
                 pcall(function() runtime.screenMarkerCapture:Mount(parent) end)
                 state.screenMarkerMounted = runtime.screenMarkerCapture:IsMounted()
             end
-            -- Multiplexer first (owns content + overlay parents), then both surfaces into it,
-            -- then Push manager as the stack root — shell stays hidden until ribbon/F8.
             if not state.muxMounted then
                 local ok, err = pcall(function() mux:Mount(parent) end)
                 if ok and mux:Content() ~= nil then
@@ -983,7 +813,6 @@ local function onLogic()
         end
     end
 
-    -- The Manager polls every tick like the Editor (double-click timing + scope-change rebuild).
     if state.managerMounted then
         pcall(function() manager:Update() end)
     end
@@ -993,10 +822,7 @@ local function onLogic()
     end
     pcall(function() editor:update() end)
 
-    -- Persist only during an editing session (an alert bound AND the Editor shell visible); flush
-    -- once on the transition out of it (navigate-back also flushes explicitly before unbinding).
-    -- Gate on mux:IsVisible too: Multiplexer hide closes the window without flipping surface
-    -- SetVisible, so editor:IsVisible alone would keep autosaving while the UI is tucked away.
+    -- mux hide does not flip editor:SetVisible, so require mux:IsVisible() or we'd autosave while tucked.
     local isOpen = mux:IsVisible() and editor:IsVisible() and editor.boundId ~= nil
     if isOpen then
         saveState.tick = saveState.tick + 1
@@ -1015,26 +841,16 @@ local function onDraw()
     if state.mounted then
         pcall(function() editor:draw() end)
     end
-    -- Draws even when the editor Window is closed — the overlay Canvas is always-on.
     if state.effectsMounted then
-        -- Wipe the retained overlay Canvas once, before the four passes below (they share it).
-        -- See EffectRegistry:BeginFrame and #46.
         pcall(function() runtime.effects:BeginFrame() end)
         pcall(function() runtime.effects:Draw() end)
-        -- The Toast stack (#36) rides the same overlay Canvas as `effects`, drawn as its
-        -- own pass so one bad toast can't take the rest of the overlay down.
         pcall(function() runtime.toast:Draw(runtime.effects:GetCanvas()) end)
-        -- The InfoBox Area (#41) shares the same overlay Canvas as `effects`, drawn as its own
-        -- pass so a bad tile can't take the rest of the overlay down. Hover position reuses
-        -- Update's own mouse poll rather than a second GetPosition call.
         pcall(function()
             local hx, hy = runtime:GetMousePos()
             runtime.infobox:Draw(runtime.effects.canvas, hx, hy)
         end)
-        -- The Screen Marker capture overlay (#39/#71) draws its dim (+ snipping hole) and
-        -- Capture Banner on the same overlay Canvas, as its own pass for the same reason.
         pcall(function() runtime.screenMarkerCapture:Draw(runtime.effects.canvas) end)
-        -- Object Marker Capture Banner (#71) — instruction-only; no dim (would block MiniMenu).
+        -- Object-marker overlay is instruction-only; a dim would block MiniMenu.
         pcall(function() runtime.objectMarkerCapture:Draw(runtime.effects.canvas) end)
     end
 end
@@ -1044,8 +860,6 @@ end
 local api = {}
 
 function api.Stop()
-    -- Flush the latest edits before tearing down, so a reload (which calls the previous
-    -- instance's Stop first) doesn't lose work done since the last autosave tick.
     pcall(persistNow)
     pcall(function() Event.Logic.Unsubscribe(Events.Logic) end)
     pcall(function() Event.Draw.Unsubscribe(Events.Draw) end)
@@ -1067,8 +881,6 @@ function api.Stop()
     state.screenMarkerMounted = false
 end
 
--- Hide/show the whole plugin UI at the current stack depth (#80) — the F8 keybind and the menu
--- button both call this. Never navigates: Manager vs Editor stays put on the mux stack.
 function api.Toggle()
     if mux == nil then return end
     mux:Toggle()
@@ -1085,14 +897,9 @@ api.document = document  -- the persisted `global` Bucket, exposed for inspectio
 Event.Logic.Subscribe(Events.Logic, onLogic)
 Event.Draw.Subscribe(Events.Draw, onDraw)
 
--- Hide/show the plugin UI on TOGGLE_KEY (stack-preserving); Esc runs the Editor's Esc cascade
--- (popup/marker-capture cancel, else navigate up to the Manager — #80). KeyDown payload has
--- gameKey/isRepeat (core/events docs); ignore auto-repeat so a held key doesn't flicker the panel.
 Event.KeyDown.Subscribe(Events.KeyDown, function(keyEvent)
     if keyEvent == nil or keyEvent.isRepeat then return end
     if keyEvent.gameKey == GameKey.ESCAPE then
-        -- Esc cascade (#80/#93): on the Manager, clear an active selection first; else inert.
-        -- On the Editor: popup / marker-capture cancel, else navigate up.
         if mux ~= nil and mux:IsVisible() then
             if mux:IsTop("manager") and manager ~= nil and manager:IsVisible() then
                 if manager:HasSelection() then
@@ -1113,12 +920,7 @@ end)
 
 ribbon = prettyui.RibbonBar.Register({
     id = "watchdog-ribbon",
-    -- icon = id.Sprite.ICON_NOTIFICATION,
-    -- icon = id.Sprite.ARCH_ICON_RESTORATION_RITUAL_BELL,
-    -- icon = Plugin.resources.images.bell,
-    -- object = config.Obj.ARCH_RITUAL_BELL,
     icon = id.Sprite.RS3_ICON_CALENDAR_NEW_CONTENT,
-    -- object = config.Obj.WIN05_STARBAUBLE_PINK,
     tooltip = "Open Watchdog",
     onClick = function(handle, active)
         if mux ~= nil then mux:SetVisible(active) end
@@ -1128,8 +930,7 @@ ribbon = prettyui.RibbonBar.Register({
 Watchdog = api
 print("Watchdog editor loaded")
 
--- ADR-0008: client calls this on poff / plugins_reload / clean exit. PersistentDB writes work.
--- MUST NOT :Destroy() UI here — client tears the tree down after.
+-- ADR-0008: PersistentDB writes work here. Do not Destroy UI — client tears the tree down after.
 function PluginShutdown()
     pcall(persistNow)
     ribbon:Destroy()

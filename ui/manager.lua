@@ -1,12 +1,5 @@
--- manager.lua — the Alert Manager: the second surface beside the Canvas Editor.
+-- manager.lua — Alert Manager: scope tabs + Entry tree (PrettyUI chrome, native tree Panel).
 --
--- The management surface the F8 keybind and the LibPluginMenu button open (through the nav
--- owner in main.lua): a scope **tab bar** over a tree of Entries. Hybrid PrettyUI + native
--- `ui.Panel` (ADR-0007 + docs/alert-manager-prettyui.md): PrettyUI `Tabs` / toolbar /
--- TextField rename; native horizontal row Panels + native ren/del buttons for the tree strip.
--- NOT the Editor's Canvas — a scrolling list has neither pan nor zoom.
---
--- Window chrome (title bar, frame, drag) lives on the host Multiplexer / PrettyUI window.
 -- Native tree mounts under `mux:Content()`; PrettyUI chrome uses `mux:Window():Add*` so
 -- Layout.manage owns teardown (unmanaged `prettyui.*.new` under a Layer hard-crashes on
 -- poff — see .memory/spritebutton-teardown-crash.md). Tabs are strip-height only — a
@@ -14,19 +7,6 @@
 -- managed widgets while the window stays alive (Layout.remove); Stop/Unmount only clears
 -- Lua refs (mux window Destroy owns native teardown — Destroying Tabs then the window
 -- double-frees after Show).
---
--- #90 landed the tree/scope/expand read-only cut; #91 adds the per-row editing ops; PrettyUI
--- chrome migration replaces hand-laid tab buttons and ASCII ren/del. Multi-select + bulk
--- actions are #93; export/import copy-paste (#94) is a transfer modal over a ui.InputField.
--- Sibling Up/Down + Lift are per-row sprite buttons; drag nest / cross-scope stays on #92.
---
--- ## Two halves
---
--- The tree/scope/expand/mutation logic is **pure** (no `ui.*`): it walks a `Watchdog.Bucket`
--- into a flat list of visible rows, tracks per-scope collapse state, resolves the active scope
--- against the injected scope provider, and reports mutations through host callbacks. That half
--- is unit-tested headless (tests/test_manager.lua). The mount / render half is client-only and
--- pcall-guarded, the same split every other surface in this plugin uses.
 
 local Theme = require("ui/theme")
 local Export = require("export")
@@ -34,17 +14,12 @@ local Export = require("export")
 local Manager = {}
 Manager.__index = Manager
 
--- A scope descriptor the injected provider hands back: which Bucket, how to label its tab, and its
--- tree to render. `key` is the Bucket's `PersistentDB` key (`global` / `player_<normalized>`) — the
--- same string main.lua persists and resolves live graphs under, so a row-open can round-trip it.
 ---@class Watchdog.ManagerScope
 ---@field key string                 # the Bucket key ("global" | "player_<normalized>")
 ---@field label string               # tab text ("Global" | the character's display name)
 ---@field doc Watchdog.Bucket        # the Bucket document whose Entry tree renders under this tab
 
--- One flattened visible tree row (what the pure walk produces and the view renders one-for-one).
--- A collapsed group's descendants are simply absent from the list, so the renderer needs no
--- collapse logic of its own.
+-- Collapsed groups omit descendants from this list (renderer has no collapse logic).
 ---@class Watchdog.ManagerRow
 ---@field id integer                  # the Entry id (the key a row-open reports back)
 ---@field name string                 # display text
@@ -56,9 +31,6 @@ Manager.__index = Manager
 
 --- Construction ---------------------------------------------------------------------------
 
--- The Manager's whole seam onto its host: the scope provider, the alert-open callback, and the
--- #91 mutation callbacks (enable / rename / delete / create). Persistence + runtime sync live in
--- the host (main.lua); the Manager only reports the op and bumps its rebuild signature.
 ---@class Watchdog.ManagerOpts
 ---@field scopes fun(): Watchdog.ManagerScope[]              # ordered scopes (Global first, character second)
 ---@field onOpenAlert fun(scopeKey: string, id: integer)    # nav callback for a double-clicked alert row
@@ -76,14 +48,6 @@ Manager.__index = Manager
 ---@field onImportJson fun(scopeKey: string, text: string): boolean, Watchdog.ImportReport|string
 ---@field windowParent fun(): any|nil  # parent Layer for the transfer Window (mux.rootLayer — plugin-owned)
 
--- `scopes` is the injected scope provider: `fn() -> Watchdog.ManagerScope[]`, ordered (Global
--- first, the current character second when logged in). Called live on every rebuild so a character
--- login/logout re-tabs without the Manager caching identity. `onOpenAlert` is the nav callback
--- `fn(scopeKey, id)` fired when an alert row is double-clicked — main.lua's nav owner binds the
--- Editor to that entry. The #91 mutation callbacks (`onToggleEnabled` / `onRename` / `onDelete` /
--- `onCreateAlert` / `onCreateGroup`) and the #93 bulk callbacks are the host's Store+Runtime
--- wiring; absent ⇒ the matching Manager method is a silent no-op. All of these are the whole
--- seam onto the host.
 ---@param opts Watchdog.ManagerOpts|nil
 ---@return table
 function Manager.new(opts)
@@ -103,42 +67,35 @@ function Manager.new(opts)
         onExportEntries = opts and opts.onExportEntries,
         onImportJson = opts and opts.onImportJson,
         windowParent = opts and opts.windowParent,
-        activeScope = nil,          -- resolved lazily; nil ⇒ "first scope" (Global)
-        expanded = {},              -- expanded[scopeKey][id] = bool; absent ⇒ default (expanded)
-        expandVersion = 0,          -- bumped on every toggle, part of the rebuild signature
-        mutateVersion = 0,          -- bumped on every row/create mutation (#91) so enable/rename redraw
-        selected = {},              -- selected[id] = true; antichain after every toggle (#93)
-        selectVersion = 0,          -- bumped on every selection change; part of rebuild signature
-        lastSelectId = nil,         -- anchor for Shift-click range over VisibleRows()
+        activeScope = nil,          -- nil ⇒ first scope (Global)
+        expanded = {},              -- expanded[scopeKey][id]; absent ⇒ expanded
+        expandVersion = 0,
+        mutateVersion = 0,
+        selected = {},              -- selected[id] = true; antichain after every toggle
+        selectVersion = 0,
+        lastSelectId = nil,         -- Shift-click range anchor over VisibleRows()
         visible = false,
-        tick = 0,                   -- Logic-tick counter, for row double-click timing
-        lastRowId = nil,            -- id of the previously-pressed row (double-click pairing)
+        tick = 0,
+        lastRowId = nil,
         lastRowTick = -1000,
-        -- Layout size only (no screen placement — host/mux owns the window chrome).
         window = {
             w = Theme.WINDOW_W, h = Theme.WINDOW_H,
         },
-        -- Client-only component handles (nil until Mount); see the render half below.
-        contentParent = nil,        -- external parent (mux Content / rootWindow.content)
-        layoutHost = nil,           -- prettyui.Window (Add* / Layout.manage host)
-        tabs = nil,                 -- prettyui.Tabs instance (via layoutHost:AddTabs)
-        tabsScopeSig = nil,         -- scope key:label signature Tabs was built from
+        contentParent = nil,
+        layoutHost = nil,           -- prettyui.Window (Add* / Layout.manage)
+        tabs = nil,
+        tabsScopeSig = nil,
         treePanel = nil,
-        treeTop = 0,                -- content-local Y of treePanel (rename AddTextField coords)
-        bulkBarButtons = {},        -- PrettyUI FancyButtons on the bulk bar (via Add*)
-        toolbarButtons = {},        -- PrettyUI FancyButtons on the tab strip (via Add*)
-        lastSignature = nil,        -- last-rendered rebuild signature (skip no-op rebuilds)
-        -- Inline rename: PrettyUI TextField + the Entry id it's editing, or nil when idle.
+        treeTop = 0,                -- content-local Y (rename AddTextField coords)
+        bulkBarButtons = {},
+        toolbarButtons = {},
+        lastSignature = nil,
         renameField = nil,
         renameId = nil,
-        -- Delete confirm (#91): Entry id awaiting confirm, or nil when idle.
         pendingDeleteId = nil,
-        -- Bulk delete confirm (#93): true while the bulk Delete button awaits a second press.
         pendingBulkDelete = false,
-        -- After + Group (#78): begin inline rename on this id once the row is rebuilt.
-        pendingRenameId = nil,
-        -- Transfer modal (#94): separate prettyui.Window (not an in-content overlay).
-        transfer = nil,             -- { mode, text, message }|nil
+        pendingRenameId = nil,      -- begin inline rename once the row is rebuilt
+        transfer = nil,
         transferWindow = nil,
         transferField = nil,
     }, Manager)
@@ -147,8 +104,6 @@ end
 
 --- Pure logic: scopes ---------------------------------------------------------------------
 
--- The live scope list from the injected provider (always at least `Global`). Guarded so a throwing
--- provider degrades to an empty list rather than taking the frame down.
 ---@return Watchdog.ManagerScope[]
 function Manager:ScopeList()
     local ok, scopes = pcall(self.scopesProvider)
@@ -156,9 +111,7 @@ function Manager:ScopeList()
     return {}
 end
 
--- The active scope descriptor: the one whose `key` matches `self.activeScope`, or the first scope
--- (Global) when nothing is selected or the selection no longer exists (its character logged out /
--- switched). Returns nil only when the provider yielded no scopes at all.
+-- Stale `activeScope` (logged-out character) falls back to the first scope.
 ---@return Watchdog.ManagerScope|nil
 function Manager:ActiveScope()
     local scopes = self:ScopeList()
@@ -171,17 +124,13 @@ function Manager:ActiveScope()
     return scopes[1]
 end
 
--- The active scope's Bucket key, or nil when there are no scopes. Resolves through ActiveScope so a
--- stale `self.activeScope` (a since-departed character) reports the fallen-back-to key, not the dead one.
 ---@return string|nil
 function Manager:ActiveScopeKey()
     local scope = self:ActiveScope()
     return scope and scope.key or nil
 end
 
--- Selects the scope tab `key` renders. Clears the double-click pairing so a click that switched
--- tabs can't accidentally pair with a row press in the newly-shown tree. Clears selection (#93):
--- a scope switch replaces the visible list.
+-- Clears double-click pairing and selection (the visible list is replaced).
 ---@param key string
 function Manager:SetActiveScope(key)
     self.activeScope = key
@@ -191,8 +140,7 @@ end
 
 --- Pure logic: expand/collapse ------------------------------------------------------------
 
--- Whether group `id` in scope `scopeKey` is expanded. Groups default to **expanded** (an untouched
--- tree shows all its nesting and child counts on first open); a toggle records the explicit state.
+-- Groups default to expanded.
 ---@param scopeKey string
 ---@param id integer
 ---@return boolean
@@ -202,10 +150,6 @@ function Manager:IsExpanded(scopeKey, id)
     return perScope[id]
 end
 
--- True if `maybeDescendant` is `ancestorId` itself or nested under it in the active scope tree.
----@param ancestorId integer
----@param maybeDescendant integer
----@return boolean
 local function entryContainsId(entries, ancestorId, maybeDescendant)
     local function find(list)
         for _, e in ipairs(list or {}) do
@@ -230,9 +174,7 @@ local function entryContainsId(entries, ancestorId, maybeDescendant)
     return walk(root.children)
 end
 
--- Flips group `id`'s expand state in scope `scopeKey` and bumps the rebuild signature so the view
--- redraws. On collapse, drops any selection inside the group (#93) — those rows leave the visible
--- list. Read-only otherwise — no persistence; collapse state is transient session UI.
+-- Collapse is session UI only (not persisted). Drops nested selection when collapsing.
 ---@param scopeKey string
 ---@param id integer
 function Manager:ToggleExpand(scopeKey, id)
@@ -264,9 +206,7 @@ end
 
 --- Pure logic: tree flattening ------------------------------------------------------------
 
--- Walks a scope's Entry tree depth-first pre-order into the flat visible-row list, honoring
--- collapse: a collapsed group contributes its own row but none of its subtree. Shared by the
--- renderer and the tests; the one place tree shape becomes screen order.
+-- Collapsed group: own row only, no subtree.
 ---@param self table
 ---@param entries Watchdog.Entry[]|nil
 ---@param scopeKey string
@@ -292,8 +232,6 @@ local function flatten(self, entries, scopeKey, depth, out)
     return out
 end
 
--- The active scope's visible rows, in render order. Empty when there are no scopes or the active
--- tree is empty.
 ---@return Watchdog.ManagerRow[]
 function Manager:VisibleRows()
     local scope = self:ActiveScope()
@@ -301,9 +239,7 @@ function Manager:VisibleRows()
     return flatten(self, (scope.doc or {}).entries, scope.key, 0, {})
 end
 
--- Reacts to a row press (pure part, so the double-click gating in the view can be tested against
--- it): a group toggles expand; an alert reports up through onOpenAlert. `scopeKey` is captured at
--- press time so a row opened just as a tab switches still targets the tree it was drawn from.
+-- `scopeKey` from press time so a tab switch cannot retarget the row.
 ---@param scopeKey string
 ---@param row Watchdog.ManagerRow
 function Manager:_activateRow(scopeKey, row)
@@ -314,16 +250,13 @@ function Manager:_activateRow(scopeKey, row)
     end
 end
 
---- Pure logic: row editing ops (#91) ------------------------------------------------------
--- Each method reports through the matching host callback (main.lua wires Store + Runtime) and
--- bumps `mutateVersion` so the rebuild signature changes even when the root entry count does
--- not (enable / rename). A missing active scope or missing callback is a silent no-op.
+--- Pure logic: row editing ----------------------------------------------------------------
+-- Host callbacks; bump mutateVersion even when root count is unchanged (enable/rename).
 
 local function bumpMutate(self)
     self.mutateVersion = self.mutateVersion + 1
 end
 
--- Flips the Entry's own `enabled` via the host. The host re-evaluates the enabled-chain.
 ---@param id integer
 function Manager:ToggleEnabled(id)
     local scopeKey = self:ActiveScopeKey()
@@ -332,7 +265,6 @@ function Manager:ToggleEnabled(id)
     bumpMutate(self)
 end
 
--- Renames the Entry via the host.
 ---@param id integer
 ---@param name string
 function Manager:Rename(id, name)
@@ -342,8 +274,7 @@ function Manager:Rename(id, name)
     bumpMutate(self)
 end
 
--- Deletes the Entry (and its subtree) via the host. Confirm UI is the caller's job — this is the
--- committed delete.
+-- Committed delete; confirm UI is the caller's job.
 ---@param id integer
 function Manager:Delete(id)
     local scopeKey = self:ActiveScopeKey()
@@ -352,8 +283,6 @@ function Manager:Delete(id)
     bumpMutate(self)
 end
 
--- Locates `id` in `entries`, returning the entry, its sibling array, index, and parent Entry
--- (nil at root). Used for ↑/↓/Lift enablement without a Store dependency.
 ---@param entries Watchdog.Entry[]|nil
 ---@param id integer
 ---@param parent Watchdog.Entry|nil
@@ -372,7 +301,6 @@ local function findInTree(entries, id, parent)
     return nil, nil, nil, nil
 end
 
--- Whether ↑ / ↓ / Lift are legal for `id` in the active scope (tree siblings only).
 ---@param id integer
 ---@return boolean canUp
 ---@return boolean canDown
@@ -385,7 +313,6 @@ function Manager:RowMoveCaps(id)
     return index > 1, index < #siblings, parent ~= nil
 end
 
--- Swaps the Entry one step among its siblings via the host (`delta` -1 = up, +1 = down).
 ---@param id integer
 ---@param delta integer
 function Manager:ReorderSibling(id, delta)
@@ -395,7 +322,6 @@ function Manager:ReorderSibling(id, delta)
     bumpMutate(self)
 end
 
--- Lifts the Entry one level toward the root via the host (insert before former parent).
 ---@param id integer
 function Manager:Lift(id)
     local scopeKey = self:ActiveScopeKey()
@@ -404,8 +330,6 @@ function Manager:Lift(id)
     bumpMutate(self)
 end
 
--- Asks the host to mint + insert a new alert at the active scope root (and typically open it).
--- Returns the minted id when the host provides one.
 ---@return integer|nil
 function Manager:CreateAlert()
     local scopeKey = self:ActiveScopeKey()
@@ -416,8 +340,6 @@ function Manager:CreateAlert()
     return nil
 end
 
--- Asks the host to mint + insert a new empty group at the active scope root. Returns the minted
--- id when the host provides one (so the view can open an inline rename on the new row, #78).
 ---@return integer|nil
 function Manager:CreateGroup()
     local scopeKey = self:ActiveScopeKey()
@@ -428,18 +350,14 @@ function Manager:CreateGroup()
     return nil
 end
 
---- Pure logic: multi-select (#93) ---------------------------------------------------------
--- Selection is a map `id → true`, normalized to a group-as-unit **antichain** after every
--- toggle: a selected group represents its whole subtree, so no descendant is separately
--- selected (and checkboxes never go tri-state). Shift-click ranges over VisibleRows() order.
+--- Pure logic: multi-select ---------------------------------------------------------------
+-- Selection is `id → true`, normalized to a group-as-unit antichain (no descendant also selected).
 
 local function bumpSelect(self)
     self.selectVersion = self.selectVersion + 1
     self.pendingBulkDelete = false
 end
 
--- Ancestor id chain of `id` in `entries`, outermost-first (root → parent). Empty when `id` is
--- root-level or absent. Pure walk shared by NormalizeSelection.
 ---@param entries Watchdog.Entry[]|nil
 ---@param id integer
 ---@return integer[]
@@ -459,7 +377,6 @@ local function ancestorIdsOf(entries, id)
     return rec(entries, {}) or {}
 end
 
--- Drops any selected id that has an ancestor also selected — group-as-unit antichain.
 function Manager:NormalizeSelection()
     local scope = self:ActiveScope()
     local entries = scope and (scope.doc or {}).entries or nil
@@ -477,7 +394,6 @@ function Manager:NormalizeSelection()
     end
 end
 
--- Clears the selection map. Bumps selectVersion only when something was actually selected.
 function Manager:ClearSelection()
     local any = false
     for _ in pairs(self.selected) do any = true break end
@@ -493,7 +409,6 @@ function Manager:HasSelection()
     return false
 end
 
--- Selected ids in VisibleRows() order (antichain members only after NormalizeSelection).
 ---@return integer[]
 function Manager:SelectedIds()
     local out = {}
@@ -503,9 +418,6 @@ function Manager:SelectedIds()
     return out
 end
 
--- Toggles `id` in the selection. When `shift` is true and there is a prior anchor, selects the
--- inclusive VisibleRows() range from the anchor to `id` (additive). Always re-normalizes to an
--- antichain afterwards and bumps selectVersion.
 ---@param id integer
 ---@param shift boolean|nil
 function Manager:ToggleSelection(id, shift)
@@ -536,9 +448,6 @@ function Manager:ToggleSelection(id, shift)
     self:NormalizeSelection()
     bumpSelect(self)
 end
-
--- Host-facing bulk ops. Each reports through the matching callback and bumps mutateVersion.
--- Confirm UI for delete is the caller's / view's job — BulkDelete is the committed delete.
 
 ---@param ids integer[]|nil
 function Manager:BulkDelete(ids)
@@ -586,23 +495,20 @@ end
 function Manager:BulkExport(ids)
     ids = ids or self:SelectedIds()
     if #ids == 0 then return end
-    -- Preserve selection across export (#93).
+    -- Keep selection across export.
     self:_runExport(ids)
 end
 
--- Whole-scope export (#94 entry point 1): every root Entry in the active Bucket.
 function Manager:ExportScope()
     self:_runExport(nil)
 end
 
--- Single-row subtree export (#94 entry point 2).
 ---@param id integer
 function Manager:ExportRow(id)
     if type(id) ~= "number" then return end
     self:_runExport({ id })
 end
 
--- Shared encode → transfer modal path for every export entry point.
 ---@param ids integer[]|nil  # nil ⇒ whole active scope
 function Manager:_runExport(ids)
     local scopeKey = self:ActiveScopeKey()
@@ -618,12 +524,10 @@ function Manager:_runExport(ids)
     end
 end
 
--- Opens an empty import modal for the active scope (#94).
 function Manager:OpenImport()
     self:_openTransfer("import", "", "Paste an export envelope, then Import.")
 end
 
--- Tears down the transfer modal without applying.
 function Manager:CloseTransfer()
     self.transfer = nil
     local win = self.transferWindow
@@ -637,7 +541,7 @@ function Manager:CloseTransfer()
     end
 end
 
--- Commit the import field. Failures stay in the modal with the pasted text intact (#79).
+-- Failures stay in the modal with the pasted text intact.
 function Manager:ApplyImport()
     if self.transfer == nil or self.transfer.mode ~= "import" then return end
     local scopeKey = self:ActiveScopeKey()
@@ -696,11 +600,6 @@ end
 
 --- Rebuild signature ----------------------------------------------------------------------
 
--- A cheap string capturing everything the rendered tree depends on: the active scope, the expand
--- generation, the mutate generation (#91 — enable/rename don't change root count), the select
--- generation (#93), and each scope's key+label+entry-count. The view rebuilds only when this
--- changes, so a character login (new tab), a scope switch, an expand toggle, a row mutation, or a
--- selection change redraws — but an idle frame doesn't.
 ---@return string
 function Manager:_signature()
     local parts = {
@@ -718,11 +617,6 @@ end
 
 --- Client view: rows glyphs ---------------------------------------------------------------
 
--- The one-line label a row's name button renders: a chevron for a group (▾ open / ▸
--- collapsed), an icon, the name, and a group's direct-child count. Nesting indent is layout
--- (Theme.MANAGER_ROW_INDENT on the name button), not leading spaces. Kept pure so the exact string is
--- assertable in tests without a mounted component. Enable / rename / delete are sibling
--- controls (#91), not baked into this string.
 ---@param row Watchdog.ManagerRow
 ---@return string
 function Manager:RowLabel(row)
@@ -749,7 +643,6 @@ local function safeCheckStyle()
     return nil
 end
 
--- Content rect size: prefer the parent's width/height when available, else Theme defaults.
 ---@param parent ui.ComponentCollection|nil
 ---@return number, number
 local function contentSize(parent)
@@ -763,7 +656,6 @@ local function contentSize(parent)
     return w, h
 end
 
--- Apply hidden/enabled to a single content child (tabs root, tree, rename field).
 ---@param comp ui.Component|nil
 ---@param visible boolean
 local function setChildVisible(comp, visible)
@@ -774,7 +666,6 @@ local function setChildVisible(comp, visible)
     end)
 end
 
--- PrettyUI component root (wrappers expose `.root`; native components are themselves).
 ---@param comp any
 ---@return any
 local function componentRoot(comp)
@@ -783,8 +674,7 @@ local function componentRoot(comp)
     return comp
 end
 
--- Signature of scope tabs only (key+label). Recreate PrettyUI Tabs when this changes
--- (login/logout); keep Tabs across expand/enable/rename rebuilds.
+-- Recreate Tabs on login/logout (key+label); keep them across expand/enable/rename rebuilds.
 ---@return string
 function Manager:_scopeTabsSignature()
     local parts = {}
@@ -803,7 +693,6 @@ function Manager:_activeScopeIndex()
     return 1
 end
 
--- Destroys create-toolbar FancyButtons (layoutHost:AddFancyButton).
 function Manager:_destroyToolbar()
     for _, b in ipairs(self.toolbarButtons) do
         pcall(function() b:Destroy() end)
@@ -811,7 +700,6 @@ function Manager:_destroyToolbar()
     self.toolbarButtons = {}
 end
 
--- Destroys bulk-action bar FancyButtons (#93).
 function Manager:_destroyBulkBar()
     for _, b in ipairs(self.bulkBarButtons) do
         pcall(function() b:Destroy() end)
@@ -819,7 +707,6 @@ function Manager:_destroyBulkBar()
     self.bulkBarButtons = {}
 end
 
--- Destroys the tree Panel (row children die with it).
 function Manager:_destroyTree()
     self:_endRename(false)
     if self.treePanel ~= nil then
@@ -828,8 +715,7 @@ function Manager:_destroyTree()
     end
 end
 
--- Live rebuild helper: tear down toolbar + Tabs when the scope list changes.
--- NOT used from Unmount/Stop — see Unmount (must not Destroy before mux window Destroy).
+-- Live rebuild only — not Unmount/Stop (must not Destroy before mux window Destroy).
 function Manager:_destroyTabs()
     self:_destroyToolbar()
     self:_destroyBulkBar()
@@ -841,8 +727,7 @@ function Manager:_destroyTabs()
     self.tabsScopeSig = nil
 end
 
--- Ensures PrettyUI Tabs match the live scope list. Recreates on scope key/label change;
--- otherwise syncs the active tab without notifying (avoids rebuild re-entrancy).
+-- Recreate on key/label change; otherwise SetActive without notify (avoids rebuild re-entrancy).
 ---@return boolean
 function Manager:_ensureTabs()
     if self.layoutHost == nil or self.layoutHost.AddTabs == nil then
@@ -936,18 +821,6 @@ function Manager:_clearChildren()
     self:_destroyTree()
 end
 
--- Helper: mount a Button under `parent` with text `label`, at (x,y)/(w,h), wired to `onPress`.
--- When `enabled` is false the button is shown disabled and presses are ignored.
----@param parent ui.ComponentCollection
----@param x number
----@param y number
----@param w number
----@param h number
----@param label string
----@param onPress fun()
----@param enabled boolean|nil
----@return ui.Button|nil
--- Column widths shared by the tree header and each row (depth 0 for the header).
 ---@param rowW number
 ---@param depth integer|nil
 ---@return number baseNameW
@@ -966,7 +839,6 @@ local function managerColumnWidths(rowW, depth)
     return baseNameW, nameW, moveW, actionsW
 end
 
--- One header label cell: fixed width in the row's horizontal auto-layout strip.
 ---@param parent ui.ComponentCollection
 ---@param w number
 ---@param h number
@@ -999,6 +871,15 @@ local function mountHeaderCell(parent, w, h, text, center)
     end)
 end
 
+---@param parent ui.ComponentCollection
+---@param x number
+---@param y number
+---@param w number
+---@param h number
+---@param label string
+---@param onPress fun()
+---@param enabled boolean|nil
+---@return ui.Button|nil
 local function mountButton(parent, x, y, w, h, label, onPress, enabled)
     local button
     local okb = pcall(function() button = ui.Button.new(parent) end)
@@ -1034,7 +915,6 @@ local function isSubmitCause(cause)
     return false
 end
 
--- Commits (or abandons) the inline rename TextField.
 ---@param commit boolean
 function Manager:_endRename(commit)
     local field, id = self.renameField, self.renameId
@@ -1056,8 +936,7 @@ function Manager:_endRename(commit)
     pcall(function() field:Destroy() end)
 end
 
--- Mounts a transient PrettyUI TextField over the name slot for Entry `id`.
--- Content-local absolute coords on layoutHost (treePanel is native — not a Layout host).
+-- Content-local coords on layoutHost (treePanel is native — not a Layout host).
 ---@param id integer
 ---@param name string
 ---@param x number
@@ -1141,7 +1020,6 @@ function Manager:_deleteConfirmLabel(id)
     return "OK?"
 end
 
--- Ride-along descendant count across a multi-select set (for the bulk Delete confirm label).
 ---@param ids integer[]|nil
 ---@return integer
 function Manager:_bulkRideAlongCount(ids)
@@ -1163,9 +1041,7 @@ local function isShiftDown()
     return shift
 end
 
--- Trailing create/import/export actions on the tab strip row.
--- PrettyUI Tabs has no trailing-actions API and Tabs itself is not a ContentMethods host
--- (only TabPage is) — mount via layoutHost:AddFancyButton with absolute coords.
+-- Tabs has no trailing-actions API (only TabPage is a ContentMethods host) — AddFancyButton + abs coords.
 function Manager:_mountToolbar()
     if self.layoutHost == nil or self.layoutHost.AddFancyButton == nil then return end
     if prettyui == nil or prettyui.FancyButton == nil then return end
@@ -1226,11 +1102,7 @@ function Manager:_mountToolbar()
     if group ~= nil then self.toolbarButtons[#self.toolbarButtons + 1] = group end
 end
 
--- Copy-paste transfer as its own prettyui.Window (#94): titled chrome + AddText /
--- AddTextField / AddFancyButton. Parent is the mux-owned root Layer (same pattern as the
--- main shell) so poff / plugins_reload / Stop tear the dialog down with the plugin — never
--- parent directly to the game area. Oversize exports open in error mode with no payload.
--- Save-to-file is present but disabled pending a filesystem API.
+-- Transfer Window under mux-owned root Layer so poff/Stop tears it down — never parent to the game area.
 function Manager:_mountTransfer()
     if self.transfer == nil then return end
     if prettyui == nil or prettyui.Window == nil then return end
@@ -1332,8 +1204,6 @@ function Manager:_mountTransfer()
     pcall(function() win:Show() end)
 end
 
--- Bulk-action bar (#93): Delete / New group / Move (when another scope exists) / Export.
--- Sibling of Tabs under content, between the tab strip and the tree — via layoutHost:Add*.
 function Manager:_mountBulkBar(y)
     if not self:HasSelection() then return end
     if self.layoutHost == nil or self.layoutHost.AddFancyButton == nil then return end
@@ -1404,7 +1274,6 @@ function Manager:_mountBulkBar(y)
     end)
 end
 
--- Rebuilds toolbar + bulk bar + tree rows. Tabs recreate only when the scope-list signature changes.
 function Manager:_rebuild()
     if self.contentParent == nil or ui == nil then
         return
@@ -1523,7 +1392,7 @@ function Manager:_rebuild()
             end)
         end
 
-        -- Select column (#93): separate native ui.Check — not prettyui.CheckboxButton.
+        -- Native ui.Check, not prettyui.CheckboxButton.
         local selectMounted = false
         if ui.Check ~= nil then
             local sel
@@ -1555,8 +1424,7 @@ function Manager:_rebuild()
             end)
         end
 
-        -- Sibling Up/Down/Lift: sprite icons after select (client fonts are ASCII-only).
-        -- Always visible; disabled sprite + no-op click when illegal.
+        -- Sprite icons (client fonts are ASCII-only). Disabled sprite + no-op when illegal.
         do
             local function mountIconButton(x, y, w, h, sprite, spriteHover, spriteDisabled, isEnabled, onClick)
                 local iconBtn

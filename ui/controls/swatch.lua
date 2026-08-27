@@ -1,9 +1,3 @@
--- swatch.lua — the swatch Pin Control (ADR-0005 / #60): the inline Control for a `{ r, g, b, a }`
--- color pin. It edits nothing itself — the whole edit lives in the Color Popup (#30,
--- ui/color_popup.lua). Its job is to place the chip in the value column, project the stored color
--- onto the swatch Widget for the Node's draw, and OPEN the popup through the host on press, handing
--- it the Widget's hex codec so the popup needs no Control knowledge of its own.
-
 local Theme  = require("ui/theme")
 local Inline = require("ui/controls/inline")
 local Swatch = require("ui/widgets/swatch")

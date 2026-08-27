@@ -1,11 +1,3 @@
--- controls.lua — the Type-Tag → Pin Control registry (ADR-0005). Maps an unconnected data-input
--- Pin's Type Tag to the Pin Control MODULE (ui/controls/*.lua) that owns how its Control is laid out,
--- displayed, clicked, and bound to the engine. A tag with no Pin Control gets no Control (ADR-0004).
---
--- Two registration paths: Controls.Register(tag, descriptor) auto-wires a Widget kind
--- (number/text/enum/swatch/capture/mode) from its per-tag config; Controls.RegisterPinControl(tag,
--- module) is the explicit path for composite bands (coordgrid, matcher) a widget kind can't name.
-
 local ScalarControl  = require("ui/controls/scalar")
 local EnumControl    = require("ui/controls/enum")
 local SwatchControl  = require("ui/controls/swatch")
@@ -18,9 +10,6 @@ local Controls = {}
 
 local pinControls = {}
 
--- Registers the Pin Control module for a Type Tag. The module supplies ReservedHeight/Layout
--- (geometry the Node delegates to), Display (value projection), and Press (click behavior, driven
--- through the passed host). Returns the module.
 ---@param tag string
 ---@param module table
 ---@return table
@@ -31,7 +20,6 @@ function Controls.RegisterPinControl(tag, module)
     return module
 end
 
--- The Pin Control module for a Type Tag, or nil (an unregistered tag gets no Control).
 ---@param tag string|nil
 ---@return table|nil
 function Controls.PinControlFor(tag)
@@ -47,11 +35,6 @@ end
 ---@field format (fun(value: any): string)|nil  -- capture: value -> summary text
 ---@field modes table[]|nil  -- mode: { { key, label, enabled, reason? }, ... }
 
--- Registers an auto-wired Pin Control for a Type Tag from a descriptor `{ widget = ..., ... }`.
--- The descriptor's widget kind selects the Pin Control and its per-tag config threads straight in
--- (an enum's choices, a capture's screen/object kind + placeholder + summary format, a mode's list).
--- Returns the descriptor. The composite bands (coordgrid/matcher) register their modules directly
--- with RegisterPinControl instead — "composite" alone doesn't say which module.
 ---@param tag string
 ---@param descriptor ControlDescriptor
 ---@return ControlDescriptor
@@ -65,9 +48,6 @@ function Controls.Register(tag, descriptor)
     elseif descriptor.widget == "enum" then
         Controls.RegisterPinControl(tag, EnumControl.new(descriptor.choices or {}))
     elseif descriptor.widget == "swatch" then
-        -- Every color pin edits the same way (the Color Popup), so the swatch takes no per-tag
-        -- config; capture and mode do (their kind/placeholder/format, their modes list), threaded
-        -- straight from the descriptor that declared them.
         Controls.RegisterPinControl(tag, SwatchControl.new())
     elseif descriptor.widget == "capture" then
         Controls.RegisterPinControl(tag, CaptureControl.new({
@@ -80,12 +60,7 @@ function Controls.Register(tag, descriptor)
     return descriptor
 end
 
--- Built-in registrations. number/string map to scalar fields; bool is the demonstrator enum
--- (true/false), so all three primitive Widget kinds exercise off existing pins with no node-
--- definition changes. coord/any are intentionally absent (composite/unknown), so their pins get
--- no Control. NOTE: ui.ComboField assigns each Add()'d entry an id by ALPHABETICAL rank of its
--- label, not by declaration order here (ADR-0004's ComboField caveat) — but the Editor matches
--- choices by label text, never id, so `choices` may be declared in whatever order reads best.
+-- ComboField ranks Add() entries alphabetically; match choices by label text, never id.
 Controls.Register("number", { widget = "number" })
 Controls.Register("string", { widget = "text" })
 Controls.Register("bool", {
@@ -96,21 +71,11 @@ Controls.Register("bool", {
     },
 })
 
--- coordgrid (#25) and matcher (#56) are composite BANDS — their Pin Control modules own the band
--- layout, display, click, and per-axis/table binding. Registered explicitly (a "composite" widget
--- kind doesn't say which module) via RegisterPinControl.
 Controls.RegisterPinControl("coordgrid", require("ui/controls/coordgrid"))
 Controls.RegisterPinControl("matcher", require("ui/controls/matcher"))
 
--- color (#30): a {r, g, b, a} table Control edited via the Canvas-drawn Color Popup, opened from a
--- checker-backed swatch chip. The swatch Pin Control owns the chip and hands the popup its own hex
--- codec, so the tag needs no per-tag config.
 Controls.Register("color", { widget = "swatch" })
 
--- toastIcon (#36): a curated sprite-id dropdown for the Toast action's `icon` config, plus a "None"
--- option (value = nil). Ids are the High-confidence entries from docs/research/popup-frame-
--- sprites.md's notification-icon set; `id.Sprite` is absent under the bare interpreter, so ids are
--- the literal numeric constants (recorded in that research doc), not `id.Sprite.*` lookups.
 Controls.Register("toastIcon", {
     widget = "enum",
     choices = {

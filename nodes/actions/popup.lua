@@ -1,42 +1,11 @@
--- popup.lua — the Popup action node (`action.popup`, #38): a collection-log / league-task
--- style banner that animates in at top-centre, holds, and fades out, all on the always-on
--- overlay Canvas (see effects.lua / #29). It is *self-drawn* (RS3 has no native popup API,
--- per TODO.md) and *auto-expiring*, so unlike the dismiss-pin effects it needs no dismiss
--- exec pin — the single `body` data pin is the only wire-able input.
---
--- Config vs. wiring: `title` / `icon` / `theme` / `hold` are node-config expressed the only
--- way this engine stores per-node config — as data-input pins carrying Controls (ADR-0004's
--- Control Box). They default to sensible values and are meant to be set inline rather than
--- wired; `body` is the one input a graph typically connects. `icon` and `theme` reuse the
--- enum Control (a curated dropdown), registered via ui/controls.lua's Control Spec seam.
---
--- Concurrency is Queue-only (AC): every popup, from any Popup node in any alert, shares one
--- owner key so at most one banner is on screen at a time and the rest wait their turn —
--- exactly how a real collection-log / task-complete popup behaves.
---
--- Sprite ids for the Leagues theme come from the #20 research (docs/research/popup-frame-
--- sprites.md), stored as bare numeric literals (with their `id.Sprite` constant name in a
--- comment) rather than `id.Sprite.X` lookups so this module loads under the standalone Lua
--- test harness where the client `id` global is absent. Native piece dimensions and the
--- STATICONS skill-index map are flagged build-verify in the research and the theme table.
-
 local Popup = {}
 
---- Animation timeline --------------------------------------------------------------------
--- Fixed in/out ramps; only HOLD is author-configurable (~4s default, per AC). Durations are
--- in seconds and advanced against main.lua's LOGIC_TICK_SECONDS via the effect handle's
--- update(dt), the same fixed-dt convention every effect uses.
 Popup.IN_SECONDS = 0.3
 Popup.OUT_SECONDS = 0.4
 Popup.DEFAULT_HOLD_SECONDS = 4.0
 
--- Owner key every popup handle is queued under, so all popups (across all Popup nodes and
--- all alerts) share a single Queue — one banner live, the rest pending (AC: Queue-only).
 Popup.OWNER = "action.popup"
 
--- Normalize a raw `hold` control value into a valid duration: default when non-numeric,
--- clamp negatives to 0. The single source of truth both Anim and BuildHandle read, so a
--- zero/negative hold always collapses to just the in->out ramps (never divides by 0).
 local function normalizeHold(hold)
     hold = tonumber(hold) or Popup.DEFAULT_HOLD_SECONDS
     if hold < 0 then hold = 0 end

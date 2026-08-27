@@ -1,10 +1,3 @@
--- mode.lua — the mode multi-select Pin Control (ADR-0005 / #61): a composite BAND of one checkbox row
--- per mode (object_marker's #40 Tile/Hull/Outline/Clickbox). Only ENABLED rows toggle; disabled rows
--- are the unavailable-node idiom — shown but inert, with a "needs render API" reason appended. The
--- stored Control is a `{ [key] = boolean }` table; a click flips one key read-modify-write so the
--- other rows survive. Built from the tag's `modes` list, each Layout sub-rect baking its `enabled`
--- flag so the Node's checkbox draw needs no descriptor lookup.
-
 local Theme    = require("ui/theme")
 local Util     = require("util")
 local Checkbox = require("ui/widgets/checkbox")

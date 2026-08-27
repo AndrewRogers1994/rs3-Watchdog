@@ -1,49 +1,23 @@
--- store.lua — Watchdog's persistence backend: the `global` Bucket and the Entry tree it holds.
+-- store.lua — PersistentDB Buckets and the Entry tree (LibNodeGraph never touches persistentdb).
 --
--- LibNodeGraph deliberately never touches persistentdb (ADR-0007): the library only
--- produces/consumes tables + strings, and the *consumer* owns actual persistence. This
--- module is that consumer half for Watchdog.
+-- One Bucket per scope: `{ version, entries, infoboxAnchor }` under an un-prefixed key
+-- (`global` or `player_<normalized>` — PersistentDB is already plugin-scoped).
 --
--- ## The Bucket model (#75, #81)
---
--- Persistence is a per-Scope **Bucket**: one `PersistentDB` key holding one Scope's tree as
--- `{ version, entries, infoboxAnchor }`. This ticket (#86) delivers the `global` Bucket only —
--- per-character `player_<normalized>` buckets are #89. Keys carry **no `watchdog_` prefix**:
--- `PersistentDB` is already plugin-scoped, so the Bucket for the shared scope is plain `global`.
--- An absent `global` key is a fresh install (empty bucket); ordinary schema bumps are version-
--- gated on the document's `version` field, not a separate key hop.
---
--- ## The Entry tree (#75)
---
--- `entries` is a tree of **Entry** records. Every Entry has a minted `id`, a `kind`
--- (`"alert" | "group"`), a `name`, and an `enabled` flag. An **alert** leaf also carries its
--- serialized `graph` + `layout`; a **group** branch carries a `children` array of Entries.
--- This ticket's fresh-install / restore paths produce only root-level alerts (groups are #88),
--- but the schema and every helper here are already tree-shaped so groups drop in additively.
---
--- **`id` is the identity.** Names carry *no* uniqueness constraint, so every Store operation
--- keys on `id`, never name (a name is display text and may repeat across entries). Ordering is
--- array position within a parent's `children` (root order for top-level entries).
---
--- `graph` is exactly what LibNodeGraph.Serialize produces (the same shareable structure a user
--- would export), so there is no separate saved-vs-shared representation. Layout is stored as an
--- array of { id, x, y } rather than an id-keyed map because JSON object keys must be strings; it
--- round-trips back to a nodeId-keyed map on load. That mapping only stays valid because
--- LibNodeGraph.Deserialize preserves node ids.
+-- `id` is identity: every op keys on `id`, never `name` (display text, not unique). Alerts
+-- carry Serialize `graph` + `layout`; groups carry `children`. Layout is an array of
+-- `{ id, x, y }` because JSON object keys must be strings; it round-trips to a nodeId-keyed
+-- map on load (valid because Deserialize preserves node ids).
 
 local Util = require("util")
 
 local Store = {}
 
--- Bucket keys are un-prefixed — PersistentDB is already plugin-scoped (#81). The `global` scope
--- keys on a fixed string; a per-character scope (#89) keys on `player_<normalized displayName>`.
+-- Un-prefixed: PersistentDB is plugin-scoped. Character buckets: `player_<normalized>`.
 local DB_KEY = "global"
 local DOC_VERSION = 2
 
--- The `PersistentDB` key for a character's Bucket (#89): `player_` + the normalized display name.
--- Normalizing (see Util.NormalizePlayerName) means a cosmetic case/whitespace difference in what
--- the client returns can't silently orphan a bucket, and the `player_` namespace lets an
--- IterateEntries pass tell character buckets apart from `global` (#77 §4).
+-- Character Bucket key. Normalize so case/whitespace cannot orphan a bucket; `player_`
+-- distinguishes these from `global`.
 ---@param displayName string
 ---@return string
 function Store.PlayerKey(displayName)
@@ -51,14 +25,7 @@ function Store.PlayerKey(displayName)
 end
 
 --- Persisted schema -----------------------------------------------------------------------
--- These describe exactly what lives under the DB_KEY JSON string. `Watchdog.Bucket` is the
--- single shape that round-trips: it's what `Store.Load` returns and what `Store.Save`/`Encode`
--- consume — so the type *is* the persistence contract.
 
----One node of a Scope's persisted tree (#75). Identity is `id`; `name` is non-unique display
----text. An **alert** (`kind == "alert"`) carries `graph` + `layout` and is a leaf; a **group**
----(`kind == "group"`) carries `children` and is a branch. The alert-only / group-only fields are
----absent on the other kind.
 ---@class Watchdog.Entry
 ---@field id integer                               # minted identity — the key every op uses
 ---@field kind "alert"|"group"                     # leaf (alert) vs branch (group)
@@ -68,16 +35,11 @@ end
 ---@field layout Watchdog.LayoutArray|nil          # alert only: node positions, on-disk array form
 ---@field children Watchdog.Entry[]|nil            # group only: nested entries, in order
 
----One Scope's whole persisted document: a `version`, the Entry tree, and (for the `global`
----bucket) the shared InfoBox anchor. The one type that survives a save -> load round-trip intact.
 ---@class Watchdog.Bucket
 ---@field version integer                          # schema version (DOC_VERSION), for migrations
 ---@field entries Watchdog.Entry[]                 # root-level entries, in order
----@field infoboxAnchor Watchdog.Point|nil         # shared InfoBox strip position (#41); nil until moved
+---@field infoboxAnchor Watchdog.Point|nil         # shared InfoBox strip; nil until moved
 
----A saved alert rebuilt into live objects (the return shape of RestoreAll). Mirrors an alert
----Entry but with the runtime forms: a live `LibNodeGraph.Graph` and the id-keyed
----`Watchdog.Layout`. Carries the entry `id` so the runtime can persist enable/disable by id.
 ---@class Watchdog.RestoredAlert
 ---@field id integer
 ---@field name string
@@ -98,21 +60,13 @@ end
 
 --- Layout <-> JSON-safe shapes ------------------------------------------------------------
 
----A node's on-canvas position, in Graph-space (the pan/zoom-independent coordinate the View
----transform maps to the screen). Top-left corner of the node box.
 ---@class Watchdog.Point
 ---@field x number
 ---@field y number
 
----The editor's Layout: where each node sits on the canvas, keyed by its LibNodeGraph node id.
----Purely UI state — the engine has no concept of node position, so Watchdog owns this and
----persists it alongside the serialized graph. A node id with no entry falls back to a default
----placement when first drawn.
 ---@alias Watchdog.Layout table<integer, Watchdog.Point>
 
----The on-disk form of a Layout: an array of { id, x, y } records. JSON object keys must be
----strings, so the id can't be a table key here — it rides as a field and round-trips back to a
----nodeId-keyed Watchdog.Layout on load. Sorted by id purely so saved files diff cleanly.
+---On-disk Layout: array of { id, x, y } (JSON object keys must be strings). Sorted by id for diffs.
 ---@alias Watchdog.LayoutArray { id: integer, x: number, y: number }[]
 
 ---@param layout Watchdog.Layout|nil
@@ -138,8 +92,7 @@ local function layoutFromArray(arr)
     return layout
 end
 
--- Normalizes any stored/passed enabled value to a strict boolean, treating nil (an entry
--- written before the flag existed, or an omitted argument) as enabled.
+-- nil (pre-flag entries / omitted arg) counts as enabled.
 ---@param enabled boolean|nil
 ---@return boolean
 local function normalizeEnabled(enabled)
@@ -153,12 +106,8 @@ function Store.Empty()
     return { version = DOC_VERSION, entries = {}, infoboxAnchor = nil }
 end
 
---- Entry-tree helpers (all id-keyed, name-agnostic) ---------------------------------------
--- The tree is walked depth-first, pre-order (a parent before its children), so `Leaves`,
--- `MintId`, and `FindById` all see entries in the same stable order the UI renders them.
+--- Entry-tree helpers (id-keyed) ----------------------------------------------------------
 
----Applies `fn(entry, siblings, index)` to every entry in the tree, depth-first pre-order.
----`siblings` is the array the entry lives in and `index` its position, so a visitor can splice.
 ---@param entries Watchdog.Entry[]|nil
 ---@param fn fun(entry: Watchdog.Entry, siblings: Watchdog.Entry[], index: integer)
 local function walk(entries, fn)
@@ -170,9 +119,7 @@ local function walk(entries, fn)
     end
 end
 
--- Mints an id not used by any entry anywhere in the tree (max existing id + 1, starting at 1).
--- Mint one id and insert its entry before minting the next — two mints against the same tree
--- state return the same id.
+-- max(id)+1. Mint, then insert, before minting again — two mints on the same tree collide.
 ---@param doc Watchdog.Bucket
 ---@return integer
 function Store.MintId(doc)
@@ -183,8 +130,6 @@ function Store.MintId(doc)
     return max + 1
 end
 
--- Every alert leaf (`kind == "alert"`) in the tree, in depth-first pre-order — what the runtime
--- restores as live alerts. Group branches are walked into but not themselves returned.
 ---@param doc Watchdog.Bucket
 ---@return Watchdog.Entry[]
 function Store.Leaves(doc)
@@ -195,8 +140,6 @@ function Store.Leaves(doc)
     return leaves
 end
 
--- Finds the entry with `id` anywhere in the tree, returning it plus the array it lives in and
--- its index there (so the caller can reorder/splice without re-searching). Lone nil if absent.
 ---@param doc Watchdog.Bucket
 ---@param id integer
 ---@return Watchdog.Entry|nil entry
@@ -212,9 +155,6 @@ function Store.FindById(doc, id)
     return found, foundSiblings, foundIndex
 end
 
--- Appends `entry` to the end of `parentId`'s children (a group), or to the root when `parentId`
--- is nil. Returns true on success; false if `parentId` names an entry that doesn't exist or isn't
--- a group. Mutates `doc` in place.
 ---@param doc Watchdog.Bucket
 ---@param entry Watchdog.Entry
 ---@param parentId integer|nil                     # nil ⇒ root; else a group entry's id
@@ -234,8 +174,6 @@ function Store.InsertEntry(doc, entry, parentId)
     return true
 end
 
--- Removes the entry with `id` from wherever it sits in the tree (its whole subtree goes with it).
--- Returns the removed entry, or nil if no entry had that id.
 ---@param doc Watchdog.Bucket
 ---@param id integer
 ---@return Watchdog.Entry|nil
@@ -246,9 +184,7 @@ function Store.DeleteById(doc, id)
     return entry
 end
 
--- True if `targetId` names `entry` itself or any entry inside its subtree — the cycle guard
--- MoveSubtree uses so a group can't be reparented under one of its own descendants (which would
--- detach that whole branch from the tree).
+-- Cycle guard: true if `targetId` is `entry` or nested under it.
 ---@param entry Watchdog.Entry
 ---@param targetId integer
 ---@return boolean
@@ -260,11 +196,7 @@ local function subtreeContains(entry, targetId)
     return false
 end
 
--- Reparents the entry with `id` (and its whole subtree) to the end of `newParentId`'s children,
--- or to the root when `newParentId` is nil. Id-keyed like every tree op; the moved subtree stays
--- intact. Returns true on success, false and leaves the tree untouched when: no entry has `id`;
--- `newParentId` names an entry that doesn't exist or isn't a group; or `newParentId` is `id` itself
--- or one of its descendants (a cycle — see subtreeContains). Mutates `doc` in place.
+-- Reparent subtree to `newParentId` (nil = root). No-op on missing id, bad parent, or cycle.
 ---@param doc Watchdog.Bucket
 ---@param id integer
 ---@param newParentId integer|nil                  # nil ⇒ root; else a group entry's id
@@ -272,9 +204,7 @@ end
 function Store.MoveSubtree(doc, id, newParentId)
     local entry, siblings, index = Store.FindById(doc, id)
     if entry == nil then return false end
-    -- Validate the destination *before* detaching, so a refused move is a genuine no-op: reject a
-    -- cycle (into self or a descendant), or a parent that doesn't exist / isn't a group. The
-    -- group/existence half mirrors InsertEntry's, which does the actual append below.
+    -- Validate destination before detach so a refused move is a no-op.
     if newParentId ~= nil then
         if subtreeContains(entry, newParentId) then return false end
         local parent = Store.FindById(doc, newParentId)
@@ -284,9 +214,7 @@ function Store.MoveSubtree(doc, id, newParentId)
     return Store.InsertEntry(doc, entry, newParentId)
 end
 
--- Swaps the entry with `id` one step among its siblings (`delta` = -1 up, +1 down). Returns true
--- on success; false when the id is missing or the move would leave the sibling array bounds.
--- Same-parent only — does not reparent (see LiftEntry). Mutates `doc` in place.
+-- Same-parent sibling swap only (does not reparent; see LiftEntry).
 ---@param doc Watchdog.Bucket
 ---@param id integer
 ---@param delta integer                            # -1 = toward index 1; +1 = toward end
@@ -301,9 +229,7 @@ function Store.ReorderSibling(doc, id, delta)
     return true
 end
 
--- Lift: reparent one level toward the root and insert immediately before the former parent.
--- Carries the whole subtree when `id` is a group. Returns false when missing or already root.
--- Mutates `doc` in place. Distinct from MoveSubtree (which appends at the destination).
+-- Lift one level; insert immediately before the former parent (MoveSubtree appends instead).
 ---@param doc Watchdog.Bucket
 ---@param id integer
 ---@return boolean
@@ -345,16 +271,10 @@ function Store.LiftEntry(doc, id)
     return true
 end
 
---- Enabled-chain (#88) --------------------------------------------------------------------
--- `enabled` is an inheritable master switch: an alert fires iff its own `enabled` AND every
--- ancestor group's `enabled` are true — the enabled-chain. A group's flag is stored on the group
--- Entry alone (SetEnabled by id, above, flips it); disabling a group never touches a descendant's
--- own `enabled`, so re-enabling it restores exactly the prior per-alert state. The resolution is
--- always live over the current tree, so a move (Store.MoveSubtree) re-parents an entry into a new
--- chain with no cached state to invalidate.
+--- Enabled-chain --------------------------------------------------------------------------
+-- Alert fires iff own `enabled` AND every ancestor group's `enabled`. Disabling a group does
+-- not touch descendant flags; re-enable restores prior per-alert state. Resolved live (no cache).
 
--- Returns the ancestor groups of the entry with `id`, outermost-first (root → the entry's parent),
--- or nil if no entry has that id. Purely the chain *above* the entry — the entry itself is excluded.
 ---@param entries Watchdog.Entry[]|nil
 ---@param id integer
 ---@return Watchdog.Entry[]|nil
@@ -376,8 +296,6 @@ local function ancestorsOf(entries, id)
     return rec(entries, {})
 end
 
--- Ancestor group ids of `id`, outermost-first (root → parent), excluding `id` itself. Empty
--- when `id` is root-level or absent.
 ---@param doc Watchdog.Bucket
 ---@param id integer
 ---@return integer[]
@@ -389,9 +307,7 @@ function Store.AncestorIds(doc, id)
     return ids
 end
 
--- Nearest common ancestor **group** of `ids` — the deepest group that contains every id as a
--- descendant (not the ids themselves). nil when the common parent is the Bucket root (or `ids`
--- is empty). Used by bulk New-group (#93) so the new group lands under that parent.
+-- Deepest group containing every id as a descendant; nil when the common parent is the Bucket root.
 ---@param doc Watchdog.Bucket
 ---@param ids integer[]
 ---@return integer|nil
@@ -413,9 +329,7 @@ function Store.NearestCommonAncestor(doc, ids)
     return prefix[#prefix]
 end
 
--- Bulk New-group (#93): mint an empty group under the nearest common ancestor of `ids`, then
--- MoveSubtree each id (in the given order) into it. Returns the new group id, or nil if `ids`
--- is empty. Mutates `doc` in place; caller persists.
+-- Mint a group under the NCA of `ids`, then MoveSubtree each id into it. Caller persists.
 ---@param doc Watchdog.Bucket
 ---@param ids integer[]
 ---@param name string|nil
@@ -432,8 +346,7 @@ function Store.GroupSelected(doc, ids, name)
     return newId
 end
 
--- Remint any entry ids in `entry`'s subtree that already exist in `destDoc`, so a cross-bucket
--- insert can't collide. Ids that are free in dest are preserved (#93 id-preserving move).
+-- Remint colliding ids in `entry`'s subtree; free ids in dest are preserved.
 ---@param entry Watchdog.Entry
 ---@param destDoc Watchdog.Bucket
 local function remintCollidingIds(entry, destDoc)
@@ -463,9 +376,7 @@ local function remintCollidingIds(entry, destDoc)
     fix(entry)
 end
 
--- Cross-bucket move (#93): detach `id` from `srcDoc` and append it at `destDoc`'s root.
--- Preserves ids when free in dest; remints colliding ones. Returns the moved root entry
--- (possibly reminted), or nil if `id` was absent in src. Mutates both docs; caller persists.
+-- Cross-bucket: detach `id` from src, append at dest root. Preserve free ids; remint collisions.
 ---@param srcDoc Watchdog.Bucket
 ---@param destDoc Watchdog.Bucket
 ---@param id integer
@@ -478,10 +389,7 @@ function Store.MoveEntryToBucket(srcDoc, destDoc, id)
     return entry
 end
 
--- True unless some ancestor group of the entry with `id` is disabled — the upstream half of the
--- enabled-chain, excluding the entry's own flag. A root-level entry (no ancestors) and an absent
--- `id` both return true: nothing upstream suppresses them. This is the gate the runtime ANDs with
--- an alert's own `enabled` at fire time (main.lua wires it via Runtime:SetEnabledResolver).
+-- Upstream half of the enabled-chain (excludes own flag). Root / missing id → true.
 ---@param doc Watchdog.Bucket
 ---@param id integer
 ---@return boolean
@@ -494,9 +402,6 @@ function Store.AncestorsEnabled(doc, id)
     return true
 end
 
--- The full enabled-chain for the entry with `id`: its own `enabled` AND every ancestor group's
--- `enabled`. False for an unknown `id` (an absent entry is not enabled). The Manager's per-row
--- "does this fire?" query; the runtime instead composes AncestorsEnabled with its own live flag.
 ---@param doc Watchdog.Bucket
 ---@param id integer
 ---@return boolean
@@ -508,8 +413,6 @@ end
 
 --- Entry construction ---------------------------------------------------------------------
 
--- Builds an alert Entry from a *live* graph (serialized here) + its Layout. `enabled` defaults
--- to true. The caller mints `id` (Store.MintId) and inserts the result (Store.InsertEntry).
 ---@param id integer
 ---@param name string
 ---@param graph LibNodeGraph.Graph                 # a live graph; serialized into the entry here
@@ -527,9 +430,6 @@ function Store.NewAlertEntry(id, name, graph, layout, enabled)
     }
 end
 
--- Builds a group Entry. Groups aren't produced by this ticket's fresh-install / restore paths
--- (that's #88) — this exists so the tree helpers have a group to nest into and so the schema
--- demonstrably doesn't preclude them.
 ---@param id integer
 ---@param name string
 ---@param enabled boolean|nil
@@ -547,9 +447,7 @@ end
 
 --- Mutation by id -------------------------------------------------------------------------
 
--- Flips an entry's enabled flag in place, keyed by `id` (the runtime's persistence hook for
--- SetEnabled/Toggle). Returns true if an entry with that id existed, false otherwise. Does not
--- persist; the caller runs Store.Save.
+-- Keyed by `id`. Does not persist; caller Save.
 ---@param doc Watchdog.Bucket
 ---@param id integer
 ---@param enabled boolean
@@ -561,9 +459,7 @@ function Store.SetEnabled(doc, id, enabled)
     return true
 end
 
--- Renames an entry in place, keyed by `id` (Manager row rename, #91). Returns true if an entry
--- with that id existed, false otherwise. Names carry no uniqueness constraint — this only mutates
--- the targeted entry. Does not persist; the caller runs Store.Save.
+-- Names are not unique; this only mutates the targeted id. Does not persist; caller Save.
 ---@param doc Watchdog.Bucket
 ---@param id integer
 ---@param name string
@@ -575,9 +471,6 @@ function Store.SetName(doc, id, name)
     return true
 end
 
--- Re-serializes a *live* graph + Layout back into the alert Entry with `id` (the editor autosave
--- path). Returns true if an alert with that id existed and was updated, false otherwise. Does not
--- persist; the caller runs Store.Save.
 ---@param doc Watchdog.Bucket
 ---@param id integer
 ---@param graph LibNodeGraph.Graph
@@ -593,12 +486,7 @@ end
 
 --- Restore --------------------------------------------------------------------------------
 
--- Rebuilds *every* alert leaf into a live instance (#27: all saved alerts instantiate live at
--- startup, not just the one the editor is viewing, so triggers in every enabled alert fire).
--- Returns an array of { id, name, graph, layout, enabled } in tree order. Deserialize is lenient
--- (#53): an unregistered node type loads as an inert placeholder rather than dropping the alert.
--- The pcall stays as a backstop for a genuinely corrupt entry (e.g. `graph`/`nodes` not a table),
--- so one malformed alert can't take the others down.
+-- Every alert leaf. Unknown node types load as placeholders; pcall skips a corrupt graph.
 ---@param doc Watchdog.Bucket
 ---@param registry LibNodeGraph.Registry
 ---@return Watchdog.RestoredAlert[]  # one live alert per restorable leaf, in tree order
@@ -623,11 +511,8 @@ function Store.RestoreAll(doc, registry)
     return restored
 end
 
---- InfoBox Area anchor (#41) --------------------------------------------------------------
--- The shared InfoBox strip's draggable anchor lives at the bucket's top level (it's not
--- per-entry state, unlike an alert's `enabled` flag) — one strip position for the whole plugin.
--- The InfoBox Area's own EndDrag calls SetInfoBoxAnchor directly (main.lua wires it), same seam
--- shape as runtime.lua's SetEnabled persistence hook.
+--- InfoBox Area anchor --------------------------------------------------------------------
+-- Strip position is bucket-level, not per-entry.
 
 ---@param doc Watchdog.Bucket
 ---@param x number
@@ -636,8 +521,6 @@ function Store.SetInfoBoxAnchor(doc, x, y)
     doc.infoboxAnchor = { x = x, y = y }
 end
 
--- Returns x, y, or nil, nil if no anchor was ever saved (a fresh install; the caller keeps
--- ui/infobox.lua's own default top-left anchor).
 ---@param doc Watchdog.Bucket
 ---@return number|nil x
 ---@return number|nil y
@@ -649,8 +532,6 @@ end
 
 --- persistentdb I/O -----------------------------------------------------------------------
 
--- Encodes the whole bucket to its JSON string. Exposed so a caller can cheaply diff the current
--- document against the last-saved string before deciding to persist.
 ---@param doc Watchdog.Bucket
 ---@return string|nil  # the JSON text, or nil if no codec is available / encoding failed
 function Store.Encode(doc)
@@ -661,9 +542,6 @@ function Store.Encode(doc)
     return nil
 end
 
--- Reads and decodes the raw JSON at `key` into a Bucket, or an empty one when the key is absent,
--- unreadable, or not valid JSON. Never returns nil. Used for every character Bucket (#89) and by
--- Store.Load for `global`.
 ---@param key string
 ---@return Watchdog.Bucket doc  # the same shape Store.SaveTo persists (the round-trip contract)
 function Store.LoadKey(key)
@@ -685,15 +563,11 @@ function Store.LoadKey(key)
     return doc
 end
 
--- Reads the saved `global` bucket, or an empty one when there's nothing saved / it can't be
--- parsed. Never returns nil, so callers always get a document to work on.
 ---@return Watchdog.Bucket doc  # the same shape Store.Save persists (the round-trip contract)
 function Store.Load()
     return Store.LoadKey(DB_KEY)
 end
 
--- Persists `doc` as one JSON string under `key`. Returns true on success. The keyed sibling of
--- Store.Save: used for character Buckets (#89) and reused by Store.Save for the `global` key.
 ---@param key string
 ---@param doc Watchdog.Bucket  # the same shape Store.LoadKey returns (the round-trip contract)
 ---@return boolean  # true if the document was encoded and written
@@ -708,7 +582,6 @@ function Store.SaveTo(key, doc)
     return ok
 end
 
--- Persists the bucket as one JSON string under the `global` key. Returns true on success.
 ---@param doc Watchdog.Bucket  # the same shape Store.Load returns (the round-trip contract)
 ---@return boolean  # true if the document was encoded and written
 function Store.Save(doc)

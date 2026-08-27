@@ -1,28 +1,3 @@
--- object_marker.lua — action.object_marker (#40): a world-anchored tile marker (RuneLite object
--- markers) drawn on the always-on overlay Canvas (effects.lua, #29). Unlike Screen Marker's
--- static screen-space rect (#39), the source is an authoring-time *capture* of a game object
--- (ui/object_marker_capture.lua): the "Select object" button arms a global-modal select mode that
--- captures on an Examine of a LOC and stores `{ name, coordGrid{x,z,level}, subjectHash }` to the
--- `object` param. An empty (never-captured) object never fires — Show is a silent no-op.
---
--- Runtime: `Show` / `Dismiss` exec-ins, no exec-out. The effect RE-PROJECTS the stored CoordGrid to
--- screen every Draw (the world moves under a fixed tile, so a cached screen rect would smear) —
--- a nil / unavailable projection draws nothing that frame, no clamp. The mark is a Tile-outline
--- built from 4 CoordFine corners at 512-fine offsets (the DevTools overlay.lua pattern), at the
--- node's `color` + `width`, with the object `name` label above when `showLabel` is on. Lifecycle is
--- Toast-parity Hold (#71): a configurable `hold` seconds by default (5s), or forever when `sticky`
--- is set.
---
--- Mode is a 4-way multi-select, but only **Tile** is feasible on the RS3 Lua API — there is no
--- LocEntity and no hull / clickbox / bounds / model geometry exposed, so Hull / Outline / Clickbox
--- are permanently disabled ("needs render API", the unavailable-node idiom). The mode gates which
--- representation draws; with Tile off, nothing is drawn.
---
--- BUILD-VERIFY: the MiniMenuEntrySelected payload shape and the captured coord's level source
--- (see ui/object_marker_capture.lua); and the live CoordFine/ScreenConvert projection + AddLine
--- draw against real client coordinates — exercised here only through a fake projector, same
--- client-only disclaimer as Screen Marker's own capture/draw.
-
 local Theme = require("ui/theme")
 
 -- A drawn/effect spec: the captured object plus the node's presentation controls. Shared by

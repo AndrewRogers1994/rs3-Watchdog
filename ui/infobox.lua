@@ -1,25 +1,3 @@
--- infobox.lua — the shared InfoBox Area (#41): a RuneLite-style wrapping strip of fixed
--- square icon+text tiles drawn on the always-on effect overlay Canvas (effects.lua's own
--- Canvas, separate from the editor Window). Each `action.infobox` node owns exactly one tile;
--- this module owns the shared area they all draw into.
---
--- Deliberately its own registry-level layout component, NOT a free EffectRegistry handle:
--- unlike a Screen Flash or Popup (self-contained { update, draw }), the tiles need per-box
--- screen bounds so the area can wrap them, drag the whole strip as a unit, and hover-test a
--- tile for its tooltip — none of which the uniform effect handle exposes.
---
--- Model: an ordered set of boxes keyed by an opaque `owner` (the node id). Set() inserts a new
--- owner at the end or rewrites an existing one *in place* (its slot in the flow never moves on
--- re-update); Remove() drops it and everything after reflows up one slot. Layout is pure — a
--- horizontal flow from the anchor that wraps to a new row once a row would pass wrapWidth — so
--- insertion order + reflow-on-dismiss fall straight out of the order list. The anchor (the
--- strip's top-left, default top-left of the screen) is draggable as a unit and persisted
--- through an injected hook (SetPersistence), mirroring runtime.lua's Store seam.
---
--- Everything except Draw is pure table math (no client globals), unit-tested directly. Draw
--- resolves colors to Vector4 and calls ui.Canvas AddRectangle/AddSprite/AddText, guarded so a
--- missing font/sprite can't break the always-on draw loop; it's exercised in-client only.
-
 local Theme = require("ui/theme")
 
 local InfoBox = {}

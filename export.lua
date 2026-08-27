@@ -1,22 +1,18 @@
--- export.lua — Alert Manager copy-paste transfer (#94 / #79 / #84).
---
--- One envelope for every export shape: `{ schemaVersion, pluginVersion, entries }`, where
--- `entries` is a list of TreeEntries with `id` omitted. Every Encode path runs a uniform
--- 2,500-byte pre-flight guard. Import is append-only (never merge-by-name): decode → reject a
--- forward schemaVersion → mint ids → migrate → append at the active scope root.
+-- export.lua — copy-paste transfer envelope `{ schemaVersion, pluginVersion, entries }`.
+-- TreeEntry `id` is omitted on export. Import is append-only (never merge-by-name):
+-- decode → reject a forward schemaVersion → mint ids → migrate → append at scope root.
 
 local Store = require("store")
 
 local Export = {}
 
--- Envelope schema version. The sole import gate: refuse only if the payload's schemaVersion is
--- greater than this build understands. Older payloads migrate forward.
+-- Sole import gate: refuse only if schemaVersion is newer than this build.
 Export.SCHEMA_VERSION = 1
 
--- Written on every export; never read, never branched on (#79).
+-- Written on every export; never read, never branched on.
 Export.PLUGIN_VERSION = "0.1.0"
 
--- ui.InputField hard cap measured in #83. Guarded as UTF-8 *bytes* (#json) with no margin (#84).
+-- ui.InputField hard cap. Guarded as UTF-8 bytes with no margin.
 Export.MAX_BYTES = 2500
 
 ---@class Watchdog.ExportEntry
@@ -89,8 +85,6 @@ local function oversizeMessage(n)
         n)
 end
 
--- Serialize `entries` into the export envelope. Returns ok, json on success; ok=false, err when
--- the codec is missing or the UTF-8 byte length exceeds MAX_BYTES (export nothing).
 ---@param entries Watchdog.Entry[]|Watchdog.ExportEntry[]|nil
 ---@return boolean ok
 ---@return string jsonOrErr
@@ -120,8 +114,7 @@ local function isEnvelope(value)
     return true
 end
 
--- Decode paste text into an envelope table. Rejects non-JSON and wrong-shape payloads before
--- any write. Does not yet gate on schemaVersion (Import does).
+-- Rejects non-JSON / wrong-shape before any write. schemaVersion is gated in Import.
 ---@param text string
 ---@return boolean ok
 ---@return Watchdog.ExportEnvelope|string envelopeOrErr
@@ -141,8 +134,7 @@ function Export.Decode(text)
     return true, value
 end
 
--- Mint ids for one ExportEntry without inserting. `used` is a set of already-claimed ids so
--- nested mints stay unique even before the tree is appended to `doc` (mint-before-migrate, #79).
+-- Mint ids without inserting. `used` claims ids so nested mints stay unique before append.
 ---@param doc Watchdog.Bucket
 ---@param used table<integer, boolean>
 ---@param exportEntry Watchdog.ExportEntry
@@ -178,14 +170,11 @@ local function materializeEntry(doc, used, exportEntry)
     }
 end
 
--- Apply the same defaults the bucket loader does (schema migration seam). Today that's just
--- filling missing version / entries; real migrators land here later (#81).
 ---@param version integer|nil
 ---@param entries Watchdog.Entry[]
 ---@return Watchdog.Entry[]
 local function migrateEntries(version, entries)
-    -- schemaVersion on the envelope already gated; entry-level migration is a no-op until a
-    -- real migrator exists. Keep the hook so Import's pipeline matches #79's order.
+    -- Envelope schemaVersion already gated; keep this hook so Import stays mint-then-migrate.
     local _ = version
     return entries
 end
@@ -232,8 +221,7 @@ local function formatReportMessage(entryCount, unknownCount, unknownTypes)
         listed)
 end
 
--- Full import pipeline. Mutates `doc` only after every gate passes (atomic). Options:
--- `registry` — when provided, unknown node types are counted for the non-blocking report.
+-- Mutates `doc` only after every gate passes (atomic).
 ---@param doc Watchdog.Bucket
 ---@param text string
 ---@param opts { registry: LibNodeGraph.Registry|nil }|nil
