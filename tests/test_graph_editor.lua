@@ -440,3 +440,69 @@ function TestGraphEditor:testParkedEditorDroppedWhenPinVanishes()
     editor:closeControlEditor()
     luaunit.assertNil(editor.editing)
 end
+
+--- Node Body occludes pins/controls of nodes behind it ----------------------------------
+-- pinAt walks front-to-back but used to keep looking after missing a pin on the front
+-- node, so a pin sitting under another Node Body still started a wire drag.
+
+local function pinScreen(editor, nodeId, pinName)
+    local geom = editor.geoms[nodeId]
+    local pin = geom.byName[pinName]
+    return editor.view:ToScreen(geom.x + pin.cx, geom.y + pin.cy)
+end
+
+local function overlappingPinEditors(self, frontX)
+    local editor = Editor.new(self.registry, nil)
+    editor:BindEntry(1, self.graph, {})
+    local back = self.graph:AddNode("fixture.trigger")
+    local front = self.graph:AddNode("fixture.action")
+    editor.layout[back] = { x = 0, y = 0 }
+    editor.layout[front] = { x = frontX, y = 0 }
+    editor:buildGeoms()
+    editor.nodeOrder = { back, front }
+    return editor, back, front
+end
+
+function TestGraphEditor:testPinAtDoesNotSeeThroughFrontNodeBody()
+    -- Action at x=200 covers the trigger's right-edge output pin (cx ≈ 240).
+    local editor, back, front = overlappingPinEditors(self, 200)
+    local sx, sy = pinScreen(editor, back, "out")
+    luaunit.assertEquals(editor:nodeAt(sx, sy), front)
+    luaunit.assertNil(editor:pinAt(sx, sy))
+end
+
+function TestGraphEditor:testPinAtStillHitsUncoveredBackNodePin()
+    -- Action parked well to the right: trigger output is in empty space.
+    local editor, back = overlappingPinEditors(self, 400)
+    local sx, sy = pinScreen(editor, back, "out")
+    local hit = editor:pinAt(sx, sy)
+    luaunit.assertNotNil(hit)
+    luaunit.assertEquals(hit.nodeId, back)
+    luaunit.assertEquals(hit.entry.name, "out")
+end
+
+function TestGraphEditor:testPinAtStillHitsFrontNodePinWhenOverlapping()
+    local editor, _, front = overlappingPinEditors(self, 200)
+    local sx, sy = pinScreen(editor, front, "in")
+    local hit = editor:pinAt(sx, sy)
+    luaunit.assertNotNil(hit)
+    luaunit.assertEquals(hit.nodeId, front)
+    luaunit.assertEquals(hit.entry.name, "in")
+end
+
+function TestGraphEditor:testControlAtDoesNotSeeThroughFrontNodeBody()
+    local editor = Editor.new(self.registry, nil)
+    editor:BindEntry(1, self.graph, {})
+    local back = self.graph:AddNode("fixture.action")
+    local front = self.graph:AddNode("fixture.trigger")
+    editor.layout[back] = { x = 0, y = 0 }
+    -- Shift the (shorter) trigger down so its body covers the action's value Control.
+    editor.layout[front] = { x = 0, y = 20 }
+    editor:buildGeoms()
+    editor.nodeOrder = { back, front }
+    local geom = editor.geoms[back]
+    local ctrl = geom.controls[1]
+    local sx, sy = editor.view:ToScreen(geom.x + ctrl.x + ctrl.w * 0.5, geom.y + ctrl.y + ctrl.h * 0.5)
+    luaunit.assertEquals(editor:nodeAt(sx, sy), front)
+    luaunit.assertNil(editor:controlAt(sx, sy))
+end

@@ -509,19 +509,34 @@ end
 
 --- Hit-testing (uses last frame's geoms) ------------------------------------------------
 
+-- Walks nodeOrder front-to-back. `tryHit(id, geom)` returns a hit or nil. A Node Body with
+-- no hit occludes everything behind it — otherwise a pin (or Control) under another panel
+-- would still start a wire / steal the click.
+local function hitFrontToBack(self, sx, sy, tryHit)
+    for i = #self.nodeOrder, 1, -1 do
+        local id = self.nodeOrder[i]
+        local geom = self.geoms[id]
+        if geom ~= nil then
+            local hit = tryHit(id, geom)
+            if hit ~= nil then return hit end
+            if Node.HitBody(geom, self.view, sx, sy) then
+                return nil
+            end
+        end
+    end
+    return nil
+end
+
 -- Topmost pin under a screen point: { nodeId, entry } or nil. Front-most node wins. A
 -- placeholder's stubs (#53) are deliberately excluded: they're display-only geometry, never
 -- wire drag endpoints — the engine can't validate a wire to a pin whose real definition is gone.
 function Editor:pinAt(sx, sy)
-    for i = #self.nodeOrder, 1, -1 do
-        local id = self.nodeOrder[i]
-        local geom = self.geoms[id]
-        if geom ~= nil and not geom.placeholder then
-            local pin = Node.PinAt(geom, self.view, sx, sy)
-            if pin ~= nil then return { nodeId = id, entry = pin } end
-        end
-    end
-    return nil
+    return hitFrontToBack(self, sx, sy, function(id, geom)
+        if geom.placeholder then return nil end
+        local pin = Node.PinAt(geom, self.view, sx, sy)
+        if pin ~= nil then return { nodeId = id, entry = pin } end
+        return nil
+    end)
 end
 
 -- Topmost node body under a screen point: nodeId or nil.
@@ -538,52 +553,36 @@ end
 
 -- Topmost Control box under a screen point: { nodeId, ctrl } or nil. Front-most node wins.
 function Editor:controlAt(sx, sy)
-    for i = #self.nodeOrder, 1, -1 do
-        local id = self.nodeOrder[i]
-        local geom = self.geoms[id]
-        if geom ~= nil then
-            local ctrl = Node.ControlAt(geom, self.view, sx, sy)
-            if ctrl ~= nil then return { nodeId = id, ctrl = ctrl } end
-        end
-    end
-    return nil
+    return hitFrontToBack(self, sx, sy, function(id, geom)
+        local ctrl = Node.ControlAt(geom, self.view, sx, sy)
+        if ctrl ~= nil then return { nodeId = id, ctrl = ctrl } end
+        return nil
+    end)
 end
 
 -- Topmost exec-in test button under a screen point: { nodeId, tb } or nil. Front-most wins.
 function Editor:testButtonAt(sx, sy)
-    for i = #self.nodeOrder, 1, -1 do
-        local id = self.nodeOrder[i]
-        local geom = self.geoms[id]
-        if geom ~= nil then
-            local tb = Node.TestButtonAt(geom, self.view, sx, sy)
-            if tb ~= nil then return { nodeId = id, tb = tb } end
-        end
-    end
-    return nil
+    return hitFrontToBack(self, sx, sy, function(id, geom)
+        local tb = Node.TestButtonAt(geom, self.view, sx, sy)
+        if tb ~= nil then return { nodeId = id, tb = tb } end
+        return nil
+    end)
 end
 
 -- Topmost node whose header delete button is under a screen point: nodeId or nil.
 function Editor:closeAt(sx, sy)
-    for i = #self.nodeOrder, 1, -1 do
-        local id = self.nodeOrder[i]
-        local geom = self.geoms[id]
-        if geom ~= nil and Node.HitClose(geom, self.view, sx, sy) then
-            return id
-        end
-    end
-    return nil
+    return hitFrontToBack(self, sx, sy, function(id, geom)
+        if Node.HitClose(geom, self.view, sx, sy) then return id end
+        return nil
+    end)
 end
 
 -- Topmost node whose Mode strip is under a screen point: nodeId or nil.
 function Editor:modeStripAt(sx, sy)
-    for i = #self.nodeOrder, 1, -1 do
-        local id = self.nodeOrder[i]
-        local geom = self.geoms[id]
-        if geom ~= nil and Node.HitModeStrip(geom, self.view, sx, sy) then
-            return id
-        end
-    end
-    return nil
+    return hitFrontToBack(self, sx, sy, function(id, geom)
+        if Node.HitModeStrip(geom, self.view, sx, sy) then return id end
+        return nil
+    end)
 end
 
 function Editor:connectionInto(nodeId, pinName)
