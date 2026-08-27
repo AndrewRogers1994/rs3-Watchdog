@@ -67,6 +67,7 @@ function Editor.new(registry, runtime)
         colorHexField = nil,       -- transient real InputField over the popup's hex row
         inventoryGrids = {},       -- nodeId -> prettyui.ItemGrid (Inventory Viewer, ADR-0010)
         viewerScroll = {},         -- nodeId -> row offset into the Snapshot
+        viewerBound = {},          -- nodeId -> last Snapshot/offset pushed to ItemGrid
         tick = 0,                  -- Logic-tick counter, for double-click timing
         lastClickTick = -1000,     -- tick of the previous press (double-click pairing)
         lastClickX = 0,
@@ -219,6 +220,7 @@ function Editor:frontOverlayInteractives()
     pcall(function() if self.paletteCanvas ~= nil then self.paletteCanvas:MoveToFront() end end)
     if self.backButton ~= nil then pcall(function() self.backButton:MoveToFront() end) end
     if self.plusButton ~= nil then pcall(function() self.plusButton:MoveToFront() end) end
+    InvViewer.FrontTooltips(self)
     if self.editing ~= nil and self.editing.field ~= nil then
         pcall(function() self.editing.field:MoveToFront() end)
     end

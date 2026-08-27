@@ -59,7 +59,7 @@ function InvViewer.GridObjects(snap, rowOffset)
         local s = slots[start + i]
         if s ~= nil and type(s.objId) == "number" then
             objects[i] = {
-                object = { id = s.objId },
+                object = { id = s.objId, name = s.name },
                 tooltip = s.name,
                 quantity = s.count,
             }
@@ -90,6 +90,7 @@ function InvViewer.DestroyAll(editor)
         editor.inventoryGrids[id] = nil
     end
     editor.viewerScroll = {}
+    editor.viewerBound = {}
 end
 
 local function ensureGrid(editor, nodeId)
@@ -133,6 +134,8 @@ local function ensureGrid(editor, nodeId)
                 editor.viewerScroll[nodeId] = nextOff
                 if grid ~= nil and grid.SetObjects ~= nil then
                     grid:SetObjects(InvViewer.GridObjects(snap, nextOff))
+                    editor.viewerBound = editor.viewerBound or {}
+                    editor.viewerBound[nodeId] = { snap = snap, off = nextOff }
                 end
                 return false
             end,
@@ -196,9 +199,16 @@ function InvViewer.Sync(editor)
                     local cap = snap and snap.slotCount or 0
                     local off = InvViewer.ClampRowOffset(editor.viewerScroll[n.id], cap)
                     editor.viewerScroll[n.id] = off
-                    pcall(function()
-                        grid:SetObjects(InvViewer.GridObjects(snap, off))
-                    end)
+                    -- ItemSlot rebuilds its PrettyUI tooltip on every SetObject; doing that
+                    -- each Draw frame unsubscribes ONMOUSEOVER so hover never sticks.
+                    editor.viewerBound = editor.viewerBound or {}
+                    local bound = editor.viewerBound[n.id]
+                    if bound == nil or bound.snap ~= snap or bound.off ~= off then
+                        pcall(function()
+                            grid:SetObjects(InvViewer.GridObjects(snap, off))
+                        end)
+                    end
+                    editor.viewerBound[n.id] = { snap = snap, off = off }
                 end
             end
         end
@@ -208,6 +218,9 @@ function InvViewer.Sync(editor)
             destroyGrid(grid)
             editor.inventoryGrids[id] = nil
             editor.viewerScroll[id] = nil
+            if editor.viewerBound ~= nil then
+                editor.viewerBound[id] = nil
+            end
         end
     end
 end
@@ -220,6 +233,24 @@ function InvViewer.Front(editor)
         pcall(function()
             if grid.root ~= nil then
                 grid.root:MoveToFront()
+            end
+        end)
+    end
+end
+
+-- ItemGrid tooltips are overlay siblings, not children of the grid. Front() would bury them.
+function InvViewer.FrontTooltips(editor)
+    if editor == nil or editor.inventoryGrids == nil then
+        return
+    end
+    local Tooltip = prettyui and prettyui.Tooltip
+    if Tooltip == nil or Tooltip.moveContextTooltipsToFront == nil then
+        return
+    end
+    for _, grid in pairs(editor.inventoryGrids) do
+        pcall(function()
+            if grid.root ~= nil then
+                Tooltip.moveContextTooltipsToFront(grid.root)
             end
         end)
     end

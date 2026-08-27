@@ -33,6 +33,7 @@ function TestInvViewer:testGridObjectsWindowsDenseSlots()
     local objects = InvViewer.GridObjects({ slots = slots, slotCount = 40 }, 0)
     luaunit.assertEquals(#objects, 28)
     luaunit.assertEquals(objects[1].object.id, 1)
+    luaunit.assertEquals(objects[1].object.name, "A")
     luaunit.assertEquals(objects[1].tooltip, "A")
     luaunit.assertNil(objects[2].object)
     luaunit.assertEquals(objects[5].object.id, 5)
@@ -90,6 +91,41 @@ function TestInvViewer:testSyncPositionsGridInAbsoluteScreenSpace()
     local lx, ly = editor.view:ToScreen(geom.x + geom.viewerGrid.x, geom.y + geom.viewerGrid.y)
     luaunit.assertEquals(pos.x, lx + 100)
     luaunit.assertEquals(pos.y, ly + 80)
+end
+
+function TestInvViewer:testSyncDoesNotRebuildGridObjectsEveryFrame()
+    local extra = InvViewer.ExtraBodyOpts(1)
+    local geom = Node.BuildGeometry({
+        { name = "in", kind = "exec", direction = "in" },
+        { name = "snapshot", kind = "data", direction = "in", dataType = "invSnapshot" },
+    }, 0, 0, Theme.NODE_WIDTH, extra)
+    local sets = 0
+    local snap = { slots = {}, slotCount = 28 }
+    local grid = {
+        root = { SetPos = function() end, SetSize = function() end },
+        SetObjects = function() sets = sets + 1 end,
+    }
+    local editor = {
+        visible = true,
+        window = { x = 0, y = 0, w = 800, h = 600 },
+        view = View.new(),
+        geoms = { [1] = geom },
+        inventoryGrids = { [1] = grid },
+        viewerScroll = {},
+        graph = {
+            GetNodes = function()
+                return { { id = 1, typeKey = InvViewer.TYPE_KEY } }
+            end,
+            GetState = function() return { snapshot = snap } end,
+        },
+        toScreen = function(_, lx, ly) return lx, ly end,
+    }
+    InvViewer.Sync(editor)
+    InvViewer.Sync(editor)
+    luaunit.assertEquals(sets, 1)
+    snap = { slots = {}, slotCount = 28 }
+    InvViewer.Sync(editor)
+    luaunit.assertEquals(sets, 2)
 end
 
 return TestInvViewer
