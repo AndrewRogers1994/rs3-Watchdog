@@ -25,6 +25,7 @@ local Wire     = require("ui/wire")
 local Palette  = require("ui/palette")
 local ColorPopup = require("ui/color_popup")
 local IfaceScale = require("ui/iface_scale")
+local InvViewer = require("ui/inv_viewer")
 
 local Editor = {}
 Editor.__index = Editor
@@ -64,6 +65,8 @@ function Editor.new(registry, runtime)
         palette = Palette.new(),   -- the Node-creation popup (modal while open)
         colorPopup = ColorPopup.new(),  -- the color-picker popup (#30, modal while open)
         colorHexField = nil,       -- transient real InputField over the popup's hex row
+        inventoryGrids = {},       -- nodeId -> prettyui.ItemGrid (Inventory Viewer, ADR-0010)
+        viewerScroll = {},         -- nodeId -> row offset into the Snapshot
         tick = 0,                  -- Logic-tick counter, for double-click timing
         lastClickTick = -1000,     -- tick of the previous press (double-click pairing)
         lastClickX = 0,
@@ -113,6 +116,7 @@ function Editor:BindEntry(id, graph, layout)
     self.wire = nil
     self.dragNodeId = nil
     self:resetView()
+    InvViewer.DestroyAll(self)
 end
 
 -- Clears the binding on navigate-back (#80): the Editor becomes inert/unbound again. Kept distinct
@@ -122,6 +126,7 @@ function Editor:Unbind()
     self:closeControlEditor()
     self:closeColorPopup()
     self.palette:Close()
+    InvViewer.DestroyAll(self)
     self.boundId = nil
     self.graph = nil
     self.layout = {}
@@ -210,6 +215,7 @@ end
 -- while the overlay sits above the PrettyUI window.
 function Editor:frontOverlayInteractives()
     pcall(function() if self.capture ~= nil then self.capture:MoveToFront() end end)
+    InvViewer.Front(self)
     pcall(function() if self.paletteCanvas ~= nil then self.paletteCanvas:MoveToFront() end end)
     if self.backButton ~= nil then pcall(function() self.backButton:MoveToFront() end) end
     if self.plusButton ~= nil then pcall(function() self.plusButton:MoveToFront() end) end
@@ -452,6 +458,11 @@ function Editor:buildGeoms()
             local nt = self.registry:GetNodeType(n.typeKey)
             if nt ~= nil and nt.modes ~= nil then
                 opts.modeLabel = modeLabelOf(nt, self.graph:GetMode(n.id))
+            end
+            if n.typeKey == InvViewer.TYPE_KEY then
+                local extra = InvViewer.ExtraBodyOpts(self.view.zoom)
+                opts.extraBodyH = extra.extraBodyH
+                opts.extraBodyW = extra.extraBodyW
             end
         end
         local geom = Node.BuildGeometry(pins, pos.x, pos.y, Theme.NODE_WIDTH, opts)
@@ -1668,6 +1679,7 @@ function Editor:draw()
     self.canvas:Clear()
 
     self:buildGeoms()
+    InvViewer.Sync(self)
     local vx, vy, vw, vh = self:viewportRect()
 
     self:drawBackground()
@@ -1830,6 +1842,7 @@ function Editor:SetVisible(v)
             self:positionCapture()
         end
     end
+    InvViewer.Sync(self)
 end
 
 function Editor:Toggle()
@@ -1977,6 +1990,7 @@ end
 function Editor:Unmount()
     self:closeControlEditor()  -- tear down any transient editor before its parent goes away
     self:closeColorPopup()
+    InvViewer.DestroyAll(self)
     if self.paletteCanvas ~= nil then
         pcall(function() self.paletteCanvas:Destroy() end)
         self.paletteCanvas = nil

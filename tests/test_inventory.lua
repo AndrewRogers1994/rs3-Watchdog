@@ -118,8 +118,8 @@ function TestInventory:pushRemoved(invType)
     self.source:Push("InventoryRemoved", { inv = invType })
 end
 
-local function slot(name, configName, count)
-    return { obj = { name = name, configName = configName }, count = count }
+local function slot(name, configName, count, objId)
+    return { obj = { name = name, configName = configName, id = objId }, count = count }
 end
 
 function TestInventory:testNodeHasNoModesAndNoMatcher()
@@ -197,6 +197,26 @@ function TestInventory:testColdUpdatedHasEmptyPrevSnapshot()
     luaunit.assertEquals(prev.usedSlotCount, 0)
 end
 
+function TestInventory:testPresentContainerSeedFillsPrevForNextUpdated()
+    self:setInv(INV, { slots = { slot("Shark", "SHARK", 1) }, usedSlotCount = 1 })
+    InventoryTrigger.SeedPresentContainers()
+    local nodeId = self:addWired()
+    self:pushUpdated(INV)
+    luaunit.assertEquals(self.fires, 1)
+    luaunit.assertEquals(self.graph:GetLastValue(nodeId, "prevUsedSlots"), 1)
+    luaunit.assertEquals(self.graph:GetLastValue(nodeId, "prevSnapshot").slots[1].name, "Shark")
+    luaunit.assertEquals(self.graph:GetLastValue(nodeId, "snapshot").slots[1].name, "Shark")
+end
+
+function TestInventory:testLogicTickSeedsPresentContainerLikeAdded()
+    self:setInv(INV, { slots = { slot("Shark", "SHARK", 1) }, usedSlotCount = 1 })
+    local nodeId = self:addWired()
+    self.source:Push("Logic", {})
+    luaunit.assertEquals(self.fires, 0)
+    self:pushUpdated(INV)
+    luaunit.assertEquals(self.graph:GetLastValue(nodeId, "prevSnapshot").slots[1].name, "Shark")
+end
+
 function TestInventory:testRemovedClearsPrevForNextUpdated()
     self:setInv(INV, { slots = { slot("Shark", "SHARK", 1) }, usedSlotCount = 1 })
     local nodeId = self:addWired()
@@ -218,7 +238,9 @@ function TestInventory:testSnapshotKeepsSlotsAfterANilHole()
     self:setInv(INV, { slots = slots, usedSlotCount = 1, slotCount = 28 })
     local nodeId = self:addWired()
     self:pushUpdated(INV)
-    luaunit.assertEquals(self.graph:GetLastValue(nodeId, "snapshot").slots[1].name, "Shark")
+    local snap = self.graph:GetLastValue(nodeId, "snapshot")
+    luaunit.assertNil(snap.slots[1])
+    luaunit.assertEquals(snap.slots[2].name, "Shark")
 end
 
 function TestInventory:testMissingInvUsesEventSizeForOccupancy()
@@ -328,7 +350,7 @@ function TestInventory:testSnapshotTostringListsItems()
 end
 
 function TestInventory:testSnapshotHasNoLiveInvHandle()
-    self:setInv(INV, { slots = { slot("Shark", "SHARK", 1) } })
+    self:setInv(INV, { slots = { slot("Shark", "SHARK", 1, 42) } })
     local nodeId = self:addWired()
     self:pushUpdated(INV)
     local snap = self.graph:GetLastValue(nodeId, "snapshot")
@@ -337,6 +359,7 @@ function TestInventory:testSnapshotHasNoLiveInvHandle()
     luaunit.assertEquals(snap.slots[1].name, "Shark")
     luaunit.assertEquals(snap.slots[1].configName, "SHARK")
     luaunit.assertEquals(snap.slots[1].count, 1)
+    luaunit.assertEquals(snap.slots[1].objId, 42)
 end
 
 function TestInventory:testInvContainerCodecPersistsIdNotProxy()
@@ -771,6 +794,41 @@ function TestInventory:testTwoChangedNodesWatchInventoryAndBank()
     luaunit.assertEquals(self.graph:GetLastValue(invChanged, "count"), 1)
     luaunit.assertEquals(self.graph:GetLastValue(bankChanged, "count"), 2)
     luaunit.assertEquals(self.changedFires, 2)
+end
+
+function TestInventory:testItemCountSumsASlotAfterAHole()
+    local slots = {}
+    slots[28] = slot("Shark", "SHARK", 3)
+    self:setInv(INV, { slots = slots, usedSlotCount = 1, slotCount = 28 })
+    local triggerId = self:addWired()
+    local countId = self:addItemCount(triggerId)
+    self:pushUpdated(INV)
+    luaunit.assertEquals(self:pullCount(countId), 3)
+end
+
+function TestInventory:testViewerIsInventoryCategoryAction()
+    local nt = self.registry:GetNodeType("inventory.viewer")
+    luaunit.assertEquals(nt.displayName, "Inventory Viewer")
+    luaunit.assertEquals(nt.category, "inventory")
+    luaunit.assertEquals(nt.pins["in"].kind, "exec")
+    luaunit.assertEquals(nt.pins["in"].direction, "in")
+    luaunit.assertNil(nt.pins.out)
+    luaunit.assertEquals(nt.pins.snapshot.dataType, "invSnapshot")
+end
+
+function TestInventory:testViewerLatchesSnapshotInNodeState()
+    local slots = {}
+    slots[2] = slot("Shark", "SHARK", 1, 99)
+    self:setInv(INV, { slots = slots, usedSlotCount = 1, slotCount = 28 })
+    local triggerId = self:addWired()
+    local viewerId = self.graph:AddNode("inventory.viewer")
+    luaunit.assertNotNil(self.graph:Connect(triggerId, "out", viewerId, "in"))
+    luaunit.assertNotNil(self.graph:Connect(triggerId, "snapshot", viewerId, "snapshot"))
+    self:pushUpdated(INV)
+    local state = self.graph:GetState(viewerId)
+    luaunit.assertEquals(state.snapshot.slots[2].name, "Shark")
+    luaunit.assertEquals(state.snapshot.slots[2].objId, 99)
+    luaunit.assertNil(state.snapshot.slots[1])
 end
 
 return TestInventory

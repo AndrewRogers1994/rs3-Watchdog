@@ -372,16 +372,32 @@ A Trigger Node that Fires on the client's `InventoryUpdated` event for one Conta
 pin-set, no Modes, no Matcher — item identity is not this Trigger's job. It republishes
 occupancy (previous and current used slot counts, whether the Container is full or empty)
 and the previous and current Inventory Snapshot. `InventoryAdded` / `InventoryRemoved` do
-not Fire this Trigger (they only affect whether a Container is present to snapshot).
+not Fire this Trigger (they only affect whether a Container is present to snapshot). The
+backpack is usually already present, so it may never get `InventoryAdded`; present Containers
+are also frozen into that cache at plugin load and on Logic while the cache entry is empty.
 _Avoid_: Inventory node; query; RuneLite-style full/empty/count/amount/changed Modes;
 a Matcher on this Trigger; Firing on Added/Removed
 
 **Inventory Snapshot**:
-The contents of one Container at one moment, relative to a single `InventoryUpdated`
-(previous or current). A frozen copy (not a live `Inv` handle) carried on a Data Pin with
-Type Tag `invSnapshot`, consumed by Item Count and Item Count Changed. Each slot carries enough
-to Matcher the display `ObjType.name` and to apply a Note Filter (`configName` prefix).
-_Avoid_: inventory, Inv, bag, slotDiff (diffs are not a Pin)
+The contents of one Container at one moment (previous or current relative to an `InventoryUpdated`, including the cache seeded by
+`InventoryAdded`, plugin load, or Logic while a Container is already Find-able). A frozen copy
+(not a live `Inv` handle) on a Data Pin with Type Tag `invSnapshot`. `slots` is dense and
+1-based: `slots[i]` is client slot `i` (`Inv:GetSlot`), length `slotCount`, empty is `nil`.
+An occupied slot freezes `objId`, display `name`, `configName` (Note Filter), and `count`.
+Consumed by Item Count, Item Count Changed, and Inventory Viewer.
+_Avoid_: packed occupied-only lists; treating `slots[1]` as "first item"; live `Inv`;
+inventory, bag, slotDiff (diffs are not a Pin)
+
+**Inventory Viewer**:
+An Action in the inventory Category: Execution in, no Execution out. When reached it latches
+the wired Inventory Snapshot in Node State (runtime-only; Editor reads it via
+`Graph:GetState`). The Editor shows that latch as a PrettyUI ItemGrid overlaid on the Node
+Body in screen space: 4 columns × 7 visible rows, a window over `slotCount` (wheel rebinds
+those 28 slots). Empty 4×7 chrome until the first latch. Node Body Graph-space height tracks
+that screen rectangle each frame. Debugger only — not occupancy, not matching, not a live bag.
+_Avoid_: Probe; putting associated-object icons on the Canvas; a full-height ItemGrid of every
+Bank slot; Inventory Trigger; naming this the Inventory node (collision with the Trigger is
+accepted for the displayName)
 
 **Note Filter**:
 A three-way enum on Item Count and Item Count Changed: **Noted**, **Unnoted**, or **Both**
@@ -392,9 +408,10 @@ _Avoid_: isNoted, note mode, treating display name as the noted bit; exposing `C
 
 **Item Count**:
 A Pure Node in the inventory Category: one Inventory Snapshot plus a Matcher plus a Note
-Filter in, one number out — the sum of matching slot quantities. Empty Matcher needle still
-means every name; occupancy (used slots) stays on the Inventory Trigger. Threshold crossing
-is Compare on Item Count Changed's `count` / `prevCount` (or two Item Counts), not a pin on
+Filter in, one number out — the sum of matching slot quantities. Walks `1..slotCount` and
+skips empty slots; Lua `#slots` is not the walk (holes). Empty Matcher needle still means
+every name; occupancy (used slots) stays on the Inventory Trigger. Threshold crossing is
+Compare on Item Count Changed's `count` / `prevCount` (or two Item Counts), not a pin on
 this node.
 _Avoid_: query node; GetTotal; amount Mode; putting ids on a Control
 

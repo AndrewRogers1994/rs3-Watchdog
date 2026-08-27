@@ -68,6 +68,11 @@ end
 
 function Node.BuildGeometry(pins, x, y, width, opts)
     width = width or Theme.NODE_WIDTH
+    local extraBodyH = (opts and opts.extraBodyH) or 0
+    local extraBodyW = (opts and opts.extraBodyW) or 0
+    if extraBodyW > width then
+        width = extraBodyW
+    end
     local connected = (opts and opts.connected) or {}
     -- A placeholder node (#53) renders its reconstructed stubs as pins, but offers none of the
     -- interactive geometry: no Control boxes (raw controls are opaque without their codecs) and
@@ -115,10 +120,18 @@ function Node.BuildGeometry(pins, x, y, width, opts)
         end
         rowTop[rows + 1] = cy
     end
-    local height = rowTop[rows + 1] + Theme.BODY_PAD_BOTTOM
+    local height = rowTop[rows + 1] + extraBodyH + Theme.BODY_PAD_BOTTOM
 
     local geom = { x = x, y = y, w = width, h = height,
         pins = {}, byName = {}, controls = {}, testButtons = {}, placeholder = placeholder }
+    if extraBodyH > 0 then
+        geom.viewerGrid = {
+            x = Theme.PIN_MARGIN_X,
+            y = rowTop[rows + 1],
+            w = width - Theme.PIN_MARGIN_X * 2,
+            h = extraBodyH,
+        }
+    end
 
     -- Delete button center, in the header, Graph-space relative to the node origin. Shared
     -- by Draw and HitClose so the glyph and its hit-target can't disagree.

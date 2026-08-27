@@ -7,6 +7,7 @@ local InventoryTrigger = {}
 ---@field name string|nil
 ---@field configName string|nil
 ---@field count number|nil
+---@field objId number|nil
 
 ---@class Watchdog.InvSnapshot
 ---@field slots Watchdog.InvSnapshotSlot[]
@@ -98,10 +99,15 @@ local function copyOccupiedSlot(s)
     if s == nil or s.obj == nil then
         return nil
     end
+    local objId = s.obj.id
+    if type(objId) ~= "number" then
+        objId = nil
+    end
     return {
         name = s.obj.name,
         configName = s.obj.configName,
         count = s.count,
+        objId = objId,
     }
 end
 
@@ -109,21 +115,30 @@ end
 local SNAPSHOT_MT = {
     __tostring = function(snap)
         local slots = snap.slots or {}
-        local used = snap.usedSlotCount or #slots
         local cap = snap.slotCount or 0
-        local header = tostring(used) .. "/" .. tostring(cap)
-        if #slots == 0 then
-            return header
+        local n = cap
+        if n < 1 then
+            n = #slots
         end
         local parts = {}
-        for i = 1, #slots do
+        for i = 1, n do
             local s = slots[i]
-            local name = s.name or s.configName or "?"
-            if s.count ~= nil then
-                parts[i] = name .. " x" .. tostring(s.count)
-            else
-                parts[i] = name
+            if s ~= nil then
+                local name = s.name or s.configName or "?"
+                if s.count ~= nil then
+                    parts[#parts + 1] = name .. " x" .. tostring(s.count)
+                else
+                    parts[#parts + 1] = name
+                end
             end
+        end
+        local used = snap.usedSlotCount
+        if type(used) ~= "number" then
+            used = #parts
+        end
+        local header = tostring(used) .. "/" .. tostring(cap)
+        if #parts == 0 then
+            return header
         end
         return header .. ": " .. table.concat(parts, ", ")
     end,
@@ -151,24 +166,15 @@ local function freezeInv(inv, fallbackSize)
     local slots = {}
     local cap = inv.slotCount or fallbackSize
     local rawSlots = inv.GetSlots and inv:GetSlots()
-    if type(rawSlots) == "table" then
-        local n = cap
-        if #rawSlots > n then
-            n = #rawSlots
+    local useGetSlot = inv.GetSlot ~= nil
+    for i = 1, cap do
+        local raw
+        if useGetSlot then
+            raw = inv:GetSlot(i)
+        elseif type(rawSlots) == "table" then
+            raw = rawSlots[i]
         end
-        for i = 1, n do
-            local copied = copyOccupiedSlot(rawSlots[i])
-            if copied ~= nil then
-                slots[#slots + 1] = copied
-            end
-        end
-    elseif inv.GetSlot ~= nil then
-        for i = 1, cap do
-            local copied = copyOccupiedSlot(inv:GetSlot(i))
-            if copied ~= nil then
-                slots[#slots + 1] = copied
-            end
-        end
+        slots[i] = copyOccupiedSlot(raw)
     end
     return snapshotOf(slots, inv.usedSlotCount or 0, cap)
 end
@@ -180,6 +186,35 @@ local function cacheKey(invType)
         return nil
     end
     return encodeInvContainer(invType)
+end
+
+---@param invType any
+---@param fallbackSize integer
+local function seedIfPresent(invType, fallbackSize)
+    local key = cacheKey(invType)
+    if key == nil or CACHE[key] ~= nil then
+        return
+    end
+    local inv = findInv(invType)
+    if inv == nil then
+        return
+    end
+    local cap = inv.slotCount or fallbackSize or 0
+    CACHE[key] = freezeInv(inv, cap)
+end
+
+-- Backpack is typically already present (no InventoryAdded). Seed any v1 Container Find can
+-- see; skip missing ones (Bank while closed). Does not overwrite a cache entry, so a later
+-- InventoryRemoved still leaves prev empty until Added or a new seed after Find returns.
+local function seedPresentContainers()
+    local invType = config.Inv.INV
+    local bankType = config.Inv.BANK
+    seedIfPresent(invType, invType and invType.size or 28)
+    seedIfPresent(bankType, bankType and bankType.size or 0)
+end
+
+function InventoryTrigger.SeedPresentContainers()
+    seedPresentContainers()
 end
 
 ---@param raw InventoryUpdated|InventoryAdded|nil
@@ -281,8 +316,12 @@ end
 local function matchingSum(snap, matcher, filter)
     local total = 0
     local slots = snap and snap.slots
+    local cap = snap and snap.slotCount or 0
     if type(slots) == "table" then
-        for i = 1, #slots do
+        if cap < 1 then
+            cap = #slots
+        end
+        for i = 1, cap do
             local s = slots[i]
             if s ~= nil and noteFilterPasses(filter, s) and Matcher.Test(matcher, s.name) then
                 local n = s.count
@@ -396,11 +435,20 @@ function InventoryTrigger.Register(registry, runtime)
         run = runItemCountChanged,
     })
 
+    require("nodes/inventory_viewer").Register(registry)
+
     runtime:BindTrigger("trigger.inventory", {
         { event = "InventoryUpdated", transform = transform, filter = containerMatches },
         { event = "InventoryAdded", transform = transformAdded, filter = neverFire },
         { event = "InventoryRemoved", transform = transformRemoved, filter = neverFire },
+        -- Plugin load / login: backpack usually never gets InventoryAdded. Retry while CACHE
+        -- is empty and Find succeeds (no-op once seeded or while the Container is absent).
+        { event = "Logic", transform = function()
+            seedPresentContainers()
+            return { inventoryType = nil }
+        end, filter = neverFire },
     })
+    seedPresentContainers()
 end
 
 return InventoryTrigger
