@@ -119,7 +119,7 @@ function Runtime.new(eventSource, mouseSource, identitySource)
         effects = Effects.new(),
         infobox = InfoBoxArea.new(),
         screenMarkerCapture = ScreenMarkerCapture.new(),
-        -- MiniMenu select: self-manages Event.MiniMenuEntrySelected; Cancel on teardown.
+        -- MiniMenu select: self-manages Event.MiniMenuReady + Select Object; Cancel on teardown.
         objectMarkerCapture = ObjectMarkerCapture.new(),
         keyboardActivityTick = 0,
         mouseActivityTick = 0,
@@ -681,7 +681,7 @@ function Runtime:Stop()
         pcall(function() self._lifecycleSource.Unsubscribe("watchdog_runtime_gamestate") end)
         self._lifecycleSource = nil
     end
-    -- Unsubscribe MiniMenuEntrySelected so reload does not leak the prior instance.
+    -- Unsubscribe MiniMenuReady so reload does not leak the prior instance.
     pcall(function() self.objectMarkerCapture:Cancel() end)
     self.effects:Clear()
     self.infobox:Clear()

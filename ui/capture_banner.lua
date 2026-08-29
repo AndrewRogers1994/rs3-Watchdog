@@ -3,7 +3,7 @@ local Theme = require("ui/theme")
 local CaptureBanner = {}
 
 CaptureBanner.SCREEN_TEXT = "Drag to select a region · Esc to cancel"
-CaptureBanner.OBJECT_TEXT = "Examine an object · Esc to cancel"
+CaptureBanner.OBJECT_TEXT = "Select Object on scenery · Esc to cancel"
 
 local BANNER_H = 40
 local BANNER_PAD_Y = 8

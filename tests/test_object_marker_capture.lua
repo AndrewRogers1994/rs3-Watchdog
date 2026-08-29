@@ -1,22 +1,11 @@
--- Exercises the Object Marker select-mode capture (ui/object_marker_capture.lua, #40): the
--- global-modal "Select object" mode that subscribes Event.MiniMenuEntrySelected while armed and
--- captures on an Examine of a LOC. The capture predicate (Examine + LOC) and the param
--- extraction are pure and tested directly; the arm/commit/disarm state machine is driven through
--- an injected fake event source (tests/fake_event_source.lua), the same seam runtime.lua uses,
--- so the real client Event global is never needed.
+-- Object Marker MiniMenu capture (ui/object_marker_capture.lua) via a fake Event source.
 
 local luaunit = require("luaunit")
 local newFakeEventSource = require("fake_event_source")
 local ObjectMarkerCapture = require("ui/object_marker_capture")
 
--- Numeric enum values matching MiniMenuActionVerbType / MiniMenuEntryType (see minimenu stub).
-local EXAMINE, OP = 1, 2
-local LOC, NPC = 3, 4
-
 local function locEntry(overrides)
     local e = {
-        actionVerbType = EXAMINE,
-        actionEntryType = LOC,
         subjectHash = 98765,
         coordGridX = 3200,
         coordGridZ = 3200,
@@ -27,33 +16,42 @@ local function locEntry(overrides)
     return e
 end
 
---- Predicate --------------------------------------------------------------------------------
-
-TestObjectMarkerCapturePredicate = {}
-
-function TestObjectMarkerCapturePredicate:testCapturesExamineOfALoc()
-    luaunit.assertTrue(ObjectMarkerCapture.ShouldCapture(locEntry()))
+local function npcEntry()
+    return { subjectHash = 1, npcData = { entity = {} } }
 end
 
-function TestObjectMarkerCapturePredicate:testIgnoresNonExamineVerbOnALoc()
-    luaunit.assertFalse(ObjectMarkerCapture.ShouldCapture(locEntry({ actionVerbType = OP })))
+local function fakeMenu(entries)
+    local menu = { entries = entries or {}, addCount = 0, swaps = {} }
+    function menu:Add(name, fn)
+        self.addCount = self.addCount + 1
+        self.lastAddName = name
+        self.lastAddFn = fn
+        self.entries[#self.entries + 1] = { overrideText = name }
+    end
+    function menu:Swap(a, b)
+        self.swaps[#self.swaps + 1] = { a, b }
+        self.entries[a], self.entries[b] = self.entries[b], self.entries[a]
+    end
+    return menu
 end
 
-function TestObjectMarkerCapturePredicate:testIgnoresExamineOfANonLoc()
-    luaunit.assertFalse(ObjectMarkerCapture.ShouldCapture(locEntry({ actionEntryType = NPC })))
+TestObjectMarkerCaptureFindLoc = {}
+
+function TestObjectMarkerCaptureFindLoc:testPicksLastLocInReversedPriorityList()
+    local under = locEntry({ locData = { config = { name = "Under" } }, subjectHash = 1 })
+    local top = locEntry({ locData = { config = { name = "Top" } }, subjectHash = 2 })
+    local found = ObjectMarkerCapture.FindLocEntry({ entries = { under, npcEntry(), top } })
+    luaunit.assertEquals(found.locData.config.name, "Top")
+    luaunit.assertEquals(found.subjectHash, 2)
 end
 
-function TestObjectMarkerCapturePredicate:testIgnoresNilEntry()
-    luaunit.assertFalse(ObjectMarkerCapture.ShouldCapture(nil))
+function TestObjectMarkerCaptureFindLoc:testIgnoresNpcOnlyMenu()
+    luaunit.assertNil(ObjectMarkerCapture.FindLocEntry({ entries = { npcEntry() } }))
 end
 
--- BUILD-VERIFY shape tolerance: the docs example wraps the selected entry in `.entry`; the
--- predicate must accept the wrapper as well as a bare entry.
-function TestObjectMarkerCapturePredicate:testCapturesWrappedEventPayload()
-    luaunit.assertTrue(ObjectMarkerCapture.ShouldCapture({ entry = locEntry() }))
+function TestObjectMarkerCaptureFindLoc:testIgnoresNilMenu()
+    luaunit.assertNil(ObjectMarkerCapture.FindLocEntry(nil))
 end
-
---- Extraction -------------------------------------------------------------------------------
 
 TestObjectMarkerCaptureExtract = {}
 
@@ -68,9 +66,8 @@ function TestObjectMarkerCaptureExtract:testExtractsNameCoordAndSubjectHash()
 end
 
 function TestObjectMarkerCaptureExtract:testDefaultsMissingLevelToZero()
-    -- Built without coordGridLevel (a nil override can't remove a field from a Lua table).
     local o = ObjectMarkerCapture.Extract({
-        actionVerbType = EXAMINE, actionEntryType = LOC, subjectHash = 1,
+        subjectHash = 1,
         coordGridX = 10, coordGridZ = 20, locData = { config = { name = "Door" } },
     })
     luaunit.assertEquals(o.coordGrid.level, 0)
@@ -78,7 +75,7 @@ end
 
 function TestObjectMarkerCaptureExtract:testReturnsNilWhenLocDataMissing()
     luaunit.assertNil(ObjectMarkerCapture.Extract({
-        actionVerbType = EXAMINE, actionEntryType = LOC, subjectHash = 1,
+        subjectHash = 1,
         coordGridX = 10, coordGridZ = 20,
     }))
 end
@@ -91,10 +88,8 @@ function TestObjectMarkerCaptureExtract:testUnwrapsWrappedEventPayload()
 end
 
 function TestObjectMarkerCaptureExtract:testReadsCoordNestedUnderLocData()
-    -- If the live client nests the coord under locData rather than on the entry, Extract still
-    -- finds it (build-verify tolerance).
     local o = ObjectMarkerCapture.Extract({
-        actionVerbType = EXAMINE, actionEntryType = LOC, subjectHash = 7,
+        subjectHash = 7,
         locData = { config = { name = "Altar" }, coordGridX = 111, coordGridZ = 222, coordGridLevel = 2 },
     })
     luaunit.assertEquals(o.coordGrid.x, 111)
@@ -102,13 +97,8 @@ function TestObjectMarkerCaptureExtract:testReadsCoordNestedUnderLocData()
     luaunit.assertEquals(o.coordGrid.level, 2)
 end
 
---- State machine (armed subscription + single-shot commit) ---------------------------------
-
 TestObjectMarkerCaptureFlow = {}
 
--- Each test builds its capture + fake source as locals (never stored on `self`): the fake source's
--- lazy-channel metatable indexes with a nil key when luaunit's between-test prettystr walks it, so
--- keeping the object graph out of the persistent class table sidesteps that harness quirk entirely.
 local function armed()
     local harness = newFakeEventSource()
     local capture = ObjectMarkerCapture.new(harness.source)
@@ -120,50 +110,98 @@ local function armed()
     return capture, harness, rec
 end
 
-function TestObjectMarkerCaptureFlow:testArmSubscribesToMiniMenuEntrySelected()
+function TestObjectMarkerCaptureFlow:testArmSubscribesToMiniMenuReady()
     local capture, harness = armed()
     luaunit.assertTrue(capture:IsArmed())
-    luaunit.assertEquals(harness:SubscribeCount("MiniMenuEntrySelected"), 1)
+    luaunit.assertEquals(harness:SubscribeCount("MiniMenuReady"), 1)
+    luaunit.assertEquals(harness:SubscribeCount("MiniMenuEntrySelected"), 0)
 end
 
-function TestObjectMarkerCaptureFlow:testCapturesAndCommitsOnExamineLoc()
+function TestObjectMarkerCaptureFlow:testLocMenuAddsSelectObjectAndSwapsToIndex1()
+    local _capture, harness = armed()
+    local loc = locEntry()
+    local menu = fakeMenu({ loc })
+    harness:Push("MiniMenuReady", { miniMenu = menu })
+    luaunit.assertEquals(menu.addCount, 1)
+    luaunit.assertEquals(menu.lastAddName, "Select Object")
+    luaunit.assertEquals(#menu.swaps, 1)
+    luaunit.assertEquals(menu.swaps[1][1], 1)
+    luaunit.assertEquals(menu.swaps[1][2], 2)
+    luaunit.assertEquals(menu.entries[1].overrideText, "Select Object")
+end
+
+function TestObjectMarkerCaptureFlow:testReverseScanPicksTopLocForCallback()
     local _capture, harness, rec = armed()
-    harness:Push("MiniMenuEntrySelected", locEntry())
+    local under = locEntry({ locData = { config = { name = "Under" } }, subjectHash = 11 })
+    local top = locEntry({ locData = { config = { name = "Top" } }, subjectHash = 22 })
+    local menu = fakeMenu({ under, top })
+    harness:Push("MiniMenuReady", { miniMenu = menu })
+    menu.lastAddFn()
     luaunit.assertEquals(rec.count, 1)
-    luaunit.assertEquals(rec.committed.name, "Bank booth")
-    luaunit.assertEquals(rec.committed.subjectHash, 98765)
+    luaunit.assertEquals(rec.committed.name, "Top")
+    luaunit.assertEquals(rec.committed.subjectHash, 22)
 end
 
-function TestObjectMarkerCaptureFlow:testDisarmsAfterASuccessfulCapture()
+function TestObjectMarkerCaptureFlow:testNpcOnlyMenuDoesNotAdd()
+    local _capture, harness = armed()
+    local menu = fakeMenu({ npcEntry() })
+    harness:Push("MiniMenuReady", { miniMenu = menu })
+    luaunit.assertEquals(menu.addCount, 0)
+    luaunit.assertEquals(#menu.swaps, 0)
+end
+
+function TestObjectMarkerCaptureFlow:testDisarmsAfterSuccessfulSelect()
     local capture, harness, rec = armed()
-    harness:Push("MiniMenuEntrySelected", locEntry())
+    local menu = fakeMenu({ locEntry() })
+    harness:Push("MiniMenuReady", { miniMenu = menu })
+    menu.lastAddFn()
     luaunit.assertFalse(capture:IsArmed())
-    -- A second entry after the single-shot capture is ignored (no double commit).
-    harness:Push("MiniMenuEntrySelected", locEntry())
+    luaunit.assertEquals(rec.count, 1)
+    menu.lastAddFn()
     luaunit.assertEquals(rec.count, 1)
 end
 
-function TestObjectMarkerCaptureFlow:testNonLocEntryIsIgnoredAndStaysArmed()
-    local capture, harness, rec = armed()
-    harness:Push("MiniMenuEntrySelected", locEntry({ actionEntryType = NPC }))
-    luaunit.assertEquals(rec.count, 0)
-    luaunit.assertTrue(capture:IsArmed())
+function TestObjectMarkerCaptureFlow:testReadyAddsEveryTime()
+    local _capture, harness = armed()
+    local menu = fakeMenu({ locEntry() })
+    harness:Push("MiniMenuReady", { miniMenu = menu })
+    harness:Push("MiniMenuReady", { miniMenu = menu })
+    luaunit.assertEquals(menu.addCount, 2)
 end
 
 function TestObjectMarkerCaptureFlow:testCancelDisarmsWithoutCommitting()
     local capture, harness, rec = armed()
+    local menu = fakeMenu({ locEntry() })
     capture:Cancel()
     luaunit.assertFalse(capture:IsArmed())
-    harness:Push("MiniMenuEntrySelected", locEntry())
+    harness:Push("MiniMenuReady", { miniMenu = menu })
+    luaunit.assertEquals(menu.addCount, 0)
     luaunit.assertEquals(rec.count, 0)
 end
 
-function TestObjectMarkerCaptureFlow:testEntryWhileDisarmedIsIgnored()
-    -- No Arm at all: a stray MiniMenuEntrySelected must never reach a nil onCommit.
-    local harness = newFakeEventSource()
-    ObjectMarkerCapture.new(harness.source)
-    local ok = pcall(function() harness:Push("MiniMenuEntrySelected", locEntry()) end)
-    luaunit.assertTrue(ok)
+function TestObjectMarkerCaptureFlow:testCallbackWhileDisarmedIsIgnored()
+    local capture, harness, rec = armed()
+    local menu = fakeMenu({ locEntry() })
+    harness:Push("MiniMenuReady", { miniMenu = menu })
+    capture:Cancel()
+    menu.lastAddFn()
+    luaunit.assertEquals(rec.count, 0)
 end
 
-return TestObjectMarkerCapturePredicate
+function TestObjectMarkerCaptureFlow:testReadyWhileDisarmedIsIgnored()
+    local harness = newFakeEventSource()
+    ObjectMarkerCapture.new(harness.source)
+    local menu = fakeMenu({ locEntry() })
+    local ok = pcall(function() harness:Push("MiniMenuReady", { miniMenu = menu }) end)
+    luaunit.assertTrue(ok)
+    luaunit.assertEquals(menu.addCount, 0)
+end
+
+function TestObjectMarkerCaptureFlow:testAcceptsBareMenuPayload()
+    local _capture, harness = armed()
+    local menu = fakeMenu({ locEntry() })
+    harness:Push("MiniMenuReady", menu)
+    luaunit.assertEquals(menu.addCount, 1)
+end
+
+return TestObjectMarkerCaptureFindLoc

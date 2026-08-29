@@ -332,13 +332,13 @@ _Avoid_: overlay box, screen rect, snipping region (those name the capture gestu
 
 **Object Marker** (`action.object_marker`):
 An Action that draws a world-anchored tile mark (optional name label) on the always-on overlay,
-re-projected every frame from a Capture-Arm Examine of a LOC. Same Hold/sticky lifetime as Toast;
+re-projected every frame from a Capture-Arm Select Object of a Loc. Same Hold/sticky lifetime as Toast;
 Tile is the only feasible draw mode on the current API.
 _Avoid_: ground marker, tile marker (as the node name); "object" alone (ambiguous with game objs)
 
 **Capture Banner**:
 A top-of-screen instruction strip shown while a Screen or Object Marker capture is waiting for
-input (drag a region / Examine a LOC). Non-interactive — cancel is Esc or re-click of the same
+input (drag a region / Select Object on a Loc). Non-interactive — cancel is Esc or re-click of the same
 Capture Control. Screen Marker also dims the screen behind it (Snipping-Tool hole while dragging).
 _Avoid_: toast, notification, armed banner, overlay prompt
 
