@@ -29,6 +29,7 @@ local Util = require("util")
 ---@field kind "event"|"poll"|nil                          # default "event"
 ---@field transform (fun(raw: any): any)|nil               # identity if omitted
 ---@field filter (fun(payload: any, node: Watchdog.NodeHandle): boolean)|nil  # always-pass if omitted
+---@field seedKey (fun(node: Watchdog.NodeHandle): any)|nil  # poll: changing key reseeds edge state (no Enter/Leave)
 
 ---@class Watchdog.IdentitySource
 ---@field Resolve fun(self: Watchdog.IdentitySource): string|nil
@@ -116,6 +117,9 @@ function Runtime.new(eventSource, mouseSource, identitySource)
         -- Poll Enter/Leave edge state, keyed by graph then nodeId (ids unique only within a graph).
         -- Weak keys; missing ⇒ false (already-true-at-load fires Enter); never serialized.
         pollEdgeState = setmetatable({}, { __mode = "k" }),
+        -- Parallel to pollEdgeState: last seedKey per graph/node. Weak-keyed so a dropped Graph
+        -- does not keep the keys alive.
+        pollSeedKey = setmetatable({}, { __mode = "k" }),
         effects = Effects.new(),
         infobox = InfoBoxArea.new(),
         screenMarkerCapture = ScreenMarkerCapture.new(),
@@ -239,6 +243,7 @@ function Runtime:_discardBucket(key)
     for _, alert in ipairs(self.alerts) do
         if alert.bucketKey == key then
             self.pollEdgeState[alert.graph] = nil
+            self.pollSeedKey[alert.graph] = nil
         else
             kept[#kept + 1] = alert
         end
@@ -352,6 +357,7 @@ function Runtime:RemoveAlert(id)
     for _, alert in ipairs(self.alerts) do
         if alert.id == id then
             self.pollEdgeState[alert.graph] = nil
+            self.pollSeedKey[alert.graph] = nil
             removed = true
         else
             kept[#kept + 1] = alert
@@ -505,6 +511,7 @@ function Runtime:Toggle(name)
 end
 
 -- Subscribe each `event` once. Poll: nil transform sample freezes edge state for that tick.
+-- Optional `seedKey`: first sample / changed key writes edge state with no Enter/Leave.
 ---@param typeKey string
 ---@param entries Watchdog.TriggerBinding[]
 function Runtime:BindTrigger(typeKey, entries)
@@ -523,6 +530,7 @@ function Runtime:BindTrigger(typeKey, entries)
             kind = entry.kind or "event",
             transform = entry.transform,
             filter = entry.filter,
+            seedKey = entry.seedKey,
         }
         self:_ensureSubscribed(entry.event, channel)
     end
@@ -626,23 +634,40 @@ function Runtime:_pollEdgeStateFor(graph)
     return states
 end
 
+function Runtime:_pollSeedKeyFor(graph)
+    local keys = self.pollSeedKey[graph]
+    if keys == nil then
+        keys = {}
+        self.pollSeedKey[graph] = keys
+    end
+    return keys
+end
+
 ---@class Watchdog.PollFirePayload
 ---@field edge "Enter"|"Leave"  # the transition the edge gate detected this tick
 ---@field sample any            # the value transform() sampled this tick (shared world state)
 
 -- Enter/Leave on predicate transition. Missing edge state ⇒ false. Filter error freezes that node.
+-- `seedKey`: first sample, or a changed key (e.g. Location target), writes state with no edge.
 function Runtime:_firePollBindingInGraph(binding, payload, graph)
     if graph == nil then
         return
     end
     local edgeStates = self:_pollEdgeStateFor(graph)
+    local seedKeys = nil
+    if binding.seedKey ~= nil then
+        seedKeys = self:_pollSeedKeyFor(graph)
+    end
     for _, node in ipairs(graph:GetNodes()) do
         if node.typeKey == binding.typeKey then
             local nodeId = node.id
+            local nodeHandle = nil
+            if binding.filter ~= nil or seedKeys ~= nil then
+                nodeHandle = makeNodeHandle(graph, node)
+            end
             -- nil = freeze (filter errored); true/false = predicate.
             local current = true
             if binding.filter ~= nil then
-                local nodeHandle = makeNodeHandle(graph, node)
                 local ok, result = callOrLog(
                     "poll filter error on '" .. binding.typeKey .. "'",
                     binding.filter, payload, nodeHandle)
@@ -652,12 +677,26 @@ function Runtime:_firePollBindingInGraph(binding, payload, graph)
                     current = nil
                 end
             end
+            local reseed = false
+            if current ~= nil and seedKeys ~= nil then
+                local ok, key = callOrLog(
+                    "poll seedKey error on '" .. binding.typeKey .. "'",
+                    binding.seedKey, nodeHandle)
+                if not ok then
+                    current = nil
+                elseif seedKeys[nodeId] ~= key then
+                    seedKeys[nodeId] = key
+                    reseed = true
+                end
+            end
             if current ~= nil then
-                local prev = edgeStates[nodeId] == true -- lazy: missing ⇒ false
-                if current and not prev then
-                    pcall(function() graph:Fire(nodeId, { edge = "Enter", sample = payload }) end)
-                elseif prev and not current then
-                    pcall(function() graph:Fire(nodeId, { edge = "Leave", sample = payload }) end)
+                if not reseed then
+                    local prev = edgeStates[nodeId] == true -- lazy: missing ⇒ false
+                    if current and not prev then
+                        pcall(function() graph:Fire(nodeId, { edge = "Enter", sample = payload }) end)
+                    elseif prev and not current then
+                        pcall(function() graph:Fire(nodeId, { edge = "Leave", sample = payload }) end)
+                    end
                 end
                 edgeStates[nodeId] = current
             end

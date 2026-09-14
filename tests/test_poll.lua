@@ -154,6 +154,40 @@ function TestPoll:testInitialStateFalseSoAlreadyTrueAtLoadFiresEnter()
     luaunit.assertEquals(log[1].edge, "Enter")
 end
 
+function TestPoll:testSeedKeyReseedsWithoutEdgeOnLoadAndKeyChange()
+    -- Opt-in: seedKey makes the first sample, and any later key change, write edge state
+    -- with no Enter/Leave (Location #72). Bindings without seedKey keep the default above.
+    local log = {}
+    registerPollFixture(self.registry, log)
+    self.runtime:BindTrigger("fixture.poll", {
+        {
+            kind = "poll",
+            event = "Logic",
+            transform = function(raw)
+                return raw ~= nil and raw.sample or nil
+            end,
+            filter = function(sample, node)
+                return sample >= node.GetControl("target")
+            end,
+            seedKey = function(node)
+                return node.GetControl("target")
+            end,
+        },
+    })
+    local id = self.graph:AddNode("fixture.poll", { target = 5 })
+
+    self:tick(10) -- already true: seed, no Enter
+    luaunit.assertEquals(#log, 0)
+
+    self.graph:SetControl(id, "target", 20)
+    self:tick(21) -- true under the new target: reseed, no Enter
+    luaunit.assertEquals(#log, 0)
+
+    self:tick(1) -- genuine true -> false
+    luaunit.assertEquals(#log, 1)
+    luaunit.assertEquals(log[1].edge, "Leave")
+end
+
 --- nil sample: skip the tick and freeze edge state ---------------------------------------
 
 function TestPoll:testNilSampleSkipsTickEntirely()

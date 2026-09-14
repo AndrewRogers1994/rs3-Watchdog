@@ -62,6 +62,15 @@ function Location.Register(registry, runtime)
                 local c = Player.GetEntity().coordGrid
                 return { coord = { x = c.x, z = c.z, level = c.level } }
             end,
+            -- Target/radius identity: load and a Control rewrite reseed without Enter/Leave (#72).
+            seedKey = function(node)
+                local target = validTarget(node.GetControl("target"))
+                if target == nil then
+                    return nil
+                end
+                return string.format("%s:%s:%s:%s", target.x, target.z, target.level,
+                    normalizeRadius(node.GetControl("radius")))
+            end,
             filter = function(payload, node)
                 local target = validTarget(node.GetControl("target"))
                 if target == nil then

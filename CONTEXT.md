@@ -284,7 +284,7 @@ _Avoid_: Selected scope, focus; "current scope" (that word names the deleted Sto
 Two independent runtime states of a loaded Bucket (landed in `runtime.lua`, #89). **Resident** =
 loaded in memory. **Armed** = eligible to fire: `global` is armed at plugin start and never
 disarmed; a character Bucket arms on the `GAME` transition when its `displayName` is unchanged (a
-world-hop/reconnect re-arms *in place* — no reload, so `pollEdgeState` survives and no `Enter` is
+world-hop/reconnect re-arms *in place* — no reload, so `pollEdgeState` and `pollSeedKey` survive and no `Enter` is
 replayed), disarms but stays resident on leaving `GAME`, and is discarded+reloaded only on a
 genuine character switch (a rename, having no stable account id, reads as a switch and orphans the
 old Bucket). Identity has no switch event, so it's resolved by a **pending-resolve flag drained on

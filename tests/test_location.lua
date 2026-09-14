@@ -1,6 +1,7 @@
 -- Exercises the Location trigger (`trigger.location`, #34) end-to-end through the real poll
 -- dispatcher: representative player-position samples are pushed as Logic ticks, and the tests
 -- assert the Enter/Leave edges the gate decides plus the `coord`/`distance` data outputs.
+-- Load and target-Control rewrites seed the edge baseline without firing (#72).
 --
 -- The node's `transform` reads the client `Player` global directly (like chat.lua reads
 -- ChatType), so a fake `Player` is installed as a global and `setPos`/`logOut` steer what each
@@ -70,6 +71,12 @@ function TestLocation:moveTo(x, z, level)
     self.source:Push("Logic", {})
 end
 
+-- First sample after load reseeds without an edge (#72). Tick far from every target these
+-- tests use (0/10/50/100) so the next in-range sample is a real Enter.
+function TestLocation:primeOutside()
+    self:moveTo(9999, 9999)
+end
+
 -- Logs out (transform will sample nil) and pushes one Logic tick.
 function TestLocation:logOutTick()
     Player.available = false
@@ -92,6 +99,7 @@ end
 function TestLocation:testNoReEnterWhileStayingInRadius()
     self:addLocation({ x = 100, z = 100, level = 0 }, 5)
 
+    self:primeOutside()
     self:moveTo(100, 100) -- Enter (distance 0)
     self:moveTo(102, 103) -- still in range (max 3)
     self:moveTo(105, 105) -- still in range (max 5, edge)
@@ -102,6 +110,7 @@ end
 function TestLocation:testLeaveFiresOnLeavingRadius()
     self:addLocation({ x = 100, z = 100, level = 0 }, 5)
 
+    self:primeOutside()
     self:moveTo(100, 100) -- Enter
     self:moveTo(100, 106) -- max 6 > 5: Leave
     luaunit.assertEquals(self.counts.enter, 1)
@@ -111,6 +120,7 @@ end
 function TestLocation:testEnterLeaveEnterCycles()
     self:addLocation({ x = 50, z = 50, level = 0 }, 2)
 
+    self:primeOutside()
     self:moveTo(50, 50) -- Enter
     self:moveTo(60, 50) -- Leave
     self:moveTo(51, 51) -- Enter again
@@ -168,14 +178,34 @@ function TestLocation:testNegativeRadiusFlooredToZero()
     luaunit.assertEquals(self.counts.enter, 1)
 end
 
---- Already in range at login fires Enter (initial edge state false) ----------------------
+--- Load / retarget seed the baseline without emitting an edge (#72) ----------------------
 
-function TestLocation:testAlreadyInRangeAtLoginFiresEnter()
+function TestLocation:testAlreadyInRangeAtLoadDoesNotEnter()
     self:addLocation({ x = 0, z = 0, level = 0 }, 5)
 
-    -- First-ever tick already in range: initial edge state is false, so this is a false->true
-    -- transition and Enter fires.
+    -- First sample after the graph goes live: seed in-range without Enter. Staying inside
+    -- must not catch up with a delayed Enter; walking out is a real Leave.
     self:moveTo(2, 2)
+    luaunit.assertEquals(self.counts.enter, 0)
+    self:moveTo(3, 1)
+    luaunit.assertEquals(self.counts.enter, 0)
+    self:moveTo(50, 50)
+    luaunit.assertEquals(self.counts.leave, 1)
+end
+
+function TestLocation:testSettingTargetToCurrentPositionDoesNotEnter()
+    local id = self:addLocation({ x = 500, z = 500, level = 0 }, 5)
+
+    self:moveTo(0, 0) -- seed: outside the original target
+    luaunit.assertEquals(self.counts.enter, 0)
+
+    self.graph:SetControl(id, "target", { x = 0, z = 0, level = 0 })
+    self:moveTo(0, 0) -- first sample of the new target: already inside, must not Enter
+    luaunit.assertEquals(self.counts.enter, 0)
+
+    self:moveTo(0, 20)
+    luaunit.assertEquals(self.counts.leave, 1)
+    self:moveTo(0, 0)
     luaunit.assertEquals(self.counts.enter, 1)
 end
 
@@ -184,6 +214,7 @@ end
 function TestLocation:testLogoutFreezesStateNoSpuriousLeave()
     self:addLocation({ x = 0, z = 0, level = 0 }, 5)
 
+    self:primeOutside()
     self:moveTo(0, 0)   -- Enter
     self:logOutTick()   -- unreadable: skip + freeze (no Leave)
     self:logOutTick()
@@ -195,6 +226,7 @@ end
 function TestLocation:testRealExitAfterLogoutStillLeaves()
     self:addLocation({ x = 0, z = 0, level = 0 }, 5)
 
+    self:primeOutside()
     self:moveTo(0, 0)     -- Enter
     self:logOutTick()     -- freeze at in-range
     self:moveTo(50, 50)   -- genuinely out of range now: Leave
@@ -206,6 +238,7 @@ end
 function TestLocation:testCoordAndDistanceDataOutputs()
     local id = self:addLocation({ x = 100, z = 100, level = 2 }, 10)
 
+    self:primeOutside()
     self:moveTo(104, 97, 2) -- Chebyshev max(4,3)=4, in range: Enter
     local coord = self.graph:GetLastValue(id, "coord")
     luaunit.assertEquals(coord, { x = 104, z = 97, level = 2 })
@@ -215,6 +248,7 @@ end
 function TestLocation:testDistanceReflectsExitDistanceOnLeave()
     local id = self:addLocation({ x = 0, z = 0, level = 0 }, 3)
 
+    self:primeOutside()
     self:moveTo(0, 0)   -- Enter, distance 0
     self:moveTo(0, 7)   -- Leave, distance 7
     luaunit.assertEquals(self.graph:GetLastValue(id, "distance"), 7)
@@ -244,6 +278,7 @@ function TestLocation:testEachNodeKeepsItsOwnEdgeState()
     self.graph:Connect(near, "Enter", self.graph:AddNode("fixture.nearHit"), "in")
     self.graph:Connect(far, "Enter", self.graph:AddNode("fixture.farHit"), "in")
 
+    self:primeOutside()
     self:moveTo(5, 0) -- distance 5: inside far (10), outside near (2)
     luaunit.assertEquals(hits.near, 0) -- near did NOT enter
     luaunit.assertEquals(hits.far, 1)  -- far DID enter
