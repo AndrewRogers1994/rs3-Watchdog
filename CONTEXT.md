@@ -22,9 +22,15 @@ The on-screen region the Editor draws into — the pannable, zoomable window ont
 _Avoid_: Canvas (that is the render primitive), pane, frame
 
 **View**:
-The transform mapping Graph-space to Screen-space: a pan offset and a zoom factor. Applied
-when drawing, inverted when hit-testing. UI-only state the engine has no concept of.
+The transform mapping Graph-space to Screen-space: a pan offset and a zoom factor. Default
+is pan at the origin and zoom 1. Applied when drawing, inverted when hit-testing. UI-only
+state the engine has no concept of. Wheel zoom walks a shared lattice: `0.25`, every
+`1.0 * 1.1^k` strictly inside `(0.25, 2.0)`, and `2.0`.
 _Avoid_: Camera, transform (in prose), matrix, scroll
+
+**Reset View**:
+Returning the View to that default (origin pan, zoom 1). Distinct from changing zoom alone.
+_Avoid_: Reset zoom, fit to view, home, camera reset
 
 **Graph-space**:
 The coordinate space Node positions are stored and reasoned about in, independent of pan

@@ -703,7 +703,7 @@ managerSurface = {
 }
 editorSurface = {
     id = "editor",
-    title = "Watchdog — Editor",
+    title = "Watchdog - Editor",
     SetVisible = function(_, v) editor:SetVisible(v) end,
     -- Shell hide (F8/Close) must dismiss palette/gestures without Editor:SetVisible(false),
     -- so pan/zoom survive; mux calls this instead of flipping surface visibility.

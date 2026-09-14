@@ -204,6 +204,33 @@ function TestGraphEditor:testOpenPaletteFromPlusAnchorsAtViewCenter()
     luaunit.assertTrue(editor.palette.centerOnAnchor)
 end
 
+--- Wheel lattice vs Palette scroll -------------------------------------------------------
+
+function TestGraphEditor:testOnScrollWithPaletteOpenDoesNotChangeZoom()
+    local editor = Editor.new(self.registry, nil)
+    editor.view.zoom = 1.0
+    editor.palette.open = true
+    editor.palette.maxScroll = 20
+    editor.palette.scroll = 0
+
+    editor:onScroll(1)
+
+    luaunit.assertEquals(editor.view.zoom, 1.0)
+    luaunit.assertEquals(editor.palette.scroll, 3)
+end
+
+function TestGraphEditor:testOnScrollWithPaletteClosedStepsLattice()
+    local editor = Editor.new(self.registry, nil)
+    editor.mouse.x, editor.mouse.y = 100, 80
+    editor.view.zoom = 1.0
+
+    editor:onScroll(1)
+    luaunit.assertAlmostEquals(editor.view.zoom, 1 / 1.1, 1e-12)
+
+    editor:onScroll(-1)
+    luaunit.assertAlmostEquals(editor.view.zoom, 1.0, 1e-12)
+end
+
 -- After picking a type from the + Palette, the Node Body's center (not its origin) sits on
 -- the Viewport center.
 function TestGraphEditor:testPlaceFromPlusCentersNodeBodyOnViewCenter()

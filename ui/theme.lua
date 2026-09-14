@@ -113,6 +113,7 @@ Theme.TITLE_MIN_ZOOM   = 0.30   -- node titles
 
 Theme.ZOOM_MIN = 0.25
 Theme.ZOOM_MAX = 2.0
+Theme.ZOOM_STEP = 1.1  -- interior rungs: 1.0 * ZOOM_STEP^k in (ZOOM_MIN, ZOOM_MAX)
 
 --- Window (defaults / host chrome) ------------------------------------------------------
 

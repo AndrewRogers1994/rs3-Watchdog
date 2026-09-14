@@ -966,8 +966,7 @@ function Editor:onScroll(...)
     local mx, my = mousePos()
     local lx, ly
     if mx ~= nil then lx, ly = self:toLocal(mx, my) else lx, ly = self.mouse.x, self.mouse.y end
-    local factor = delta > 0 and (1 / 1.1) or 1.1
-    self.view:ZoomAt(lx, ly, factor, Theme.ZOOM_MIN, Theme.ZOOM_MAX)
+    self.view:StepZoomAt(lx, ly, delta)
 end
 
 --- Control commit
