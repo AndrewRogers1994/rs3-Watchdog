@@ -62,6 +62,12 @@ function View.NearestRung(zoom)
     return RUNGS[nearestIndex(zoom)]
 end
 
+---@param zoom number
+---@return integer
+function View.RungIndex(zoom)
+    return nearestIndex(zoom)
+end
+
 local function clamp(v, lo, hi)
     if v < lo then return lo end
     if v > hi then return hi end

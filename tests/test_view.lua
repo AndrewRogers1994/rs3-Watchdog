@@ -108,3 +108,9 @@ function TestView:testOffLatticeZoomJoinsLatticeOnNextStep()
     v:StepZoomAt(0, 0, 1)
     luaunit.assertAlmostEquals(v.zoom, 1 / 1.1, 1e-12)
 end
+
+function TestView:testRungIndexOfEndpointsAndDefault()
+    luaunit.assertEquals(View.RungIndex(0.25), 1)
+    luaunit.assertEquals(View.RungIndex(2.0), EXPECTED_RUNG_COUNT)
+    luaunit.assertEquals(View.Rungs()[View.RungIndex(1.0)], 1.0)
+end

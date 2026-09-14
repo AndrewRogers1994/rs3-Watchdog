@@ -114,6 +114,9 @@ Theme.TITLE_MIN_ZOOM   = 0.30   -- node titles
 Theme.ZOOM_MIN = 0.25
 Theme.ZOOM_MAX = 2.0
 Theme.ZOOM_STEP = 1.1  -- interior rungs: 1.0 * ZOOM_STEP^k in (ZOOM_MIN, ZOOM_MAX)
+Theme.ZOOM_SLIDER_W = 128  -- toolbar track width; buttons stay 18px and center on ZOOM_SLIDER_H
+Theme.ZOOM_SLIDER_H = 24   -- taller than the 18px buttons so the native thumb is not clipped
+Theme.COL_ZOOM_TICK = col(230, 232, 240, 1.0)  -- single 1.0 mark on the track (not native notches)
 
 --- Window (defaults / host chrome) ------------------------------------------------------
 

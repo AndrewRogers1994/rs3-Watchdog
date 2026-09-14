@@ -16,6 +16,7 @@ local luaunit = require("luaunit")
 local Registry = require("registry")
 local Graph = require("graph")
 local Editor = require("ui/graph")
+local View = require("ui/view")
 
 TestGraphEditor = {}
 
@@ -229,6 +230,128 @@ function TestGraphEditor:testOnScrollWithPaletteClosedStepsLattice()
 
     editor:onScroll(-1)
     luaunit.assertAlmostEquals(editor.view.zoom, 1.0, 1e-12)
+end
+
+--- #103: slider index / Reset View (unmounted; no ui.Slider) -----------------------------
+
+function TestGraphEditor:testApplyZoomIndexKeepsViewCenterGraphStable()
+    local editor = Editor.new(self.registry, nil)
+    editor.window.w, editor.window.h = 400, 300
+    editor.view.panX, editor.view.panY, editor.view.zoom = 40, -20, 1.0
+    local gx, gy = editor:viewCenterGraph()
+    local iMax = View.RungIndex(2.0)
+
+    editor:applyZoomIndex(iMax)
+
+    luaunit.assertEquals(editor.view.zoom, 2.0)
+    local gx2, gy2 = editor:viewCenterGraph()
+    luaunit.assertAlmostEquals(gx2, gx, 1e-12)
+    luaunit.assertAlmostEquals(gy2, gy, 1e-12)
+end
+
+function TestGraphEditor:testOnResetViewZerosPanAndDefaultZoom()
+    local editor = Editor.new(self.registry, nil)
+    editor.view.panX, editor.view.panY, editor.view.zoom = 123, 45, 2.0
+    editor:onResetView()
+    luaunit.assertEquals(editor.view.panX, 0)
+    luaunit.assertEquals(editor.view.panY, 0)
+    luaunit.assertEquals(editor.view.zoom, 1.0)
+    luaunit.assertEquals(View.Rungs()[View.RungIndex(editor.view.zoom)], 1.0)
+end
+
+function TestGraphEditor:testApplyZoomIndexClosesPaletteThenZooms()
+    local editor = Editor.new(self.registry, nil)
+    editor.window.w, editor.window.h = 400, 300
+    editor.palette.open = true
+    editor.view.zoom = 1.0
+    editor:applyZoomIndex(View.RungIndex(2.0))
+    luaunit.assertFalse(editor.palette.open)
+    luaunit.assertEquals(editor.view.zoom, 2.0)
+end
+
+function TestGraphEditor:testOnResetViewClosesPaletteThenResets()
+    local editor = Editor.new(self.registry, nil)
+    editor.palette.open = true
+    editor.view.panX, editor.view.zoom = 50, 2.0
+    editor:onResetView()
+    luaunit.assertFalse(editor.palette.open)
+    luaunit.assertEquals(editor.view.panX, 0)
+    luaunit.assertEquals(editor.view.zoom, 1.0)
+end
+
+function TestGraphEditor:testApplyZoomIndexClosesControlEditorAndColorPopup()
+    local editor = Editor.new(self.registry, nil)
+    editor.window.w, editor.window.h = 400, 300
+    local closedEdit, closedColor = false, false
+    editor.editing = { nodeId = 1, pinName = "x" }
+    editor.closeControlEditor = function(self)
+        closedEdit = true
+        self.editing = nil
+    end
+    editor.colorPopup.open = true
+    editor.closeColorPopup = function(self)
+        closedColor = true
+        self.colorPopup.open = false
+    end
+    editor:applyZoomIndex(View.RungIndex(2.0))
+    luaunit.assertTrue(closedEdit)
+    luaunit.assertTrue(closedColor)
+    luaunit.assertEquals(editor.view.zoom, 2.0)
+end
+
+function TestGraphEditor:testOnResetViewClosesControlEditorAndColorPopup()
+    local editor = Editor.new(self.registry, nil)
+    local closedEdit, closedColor = false, false
+    editor.editing = { nodeId = 1, pinName = "x" }
+    editor.closeControlEditor = function(self)
+        closedEdit = true
+        self.editing = nil
+    end
+    editor.colorPopup.open = true
+    editor.closeColorPopup = function(self)
+        closedColor = true
+        self.colorPopup.open = false
+    end
+    editor.view.panX, editor.view.zoom = 50, 2.0
+    editor:onResetView()
+    luaunit.assertTrue(closedEdit)
+    luaunit.assertTrue(closedColor)
+    luaunit.assertEquals(editor.view.zoom, 1.0)
+    luaunit.assertEquals(editor.view.panX, 0)
+end
+
+function TestGraphEditor:testOnScrollSyncsSliderWithoutRetrigger()
+    local editor = Editor.new(self.registry, nil)
+    editor.mouse.x, editor.mouse.y = 100, 80
+    editor.view.zoom = 1.0
+    local sets = {}
+    editor.zoomSlider = {
+        SetValue = function(_, value, triggerEvents)
+            sets[#sets + 1] = { value = value, triggerEvents = triggerEvents }
+        end,
+    }
+
+    editor:onScroll(1)
+
+    luaunit.assertAlmostEquals(editor.view.zoom, 1 / 1.1, 1e-12)
+    luaunit.assertEquals(#sets, 1)
+    luaunit.assertEquals(sets[1].value, View.RungIndex(1 / 1.1) - 1)
+    luaunit.assertNotEquals(sets[1].triggerEvents, true)
+end
+
+function TestGraphEditor:testOnResetViewSyncsSliderToDefaultRung()
+    local editor = Editor.new(self.registry, nil)
+    editor.view.zoom = 2.0
+    local sets = {}
+    editor.zoomSlider = {
+        SetValue = function(_, value, triggerEvents)
+            sets[#sets + 1] = { value = value, triggerEvents = triggerEvents }
+        end,
+    }
+    editor:onResetView()
+    luaunit.assertEquals(#sets, 1)
+    luaunit.assertEquals(sets[1].value, View.RungIndex(1.0) - 1)
+    luaunit.assertNotEquals(sets[1].triggerEvents, true)
 end
 
 -- After picking a type from the + Palette, the Node Body's center (not its origin) sits on

@@ -56,6 +56,9 @@ function Editor.new(registry, runtime)
         overlayParent = nil,       -- capture + palette + toolbar + transient editors
         plusButton = nil,
         backButton = nil,
+        zoomSlider = nil,
+        resetViewButton = nil,
+        zoomTickCanvas = nil,      -- clickthrough 1.0 mark on the slider track
         onBack = nil,              -- host nav-up (Manager)
     }, Editor)
 
@@ -169,6 +172,9 @@ function Editor:frontOverlayInteractives()
     InvViewer.Front(self)
     pcall(function() if self.paletteCanvas ~= nil then self.paletteCanvas:MoveToFront() end end)
     if self.backButton ~= nil then pcall(function() self.backButton:MoveToFront() end) end
+    if self.zoomSlider ~= nil then pcall(function() self.zoomSlider:MoveToFront() end) end
+    if self.zoomTickCanvas ~= nil then pcall(function() self.zoomTickCanvas:MoveToFront() end) end
+    if self.resetViewButton ~= nil then pcall(function() self.resetViewButton:MoveToFront() end) end
     if self.plusButton ~= nil then pcall(function() self.plusButton:MoveToFront() end) end
     InvViewer.FrontTooltips(self)
     if self.editing ~= nil and self.editing.field ~= nil then
@@ -306,6 +312,13 @@ local function safeComboStyle()
     if id ~= nil and id.StyleSheet ~= nil then
         return id.StyleSheet.COMBO_DEFAULT or id.StyleSheet.DROPDOWN_DEFAULT
             or id.StyleSheet.BUTTON_DEFAULT
+    end
+    return nil
+end
+
+local function safeSliderStyle()
+    if id ~= nil and id.StyleSheet ~= nil and id.StyleSheet.SLIDER_DEFAULT ~= nil then
+        return id.StyleSheet.SLIDER_DEFAULT
     end
     return nil
 end
@@ -961,12 +974,56 @@ function Editor:onScroll(...)
         return
     end
     -- Transient editors / color popup are fixed screen rects; close them before zoom.
-    if self.editing ~= nil then self:closeControlEditor() end
-    if self.colorPopup.open then self:closeColorPopup() end
+    self:closeViewTransients()
     local mx, my = mousePos()
     local lx, ly
     if mx ~= nil then lx, ly = self:toLocal(mx, my) else lx, ly = self.mouse.x, self.mouse.y end
     self.view:StepZoomAt(lx, ly, delta)
+    self:syncZoomSlider()
+end
+
+function Editor:closeViewTransients()
+    if self.editing ~= nil then self:closeControlEditor() end
+    if self.colorPopup.open then self:closeColorPopup() end
+end
+
+-- Wheel leaves the Palette open; slider and # close it first.
+function Editor:dismissPaletteThenViewChange()
+    if self.palette.open then self:closePalette() end
+    self:closeViewTransients()
+end
+
+-- Lattice index about the Viewport center (wheel zooms about the cursor).
+---@param index integer
+function Editor:applyZoomIndex(index)
+    self:dismissPaletteThenViewChange()
+    local rungs = View.Rungs()
+    if index < 1 then index = 1 end
+    if index > #rungs then index = #rungs end
+    local cx, cy = self.window.w * 0.5, self.window.h * 0.5
+    self.view:SetZoomAt(cx, cy, rungs[index])
+    self:syncZoomSlider()
+end
+
+-- SetValue(..., false) so wheel/reset don't re-enter onZoomSliderChanged.
+function Editor:syncZoomSlider()
+    local slider = self.zoomSlider
+    if slider == nil then return end
+    local minV = slider.minValue or 0
+    slider:SetValue(minV + View.RungIndex(self.view.zoom) - 1, false)
+end
+
+function Editor:onZoomSliderChanged()
+    local slider = self.zoomSlider
+    if slider == nil then return end
+    local minV = slider.minValue or 0
+    local value = slider.value or minV
+    self:applyZoomIndex(value - minV + 1)
+end
+
+function Editor:onResetView()
+    self:dismissPaletteThenViewChange()
+    self:resetView()
 end
 
 --- Control commit
@@ -1449,6 +1506,20 @@ function Editor:draw()
             self.palette:Draw(self.paletteCanvas, 0, 0, sw, sh, msx, msy)
         end
     end
+    self:drawZoomTick()
+end
+
+function Editor:drawZoomTick()
+    local c = self.zoomTickCanvas
+    if c == nil or not self.visible then return end
+    c:Clear()
+    local w = c.width or 0
+    local h = c.height or 0
+    if w <= 0 or h <= 0 then return end
+    local n = #View.Rungs()
+    local t = (View.RungIndex(1.0) - 1) / (n - 1)
+    local x = math.floor(t * (w - 1) + 0.5)
+    c:AddLine(x, 2, x, h - 2, 2, Theme.Vec4(Theme.COL_ZOOM_TICK))
 end
 
 --- Visibility
@@ -1518,6 +1589,7 @@ function Editor:resetView()
     self.view.panX = 0
     self.view.panY = 0
     self.view.zoom = 1.0
+    self:syncZoomSlider()
 end
 
 function Editor:SetVisible(v)
@@ -1538,6 +1610,15 @@ function Editor:SetVisible(v)
     end
     if self.plusButton ~= nil then
         pcall(function() self.plusButton.hidden = not self.visible end)
+    end
+    if self.resetViewButton ~= nil then
+        pcall(function() self.resetViewButton.hidden = not self.visible end)
+    end
+    if self.zoomSlider ~= nil then
+        pcall(function() self.zoomSlider.hidden = not self.visible end)
+    end
+    if self.zoomTickCanvas ~= nil then
+        pcall(function() self.zoomTickCanvas.hidden = not self.visible end)
     end
     if self.backButton ~= nil then
         pcall(function() self.backButton.hidden = not self.visible end)
@@ -1564,19 +1645,48 @@ end
 
 --- Mount / unmount
 
--- Back/+ in absolute screen space over the live content rect.
+-- Back left; [slider] [#] [+] right-aligned. #/+ sit on the slider's native height.
 function Editor:layoutToolbar()
     local win = self.window
     local bs = TOOLBAR_BTN
+    local pad = TOOLBAR_PAD
+    local sw, sh = Theme.ZOOM_SLIDER_W, Theme.ZOOM_SLIDER_H
+    local plusX = win.x + win.w - bs - pad
+    local hashX = plusX - pad - bs
+    local sliderX = hashX - pad - sw
+    local sliderY = win.y + pad
+    if self.zoomSlider ~= nil then
+        pcall(function()
+            self.zoomSlider:SetPos(sliderX, sliderY)
+            self.zoomSlider:SetSize(sw, sh)
+            if self.zoomSlider.height ~= nil and self.zoomSlider.height > 0 then
+                sh = self.zoomSlider.height
+                self.zoomSlider:SetSize(sw, sh)
+            end
+        end)
+    end
+    local btnY = sliderY + math.floor((sh - bs) / 2)
     if self.plusButton ~= nil then
         pcall(function()
-            self.plusButton:SetPos(win.x + win.w - bs - TOOLBAR_PAD, win.y + TOOLBAR_PAD)
+            self.plusButton:SetPos(plusX, btnY)
             self.plusButton:SetSize(bs, bs)
+        end)
+    end
+    if self.resetViewButton ~= nil then
+        pcall(function()
+            self.resetViewButton:SetPos(hashX, btnY)
+            self.resetViewButton:SetSize(bs, bs)
+        end)
+    end
+    if self.zoomTickCanvas ~= nil then
+        pcall(function()
+            self.zoomTickCanvas:SetPos(sliderX, sliderY)
+            self.zoomTickCanvas:SetSize(sw, sh)
         end)
     end
     if self.backButton ~= nil then
         pcall(function()
-            self.backButton:SetPos(win.x + TOOLBAR_PAD, win.y + TOOLBAR_PAD)
+            self.backButton:SetPos(win.x + pad, win.y + pad)
             self.backButton:SetSize(4 * bs, bs)
         end)
     end
@@ -1650,14 +1760,47 @@ end
 
 ---@param overlayParent ui.ComponentCollection
 function Editor:mountToolbar(overlayParent)
-    local win = self.window
-    local bs = TOOLBAR_BTN
+    local okSl, slider = pcall(function() return ui.Slider.new(overlayParent) end)
+    if okSl and slider ~= nil then
+        pcall(function() slider.stylesheetID = safeSliderStyle() end)
+        slider.clickthrough = false
+        local n = #View.Rungs()
+        local i0 = View.RungIndex(self.view.zoom) - 1
+        slider:Setup(0, n - 1, i0, 1, 1)
+        slider.notchSprite.alpha = 0
+        -- labelsText.alpha = 0 paints the numerals black; font 0 skips drawing them.
+        slider.labelsText.font = 0
+        self.zoomSlider = slider
+        slider:Subscribe(ui.Hook.ONSELECTIONCHANGED, function()
+            self:onZoomSliderChanged()
+            return true
+        end)
+    end
+
+    local okTick, tick = pcall(function() return ui.Canvas.new(overlayParent) end)
+    if okTick and tick ~= nil then
+        tick.clickthrough = true
+        self.zoomTickCanvas = tick
+    end
+
+    local okHash, hash = pcall(function() return ui.Button.new(overlayParent) end)
+    if okHash and hash ~= nil then
+        pcall(function() hash.stylesheetID = safeButtonStyle() end)
+        hash.clickthrough = false
+        hash.text.content = "#"
+        hash:Subscribe(ui.Hook.ONBUTTONPRESSED, function()
+            self:onResetView()
+            return true
+        end)
+        pcall(function()
+            hash.cursorConfig.mouseOverCursor = id.Cursor.CURSOR_GOTO
+        end)
+        self.resetViewButton = hash
+    end
 
     local okPlus, plus = pcall(function() return ui.Button.new(overlayParent) end)
     if okPlus and plus ~= nil then
         pcall(function() plus.stylesheetID = safeButtonStyle() end)
-        plus:SetPos(win.x + win.w - bs - TOOLBAR_PAD, win.y + TOOLBAR_PAD)
-        plus:SetSize(bs, bs)
         plus.clickthrough = false
         plus.text.content = "+"
         plus:Subscribe(ui.Hook.ONBUTTONPRESSED, function()
@@ -1674,13 +1817,13 @@ function Editor:mountToolbar(overlayParent)
     local okBack, back = pcall(function() return ui.Button.new(overlayParent) end)
     if okBack and back ~= nil then
         pcall(function() back.stylesheetID = safeButtonStyle() end)
-        back:SetPos(win.x + TOOLBAR_PAD, win.y + TOOLBAR_PAD)
-        back:SetSize(4 * bs, bs)
         back.clickthrough = false
         pcall(function() back.text.content = "Back" end)
         back:Subscribe(ui.Hook.ONBUTTONPRESSED, function() self:goBack() return true end)
         self.backButton = back
     end
+
+    self:layoutToolbar()
 end
 
 -- Host onBack if wired; else hide. Nav owner flushes/unbinds.
@@ -1703,6 +1846,18 @@ function Editor:Unmount()
     if self.capture ~= nil then
         pcall(function() self.capture:Destroy() end)
         self.capture = nil
+    end
+    if self.zoomTickCanvas ~= nil then
+        pcall(function() self.zoomTickCanvas:Destroy() end)
+        self.zoomTickCanvas = nil
+    end
+    if self.zoomSlider ~= nil then
+        pcall(function() self.zoomSlider:Destroy() end)
+        self.zoomSlider = nil
+    end
+    if self.resetViewButton ~= nil then
+        pcall(function() self.resetViewButton:Destroy() end)
+        self.resetViewButton = nil
     end
     if self.plusButton ~= nil then
         pcall(function() self.plusButton:Destroy() end)
