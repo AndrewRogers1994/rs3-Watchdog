@@ -171,11 +171,11 @@ function Editor:frontOverlayInteractives()
     pcall(function() if self.capture ~= nil then self.capture:MoveToFront() end end)
     InvViewer.Front(self)
     pcall(function() if self.paletteCanvas ~= nil then self.paletteCanvas:MoveToFront() end end)
-    if self.backButton ~= nil then pcall(function() self.backButton:MoveToFront() end) end
+    if self.backButton ~= nil then self.backButton.root:MoveToFront() end
     if self.zoomSlider ~= nil then pcall(function() self.zoomSlider:MoveToFront() end) end
     if self.zoomTickCanvas ~= nil then pcall(function() self.zoomTickCanvas:MoveToFront() end) end
     if self.resetViewButton ~= nil then self.resetViewButton.root:MoveToFront() end
-    if self.plusButton ~= nil then pcall(function() self.plusButton:MoveToFront() end) end
+    if self.plusButton ~= nil then self.plusButton.root:MoveToFront() end
     InvViewer.FrontTooltips(self)
     if self.editing ~= nil and self.editing.field ~= nil then
         pcall(function() self.editing.field:MoveToFront() end)
@@ -1518,7 +1518,7 @@ function Editor:drawZoomTick()
     if w <= 0 or h <= 0 then return end
     local n = #View.Rungs()
     local t = (View.RungIndex(1.0) - 1) / (n - 1)
-    local x = math.floor(t * (w - 1) + 0.5)
+    local x = math.floor(t * (w - 1) + 0.5) - 4
     c:AddLine(x, 2, x, h - 2, 2, Theme.Vec4(Theme.COL_ZOOM_TICK))
 end
 
@@ -1609,7 +1609,7 @@ function Editor:SetVisible(v)
         pcall(function() self.canvas.hidden = not self.visible end)
     end
     if self.plusButton ~= nil then
-        pcall(function() self.plusButton.hidden = not self.visible end)
+        self.plusButton.root.hidden = not self.visible
     end
     if self.resetViewButton ~= nil then
         self.resetViewButton.root.hidden = not self.visible
@@ -1621,7 +1621,7 @@ function Editor:SetVisible(v)
         pcall(function() self.zoomTickCanvas.hidden = not self.visible end)
     end
     if self.backButton ~= nil then
-        pcall(function() self.backButton.hidden = not self.visible end)
+        self.backButton.root.hidden = not self.visible
     end
     if self.paletteCanvas ~= nil then
         pcall(function() self.paletteCanvas.hidden = not self.visible end)
@@ -1645,7 +1645,7 @@ end
 
 --- Mount / unmount
 
--- Back left; [slider] [#] [+] right-aligned. #/+ sit on the slider's native height.
+-- Back left (18x18); [slider] [#] [+] right-aligned. #/+ / Back sit on the slider's native height.
 function Editor:layoutToolbar()
     local win = self.window
     local bs = TOOLBAR_BTN
@@ -1667,10 +1667,8 @@ function Editor:layoutToolbar()
     end
     local btnY = sliderY + math.floor((sh - bs) / 2)
     if self.plusButton ~= nil then
-        pcall(function()
-            self.plusButton:SetPos(plusX, btnY)
-            self.plusButton:SetSize(bs, bs)
-        end)
+        self.plusButton.root:SetPos(plusX, btnY)
+        self.plusButton.root:SetSize(bs, bs)
     end
     if self.resetViewButton ~= nil then
         self.resetViewButton.root:SetPos(hashX, btnY)
@@ -1683,10 +1681,8 @@ function Editor:layoutToolbar()
         end)
     end
     if self.backButton ~= nil then
-        pcall(function()
-            self.backButton:SetPos(win.x + pad, win.y + pad)
-            self.backButton:SetSize(4 * bs, bs)
-        end)
+        self.backButton.root:SetPos(win.x + pad, btnY)
+        self.backButton.root:SetSize(bs, bs)
     end
 end
 
@@ -1781,36 +1777,25 @@ function Editor:mountToolbar(overlayParent)
         self.zoomTickCanvas = tick
     end
 
-    local hash = prettyui.SimpleButton.new(overlayParent, "#", function()
+    local hash = prettyui.SpriteButton.new(overlayParent, "GRID_LAYOUT", function()
         self:onResetView()
-    end)
+    end, { tooltip = "Reset view" })
     hash:SetHoverCursor(id.Cursor.CURSOR_GOTO)
     self.resetViewButton = hash
 
-    local okPlus, plus = pcall(function() return ui.Button.new(overlayParent) end)
-    if okPlus and plus ~= nil then
-        pcall(function() plus.stylesheetID = safeButtonStyle() end)
-        plus.clickthrough = false
-        plus.text.content = "+"
-        plus:Subscribe(ui.Hook.ONBUTTONPRESSED, function()
-            self:openPaletteFromPlus()
-            return true
-        end)
-        pcall(function()
-            plus.cursorConfig.mouseOverCursor = id.Cursor.CURSOR_GOTO
-        end)
-        self.plusButton = plus
-    end
+    -- Unmanaged SpriteButton.new on the overlay is the #105 canary: no pcall, same
+    -- wrapper-plus-.root pattern as `#`. Host onBack stays pcall-wrapped in goBack.
+    local plus = prettyui.SpriteButton.new(overlayParent, "PLUS", function()
+        self:openPaletteFromPlus()
+    end, { size = TOOLBAR_BTN, tooltip = "Add node" })
+    plus:SetHoverCursor(id.Cursor.CURSOR_GOTO)
+    self.plusButton = plus
 
-    -- Host onBack flushes/unbinds; falls back to self-hide when unwired.
-    local okBack, back = pcall(function() return ui.Button.new(overlayParent) end)
-    if okBack and back ~= nil then
-        pcall(function() back.stylesheetID = safeButtonStyle() end)
-        back.clickthrough = false
-        pcall(function() back.text.content = "Back" end)
-        back:Subscribe(ui.Hook.ONBUTTONPRESSED, function() self:goBack() return true end)
-        self.backButton = back
-    end
+    local back = prettyui.SpriteButton.new(overlayParent, "BACK", function()
+        self:goBack()
+    end, { size = TOOLBAR_BTN, tooltip = "Back" })
+    back:SetHoverCursor(id.Cursor.CURSOR_GOTO)
+    self.backButton = back
 
     self:layoutToolbar()
 end
@@ -1849,11 +1834,11 @@ function Editor:Unmount()
         self.resetViewButton = nil
     end
     if self.plusButton ~= nil then
-        pcall(function() self.plusButton:Destroy() end)
+        self.plusButton:Destroy()
         self.plusButton = nil
     end
     if self.backButton ~= nil then
-        pcall(function() self.backButton:Destroy() end)
+        self.backButton:Destroy()
         self.backButton = nil
     end
     if self.canvas ~= nil then

@@ -227,13 +227,15 @@ The management surface for **multiple** saved alerts and their player scoping �
 the single-alert Editor. Window chrome uses PrettyUI (`prettyui.Window` via the Multiplexer);
 content is a **hybrid**: PrettyUI for scope tabs and form controls, native `ui.Panel` rows for
 the tree strip (ADR-0007) — see [`docs/alert-manager-prettyui.md`](docs/alert-manager-prettyui.md).
-Not the Editor's Canvas. This vocabulary was settled across the Alert Manager wayfinder map (#73);
-each term points at the ticket that fixed it.
+Not the Editor's Canvas. Row **name** is a labeled PrettyUI SimpleButton; row **actions** and
+reorder are PrettyUI SpriteButtons (pencil / export / trash, arrows). Destructive delete goes
+through a **Confirm dialog**, not a two-click armed label. This vocabulary was settled across
+the Alert Manager wayfinder map (#73); each term points at the ticket that fixed it.
 
 **Alert Manager**:
 The single management surface the F8 keybind and the LibPluginMenu button open (`ui/manager.lua`):
 a **tab bar** of Scopes over a tree of Entries, each row carrying enable / select / ↑↓ / Lift /
-name / rename / export / delete controls. Double-clicking an alert row navigates into the Editor; the two are
+name / pencil / export / trash. Double-clicking an alert row navigates into the Editor; the two are
 separate surfaces, mounted once, with at most one visible at a time (#76, #78, #80). #90 landed the
 scope tabs, tree render (icon + name, group chevron + child count, expand/collapse),
 double-click-to-open, and the nav owner; #91 adds the per-row enable / rename / delete ops and the
@@ -242,6 +244,12 @@ cross-scope remains #92 — [`docs/alert-manager-prettyui.md`](docs/alert-manage
 The tree/scope/expand/mutation logic is pure and headless-tested; the mount/render half is
 client-only, the same split the Editor uses.
 _Avoid_: Alert list, manager window, dashboard; the Editor (that is the Canvas graph surface)
+
+**Confirm dialog**:
+A small PrettyUI Window that asks the player to confirm a destructive Manager action (one Entry
+or a bulk Selection). Cancel is a neutral FancyButton; confirm is a positive FancyButton. Title
+and body name what will be deleted. Distinct from Export / Import transfer.
+_Avoid_: modal, popup, two-click delete, armed delete, OK N?
 
 **Entry**:
 A node in a Scope's persisted tree — `kind = "alert" | "group"` — carrying a minted `id`. Identity
