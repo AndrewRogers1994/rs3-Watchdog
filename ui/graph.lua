@@ -326,6 +326,22 @@ end
 local TOOLBAR_BTN = 18
 local TOOLBAR_PAD = 6
 
+-- Content rect → PrettyUI title strip (window root). Overlay toolbar lives here.
+local function titleStrip(win)
+    local border = Theme.WINDOW_BORDER
+    local headerH = Theme.WINDOW_HEADER_H
+    return win.x - border, win.y - headerH, win.w + border * 2, headerH
+end
+
+-- PLUS screen origin and size; palette-from-plus hangs off the bottom of this.
+local function plusScreenPos(win)
+    local titleX, titleY, titleW, headerH = titleStrip(win)
+    local bs, pad = TOOLBAR_BTN, TOOLBAR_PAD
+    local plusX = titleX + titleW - Theme.WINDOW_CLOSE_RESERVE - pad - bs
+    local btnY = titleY + math.max(0, math.floor((headerH - bs) / 2))
+    return plusX, btnY, bs
+end
+
 -- Authoritative placeholder type key; no string fallback (would drift).
 function Editor:unknownTypeKey()
     return LibNodeGraph.UNKNOWN_TYPE
@@ -798,10 +814,12 @@ function Editor:openPaletteUnfiltered(lx, ly, opts)
 end
 
 function Editor:openPaletteFromPlus()
-    local w = self.window.w
-    local bs = TOOLBAR_BTN
     local gx, gy = self:viewCenterGraph()
-    self:openPaletteUnfiltered(w - 2 * bs - 12, TOOLBAR_PAD + bs, {
+    -- Content-local: PLUS is on the title strip, so ly is typically slightly negative.
+    local plusX, plusY, bs = plusScreenPos(self.window)
+    local lx = plusX - self.window.x
+    local ly = plusY + bs - self.window.y
+    self:openPaletteUnfiltered(lx, ly, {
         anchorGX = gx, anchorGY = gy, centerOnAnchor = true,
     })
 end
@@ -1645,27 +1663,30 @@ end
 
 --- Mount / unmount
 
--- Back left (18x18); [slider] [#] [+] right-aligned. #/+ / Back sit on the slider's native height.
+-- Overlay widgets sit on the PrettyUI title strip (above titleDrag in z-order), not in
+-- content. self.window is the content rect: title origin is (-BORDER, -HEADER_H). The
+-- right cluster stops at WINDOW_CLOSE_RESERVE so close still receives clicks.
 function Editor:layoutToolbar()
     local win = self.window
     local bs = TOOLBAR_BTN
     local pad = TOOLBAR_PAD
+    local titleX, titleY, _, headerH = titleStrip(win)
+    local plusX, btnY = plusScreenPos(win)
     local sw, sh = Theme.ZOOM_SLIDER_W, Theme.ZOOM_SLIDER_H
-    local plusX = win.x + win.w - bs - pad
     local hashX = plusX - pad - bs
     local sliderX = hashX - pad - sw
-    local sliderY = win.y + pad
+    local sliderY = titleY + math.max(0, math.floor((headerH - sh) / 2))
     if self.zoomSlider ~= nil then
         pcall(function()
-            self.zoomSlider:SetPos(sliderX, sliderY)
             self.zoomSlider:SetSize(sw, sh)
             if self.zoomSlider.height ~= nil and self.zoomSlider.height > 0 then
                 sh = self.zoomSlider.height
-                self.zoomSlider:SetSize(sw, sh)
+                sliderY = titleY + math.max(0, math.floor((headerH - sh) / 2))
             end
+            self.zoomSlider:SetPos(sliderX, sliderY)
+            self.zoomSlider:SetSize(sw, sh)
         end)
     end
-    local btnY = sliderY + math.floor((sh - bs) / 2)
     if self.plusButton ~= nil then
         self.plusButton.root:SetPos(plusX, btnY)
         self.plusButton.root:SetSize(bs, bs)
@@ -1681,7 +1702,7 @@ function Editor:layoutToolbar()
         end)
     end
     if self.backButton ~= nil then
-        self.backButton.root:SetPos(win.x + pad, btnY)
+        self.backButton.root:SetPos(titleX + pad, btnY)
         self.backButton.root:SetSize(bs, bs)
     end
 end

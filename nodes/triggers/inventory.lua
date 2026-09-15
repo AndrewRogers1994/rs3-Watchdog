@@ -400,7 +400,7 @@ function InventoryTrigger.Register(registry, runtime)
     registry:RegisterNodeType("inventory.item_count", {
         category = "inventory",
         displayName = "Item Count",
-        description = "Sum of matching stack quantities; stays high across later updates until you Compare previous vs current",
+        description = "Filters inventory triggers by item count",
         pins = {
             { name = "snapshot", kind = "data", direction = "in", dataType = "invSnapshot",
               label = "Snapshot" },
@@ -416,7 +416,7 @@ function InventoryTrigger.Register(registry, runtime)
     registry:RegisterNodeType("inventory.item_count_changed", {
         category = "inventory",
         displayName = "Item Count Changed",
-        description = "Fires changed when matching stack quantity moved (empty Name = Container total, not slot swaps)",
+        description = "Filters inventory triggers by item count changing",
         pins = {
             { name = "in", kind = "exec", direction = "in" },
             { name = "changed", kind = "exec", direction = "out" },

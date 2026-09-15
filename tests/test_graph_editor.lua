@@ -191,6 +191,7 @@ end
 
 function TestGraphEditor:testOpenPaletteFromPlusAnchorsAtViewCenter()
     local editor = Editor.new(self.registry, nil)
+    editor.window.x, editor.window.y = 100, 200
     editor.window.w, editor.window.h = 400, 300
     editor.view.panX, editor.view.panY, editor.view.zoom = 40, -20, 2.0
     -- expandCapture touches capture/ui.*; stub so the open path stays headless.
@@ -203,6 +204,10 @@ function TestGraphEditor:testOpenPaletteFromPlusAnchorsAtViewCenter()
     luaunit.assertEquals(editor.palette.anchorGX, 80)
     luaunit.assertEquals(editor.palette.anchorGY, 85)
     luaunit.assertTrue(editor.palette.centerOnAnchor)
+    -- Title strip: origin (100-8, 200-32), size (400+16, 32). PLUS at
+    -- x=92+416-34-6-18=450, y=168+floor((32-18)/2)=175. Palette hangs under it.
+    luaunit.assertEquals(editor.palette.screenX, 450)
+    luaunit.assertEquals(editor.palette.screenY, 193)
 end
 
 --- Wheel lattice vs Palette scroll -------------------------------------------------------

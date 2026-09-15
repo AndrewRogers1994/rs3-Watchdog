@@ -12,15 +12,17 @@ function Checkbox.Draw(canvas, rect, ctrl, dctx)
     local disabled = not ctrl.enabled
     local checked = ctrl.enabled and type(ctrl.value) == "table" and ctrl.value[ctrl.axis] == true
     local labelCol = disabled and Theme.COL_CONTROL_EMPTY or Theme.COL_CONTROL_TEXT
-    if dctx.font ~= nil then
-        local text = ctrl.display or ""
-        local tw = Theme.TextWidth(11 * dctx.zoom, text) or (#text * scale(7))
-        canvas:AddText(rect.x + scale(Theme.CONTROL_PAD_X), rect.y + rect.h * 0.5 - scale(6),
-            tw, 0, text, Box.TextData(dctx.font, Theme.Vec4(labelCol)))
-    end
+    local pad = scale(Theme.CONTROL_PAD_X)
     local boxSz = rect.h * 0.72
-    local boxX = rect.x + rect.w - scale(Theme.CONTROL_PAD_X) - boxSz
+    local boxX = rect.x + rect.w - pad - boxSz
     local boxY = rect.y + (rect.h - boxSz) * 0.5
+    if dctx.font ~= nil then
+        -- Clip to the leftover left of the tick; measured string width ellipsizes early.
+        local textX = rect.x + pad
+        local text = ctrl.display or ""
+        canvas:AddText(textX, rect.y + rect.h * 0.5 - scale(6),
+            boxX - pad - textX, rect.h, text, Box.TextData(dctx.font, Theme.Vec4(labelCol)))
+    end
     canvas:AddRectangle(boxX, boxY, boxSz, boxSz, Theme.Vec4(Theme.COL_CHECK_BOX_BG))
     Box.Outline(canvas, boxX, boxY, boxSz, boxSz, scale, dctx.hot and not disabled)
     if checked then

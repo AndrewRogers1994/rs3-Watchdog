@@ -10,7 +10,7 @@ function InventoryViewer.Register(registry)
     registry:RegisterNodeType("inventory.viewer", {
         category = "inventory",
         displayName = "Inventory Viewer",
-        description = "Debugger: latches a Snapshot and shows it as a 4x7 item grid on the node",
+        description = "Debugger: latches a Snapshot and shows it as a 4x7 item grid",
         pins = {
             { name = "in", kind = "exec", direction = "in" },
             { name = "snapshot", kind = "data", direction = "in", dataType = "invSnapshot",

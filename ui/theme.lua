@@ -122,14 +122,18 @@ Theme.COL_ZOOM_TICK = col(230, 232, 240, 1.0)  -- single 1.0 mark on the track (
 
 -- Default content size seed before Mount syncs from the live content parent. Screen
 -- placement (x/y) is owned by PrettyUI; WINDOW_X/Y are only fallbacks for self.window
--- until syncContentOrigin runs. WINDOW_HEADER_H is retained for any host/docs that still
--- describe PrettyUI title height — the Editor itself no longer insets by it.
-Theme.WINDOW_X        = 600
-Theme.WINDOW_Y        = 340
-Theme.WINDOW_W        = 900
-Theme.WINDOW_H        = 560
-Theme.WINDOW_HEADER_H = 28
-Theme.WINDOW_TITLE    = "Watchdog — Editor"
+-- until syncContentOrigin runs.
+-- Title-strip metrics match prettyui/src/window.lua (TITLE_HEIGHT, BORDER, titleDrag
+-- width = root.width - CLOSE_SIZE - 14). Overlay toolbar is laid out on that strip;
+-- the Editor Canvas still does not inset by WINDOW_HEADER_H.
+Theme.WINDOW_X             = 600
+Theme.WINDOW_Y             = 340
+Theme.WINDOW_W             = 900
+Theme.WINDOW_H             = 560
+Theme.WINDOW_HEADER_H      = 32   -- PrettyUI TITLE_HEIGHT
+Theme.WINDOW_BORDER        = 8    -- PrettyUI BORDER; content is inset this much
+Theme.WINDOW_CLOSE_RESERVE = 34   -- CLOSE_SIZE (20) + 14; keep PLUS left of close
+Theme.WINDOW_TITLE         = "Watchdog — Editor"
 
 --- Palette (screen-space popup) + toolbar -----------------------------------------------
 

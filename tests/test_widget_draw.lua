@@ -10,6 +10,7 @@ _G.ui = _G.ui or {}
 _G.ui.TextDataConfig = _G.ui.TextDataConfig or { new = function() return {} end }
 
 local luaunit     = require("luaunit")
+local Theme       = require("ui/theme")
 local Swatch      = require("ui/widgets/swatch")
 local Checkbox    = require("ui/widgets/checkbox")
 local TextField   = require("ui/widgets/text_field")
@@ -91,6 +92,25 @@ function TestCheckboxDraw:testDisabledRowNeverTicksEvenIfStoredTrue()
         { enabled = false, axis = "hull", value = { hull = true }, display = "Hull — needs render API" },
         dctx(false, 1))
     luaunit.assertEquals(calls.lines, 0)
+end
+
+function TestCheckboxDraw:testLabelClipBoxIsTheGapBeforeTheTickNotMeasuredWidth()
+    -- areaWidth is the leftover left of the tick, not Theme.TextWidth of the label.
+    local recorded = {}
+    local canvas, calls = makeFakeCanvas()
+    canvas.AddText = function(_self, _x, _y, w, _h, text)
+        recorded.w = w
+        recorded.text = text
+        calls.texts = calls.texts + 1
+    end
+    local rect = { x = 0, y = 0, w = 230, h = 16 }
+    Checkbox.Draw(canvas, rect,
+        { enabled = false, axis = "hull", value = {}, display = "Hull — needs render API" },
+        dctx(false, 1))
+    local boxSz = rect.h * 0.72
+    local boxX = rect.w - Theme.CONTROL_PAD_X - boxSz
+    luaunit.assertEquals(recorded.w, boxX - Theme.CONTROL_PAD_X - Theme.CONTROL_PAD_X)
+    luaunit.assertEquals(recorded.text, "Hull — needs render API")
 end
 
 --- dropdown Widget draw (enum) ------------------------------------------------------------
