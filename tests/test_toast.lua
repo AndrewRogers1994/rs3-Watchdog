@@ -61,7 +61,6 @@ function TestToast:testEvictionForgetsTheOldestNodesBookkeepingToo()
     for i = 1, 11 do
         self.toast:Show("node" .. i, { text = tostring(i) })
     end
-    -- node1's single toast was the oldest push and must have been evicted.
     luaunit.assertNil(self.toast.byOwner["node1"])
     luaunit.assertNotNil(self.toast.byOwner["node11"])
 end
@@ -171,7 +170,7 @@ end
 function TestToast:testEndDragWithoutPersistenceHookIsSafe()
     self.toast:BeginDrag({ x = 0, y = 0 })
     self.toast:DragTo({ x = 5, y = 5 })
-    self.toast:EndDrag() -- must not error
+    self.toast:EndDrag()
     luaunit.assertEquals(self.toast:GetAnchorOffset(), { dx = 5, dy = 5 })
 end
 

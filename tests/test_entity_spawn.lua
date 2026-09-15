@@ -1,11 +1,5 @@
--- Exercises the Entity Spawn trigger (`trigger.entity_spawn`, #32) end-to-end through the
--- real event dispatcher. The node fans in all 7 entity channels - NPC/Player/ObjStack ×
--- Added/Removed plus ObjStackEntityChanged - and abstracts them to Spawned / Despawned exec
--- pins, so these tests push representative raw events through a fake event source and assert
--- which exec pin fired plus the shaped data outputs (kind / name / coordGrid / count / entity).
---
--- Everything rides the same injected fake event source the other runtime tests use; no client
--- globals are touched by the node's transform/filter/run, so nothing needs stubbing here.
+-- Entity Spawn trigger (`trigger.entity_spawn`, #32) through the real dispatcher and fake event
+-- source. No client globals are stubbed: transform/filter/run don't touch them.
 
 local luaunit = require("luaunit")
 local Registry = require("registry")
@@ -25,7 +19,6 @@ function TestEntitySpawn:setUp()
 
     EntitySpawn.Register(self.registry, self.runtime)
 
-    -- Downstream counters wired to each exec pin, so a test can prove which transition fired.
     self.counts = { spawned = 0, despawned = 0 }
     local counts = self.counts
     self.registry:RegisterNodeType("fixture.spawned", {
@@ -40,7 +33,6 @@ function TestEntitySpawn:setUp()
     })
 end
 
--- Adds an entity_spawn node with the given controls and wires Spawned+Despawned to the counters.
 function TestEntitySpawn:addTrigger(controls)
     local id = self.graph:AddNode("trigger.entity_spawn", controls)
     self.graph:Connect(id, "Spawned", self.graph:AddNode("fixture.spawned"), "in")
@@ -207,10 +199,10 @@ end
 
 function TestEntitySpawn:testKindAndNameMatchBothGate()
     self:addTrigger({ kind = "object", nameMatch = { needle = "Coins", mode = "substring" } })
-    self.source:Push("NPCEntityAdded", npcAdded("Coins", { x = 0, z = 0, level = 0 })) -- name ok, kind wrong
-    self.source:Push("ObjStackEntityAdded", objAdded("Bones", { x = 0, z = 0, level = 0 }, 1)) -- kind ok, name wrong
+    self.source:Push("NPCEntityAdded", npcAdded("Coins", { x = 0, z = 0, level = 0 }))
+    self.source:Push("ObjStackEntityAdded", objAdded("Bones", { x = 0, z = 0, level = 0 }, 1))
     luaunit.assertEquals(self.counts.spawned, 0)
-    self.source:Push("ObjStackEntityAdded", objAdded("Coins", { x = 0, z = 0, level = 0 }, 1)) -- both ok
+    self.source:Push("ObjStackEntityAdded", objAdded("Coins", { x = 0, z = 0, level = 0 }, 1))
     luaunit.assertEquals(self.counts.spawned, 1)
 end
 
@@ -244,7 +236,7 @@ end
 
 function TestEntitySpawn:testEachChannelSubscribedExactlyOnce()
     self:addTrigger({})
-    self:addTrigger({}) -- a second node must not re-subscribe any channel
+    self:addTrigger({})
     for _, channel in ipairs({
         "NPCEntityAdded", "NPCEntityRemoved",
         "PlayerEntityAdded", "PlayerEntityRemoved",

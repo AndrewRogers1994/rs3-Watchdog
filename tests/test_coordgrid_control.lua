@@ -1,27 +1,15 @@
--- coordgrid Pin Control (ADR-0005 / #58) driven through a FAKE HOST - the tracer-bullet test.
---
--- Good tests exercise external behavior through the highest available seam, not implementation
--- details. For a Pin Control that seam is the host: a test drives a realistic press->commit
--- sequence and asserts the value COMMITTED (recorded by the fake host's Commit), never reaching
--- past the Pin Control's interface into its Widgets. The fake host is the Editor-side analogue
--- of driving a node against a real Graph: a minimal, real-shaped stand-in for the Editor's few
--- capabilities (read the stored Control, commit a new one, mount a transient field), so the
--- interface the test drives is the same one the in-client Editor drives.
+-- coordgrid Pin Control (ADR-0005 / #58) driven through a fake host: press -> commit, assert
+-- the COMMITTED value, never Widgets.
 
 local luaunit = require("luaunit")
 local CoordGrid = require("ui/controls/coordgrid")
--- The fake host is the Editor-side analogue of driving a node against a real Graph - a minimal,
--- real-shaped stand-in for the Editor's few capabilities (read the stored Control, commit a new
--- one, mount a transient field), so the interface the test drives is the same one the in-client
--- Editor drives. Shared across all the Pin Control tests (tests/fake_control_host.lua).
 local FakeHost = require("fake_control_host")
 
 --- Editing an axis through press -> mount -> commit ---------------------------------------
 
 TestCoordgridEditAxis = {}
 
--- The clicked "field" sub-rect as node.lua hands it to Press: the axis + the default-resolved
--- current value the box shows (ctrl.value), which seeds the transient field's initial content.
+-- The clicked "field" sub-rect as node.lua hands it to Press: axis + default-resolved current value.
 local function fieldCtrl(axis, value)
     return { kind = "field", axis = axis, pinName = "target", value = value,
         x = 0, y = 0, w = 40, h = 16 }
@@ -35,7 +23,6 @@ function TestCoordgridEditAxis:testCommittingOneAxisPreservesTheOthers()
 end
 
 function TestCoordgridEditAxis:testEditingXThenLevelKeepsBothAndPreservesZ()
-    -- Two sequential axis edits (each its own press -> mount -> commit) accumulate on the store.
     local host = FakeHost.new({ x = 10, z = 20, level = 0 })
     CoordGrid.Press(host, fieldCtrl("x", { x = 10, z = 20, level = 0 }))
     host:Type("77", 77)
@@ -45,8 +32,7 @@ function TestCoordgridEditAxis:testEditingXThenLevelKeepsBothAndPreservesZ()
 end
 
 function TestCoordgridEditAxis:testEmptyEditLeavesTheTableAlone()
-    -- The empty-box guard: opening a field and clearing it must not clobber the axis (or any
-    -- sibling). No commit happens at all.
+    -- Empty-box guard: clearing a field must not clobber the axis. No commit happens at all.
     local host = FakeHost.new({ x = 10, z = 20, level = 0 })
     CoordGrid.Press(host, fieldCtrl("z", { x = 10, z = 20, level = 0 }))
     host:Type("", nil)
@@ -62,8 +48,7 @@ function TestCoordgridEditAxis:testUnparsableEditLeavesTheTableAlone()
 end
 
 function TestCoordgridEditAxis:testEditingAnUnsetControlSeedsAFreshPartialTable()
-    -- No stored value yet: the first axis edit produces a table with just that axis set, exactly
-    -- as the old CommitAxis path did (nil current -> fresh table).
+    -- No stored value yet: first axis edit produces a table with just that axis (nil current -> fresh table).
     local host = FakeHost.new(nil)
     CoordGrid.Press(host, fieldCtrl("x", nil))
     host:Type("5", 5)
@@ -97,9 +82,7 @@ end
 TestCoordgridGrab = {}
 
 function TestCoordgridGrab:setUp()
-    -- Stub the client Player global for the grab-position call the Pin Control makes itself.
-    -- The client Player global is called by dot (Player.IsAvailable() / Player.GetEntity()), so
-    -- the stub's functions take no self - matching the in-client contract the Pin Control uses.
+    -- Player is called by dot (Player.IsAvailable() / Player.GetEntity()), so stubs take no self.
     self.savedPlayer = _G.Player
     local player = { available = true }
     player.IsAvailable = function() return player.available end
@@ -157,7 +140,6 @@ function TestCoordgridGeometryDelegation:testLayoutProducesThreeFieldsAndOneActi
     for _, r in ipairs(rects) do
         if r.kind == "field" then axes[r.axis] = true
         elseif r.kind == "action" then actions = actions + 1 end
-        -- Every sub-rect stays within the reserved band.
         luaunit.assertTrue(r.x >= band.x - 1e-9)
         luaunit.assertTrue(r.x + r.w <= band.x + band.w + 1e-9)
         luaunit.assertTrue(r.y >= band.y - 1e-9)

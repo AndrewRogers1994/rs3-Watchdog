@@ -1,11 +1,9 @@
--- Exercises Editor:linkPins (ui/graph.lua) - the connection-commit path shared by Wire drops
--- and Palette auto-connect. Focus: #3's toggle-off-on-duplicate and its ordering against the
--- data-input single-connection replace. The full Editor is Canvas/immediate-mode and not
--- unit-testable here, but linkPins only touches self.graph and self:connectionInto, so we drive
--- it against a real engine Graph via a metatable-backed fake `self` (no Canvas mount needed).
+-- Editor:linkPins (ui/graph.lua) - connection-commit shared by Wire drops and Palette auto-connect.
+-- The full Editor is Canvas/immediate-mode and not unit-testable here; linkPins only touches
+-- self.graph and self:connectionInto, so we drive it via a metatable-backed fake `self`.
 --
--- Client/UI globals the module builds colors/fonts from at load time - stubbed minimally so
--- ui/graph (and its Theme/Palette/... requires) load under a standalone interpreter.
+-- Client/UI globals the module builds colors/fonts from at load time - stubbed so ui/graph loads
+-- under a standalone interpreter.
 _G.Vector4 = { new = function(r, g, b, a) return { r, g, b, a } end }
 _G.id = setmetatable({}, { __index = function() return setmetatable({}, { __index = function() return 1 end }) end })
 _G.config = { Font = setmetatable({}, { __index = function()
@@ -43,8 +41,7 @@ function TestGraphEditor:setUp()
     })
 
     self.graph = Graph.new(self.registry)
-    -- Fake Editor: method calls (connectionInto, linkPins) resolve against Editor; the only
-    -- state linkPins reads is self.graph.
+    -- Fake Editor: linkPins resolves methods against Editor; the only state it reads is self.graph.
     self.editor = setmetatable({ graph = self.graph }, { __index = Editor })
 end
 
@@ -57,7 +54,7 @@ function TestGraphEditor:testDuplicateExecWireTogglesOff()
     self.editor:linkPins(trig, "out", act, "in", false)
     luaunit.assertEquals(#self.graph:GetConnections(), 1)
 
-    self.editor:linkPins(trig, "out", act, "in", false)  -- same wire again
+    self.editor:linkPins(trig, "out", act, "in", false)
     luaunit.assertEquals(#self.graph:GetConnections(), 0)
 end
 
@@ -70,7 +67,7 @@ function TestGraphEditor:testDuplicateDataWireTogglesOff()
     self.editor:linkPins(num, "out", act, "value", true)
     luaunit.assertEquals(#self.graph:GetConnections(), 1)
 
-    self.editor:linkPins(num, "out", act, "value", true)  -- same source, same input
+    self.editor:linkPins(num, "out", act, "value", true)
     luaunit.assertEquals(#self.graph:GetConnections(), 0)
 end
 
@@ -86,7 +83,7 @@ function TestGraphEditor:testDifferentSourceReplacesDataInput()
 
     local conns = self.graph:GetConnections()
     luaunit.assertEquals(#conns, 1)
-    luaunit.assertEquals(conns[1].fromNode, num2)  -- num2 replaced num1
+    luaunit.assertEquals(conns[1].fromNode, num2)
 end
 
 -- An exec output may fan out to distinct inputs; only exact duplicates toggle.
@@ -121,14 +118,14 @@ function TestGraphEditor:testBindEntryBindsGraphAndResetsView()
     local layout = { [1] = { x = 5, y = 6 } }
     editor:BindEntry(7, self.graph, layout)
 
-    luaunit.assertEquals(editor.boundId, 7)                 -- keyed on id, never name (#75)
-    luaunit.assertIs(editor.graph, self.graph)              -- the live instance, unchanged
+    luaunit.assertEquals(editor.boundId, 7) -- keyed on id, never name (#75)
+    luaunit.assertIs(editor.graph, self.graph)
     luaunit.assertIs(editor:GetLayout(), layout)
-    luaunit.assertEquals(editor.view.panX, 0)              -- pan/zoom reset to the default framing
+    luaunit.assertEquals(editor.view.panX, 0)
     luaunit.assertEquals(editor.view.panY, 0)
     luaunit.assertEquals(editor.view.zoom, 1.0)
-    luaunit.assertNil(editor.selected)                     -- selection cleared
-    luaunit.assertEquals(editor.nodeOrder, {})             -- z-order rebuilt from the new graph
+    luaunit.assertNil(editor.selected)
+    luaunit.assertEquals(editor.nodeOrder, {})
 end
 
 function TestGraphEditor:testBindEntryDefaultsLayoutToEmpty()
@@ -146,7 +143,6 @@ function TestGraphEditor:testUnbindClearsBinding()
     luaunit.assertEquals(editor:GetLayout(), {})
 end
 
--- goBack routes through the host's onBack (the nav owner) when wired.
 function TestGraphEditor:testGoBackInvokesOnBack()
     local editor = Editor.new(self.registry, nil)
     local calls = 0
@@ -173,7 +169,6 @@ end
 function TestGraphEditor:testViewCenterGraphAtDefaultFraming()
     local editor = Editor.new(self.registry, nil)
     editor.window.w, editor.window.h = 400, 300
-    -- Default View (pan 0, zoom 1): content-local center == Graph-space center.
     local gx, gy = editor:viewCenterGraph()
     luaunit.assertEquals(gx, 200)
     luaunit.assertEquals(gy, 150)
@@ -359,8 +354,6 @@ function TestGraphEditor:testOnResetViewSyncsSliderToDefaultRung()
     luaunit.assertNotEquals(sets[1].triggerEvents, true)
 end
 
--- After picking a type from the + Palette, the Node Body's center (not its origin) sits on
--- the Viewport center.
 function TestGraphEditor:testPlaceFromPlusCentersNodeBodyOnViewCenter()
     local Theme = require("ui/theme")
     local Node = require("ui/node")

@@ -33,14 +33,12 @@ function TestPlaceholderStubs:setUp()
     })
 end
 
--- Deserialize a serialized graph leniently, so any `UNKNOWN`-typed node lands as a placeholder.
 function TestPlaceholderStubs:load(nodes, connections)
     return Serialize.Deserialize(
         { version = 1, nodes = nodes, connections = connections },
         self.registry, { onUnknown = "placeholder" })
 end
 
--- A known trigger's exec-out feeding the placeholder gives it one exec INPUT stub.
 function TestPlaceholderStubs:testInputStubInfersExecKindFromKnownSource()
     local graph = self:load(
         { { id = 1, type = "t.trigger", controls = {} },
@@ -55,8 +53,6 @@ function TestPlaceholderStubs:testInputStubInfersExecKindFromKnownSource()
     luaunit.assertNil(stubs[1].dataType)
 end
 
--- The placeholder feeding a known data input gives it one data OUTPUT stub, tagged with the
--- known input's Type Tag (for wire/glyph color).
 function TestPlaceholderStubs:testOutputStubInfersDataTypeFromKnownTarget()
     local graph = self:load(
         { { id = 1, type = UNKNOWN, controls = {} },
@@ -71,7 +67,6 @@ function TestPlaceholderStubs:testOutputStubInfersDataTypeFromKnownTarget()
     luaunit.assertEquals(stubs[1].dataType, "number")
 end
 
--- Both ends unknown: nothing to infer from, so the stub is neutral (an "any" data stub).
 function TestPlaceholderStubs:testBothPlaceholdersProduceNeutralStubs()
     local graph = self:load(
         { { id = 1, type = UNKNOWN, controls = {} },
@@ -91,7 +86,6 @@ function TestPlaceholderStubs:testBothPlaceholdersProduceNeutralStubs()
     luaunit.assertEquals(inp[1].dataType, "any")
 end
 
--- One output pin feeding two known inputs collapses to a single output stub (dedupe).
 function TestPlaceholderStubs:testDuplicateOutputWiresDedupeToOneStub()
     local graph = self:load(
         { { id = 1, type = UNKNOWN, controls = {} },
@@ -105,7 +99,6 @@ function TestPlaceholderStubs:testDuplicateOutputWiresDedupeToOneStub()
     luaunit.assertEquals(stubs[1].name, "o")
 end
 
--- Inputs sort before outputs, then by name, so the pin rows don't jitter frame to frame.
 function TestPlaceholderStubs:testStubsAreSortedInputsThenOutputsByName()
     local graph = self:load(
         { { id = 1, type = "t.trigger", controls = {} },

@@ -79,7 +79,6 @@ local function callOrLog(context, fn, ...)
     return Util.CallOrLog("runtime", context, fn, ...)
 end
 
--- Shared `{ id, typeKey, mode, GetControl }` for filter and preload. `mode` is nil with no modes (ADR-0011).
 local function makeNodeHandle(graph, node)
     return {
         id = node.id,
@@ -107,12 +106,10 @@ function Runtime.new(eventSource, mouseSource, identitySource)
         -- Fire gates on `alert.enabled AND buckets[alert.bucketKey].armed`. Character buckets
         -- disarm (stay resident) on leave-GAME; discard+reload only on a real name switch.
         buckets = { [GLOBAL_BUCKET] = { key = GLOBAL_BUCKET, armed = true, resident = true } },
-        -- Resident character Bucket key, or nil. Same normalized name → re-arm; different → discard+load.
         _characterBucketKey = nil,
         -- GAME only sets this; Update drains it (name may not be readable yet; reload has no GameStateChanged).
         _pendingResolve = false,
         _bucketLoader = nil,
-        -- eventName -> { bindings, subscribed, subscribeName, source }
         channels = {},
         -- Poll Enter/Leave edge state, keyed by graph then nodeId (ids unique only within a graph).
         -- Weak keys; missing ⇒ false (already-true-at-load fires Enter); never serialized.
@@ -123,7 +120,6 @@ function Runtime.new(eventSource, mouseSource, identitySource)
         effects = Effects.new(),
         infobox = InfoBoxArea.new(),
         screenMarkerCapture = ScreenMarkerCapture.new(),
-        -- MiniMenu select: self-manages Event.MiniMenuReady + Select Object; Cancel on teardown.
         objectMarkerCapture = ObjectMarkerCapture.new(),
         keyboardActivityTick = 0,
         mouseActivityTick = 0,
@@ -313,7 +309,6 @@ function Runtime:GetMousePos()
     return pos.x, pos.y
 end
 
--- Mouse is poll-only; coords are interface-scaled.
 function Runtime:_pollMouseActivity()
     local mouse = self.mouseSource
     if mouse == nil or not mouse.IsAvailable() then
@@ -333,7 +328,6 @@ function Runtime:_pollMouseActivity()
     self._lastMousePos = { x = ix, y = iy }
 end
 
--- `id` is persistence identity; `name` is not unique (appends to the match list). Nil name is untargetable.
 ---@param id integer|nil
 ---@param name string|nil
 ---@param graph LibNodeGraph.Graph|nil
@@ -444,7 +438,6 @@ function Runtime:SetGraph(graph)
     end
 end
 
--- Keyed by Entry `id` (names aren't unique).
 ---@param persistence Watchdog.RuntimePersistence
 function Runtime:SetPersistence(persistence)
     self._persistence = persistence
@@ -584,7 +577,6 @@ function Runtime:_dispatch(eventName, raw)
     end
 end
 
--- Fire iff own enabled AND ancestor groups enabled AND Bucket armed (no teardown).
 function Runtime:_fireBinding(binding, payload)
     for _, alert in ipairs(self.alerts) do
         if alert.enabled and self:_ancestorsEnabled(alert.id) and self:_bucketArmed(alert.bucketKey) then
@@ -624,7 +616,6 @@ function Runtime:_firePollBinding(binding, payload)
     end
 end
 
--- Per-graph: node ids are only unique within a graph.
 function Runtime:_pollEdgeStateFor(graph)
     local states = self.pollEdgeState[graph]
     if states == nil then

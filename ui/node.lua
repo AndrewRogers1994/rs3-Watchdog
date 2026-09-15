@@ -92,8 +92,6 @@ function Node.BuildGeometry(pins, x, y, width, opts)
             local extraH = 0
             local pin = inputs[i]
             if pin ~= nil and not placeholder then
-                -- A Pin Control (ADR-0005) reports the extra band height its Control reserves below
-                -- the pin row (0 for an inline scalar/enum). Same cumulative row push either way.
                 local pc = pinControlFor(pin, connected)
                 if pc ~= nil then
                     extraH = pc.ReservedHeight(pin) or 0
@@ -149,10 +147,6 @@ function Node.BuildGeometry(pins, x, y, width, opts)
     place(inputs, Theme.PIN_MARGIN_X)
     place(outputs, width - Theme.PIN_MARGIN_X)
 
-    -- Test button: one small square per exec-in pin, sitting between the pin glyph and its
-    -- label. Clicking it fires that exec input directly (ui/graph.lua), so a node's run can be
-    -- exercised without wiring a Trigger. The pin's label is pushed right past the button via
-    -- `labelInset`, consumed by Node.Draw.
     for _, pin in ipairs(placeholder and {} or inputs) do
         if pin.kind == "exec" then
             local entry = geom.byName[pin.name]
@@ -250,7 +244,6 @@ function Node.Draw(canvas, view, geom, meta, opts)
     local showTitle  = view.zoom >= Theme.TITLE_MIN_ZOOM
     local showLabels = view.zoom >= Theme.LABEL_MIN_ZOOM
 
-    -- Title.
     if showTitle and meta.title then
         local font = Theme.Font(14 * view.zoom)
         if font ~= nil then
@@ -296,7 +289,6 @@ function Node.Draw(canvas, view, geom, meta, opts)
             { hot = hot, font = font, zoom = view.zoom, scale = scale })
     end
 
-    -- Pins.
     local hs = view:Scale(Theme.PIN_GLYPH) * 0.5
     local labelFont = showLabels and Theme.Font(12 * view.zoom) or nil
     for _, pin in ipairs(geom.pins) do
@@ -305,7 +297,6 @@ function Node.Draw(canvas, view, geom, meta, opts)
         local color
         if pin.kind == "exec" then
             color = Theme.Vec4(Theme.COL_EXEC)
-            -- Right-pointing arrowhead (Blueprint exec shape), same on both sides.
             canvas:AddTriangle(pcx - hs, pcy - hs, pcx - hs, pcy + hs, pcx + hs, pcy, color)
         else
             color = Theme.Vec4(Theme.TypeColor(pin.dataType))
@@ -321,8 +312,6 @@ function Node.Draw(canvas, view, geom, meta, opts)
                 -- An exec-in pin's label is pushed right to clear its test button (labelInset,
                 -- set in BuildGeometry); every other pin has no inset.
                 local inset = Theme.PIN_LABEL_GAP + (pin.labelInset or 0)
-                -- canvas:AddText(pcx + hs + view:Scale(inset), ty,
-                --     pin.label, labelFont, labelCol)
                 canvas:AddText(pcx + hs + view:Scale(inset), ty,
                     tw, 0, pin.label, textData)
             else
@@ -372,7 +361,6 @@ function Node.Draw(canvas, view, geom, meta, opts)
             canvas:AddRectangle(bx, by, bw, bh, Theme.Vec4(Theme.COL_TEST_BTN_BG))
             canvas:AddOutline(bx, by, bw, bh, math.max(1, view:Scale(1)),
                 Theme.Vec4(hot and Theme.COL_TEST_BTN_HOT or Theme.COL_NODE_BORDER))
-            -- Centered right-pointing play triangle.
             local cx, cy = bx + bw * 0.5, by + bh * 0.5
             local a = view:Scale(4)
             local glyph = Theme.Vec4(hot and Theme.COL_TEST_BTN_HOT or Theme.COL_TEST_BTN_GLYPH)

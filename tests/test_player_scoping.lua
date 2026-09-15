@@ -72,8 +72,6 @@ function TestPlayerScoping:setUp()
     self.runtime:BindTrigger("fixture.echo", { { event = "Custom" } })
 end
 
--- Builds a one-echo-node graph and registers it as a loadable alert under `normalized` in the
--- fake loader. Returns the graph + node id so a test can assert firing.
 function TestPlayerScoping:seedCharacterAlert(normalized, id, name, enabled)
     local graph = Graph.new(self.registry)
     local nodeId = graph:AddNode("fixture.echo")
@@ -83,7 +81,6 @@ function TestPlayerScoping:seedCharacterAlert(normalized, id, name, enabled)
     return graph, nodeId
 end
 
--- Logs in as `displayName`: raises the GAME transition then drains identity on one Logic tick.
 function TestPlayerScoping:login(displayName)
     self.identity.name = displayName
     self.source:Push("GameStateChanged", { newState = GAME })
@@ -113,7 +110,7 @@ function TestPlayerScoping:testGlobalKeepsFiringWhileLoggedOut()
     local nid = g:AddNode("fixture.echo")
 
     self:login("Alice")
-    self:leaveGame() -- logged out again
+    self:leaveGame()
     self.source:Push("Custom", "still-here")
     luaunit.assertEquals(g:GetLastValue(nid, "payload"), "still-here")
 end
@@ -167,7 +164,6 @@ end
 
 function TestPlayerScoping:testCharacterAlertDoesNotFireBeforeLogin()
     local g, nid = self:seedCharacterAlert("alice", 1, "a", true)
-    -- Not loaded until login: no bucket, nothing resident.
     self.source:Push("Custom", "too-early")
     luaunit.assertNil(g:GetLastValue(nid, "payload"))
     luaunit.assertEquals(#self.loader.calls, 0)
@@ -180,12 +176,10 @@ function TestPlayerScoping:testIdentityResolvesDeferredOnLogicTick()
     self.identity.name = "Alice"
     self.source:Push("GameStateChanged", { newState = GAME })
 
-    -- The GAME callback only raised the flag - nothing loaded yet.
     luaunit.assertEquals(#self.loader.calls, 0)
     self.source:Push("Custom", "before-tick")
     luaunit.assertNil(g:GetLastValue(nid, "payload"))
 
-    -- The next Logic tick drains it and loads + arms the bucket.
     self.runtime:Update(0.02)
     self.source:Push("Custom", "after-tick")
     luaunit.assertEquals(g:GetLastValue(nid, "payload"), "after-tick")
@@ -196,9 +190,8 @@ function TestPlayerScoping:testPendingResolveRetriesUntilNameReadable()
     -- GAME arrives but the name isn't readable yet (IsAvailable false → Resolve nil).
     self.source:Push("GameStateChanged", { newState = GAME })
     self.runtime:Update(0.02)
-    luaunit.assertEquals(#self.loader.calls, 0) -- still pending, not loaded
+    luaunit.assertEquals(#self.loader.calls, 0)
 
-    -- Name becomes readable a tick later; the still-raised flag resolves it.
     self.identity.name = "Alice"
     self.runtime:Update(0.02)
     self.source:Push("Custom", "resolved")
@@ -219,7 +212,7 @@ function TestPlayerScoping:testColdStartResolvesInWorldOnConstruction()
     loader.buckets["alice"] = { { id = 1, name = "a", graph = graph, enabled = true } }
     runtime:BindTrigger("fixture.echo", { { event = "Custom" } })
 
-    runtime:Update(0.02) -- drains the cold-start pending flag
+    runtime:Update(0.02)
     source:Push("Custom", "cold-start")
     luaunit.assertEquals(graph:GetLastValue(nodeId, "payload"), "cold-start")
     luaunit.assertEquals(loader.calls, { "alice" })
@@ -233,14 +226,12 @@ function TestPlayerScoping:testLogoutDisarmsButKeepsResidentAndReArmsWithoutRelo
     self.source:Push("Custom", "one")
     luaunit.assertEquals(g:GetLastValue(nid, "payload"), "one")
 
-    -- Leave GAME: the alert stops firing...
     self:leaveGame()
     self.source:Push("Custom", "while-out")
     luaunit.assertEquals(g:GetLastValue(nid, "payload"), "one") -- unchanged: disarmed
 
-    -- ...but stays resident: re-login (same name) re-arms in place with NO second load.
     self:login("Alice")
-    luaunit.assertEquals(self.loader.calls, { "alice" }) -- loaded once, not reloaded
+    luaunit.assertEquals(self.loader.calls, { "alice" })
     self.source:Push("Custom", "back")
     luaunit.assertEquals(g:GetLastValue(nid, "payload"), "back")
 end
@@ -282,16 +273,16 @@ function TestPlayerScoping:testWorldHopReArmsInPlaceWithNoEnterReplay()
 
     self:login("Alice")
     self.source:Push("Logic", { sample = 1 })
-    luaunit.assertEquals(edges, { "Enter" }) -- fired once on the first true tick
+    luaunit.assertEquals(edges, { "Enter" })
 
     -- World hop: leave GAME (disarm), then GAME again (same name → re-arm in place). No Logic tick
     -- fires while disarmed, so no Leave; the frozen edge state survives the re-arm.
     self:leaveGame()
     self:login("Alice")
-    luaunit.assertEquals(self.loader.calls, { "alice" }) -- re-armed in place, never reloaded
+    luaunit.assertEquals(self.loader.calls, { "alice" })
 
     self.source:Push("Logic", { sample = 1 })
-    luaunit.assertEquals(edges, { "Enter" }) -- still just one Enter: no replay
+    luaunit.assertEquals(edges, { "Enter" })
 end
 
 --- Genuine character switch: discard + load the new Bucket --------------------------------
@@ -304,7 +295,6 @@ function TestPlayerScoping:testGenuineSwitchDiscardsOldAndLoadsNew()
     self.source:Push("Custom", "for-alice")
     luaunit.assertEquals(aliceG:GetLastValue(aliceN, "payload"), "for-alice")
 
-    -- Log out, then log in as a *different* character.
     self.identity.name = nil
     self:leaveGame()
     self:login("Bob")
@@ -371,9 +361,9 @@ function TestPlayerScoping:testCharacterToggleFlipsInMemoryButNotThroughGlobalHo
     self:login("Alice")
     luaunit.assertTrue(self.runtime:SetEnabled("a", false))
 
-    luaunit.assertEquals(#calls, 0) -- nothing persisted through the global hook
+    luaunit.assertEquals(#calls, 0)
     self.source:Push("Custom", "silenced")
-    luaunit.assertNil(g:GetLastValue(nid, "payload")) -- but the in-memory flip took effect
+    luaunit.assertNil(g:GetLastValue(nid, "payload"))
 end
 
 --- Stop tears down the lifecycle subscription --------------------------------------------

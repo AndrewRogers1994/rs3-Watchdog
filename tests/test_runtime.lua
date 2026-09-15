@@ -325,7 +325,7 @@ function TestRuntime:testMouseActivityTickIncrementsOnPositionChange()
     runtime:Update(1)
     luaunit.assertEquals(runtime.mouseActivityTick, 1)
 
-    runtime:Update(1) -- unchanged position: no further tick
+    runtime:Update(1)
     luaunit.assertEquals(runtime.mouseActivityTick, 1)
 end
 
@@ -373,7 +373,6 @@ function TestRuntime:testTriggerFiresInAllEnabledAlertsNotJustOne()
     registerEchoTrigger(self.registry, "fixture.echo")
     self.runtime:BindTrigger("fixture.echo", { { event = "Custom" } })
 
-    -- Two independent live graphs, each an enabled alert - mirrors two saved alert graphs.
     local graphA = Graph.new(self.registry)
     local graphB = Graph.new(self.registry)
     self.runtime:SetGraph(nil) -- clear the setUp single-graph alert
@@ -384,7 +383,6 @@ function TestRuntime:testTriggerFiresInAllEnabledAlertsNotJustOne()
 
     self.source:Push("Custom", "ping")
 
-    -- The event fanned out to the matching node in *both* graphs, not only the first.
     luaunit.assertEquals(graphA:GetLastValue(aId, "payload"), "ping")
     luaunit.assertEquals(graphB:GetLastValue(bId, "payload"), "ping")
 end
@@ -399,9 +397,8 @@ function TestRuntime:testDisabledAlertSuppressesFiringButStaysLive()
     local aId = graphA:AddNode("fixture.echo")
 
     self.source:Push("Custom", "while-disabled")
-    luaunit.assertNil(graphA:GetLastValue(aId, "payload")) -- suppressed, didn't fire
+    luaunit.assertNil(graphA:GetLastValue(aId, "payload"))
 
-    -- Re-enabling is O(1) and the same live graph/node fires again (state was never torn down).
     self.runtime:SetEnabled("A", true)
     self.source:Push("Custom", "after-enable")
     luaunit.assertEquals(graphA:GetLastValue(aId, "payload"), "after-enable")
@@ -429,10 +426,10 @@ function TestRuntime:testToggleFlipsAndPersists()
     self.runtime:SetGraph(nil)
     self.runtime:AddAlert(7, "A", graphA, true)
 
-    luaunit.assertEquals(self.runtime:Toggle("A"), 1) -- one alert flipped
-    luaunit.assertEquals(fake.state[7], false)        -- true -> false
+    luaunit.assertEquals(self.runtime:Toggle("A"), 1)
+    luaunit.assertEquals(fake.state[7], false)
     self.runtime:Toggle("A")
-    luaunit.assertEquals(fake.state[7], true)         -- false -> true
+    luaunit.assertEquals(fake.state[7], true)
 end
 
 function TestRuntime:testToggleReturnsNilForUnknownAlert()
@@ -459,7 +456,6 @@ function TestRuntime:testSetEnabledFansOutOverAllAlertsSharingName()
     local fake = newFakePersistence()
     self.runtime:SetPersistence(fake)
 
-    -- Two distinct alerts (ids 1, 2) share the name "dup", both enabled.
     local graphA = Graph.new(self.registry)
     local graphB = Graph.new(self.registry)
     self.runtime:SetGraph(nil)
@@ -468,7 +464,6 @@ function TestRuntime:testSetEnabledFansOutOverAllAlertsSharingName()
     local aId = graphA:AddNode("fixture.echo")
     local bId = graphB:AddNode("fixture.echo")
 
-    -- SetEnabled sets *every* match to the given state, and persists each by its id.
     luaunit.assertTrue(self.runtime:SetEnabled("dup", false))
     luaunit.assertEquals(fake.state[1], false)
     luaunit.assertEquals(fake.state[2], false)
@@ -493,14 +488,13 @@ function TestRuntime:testToggleFlipsEachMatchIndependently()
     local aId = graphA:AddNode("fixture.echo")
     local bId = graphB:AddNode("fixture.echo")
 
-    -- Each match inverts its *own* state - the mix stays mixed-but-inverted, no shared target.
     luaunit.assertEquals(self.runtime:Toggle("dup"), 2)
-    luaunit.assertEquals(fake.state[1], false) -- was on  -> off
-    luaunit.assertEquals(fake.state[2], true)  -- was off -> on
+    luaunit.assertEquals(fake.state[1], false)
+    luaunit.assertEquals(fake.state[2], true)
 
     self.source:Push("Custom", "after-toggle")
-    luaunit.assertNil(graphA:GetLastValue(aId, "payload"))            -- now disabled
-    luaunit.assertEquals(graphB:GetLastValue(bId, "payload"), "after-toggle") -- now enabled
+    luaunit.assertNil(graphA:GetLastValue(aId, "payload"))
+    luaunit.assertEquals(graphB:GetLastValue(bId, "payload"), "after-toggle")
 end
 
 function TestRuntime:testTriggerFiresOnNodeAddedMidEdit()
@@ -513,7 +507,6 @@ function TestRuntime:testTriggerFiresOnNodeAddedMidEdit()
     self.runtime:SetGraph(nil)
     self.runtime:AddAlert(1, "A", graphA, true)
 
-    -- Node created *after* AddAlert, as an in-editor edit would.
     local newId = graphA:AddNode("fixture.echo")
     self.source:Push("Custom", "mid-edit")
 
@@ -544,7 +537,6 @@ function TestRuntime:testSetEnabledPersistsThroughFakeStoreEndToEnd()
 
     self.runtime:SetEnabled("A", false)
 
-    -- The flag reached the fake Store's document (keyed by id) and the doc was flushed.
     luaunit.assertEquals(store.doc.entries[1].enabled, false)
     luaunit.assertEquals(store.saves, 1)
 end
@@ -585,7 +577,6 @@ function TestRuntime:testEnabledResolverSuppressesFiringForDescendantsOfADisable
 
     self.source:Push("Custom", "ping")
 
-    -- The disabled group silences alert 1's descendant; alert 2 fires normally.
     luaunit.assertNil(graphA:GetLastValue(aId, "payload"))
     luaunit.assertEquals(graphB:GetLastValue(bId, "payload"), "ping")
 end
@@ -594,7 +585,6 @@ function TestRuntime:testEnabledResolverReEvaluatedEachFire()
     registerEchoTrigger(self.registry, "fixture.echo")
     self.runtime:BindTrigger("fixture.echo", { { event = "Custom" } })
 
-    -- The gate flips between fires (as a group toggle / move would), and firing tracks it live.
     local ancestorsEnabled = false
     self.runtime:SetEnabledResolver(function() return ancestorsEnabled end)
 
@@ -677,8 +667,8 @@ function TestRuntime:testRemoveAlertStopsFiringAndDropsFromLiveSet()
     luaunit.assertTrue(self.runtime:RemoveAlert(1))
     self.source:Push("Custom", "after-delete")
 
-    luaunit.assertNil(graphA:GetLastValue(aId, "payload")) -- deleted: silent
-    luaunit.assertEquals(graphB:GetLastValue(bId, "payload"), "after-delete") -- sibling still fires
+    luaunit.assertNil(graphA:GetLastValue(aId, "payload"))
+    luaunit.assertEquals(graphB:GetLastValue(bId, "payload"), "after-delete")
     luaunit.assertEquals(#self.runtime.alerts, 1)
     luaunit.assertEquals(self.runtime.alerts[1].id, 2)
 end
@@ -735,7 +725,6 @@ function TestRuntime:testStopUnsubscribesAllChannels()
     self.runtime:Stop()
     self.source:Push("Custom", "second")
 
-    -- Unchanged since Stop - the dispatcher never saw the second push.
     luaunit.assertEquals(self.graph:GetLastValue(nodeId, "payload"), "first")
 end
 

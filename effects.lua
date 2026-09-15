@@ -1,7 +1,5 @@
 local Util = require("util")
 
--- A bad node-authored update/draw/onDone can't be allowed to break every other live effect.
--- See util.lua.
 local function callOrLog(context, fn, ...)
     return Util.CallOrLog("effects", context, fn, ...)
 end
@@ -19,10 +17,7 @@ end
 
 --- Canvas mount (client-only; untested under the standalone Lua test harness) -------------
 
--- Mounts the always-on full-screen overlay Canvas as a direct child of `rootParent` (the
--- same client root the editor Window mounts under - see main.lua's getRootParent), sized to
--- always fill it (0,0 + 100% parent dimensions) so it tracks window resizes without needing
--- to poll screen size. Idempotent: a second Mount before Unmount is a no-op.
+-- Full-screen overlay on `rootParent`. Idempotent until Unmount.
 function EffectRegistry:Mount(rootParent)
     if self.canvas ~= nil then
         return
@@ -45,9 +40,6 @@ function EffectRegistry:IsMounted()
     return self.canvas ~= nil
 end
 
--- The mounted overlay Canvas itself (nil until Mount succeeds) - exposed so a sibling
--- registry-level effect (e.g. toast.lua's ToastStack, #36) can draw onto the same
--- always-on surface without effects.lua threading its own Draw through every caller.
 function EffectRegistry:GetCanvas()
     return self.canvas
 end
@@ -79,8 +71,6 @@ function EffectRegistry:_queueFor(owner)
     return q
 end
 
--- Adds `handle` to `owner`'s Stack. If `max` is given and pushing puts the stack over it,
--- the oldest handle(s) are evicted (removed + onDone), same as any other departure.
 function EffectRegistry:PushStack(owner, handle, max)
     local list = self:_stackFor(owner)
     list[#list + 1] = handle
@@ -92,8 +82,6 @@ function EffectRegistry:PushStack(owner, handle, max)
     end
 end
 
--- Adds `handle` to `owner`'s Queue. Becomes the live/active handle immediately if the queue
--- is empty; otherwise waits pending until the current active handle leaves the live set.
 function EffectRegistry:PushQueue(owner, handle)
     local q = self:_queueFor(owner)
     if q.active == nil then
@@ -105,15 +93,7 @@ end
 
 --- Per-frame reset ------------------------------------------------------------------------
 
--- Wipes the overlay Canvas's retained drawables - call once at the very top of a frame,
--- before any Draw pass. ui.Canvas is retained-mode: drawables added by AddRectangle/AddSprite/
--- AddText/AddOutline persist until Clear(), so without this each frame composites on top of
--- every prior frame's output (ghost trails, dismissed effects staying visible - see #46).
--- Because the four onDraw passes share this one Canvas, the wipe must happen once here rather
--- than inside any pass (which would erase the siblings already drawn this frame).
---
--- Distinct from Clear(): BeginFrame touches only the Canvas pixels; Clear empties the handle
--- Stacks/Queues. `canvas` defaults to the mounted overlay Canvas (tests pass a fake one).
+-- Wipe retained canvas drawables once per frame. Distinct from Clear() (handle teardown).
 function EffectRegistry:BeginFrame(canvas)
     canvas = canvas or self.canvas
     if canvas == nil then
@@ -136,10 +116,6 @@ function EffectRegistry:_promote(q)
     end
 end
 
--- Removes `handle` from wherever it currently lives - a Stack list, or a Queue's active slot
--- or pending list - matched by direct reference (no ids/bounds, per the uniform handle
--- contract). Fires onDone and, if the handle was a Queue's active slot, promotes the next
--- pending handle. No-op if `handle` isn't currently live anywhere.
 function EffectRegistry:Dismiss(handle)
     for _, list in pairs(self.stacks) do
         for i, h in ipairs(list) do
@@ -167,9 +143,6 @@ function EffectRegistry:Dismiss(handle)
     end
 end
 
--- Advances every live handle by `dt` (called once per Logic tick - see runtime.lua). A
--- handle whose update() returns falsy (or errors) has left the live set: it's removed,
--- onDone fires, and - for a Queue - the next pending handle is promoted.
 function EffectRegistry:Update(dt)
     for _, list in pairs(self.stacks) do
         local i = 1
@@ -197,9 +170,6 @@ function EffectRegistry:Update(dt)
     end
 end
 
--- Draws every live handle (every Stack member, plus each Queue's active handle only -
--- pending handles never draw). `canvas` defaults to the mounted overlay Canvas so callers in
--- tests can pass a fake one without mounting.
 function EffectRegistry:Draw(canvas)
     canvas = canvas or self.canvas
     if canvas == nil then
@@ -217,8 +187,7 @@ function EffectRegistry:Draw(canvas)
     end
 end
 
--- Empties every Stack and Queue with no onDone callbacks - a teardown wipe (Stop), not a
--- graceful per-handle dismissal.
+-- Teardown wipe: no onDone. Use Dismiss for a graceful per-handle exit.
 function EffectRegistry:Clear()
     self.stacks = {}
     self.queues = {}

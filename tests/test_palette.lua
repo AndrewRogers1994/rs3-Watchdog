@@ -43,7 +43,6 @@ function TestPalette:setUp()
     self.registry = fakeRegistry()
 end
 
--- Filters out non-header rows for easier sequence assertions.
 local function itemRows(rows)
     local out = {}
     for _, r in ipairs(rows) do
@@ -79,7 +78,6 @@ function TestPalette:testUnavailableRowsCarryNoTypeKeyOrTargetPin()
             luaunit.assertNotNil(r.description)
         end
     end
-    -- Spot-check one concrete description string against nodes/unavailable.lua.
     for _, r in ipairs(itemRows(self.palette.rows)) do
         if r.displayName == "Overhead Text" then
             luaunit.assertEquals(r.description, "no overhead-text event")
@@ -92,7 +90,7 @@ function TestPalette:testFilteredOpenExcludesUnavailableRows()
     self.palette:Open(self.registry, filterFn, { screenX = 10, screenY = 10, anchorGX = 0, anchorGY = 0 })
 
     local items = itemRows(self.palette.rows)
-    luaunit.assertEquals(#items, 3)   -- only the 3 live fake Node Types
+    luaunit.assertEquals(#items, 3)
     for _, r in ipairs(items) do
         luaunit.assertNil(r.unavailable)
         luaunit.assertNotNil(r.typeKey)
@@ -108,9 +106,9 @@ function TestPalette:testUnavailableRowIsInertUnderRowAt()
     local function midY(rowIndex) return py + pad + (rowIndex - 1) * rowH + math.floor(rowH / 2) end
     local mx = px + 50
 
-    luaunit.assertIsNil(self.palette:RowAt(mx, midY(3)))   -- Overhead Text: click does nothing
+    luaunit.assertIsNil(self.palette:RowAt(mx, midY(3)))
 
-    local live = self.palette:RowAt(mx, midY(2))            -- Alarm: still clickable
+    local live = self.palette:RowAt(mx, midY(2))
     luaunit.assertNotNil(live)
     luaunit.assertEquals(live.typeKey, "live.trigger.a")
 end
@@ -123,11 +121,9 @@ function TestPalette:testDrawShowsDimmedReasonOnUnavailableRowsOnly()
     local byText = {}
     for _, c in ipairs(canvas.textCalls) do byText[c.text] = c end
 
-    -- Live row: plain display name, normal (non-dimmed) text color.
     luaunit.assertNotNil(byText["Alarm"])
     luaunit.assertEquals(byText["Alarm"].color, Theme.Vec4(Theme.COL_PALETTE_TEXT))
 
-    -- Unavailable row: name and description are drawn as separate calls, both dimmed.
     luaunit.assertNotNil(byText["Overhead Text"])
     luaunit.assertEquals(byText["Overhead Text"].color, Theme.Vec4(Theme.COL_PALETTE_TEXT_DIM))
     local overheadDesc = " - no overhead-text event"
@@ -136,10 +132,6 @@ function TestPalette:testDrawShowsDimmedReasonOnUnavailableRowsOnly()
     luaunit.assertEquals(byText[overheadDesc].color, Theme.Vec4(Theme.COL_PALETTE_TEXT_DIM))
 end
 
--- A live Node Type carrying a `description` (#52, e.g. Client Tick's "Fires 50x/sec") renders
--- an inline description suffix the same way an unavailable row does: the name in the normal
--- (non-dimmed) text color since it's a real, clickable type, but the description suffix always
--- dimmed so it reads as a secondary blurb.
 function TestPalette:testDrawShowsInlineDescriptionOnLiveNodeType()
     self.registry.nodeTypes["live.trigger.tick"] = {
         key = "live.trigger.tick", category = "trigger",
@@ -152,7 +144,6 @@ function TestPalette:testDrawShowsInlineDescriptionOnLiveNodeType()
     local byText = {}
     for _, c in ipairs(canvas.textCalls) do byText[c.text] = c end
 
-    -- Name in normal color; the description suffix drawn separately and dimmed.
     luaunit.assertNotNil(byText["Client Tick"])
     luaunit.assertEquals(byText["Client Tick"].color, Theme.Vec4(Theme.COL_PALETTE_TEXT))
     local tickDesc = " - Fires 50x/sec"
@@ -160,12 +151,7 @@ function TestPalette:testDrawShowsInlineDescriptionOnLiveNodeType()
         "expected an inline description drawn for the live Client Tick row")
     luaunit.assertEquals(byText[tickDesc].color, Theme.Vec4(Theme.COL_PALETTE_TEXT_DIM))
 
-    -- And it's a real, clickable row (unlike an unavailable one): RowAt returns it.
     local rowH, pad, px, py = Theme.PALETTE_ROW_H, Theme.PALETTE_PAD, 10, 10
-    -- Row order within the trigger group is alphabetical by displayName; "Client Tick" sorts
-    -- after "Alarm" (row 2) and the interleaved unavailable "Overhead Text"/
-    -- "Sound Fired" - but we don't need its exact index: assert the drawn call carried a
-    -- typeKey-bearing item row by finding it back through the rows list.
     local found
     for _, r in ipairs(self.palette.rows) do
         if r.typeKey == "live.trigger.tick" then found = r break end
@@ -189,8 +175,6 @@ function TestPalette:testDrawWidensPanelToFitLongestRowText()
     luaunit.assertTrue(self.palette.rect.w > Theme.PALETTE_W)
 end
 
--- The scrollbar is only drawn (and its rect recorded) when the row list overflows the
--- visible area. A short list that fits leaves no scrollbar behind.
 function TestPalette:testScrollbarOnlyWhenListOverflows()
     self.palette:Open(self.registry, nil, { screenX = 10, screenY = 10, anchorGX = 0, anchorGY = 0 })
 
@@ -204,13 +188,10 @@ function TestPalette:testScrollbarOnlyWhenListOverflows()
     local sb = self.palette.rect.scrollbar
     luaunit.assertNotNil(sb)
     luaunit.assertTrue(self.palette.maxScroll > 0)
-    -- Thumb is proportional but floored to the grabbable minimum, and never taller than the track.
     luaunit.assertTrue(sb.thumbH >= math.min(Theme.PALETTE_SCROLLBAR_MIN_THUMB, sb.h))
     luaunit.assertTrue(sb.thumbH <= sb.h)
 end
 
--- Reserving the gutter narrows the clickable row width: a press in the scrollbar column
--- returns no row even at a row's own Y, while the same row is still hittable to its left.
 function TestPalette:testRowAtExcludesScrollbarGutter()
     self.palette:Open(self.registry, nil, { screenX = 10, screenY = 10, anchorGX = 0, anchorGY = 0 })
     self.palette:Draw(mockCanvas(), 0, 0, 800, 80, -1, -1)   -- overflow -> gutter reserved
@@ -221,15 +202,10 @@ function TestPalette:testRowAtExcludesScrollbarGutter()
     -- it's the first visible non-header row.
     local rowY = r.y + r.pad + 1 * r.rowH + math.floor(r.rowH / 2)
 
-    -- Left of the gutter: the row is live and hittable.
     luaunit.assertNotNil(self.palette:RowAt(r.x + 4, rowY))
-    -- Inside the gutter column at the same Y: no row (it's the scrollbar's space).
     luaunit.assertIsNil(self.palette:RowAt(sb.x + 1, rowY))
 end
 
--- Press-anywhere jump-to-cursor mapping: clicking at (or above) the track top pins scroll to
--- 0; clicking at (or below) the track bottom pins it to maxScroll. Centered-thumb math, so the
--- endpoints saturate rather than leaving the thumb half-hanging off the ends.
 function TestPalette:testScrollToYMapsEndpoints()
     self.palette:Open(self.registry, nil, { screenX = 10, screenY = 10, anchorGX = 0, anchorGY = 0 })
     self.palette:Draw(mockCanvas(), 0, 0, 800, 80, -1, -1)   -- overflow
@@ -241,24 +217,20 @@ function TestPalette:testScrollToYMapsEndpoints()
     self.palette:ScrollToY(sb.y + sb.h)
     luaunit.assertEquals(self.palette.scroll, self.palette.maxScroll)
 
-    -- Well above the track saturates at 0 too (clamped, not negative).
     self.palette:ScrollToY(sb.y - 100)
     luaunit.assertEquals(self.palette.scroll, 0)
 end
 
--- ScrollbarAt reports a press within the gutter column (used by the Editor to start a drag),
--- and rejects a press out over the rows or entirely outside the panel.
 function TestPalette:testScrollbarAtHitTest()
     self.palette:Open(self.registry, nil, { screenX = 10, screenY = 10, anchorGX = 0, anchorGY = 0 })
     self.palette:Draw(mockCanvas(), 0, 0, 800, 80, -1, -1)
     local sb = self.palette.rect.scrollbar
 
     luaunit.assertTrue(self.palette:ScrollbarAt(sb.x + 1, sb.y + 5))
-    luaunit.assertFalse(self.palette:ScrollbarAt(self.palette.rect.x + 4, sb.y + 5))  -- over a row
-    luaunit.assertFalse(self.palette:ScrollbarAt(-50, -50))                            -- off-panel
+    luaunit.assertFalse(self.palette:ScrollbarAt(self.palette.rect.x + 4, sb.y + 5))
+    luaunit.assertFalse(self.palette:ScrollbarAt(-50, -50))
 end
 
--- With no scrollbar (short list) ScrollbarAt is always false and ScrollToY is inert.
 function TestPalette:testScrollbarInertWhenNoOverflow()
     self.palette:Open(self.registry, nil, { screenX = 10, screenY = 10, anchorGX = 0, anchorGY = 0 })
     self.palette:Draw(mockCanvas(), 0, 0, 800, 600, -1, -1)   -- everything fits

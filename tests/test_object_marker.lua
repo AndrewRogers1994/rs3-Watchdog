@@ -23,7 +23,6 @@ local function makeFakeRegistry()
     }
 end
 
--- A fully-specified captured object param, as the select-mode capture (#40) stores it.
 local function sampleObject()
     return { name = "Bank booth", coordGrid = { x = 3162, z = 3487, level = 0 }, subjectHash = 12345 }
 end
@@ -54,7 +53,7 @@ function TestObjectMarkerRegistration:testRegistersActionObjectMarkerWithShowAnd
     luaunit.assertEquals(execOutCount, 0) -- no exec-out (AC)
 
     luaunit.assertEquals(byName.object.dataType, "object_marker.object")
-    luaunit.assertNil(byName.object.default) -- a never-captured object never fires
+    luaunit.assertNil(byName.object.default)
     luaunit.assertEquals(byName.mode.dataType, "object_marker.mode")
     luaunit.assertEquals(byName.color.dataType, "color")
     luaunit.assertEquals(byName.width.dataType, "number")
@@ -132,7 +131,6 @@ end
 
 function TestObjectMarkerRun:testHandleExpiresAfterTheDefaultTTL()
     local h = ObjectMarker.BuildHandle({ object = sampleObject() })
-    -- Alive up to but not past the 5s default TTL.
     luaunit.assertTrue(h.update(4.9))
     luaunit.assertFalse(h.update(0.2)) -- 5.1s total -> expired
 end

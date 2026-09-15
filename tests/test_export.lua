@@ -1,7 +1,6 @@
--- Exercises export.lua's copy-paste envelope (#94 / #79 / #84): Encode strips Entry ids,
--- wraps `{ schemaVersion, pluginVersion, entries }`, and refuses anything over 2,500 bytes;
--- Import decodes → rejects a forward schemaVersion → mints ids → appends at the doc root
--- (never merge-by-name). Graph node ids inside an alert are left untouched.
+-- export.lua copy-paste envelope (#94 / #79 / #84): Encode strips Entry ids and refuses
+-- over 2,500 bytes. Import rejects a forward schemaVersion, mints ids, appends at the doc
+-- root (never merge-by-name). Graph node ids inside an alert are left untouched.
 
 local luaunit = require("luaunit")
 
@@ -85,7 +84,6 @@ function TestExport:testEncodeGroupIncludesGroupAndChildrenWithoutIds()
 end
 
 function TestExport:testEncodeRefusesOverCapAndReturnsByteCount()
-    -- Build a payload larger than MAX_BYTES by repeating a fat name inside many entries.
     local entries = {}
     local fat = string.rep("x", 200)
     for i = 1, 20 do
@@ -108,7 +106,6 @@ function TestExport:testEncodeRefusesOverCapAndReturnsByteCount()
 end
 
 function TestExport:testEncodeAcceptsExactlyMaxBytes()
-    -- Find a payload whose encoded length lands exactly on MAX_BYTES by padding the name.
     local base = {
         kind = "alert",
         name = "",
@@ -129,7 +126,6 @@ function TestExport:testEncodeAcceptsExactlyMaxBytes()
     while probe(pad) < Export.MAX_BYTES do
         pad = pad .. "a"
     end
-    -- Back off one char if we overshot, then fine-tune.
     while probe(pad) > Export.MAX_BYTES and #pad > 0 do
         pad = pad:sub(1, -2)
     end
@@ -210,7 +206,6 @@ function TestExport:testImportMintsIdsAppendsAtRootNeverMergesByName()
     local ok, report = Export.Import(doc, payload)
     luaunit.assertTrue(ok)
     luaunit.assertEquals(report.entryCount, 1)
-    -- Appended as a new root sibling - three roots, two named Slayer.
     luaunit.assertEquals(#doc.entries, 3)
     luaunit.assertEquals(doc.entries[1].id, existing)
     luaunit.assertEquals(doc.entries[2].id, groupId)

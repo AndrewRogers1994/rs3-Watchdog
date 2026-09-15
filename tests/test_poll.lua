@@ -86,10 +86,10 @@ function TestPoll:testEnterFiresOnceOnFalseToTrue()
     bindPoll(self.runtime)
     self.graph:AddNode("fixture.poll", { target = 5 })
 
-    self:tick(1) -- below: predicate false, no edge
+    self:tick(1)
     luaunit.assertEquals(#log, 0)
 
-    self:tick(7) -- false -> true: Enter
+    self:tick(7)
     luaunit.assertEquals(#log, 1)
     luaunit.assertEquals(log[1].edge, "Enter")
     luaunit.assertEquals(log[1].sample, 7)
@@ -101,9 +101,9 @@ function TestPoll:testNoReEnterWhilePredicateStaysTrue()
     bindPoll(self.runtime)
     self.graph:AddNode("fixture.poll", { target = 5 })
 
-    self:tick(7) -- Enter
-    self:tick(8) -- still true: no edge
-    self:tick(9) -- still true: no edge
+    self:tick(7)
+    self:tick(8)
+    self:tick(9)
 
     luaunit.assertEquals(#log, 1)
     luaunit.assertEquals(log[1].edge, "Enter")
@@ -115,8 +115,8 @@ function TestPoll:testLeaveFiresOnTrueToFalse()
     bindPoll(self.runtime)
     self.graph:AddNode("fixture.poll", { target = 5 })
 
-    self:tick(7) -- Enter
-    self:tick(2) -- true -> false: Leave
+    self:tick(7)
+    self:tick(2)
 
     luaunit.assertEquals(#log, 2)
     luaunit.assertEquals(log[1].edge, "Enter")
@@ -130,9 +130,9 @@ function TestPoll:testEnterLeaveEnterCycles()
     bindPoll(self.runtime)
     self.graph:AddNode("fixture.poll", { target = 5 })
 
-    self:tick(7) -- Enter
-    self:tick(1) -- Leave
-    self:tick(9) -- Enter again
+    self:tick(7)
+    self:tick(1)
+    self:tick(9)
 
     luaunit.assertEquals(#log, 3)
     luaunit.assertEquals(log[1].edge, "Enter")
@@ -176,14 +176,14 @@ function TestPoll:testSeedKeyReseedsWithoutEdgeOnLoadAndKeyChange()
     })
     local id = self.graph:AddNode("fixture.poll", { target = 5 })
 
-    self:tick(10) -- already true: seed, no Enter
+    self:tick(10)
     luaunit.assertEquals(#log, 0)
 
     self.graph:SetControl(id, "target", 20)
-    self:tick(21) -- true under the new target: reseed, no Enter
+    self:tick(21)
     luaunit.assertEquals(#log, 0)
 
-    self:tick(1) -- genuine true -> false
+    self:tick(1)
     luaunit.assertEquals(#log, 1)
     luaunit.assertEquals(log[1].edge, "Leave")
 end
@@ -196,7 +196,7 @@ function TestPoll:testNilSampleSkipsTickEntirely()
     bindPoll(self.runtime)
     self.graph:AddNode("fixture.poll", { target = 5 })
 
-    self:tick(nil) -- source unreadable: no filter, no edge
+    self:tick(nil)
     luaunit.assertEquals(#log, 0)
 end
 
@@ -208,10 +208,10 @@ function TestPoll:testNilSampleFreezesStateNoSpuriousLeave()
     bindPoll(self.runtime)
     self.graph:AddNode("fixture.poll", { target = 5 })
 
-    self:tick(7)   -- Enter
-    self:tick(nil) -- logged out: skip + freeze (no Leave)
+    self:tick(7)
     self:tick(nil)
-    self:tick(8)   -- relog, still in-area: no re-Enter (frozen state was already true)
+    self:tick(nil)
+    self:tick(8)
 
     luaunit.assertEquals(#log, 1)
     luaunit.assertEquals(log[1].edge, "Enter")
@@ -225,9 +225,9 @@ function TestPoll:testRealTransitionAfterNilStillFires()
     bindPoll(self.runtime)
     self.graph:AddNode("fixture.poll", { target = 5 })
 
-    self:tick(7)   -- Enter
-    self:tick(nil) -- freeze at true
-    self:tick(1)   -- now genuinely out-of-area: Leave
+    self:tick(7)
+    self:tick(nil)
+    self:tick(1)
 
     luaunit.assertEquals(#log, 2)
     luaunit.assertEquals(log[2].edge, "Leave")
@@ -252,14 +252,14 @@ function TestPoll:testFilterErrorFreezesThatNodesEdge()
     })
     self.graph:AddNode("fixture.poll", { target = 5 })
 
-    self:tick(7) -- Enter
-    self:tick(0) -- filter errors: freeze at true, no Leave
+    self:tick(7)
+    self:tick(0)
     luaunit.assertEquals(#log, 1)
 
-    self:tick(8) -- still in-area: no re-Enter (state frozen at true)
+    self:tick(8)
     luaunit.assertEquals(#log, 1)
 
-    self:tick(1) -- genuine exit once the filter works again: Leave
+    self:tick(1)
     luaunit.assertEquals(#log, 2)
     luaunit.assertEquals(log[2].edge, "Leave")
 end
@@ -291,8 +291,8 @@ function TestPoll:testTransformRunsOncePerTickRegardlessOfNodeCount()
 
     self:tick(7)
 
-    luaunit.assertEquals(transformCalls, 1) -- sampled once for the whole tick
-    luaunit.assertEquals(filterCalls, 3)    -- predicate evaluated per node
+    luaunit.assertEquals(transformCalls, 1)
+    luaunit.assertEquals(filterCalls, 3)
 end
 
 function TestPoll:testEachNodeKeepsItsOwnEdgeState()
@@ -302,13 +302,11 @@ function TestPoll:testEachNodeKeepsItsOwnEdgeState()
     self.graph:AddNode("fixture.poll", { target = 3 })
     self.graph:AddNode("fixture.poll", { target = 8 })
 
-    -- sample 5: crosses node A's target (3) but not node B's (8) -> only A Enters.
     self:tick(5)
 
     luaunit.assertEquals(#log, 1)
     luaunit.assertEquals(log[1].edge, "Enter")
 
-    -- sample 9: now crosses B too -> B Enters (A already true, no re-fire).
     self:tick(9)
     luaunit.assertEquals(#log, 2)
     luaunit.assertEquals(log[2].edge, "Enter")
@@ -328,15 +326,14 @@ function TestPoll:testEdgeStateIsolatedAcrossAlertsWithSameNodeId()
     self.runtime:AddAlert(2, "B", graphB, true)
     local aId = graphA:AddNode("fixture.poll", { target = 5 })
     local bId = graphB:AddNode("fixture.poll", { target = 5 })
-    luaunit.assertEquals(aId, bId) -- same id across the two graphs
+    luaunit.assertEquals(aId, bId)
 
-    self:tick(7) -- both cross: both Enter, independently
+    self:tick(7)
 
     luaunit.assertEquals(#log, 2)
     luaunit.assertEquals(log[1].edge, "Enter")
     luaunit.assertEquals(log[2].edge, "Enter")
 
-    -- Second tick, still true for both: neither re-fires (each graph's state tracked apart).
     self:tick(8)
     luaunit.assertEquals(#log, 2)
 end
@@ -355,12 +352,12 @@ function TestPoll:testEnterPinPropagatesToWiredTargetLeaveDoesNotWhenUnwired()
     -- Wire only Enter -> counter; Leave stays unwired.
     self.graph:Connect(pollId, "Enter", counterId, "in")
 
-    self:tick(7) -- Enter: counter runs
+    self:tick(7)
     luaunit.assertEquals(counts.n, 1)
 
-    self:tick(1) -- Leave: dispatcher fires Leave but it's unwired -> counter unchanged
+    self:tick(1)
     luaunit.assertEquals(counts.n, 1)
-    luaunit.assertEquals(log[2].edge, "Leave") -- the gate still decided Leave
+    luaunit.assertEquals(log[2].edge, "Leave")
 end
 
 function TestPoll:testLeavePinPropagatesToWiredTarget()
@@ -374,10 +371,10 @@ function TestPoll:testLeavePinPropagatesToWiredTarget()
     local counterId = self.graph:AddNode("fixture.counter")
     self.graph:Connect(pollId, "Leave", counterId, "in")
 
-    self:tick(7) -- Enter (unwired here): counter not run
+    self:tick(7)
     luaunit.assertNil(counts.n)
 
-    self:tick(1) -- Leave -> counter runs
+    self:tick(1)
     luaunit.assertEquals(counts.n, 1)
 end
 
@@ -401,7 +398,7 @@ function TestPoll:testEventBindingFiresEveryPassWithNoEdgeGate()
     self.graph:AddNode("fixture.event")
 
     self.source:Push("Custom", 5)
-    self.source:Push("Custom", 6) -- same truthy predicate, still fires (no edge suppression)
+    self.source:Push("Custom", 6)
     self.source:Push("Custom", 7)
 
     luaunit.assertEquals(runs, { 5, 6, 7 })

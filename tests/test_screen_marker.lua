@@ -46,7 +46,7 @@ function TestScreenMarkerRegistration:testRegistersActionScreenMarkerWithShowAnd
     luaunit.assertEquals(execOutCount, 0) -- no exec-out (AC)
 
     luaunit.assertEquals(byName.rect.dataType, "screen_marker.rect")
-    luaunit.assertNil(byName.rect.default) -- a never-drawn rect never fires
+    luaunit.assertNil(byName.rect.default)
     luaunit.assertEquals(byName.thickness.dataType, "number")
     luaunit.assertEquals(byName.color.dataType, "color")
     -- #71 Toast-parity lifetime pins (defaults match Toast: sticky=false, hold=5).

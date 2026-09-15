@@ -1,12 +1,8 @@
--- Exercises the Alert Manager's pure tree/scope/expand logic (ui/manager.lua) - the half that
--- turns a Watchdog.Bucket tree into a flat visible-row list, tracks per-scope collapse state, and
--- resolves the active scope against the injected provider. The mount/render half is client-only
--- (ui.*) and not unit-testable here, exactly like the Editor's Canvas mount; but every decision the
--- renderer reads - row order, indent depth, chevron/child-count, active tab, double-click open - is
--- driven from this pure layer, so it is all assertable headless with a fake scope provider.
+-- Alert Manager pure tree/scope/expand logic (ui/manager.lua). Mount/render is client-only
+-- (ui.*) and not unit-testable here; row order, indent, chevron, active tab, double-click
+-- open are assertable headless with a fake scope provider.
 --
--- Client/UI globals ui/manager builds constants from at load time (via its Theme require) - stubbed
--- minimally so the module loads under a standalone interpreter.
+-- Client/UI globals ui/manager builds from Theme at load time - stubbed so the module loads.
 _G.Vector4 = _G.Vector4 or { new = function(r, g, b, a) return { r, g, b, a } end }
 
 local luaunit = require("luaunit")
@@ -105,7 +101,7 @@ function TestManager:testGroupChildrenNestWithDepthAndCount()
     luaunit.assertEquals(rows[1].kind, "group")
     luaunit.assertEquals(rows[1].depth, 0)
     luaunit.assertEquals(rows[1].childCount, 2)
-    luaunit.assertEquals(rows[1].expanded, true)     -- groups default expanded
+    luaunit.assertEquals(rows[1].expanded, true)
     luaunit.assertEquals(rows[2].id, 2)
     luaunit.assertEquals(rows[2].depth, 1)
     luaunit.assertEquals(rows[3].id, 3)
@@ -135,11 +131,10 @@ function TestManager:testCollapseHidesSubtree()
         alert(5, "tail"),
     })
     local mgr = self:makeManager({ { key = "global", label = "Global", doc = doc } })
-    luaunit.assertEquals(#mgr:VisibleRows(), 5) -- all expanded by default
+    luaunit.assertEquals(#mgr:VisibleRows(), 5)
 
-    mgr:ToggleExpand("global", 1) -- collapse the outer group
+    mgr:ToggleExpand("global", 1)
     local rows = mgr:VisibleRows()
-    -- Only the collapsed group row and the tail alert remain; the whole subtree is gone.
     luaunit.assertEquals(#rows, 2)
     luaunit.assertEquals(rows[1].id, 1)
     luaunit.assertEquals(rows[1].expanded, false)
@@ -183,7 +178,7 @@ function TestManager:testActivateGroupRowTogglesInsteadOfOpening()
     local mgr, opened = self:makeManager({ { key = "global", label = "Global", doc = doc } })
     local row = mgr:VisibleRows()[1]
     mgr:_activateRow("global", row)
-    luaunit.assertEquals(opened, {})                 -- a group never opens the editor
+    luaunit.assertEquals(opened, {})
     luaunit.assertEquals(mgr:IsExpanded("global", 9), false)
 end
 
@@ -476,7 +471,7 @@ function TestManager:testNormalizeSelectionDropsDescendantsOfSelectedGroup()
     local mgr = self:makeManager({ { key = "global", label = "Global", doc = doc } })
     mgr:ToggleSelection(2, false)
     mgr:ToggleSelection(3, false)
-    mgr:ToggleSelection(1, false) -- selecting the group absorbs the children
+    mgr:ToggleSelection(1, false)
     luaunit.assertEquals(selectedSet(mgr), { [1] = true })
 end
 
@@ -538,7 +533,7 @@ function TestManager:testCollapseOfGroupContainingSelectionDropsInside()
     local mgr = self:makeManager({ { key = "global", label = "Global", doc = doc } })
     mgr:ToggleSelection(2, false)
     mgr:ToggleSelection(4, false)
-    mgr:ToggleExpand("global", 1) -- collapse: drop selection inside g, keep outside
+    mgr:ToggleExpand("global", 1)
     luaunit.assertEquals(selectedSet(mgr), { [4] = true })
 end
 
@@ -549,7 +544,7 @@ function TestManager:testCollapseOfUnrelatedGroupPreservesSelection()
     })
     local mgr = self:makeManager({ { key = "global", label = "Global", doc = doc } })
     mgr:ToggleSelection(3, false)
-    mgr:ToggleExpand("global", 1) -- collapse a group that does not contain the selection
+    mgr:ToggleExpand("global", 1)
     luaunit.assertEquals(selectedSet(mgr), { [3] = true })
 end
 

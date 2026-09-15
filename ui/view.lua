@@ -105,7 +105,6 @@ end
 function View:SetZoomAt(sx, sy, zoom)
     local gx, gy = self:ToGraph(sx, sy)
     self.zoom = clamp(zoom, Theme.ZOOM_MIN, Theme.ZOOM_MAX)
-    -- Keep the graph point under (sx, sy) fixed after zoom.
     self.panX = sx - gx * self.zoom
     self.panY = sy - gy * self.zoom
 end

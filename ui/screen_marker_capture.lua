@@ -82,21 +82,17 @@ function ScreenMarkerCapture:Cancel()
     self:Reposition()
 end
 
--- The first corner (mouse-down while armed). No-op if not armed or a drag is already live.
 function ScreenMarkerCapture:BeginDrag(px, py)
     if not self.armed or self.dragging then return end
     self.dragging = true
     self.startX, self.startY, self.curX, self.curY = px, py, px, py
 end
 
--- Tracks the live cursor mid-drag. No-op unless a drag is in progress.
 function ScreenMarkerCapture:UpdateDrag(px, py)
     if not self.dragging then return end
     self.curX, self.curY = px, py
 end
 
--- The second corner (mouse-up): commits the normalized rect through `onCommit` and resets
--- to idle. No-op if not dragging.
 function ScreenMarkerCapture:EndDrag()
     if not self.dragging then return end
     local rect = ScreenMarkerCapture.Rect(self.startX, self.startY, self.curX, self.curY)
@@ -118,9 +114,6 @@ local function mousePos()
     return nil
 end
 
--- Mounts the full-screen click-capture layer as a direct child of `rootParent` (the same
--- root the effect overlay Canvas mounts under, see effects.lua's own Mount). Idempotent: a
--- second Mount before Unmount is a no-op.
 function ScreenMarkerCapture:Mount(rootParent)
     if self._capture ~= nil then
         return

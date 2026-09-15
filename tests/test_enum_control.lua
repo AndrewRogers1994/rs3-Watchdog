@@ -1,8 +1,5 @@
--- enum Pin Control (ADR-0005 / #59) driven through the shared FAKE HOST. One factory serves every
--- enum Type Tag (bool, toast icon, chat groups, skill, …); it is built from a choice list and
--- round-trips selection by LABEL (ADR-0004: a ComboField's id is unreliable, its label is not).
--- The press->pick->commit sequence is driven here through the same host seam the in-client Editor
--- uses, including the nil-valued "None" choice that must commit nil, not be dropped.
+-- enum Pin Control (ADR-0005 / #59) through the fake host. Round-trips by LABEL
+-- (ADR-0004: ComboField id is unreliable). Nil-valued "None" must commit nil, not drop the pick.
 
 local luaunit = require("luaunit")
 local FakeHost = require("fake_control_host")
@@ -85,8 +82,7 @@ function TestEnumLayout:testInlineSingleFieldRect()
     luaunit.assertEquals(boolEnum.ReservedHeight({}), 0)
     local rects = boolEnum.Layout({ x = 0, y = 0, w = 60, h = 16 })
     luaunit.assertEquals(#rects, 1)
-    -- The dropdown caret is the dropdown Widget's own draw (#63), so the sub-rect is a plain field -
-    -- it carries no "enum" hint for node.lua to branch on.
+    -- Dropdown caret is the Widget's own draw (#63); the sub-rect is a plain field with no "enum" hint.
     luaunit.assertEquals(rects[1].kind, "field")
 end
 

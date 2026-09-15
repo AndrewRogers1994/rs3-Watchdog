@@ -28,14 +28,12 @@ function TestPopup:testAnimStartsInFadingUpFromZero()
 end
 
 function TestPopup:testAnimHoldIsFullyOpaque()
-    -- Anywhere inside the hold window (after the in ramp) is phase "hold" at full alpha.
     local a = Popup.Anim(Popup.IN_SECONDS + 1.0, 4)
     luaunit.assertEquals(a.phase, "hold")
     luaunit.assertEquals(a.alpha, 1)
 end
 
 function TestPopup:testAnimOutFadesTowardZero()
-    -- Midway through the out ramp alpha is between 0 and 1 and falling.
     local mid = Popup.IN_SECONDS + 4 + (Popup.OUT_SECONDS * 0.5)
     local a = Popup.Anim(mid, 4)
     luaunit.assertEquals(a.phase, "out")
@@ -67,10 +65,8 @@ end
 function TestPopup:testBuildHandleStaysAliveThenExpires()
     local hold = 1
     local h = Popup.BuildHandle({ body = "hi", hold = hold })
-    -- Advance to just before the very end: still alive.
     local total = Popup.IN_SECONDS + hold + Popup.OUT_SECONDS
     luaunit.assertTrue(h.update(total - 0.01))
-    -- One more tick past the end: it reports not-alive (auto-expire, no dismiss needed).
     luaunit.assertFalse(h.update(0.02))
 end
 
@@ -118,7 +114,6 @@ function TestPopup:testAddSpriteColoursAreUintNotVector4()
         title = "T", body = "b",
         anim = { alpha = 1 },
     })
-    -- 3 frame pieces + 1 icon; none skipped.
     luaunit.assertEquals(calls.sprites, 4)
     for _, colour in ipairs(calls.spriteColours) do
         luaunit.assertEquals(type(colour), "number")
@@ -163,7 +158,6 @@ end
 function TestPopup:testIconChoicesAreCuratedAndNonEmpty()
     local choices = Popup.IconChoices()
     luaunit.assertTrue(#choices >= 2)
-    -- Every choice is a {value, label} the enum Control can render.
     for _, c in ipairs(choices) do
         luaunit.assertNotNil(c.label)
     end
@@ -223,13 +217,11 @@ function TestPopup:testRunPushesOneQueuedAutoExpiringHandle()
 
     desc.run(makeCtx({ body = "You did it!", title = "Done", hold = 1 }))
 
-    -- Queue-only: the popup is the single active handle for its owner, nothing stacked.
     local q = effects.queues[Popup.OWNER]
     luaunit.assertNotNil(q)
     luaunit.assertNotNil(q.active)
     luaunit.assertEquals(#q.pending, 0)
 
-    -- A second fire while one is live queues behind it (never two concurrent popups).
     desc.run(makeCtx({ body = "Second", hold = 1 }))
     luaunit.assertEquals(#q.pending, 1)
 end

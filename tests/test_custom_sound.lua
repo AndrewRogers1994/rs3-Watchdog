@@ -1,6 +1,5 @@
--- Exercises action.custom_sound (#33) through a fake registry + fake ctx and a stubbed
--- `Plugin.resources`/`audio` global - same convention as test_sound.lua, no LibNodeGraph
--- required since `run`/`preload` only touch ctx:In/ctx:GetControl.
+-- action.custom_sound (#33) through a fake registry + fake ctx and stubbed Plugin.resources/audio.
+-- No LibNodeGraph: run/preload only touch ctx:In / ctx:GetControl.
 
 local luaunit = require("luaunit")
 local CustomSound = require("nodes/actions/custom_sound")
@@ -27,8 +26,7 @@ local function stubResource(loaded)
     }
 end
 
--- Fake of the client `audio` global the node calls: `SoundPlaybackParams.new()` returns a
--- plain params table, `AudioBus.SFX` is the hardcoded bus, and `Play` records the call.
+-- Fake of the client `audio` global: SoundPlaybackParams.new(), AudioBus.SFX, Play records the call.
 local function makeFakeAudio(calls)
     return {
         AudioBus = { SFX = "sfx" },

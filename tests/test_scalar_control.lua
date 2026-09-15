@@ -13,8 +13,6 @@ local TextField = require("ui/widgets/text_field")
 local number = Scalar.new({ codec = NumberField, filter = "NUMERIC" })
 local text = Scalar.new({ codec = TextField, filter = "NONE" })
 
--- The clicked value-column box as node.lua hands it to Press: the pin name + the default-resolved
--- current value (ctrl.value) that seeds the transient field.
 local function fieldCtrl(value)
     return { kind = "field", pinName = "amount", value = value, x = 0, y = 0, w = 40, h = 16 }
 end

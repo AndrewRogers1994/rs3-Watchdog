@@ -24,7 +24,6 @@ function TestSwatchPress:testPressOpensTheColorPopup()
     local host = FakeHost.new(RED)
     swatch.Press(host, swatchCtrl(RED))
     luaunit.assertNotNil(host.openedPopup)
-    -- The swatch commits nothing itself - the popup owns the edit.
     luaunit.assertEquals(host.commitCount, 0)
 end
 
@@ -58,13 +57,13 @@ function TestSwatchLayout:testInlineChipFlushRightAtFixedWidth()
     local rects = swatch.Layout({ x = 10, y = 4, w = 100, h = 16 })
     luaunit.assertEquals(#rects, 1)
     local r = rects[1]
-    luaunit.assertEquals(r.kind, "swatch")             -- names the row; the paint is the Widget's Draw (#63)
-    luaunit.assertEquals(r.w, Theme.SWATCH_W)          -- fixed chip width
-    luaunit.assertEquals(r.x + r.w, 110)               -- flush against the box's right edge
+    luaunit.assertEquals(r.kind, "swatch")
+    luaunit.assertEquals(r.w, Theme.SWATCH_W)
+    luaunit.assertEquals(r.x + r.w, 110)
 end
 
 function TestSwatchLayout:testChipNeverWiderThanTheBox()
-    local rects = swatch.Layout({ x = 0, y = 0, w = 5, h = 16 })  -- box narrower than SWATCH_W
+    local rects = swatch.Layout({ x = 0, y = 0, w = 5, h = 16 })
     luaunit.assertEquals(rects[1].w, 5)
     luaunit.assertEquals(rects[1].x, 0)
 end

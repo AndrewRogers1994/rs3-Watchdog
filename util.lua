@@ -9,7 +9,6 @@ function Util.CallOrLog(label, context, fn, ...)
     return ok, result
 end
 
--- Normalize display names for per-character bucket keys.
 ---@param name string|nil
 ---@return string
 function Util.NormalizePlayerName(name)

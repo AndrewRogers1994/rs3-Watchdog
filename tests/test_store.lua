@@ -57,15 +57,12 @@ local function graphWithOneNode(registry)
     return graph
 end
 
--- Mints an id, builds an alert Entry from a fresh one-node graph, and inserts it at `parentId`
--- (root when nil). Returns the minted id so a test can target the entry afterwards.
 local function seedAlert(self, doc, name, enabled, parentId)
     local id = Store.MintId(doc)
     Store.InsertEntry(doc, Store.NewAlertEntry(id, name, graphWithOneNode(self.registry), {}, enabled), parentId)
     return id
 end
 
--- Full round-trip helper: save a doc through the fake DB, then Load a fresh copy.
 local function saveAndReload(doc)
     luaunit.assertTrue(Store.Save(doc))
     return Store.Load()
@@ -91,7 +88,6 @@ function TestStore:testSaveWritesUnderUnprefixedGlobalKey()
 end
 
 function TestStore:testLoadOnFreshInstallIsEmptyBucket()
-    -- No `global` key written yet: a fresh install loads an empty version-2 bucket.
     local doc = Store.Load()
     luaunit.assertEquals(doc.version, 2)
     luaunit.assertEquals(doc.entries, {})
@@ -163,7 +159,7 @@ function TestStore:testFindByIdLocatesEntryWithSiblingsAndIndex()
     luaunit.assertEquals(entry.name, "b")
     luaunit.assertEquals(siblings, doc.entries)
     luaunit.assertEquals(index, 2)
-    luaunit.assertEquals(a, doc.entries[1].id) -- sanity: a is first
+    luaunit.assertEquals(a, doc.entries[1].id)
 end
 
 function TestStore:testFindByIdReachesNestedEntries()
@@ -248,7 +244,6 @@ function TestStore:testDeleteByIdTakesTheWholeSubtree()
     Store.InsertEntry(doc, Store.NewGroupEntry(groupId, "group", true, {}))
     seedAlert(self, doc, "nested", true, groupId)
 
-    -- Deleting the group removes its child alert with it - the leaf count drops to zero.
     Store.DeleteById(doc, groupId)
     luaunit.assertEquals(#doc.entries, 0)
     luaunit.assertEquals(#Store.Leaves(doc), 0)
@@ -268,7 +263,6 @@ function TestStore:testMoveSubtreeReparentsRootAlertIntoGroup()
 
     luaunit.assertTrue(Store.MoveSubtree(doc, alertId, groupId))
 
-    -- The alert left the root and now lives under the group.
     luaunit.assertEquals(#doc.entries, 1)
     luaunit.assertEquals(doc.entries[1].id, groupId)
     luaunit.assertEquals(#doc.entries[1].children, 1)
@@ -283,7 +277,6 @@ function TestStore:testMoveSubtreeReparentsNestedAlertToRoot()
 
     luaunit.assertTrue(Store.MoveSubtree(doc, alertId, nil))
 
-    -- The alert is now a root sibling of the (now-empty) group.
     luaunit.assertEquals(#doc.entries[1].children, 0)
     luaunit.assertEquals(doc.entries[2].id, alertId)
 end
@@ -301,7 +294,6 @@ function TestStore:testMoveSubtreeCarriesAWholeGroupSubtree()
 
     luaunit.assertTrue(Store.MoveSubtree(doc, innerId, homeId))
 
-    -- outer is emptied; the inner group (with its alert) hangs under home intact.
     luaunit.assertEquals(#Store.FindById(doc, outerId).children, 0)
     local home = Store.FindById(doc, homeId)
     luaunit.assertEquals(home.children[1].id, innerId)
@@ -317,7 +309,6 @@ function TestStore:testMoveSubtreeIntoOwnDescendantIsRefused()
     Store.InsertEntry(doc, Store.NewGroupEntry(innerId, "inner", true, {}), outerId)
 
     luaunit.assertFalse(Store.MoveSubtree(doc, outerId, innerId))
-    -- Structure untouched: outer still holds inner at root.
     luaunit.assertEquals(doc.entries[1].id, outerId)
     luaunit.assertEquals(doc.entries[1].children[1].id, innerId)
 end
@@ -349,7 +340,7 @@ function TestStore:testMoveSubtreeToMissingParentIsRefused()
     local doc = Store.Empty()
     local alertId = seedAlert(self, doc, "a", true)
     luaunit.assertFalse(Store.MoveSubtree(doc, alertId, 999))
-    luaunit.assertEquals(#doc.entries, 1) -- still at root
+    luaunit.assertEquals(#doc.entries, 1)
 end
 
 --- Sibling reorder + Lift (MVP buttons; drag nest/scope stays on #92) ----------------------
@@ -497,8 +488,8 @@ end
 function TestStore:testMoveEntryToBucketRemintsCollidingIds()
     local src = Store.Empty()
     local dest = Store.Empty()
-    seedAlert(self, dest, "existing", true) -- claims id 1
-    local id = seedAlert(self, src, "moving", true) -- also id 1 in src
+    seedAlert(self, dest, "existing", true)
+    local id = seedAlert(self, src, "moving", true)
     luaunit.assertEquals(id, 1)
     local moved = Store.MoveEntryToBucket(src, dest, id)
     luaunit.assertNotEquals(moved.id, 1)
@@ -545,7 +536,6 @@ function TestStore:testEnabledChainCombinesOwnFlagWithAncestors()
     local onId = seedAlert(self, doc, "on", true, groupId)
     local offId = seedAlert(self, doc, "off", false, groupId)
 
-    -- Both under an enabled group: the chain follows each alert's own flag.
     luaunit.assertTrue(Store.EnabledChain(doc, onId))
     luaunit.assertFalse(Store.EnabledChain(doc, offId))
 end
@@ -573,13 +563,11 @@ function TestStore:testDisablingGroupLeavesDescendantOwnFlagsUntouched()
     local offId = seedAlert(self, doc, "off", false, groupId)
 
     Store.SetEnabled(doc, groupId, false)
-    -- Suppressed while the group is off, but each alert keeps its own flag.
     luaunit.assertFalse(Store.EnabledChain(doc, onId))
     luaunit.assertEquals(Store.FindById(doc, onId).enabled, true)
     luaunit.assertEquals(Store.FindById(doc, offId).enabled, false)
 
     Store.SetEnabled(doc, groupId, true)
-    -- Re-enabling restores exactly the prior mix: "on" fires again, "off" stays off.
     luaunit.assertTrue(Store.EnabledChain(doc, onId))
     luaunit.assertFalse(Store.EnabledChain(doc, offId))
 end
@@ -689,7 +677,6 @@ function TestStore:testUpdateAlertGraphRewritesGraphById()
     local doc = Store.Empty()
     local id = seedAlert(self, doc, "alpha", true)
 
-    -- Rebuild with a two-node graph and push it back under the same id.
     local graph = graphWithOneNode(self.registry)
     graph:AddNode("fixture.trigger")
     luaunit.assertTrue(Store.UpdateAlertGraph(doc, id, graph, {}))
@@ -728,7 +715,6 @@ function TestStore:testRestoreAllReturnsEveryLeafLiveWithIdAndFlag()
     luaunit.assertEquals(restored[2].id, b)
     luaunit.assertEquals(restored[2].name, "beta")
     luaunit.assertEquals(restored[2].enabled, false)
-    -- Each entry carries a live, usable Graph (not the serialized table).
     luaunit.assertEquals(#restored[1].graph:GetNodes(), 1)
     luaunit.assertEquals(#restored[2].graph:GetNodes(), 1)
 end
@@ -817,7 +803,6 @@ end
 
 function TestStore:testKnownNodesStillFireAlongsideAPlaceholder()
     local restored = Store.RestoreAll(bucketWithUnknownNode(), self.registry)
-    -- Firing the known trigger runs through the graph without the placeholder aborting it.
     luaunit.assertEquals(restored[1].graph:Fire(1), nil)
 end
 
@@ -894,7 +879,6 @@ function TestStore:testSaveToAndLoadKeyRoundTripPlayerBucket()
     seedAlert(self, doc, "alice-alert", true)
     luaunit.assertTrue(Store.SaveTo(key, doc))
 
-    -- Written under the player key, not the global one.
     luaunit.assertNotNil(PersistentDB.data[key])
     luaunit.assertNil(PersistentDB.data["global"])
 

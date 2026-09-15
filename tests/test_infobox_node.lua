@@ -1,6 +1,4 @@
--- Exercises the action.infobox node (nodes/actions/infobox.lua, #41) through a fake registry
--- + fake ctx driving a real ui/infobox.lua InfoBox Area - no LibNodeGraph required, matching
--- test_popup's convention (a real EffectRegistry driven through a fake registry/ctx).
+-- action.infobox (#41) through a fake registry + real ui/infobox.lua InfoBox Area.
 
 _G.Vector4 = _G.Vector4 or { new = function(r, g, b, a) return { r, g, b, a } end }
 
@@ -41,7 +39,7 @@ function TestInfoBoxNodeRegistration:testRegistersActionInfoboxWithUpdateAndDism
     luaunit.assertEquals(byName.update.direction, "in")
     luaunit.assertEquals(byName.dismiss.kind, "exec")
     luaunit.assertEquals(byName.dismiss.direction, "in")
-    luaunit.assertEquals(execOutCount, 0) -- no exec-out (AC)
+    luaunit.assertEquals(execOutCount, 0)
     luaunit.assertEquals(byName.value.dataType, "any")
     luaunit.assertEquals(byName.color.dataType, "color")
     luaunit.assertEquals(byName.icon.dataType, "infobox.icon")

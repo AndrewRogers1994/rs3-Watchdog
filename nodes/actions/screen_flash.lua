@@ -40,19 +40,15 @@ function ScreenFlash.AlphaAt(tick, peak, inShape, outShape)
     return 0
 end
 
--- Whether activity since `baseline` (the tick counts recorded at Show) should auto-dismiss the
--- effect, per the `dismissOn` Control. `runtimeTicks` is `{ mouse = ..., keyboard = ... }`.
 function ScreenFlash.ShouldAutoDismiss(dismissOn, baseline, runtimeTicks)
     if dismissOn == "none" or dismissOn == nil then return false end
     local moved = runtimeTicks.mouse ~= baseline.mouse
     local pressed = runtimeTicks.keyboard ~= baseline.keyboard
     if dismissOn == "mouse" then return moved end
     if dismissOn == "keyboard" then return pressed end
-    return moved or pressed -- "both"
+    return moved or pressed
 end
 
--- Builds the uniform effect handle (effects.lua) for one Show. `color` supplies peak alpha
--- (color.a) and RGB; `baseline` is the activity-tick snapshot taken at Show time.
 local function makeHandle(color, inShape, outShape, dismissOn, baseline, runtime)
     local tick = 0
     local alpha = 0

@@ -1,5 +1,4 @@
--- Exercises ui/iface_scale.lua: Mouse → interface-unit conversion via
--- game.options.InterfaceScale.setting (percent; 100 = 1.0x).
+-- InterfaceScale.setting is percent (100 = 1.0x).
 
 local luaunit = require("luaunit")
 local IfaceScale = require("ui/iface_scale")

@@ -12,8 +12,7 @@ local function clamp01(t)
     return t
 end
 
--- Hue spectrum stops (0/60/120/180/240/300/360 -> red/yellow/green/cyan/blue/magenta/red),
--- consumed 6-segments-at-a-time by drawHueStrip since AddGradientH only interpolates 2 colors.
+-- AddGradientH interpolates 2 colors; hue strip is 6 segments over these stops.
 local HUE_STOPS = {
     { 1, 0, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 1, 1 }, { 0, 0, 1 }, { 1, 0, 1 }, { 1, 0, 0 },
 }
@@ -24,20 +23,14 @@ function ColorPopup.new()
         nodeId = nil,
         pinName = nil,
         codec = nil,
-        value = { r = 255, g = 255, b = 255, a = 255 },  -- working {r,g,b,a}, 0..255 each
-        prevValue = nil,   -- the value at Open, for the "prev" chip
-        h = 0, s = 0, v = 1,   -- HSV source of truth for the SV field + hue strip
-        screenX = 0, screenY = 0,  -- requested anchor (clamped into the Viewport at Draw)
-        rect = nil,        -- last drawn layout, absolute screen-space, for hit-testing
+        value = { r = 255, g = 255, b = 255, a = 255 },
+        prevValue = nil,   -- value at Open, for the "prev" chip
+        h = 0, s = 0, v = 1,
+        screenX = 0, screenY = 0,  -- clamped into Viewport at Draw
+        rect = nil,
     }, ColorPopup)
 end
 
--- Opens the popup anchored near (anchorX, anchorY) (the clicked chip's screen position),
--- seeded from `value` (falls back to opaque white when there's no stored Control or pin
--- default to show - an arbitrary but harmless starting point, since nothing commits until
--- the user actually drags or types something). `codec` is the hex format/parse table the swatch
--- Pin Control hands in (its Widget's Color hex8 round-trip), so the hex field's display and commit
--- go through it without the popup knowing anything about Controls.
 function ColorPopup:Open(nodeId, pinName, codec, value, anchorX, anchorY)
     self.open = true
     self.nodeId = nodeId
@@ -62,8 +55,6 @@ function ColorPopup:Close()
     self.rect = nil
 end
 
--- The hex text for a {r,g,b,a} value, via the codec's format hook ("RRGGBBAA", no '#'). Guarded
--- and nil-safe (empty string when no codec / the hook errors) the way the old Controls.Format was.
 function ColorPopup:Format(value)
     local c = self.codec
     if c == nil or c.format == nil then return "" end
@@ -72,8 +63,6 @@ function ColorPopup:Format(value)
     return ""
 end
 
--- Parses edited hex text back into a {r,g,b,a} through the codec's parse hook, keeping `current`
--- on an unparsable/too-short string (Color.ParseHex8's own guard). Nil-safe like Controls.Parse was.
 function ColorPopup:Parse(raw, current)
     local c = self.codec
     if c == nil or c.parse == nil then return current end
@@ -82,14 +71,11 @@ function ColorPopup:Parse(raw, current)
     return current
 end
 
--- A fresh copy of the working color (never the live internal table - a caller must not be able
--- to mutate the popup's state through the returned value).
+-- Copy; callers must not mutate popup state through the returned table.
 function ColorPopup:Value()
     return { r = self.value.r, g = self.value.g, b = self.value.b, a = self.value.a }
 end
 
--- Overwrites the whole working value (the hex field's commit path) and re-derives hue/sat/
--- val from it, same as an R/G/B row drag does.
 function ColorPopup:SetValue(value)
     if value == nil then return end
     self.value = {
@@ -101,8 +87,6 @@ end
 
 --- Layout ----------------------------------------------------------------------------------
 
--- Pure geometry, relative to the popup's own top-left (0,0): stacks rows top-to-bottom with
--- a running cursor, same style as coordgrid's Layout. Independent of the current value/state.
 function ColorPopup:layout()
     local w = Theme.COLOR_POPUP_W
     local pad = Theme.COLOR_POPUP_PAD
@@ -141,8 +125,6 @@ end
 
 --- Drag application (screen-space points; uses the rect Draw last recorded) --------------
 
--- Applies a drag/click at (sx,sy) to the named part ("sv"|"hue"|"r"|"g"|"b"|"a"), updating
--- self.value in place. No-op if Draw hasn't run yet (no rect to interpret the point against).
 function ColorPopup:ApplyDrag(part, sx, sy)
     local r = self.rect
     if r == nil then return end
@@ -168,15 +150,13 @@ end
 
 --- Hit-testing (uses the rect from the last Draw) -----------------------------------------
 
--- The part under a screen point: "close" | "sv" | "hue" | "hex" | "r" | "g" | "b" | "a" |
--- "other" (padding/prev-cur chips/header - inert, click keeps the popup open) | nil (Draw
--- hasn't run, or the point is outside the panel entirely - caller treats this as "outside").
+-- "other" = inside padding/header/chips (keep open); nil = outside or not drawn yet.
 function ColorPopup:PartAt(sx, sy)
     local r = self.rect
     if not self.open or r == nil then return nil end
     if not self:Contains(sx, sy) then return nil end
 
-    local half = 8  -- close glyph hit padding, mirrors Node.HitClose's PIN_HIT_PAD-ish pad
+    local half = 8  -- close-glyph hit pad, same idea as Node.HitClose's PIN_HIT_PAD
     if sx >= r.close.cx - half and sx <= r.close.cx + half
         and sy >= r.close.cy - half and sy <= r.close.cy + half then
         return "close"
@@ -195,7 +175,6 @@ function ColorPopup:PartAt(sx, sy)
     return "other"
 end
 
--- Whether a screen point falls within the drawn panel (a click inside keeps it open).
 function ColorPopup:Contains(sx, sy)
     local r = self.rect
     if not self.open or r == nil then return false end
@@ -204,10 +183,7 @@ end
 
 --- Drawing -----------------------------------------------------------------------------
 
--- Draws the panel clamped fully inside the Viewport rect (vx,vy,vw,vh), records `self.rect`
--- for hit-testing, and returns nothing. `opts.hexEditing` skips the hex box's own text (a
--- real transient InputField sits over it instead - same convention as Node.Draw's Control
--- boxes skipping their own text while being edited).
+-- opts.hexEditing skips hex text; a transient InputField sits over the box (same as Node.Draw).
 function ColorPopup:Draw(canvas, vx, vy, vw, vh, mx, my, opts)
     if not self.open then return end
     opts = opts or {}
@@ -252,7 +228,6 @@ function ColorPopup:drawChrome(canvas, rect)
             Theme.Vec4(Theme.COL_PALETTE_HEADER_TX))
     end
 
-    -- Close glyph: an X drawn the same way as a Node's header delete button.
     local half = 5
     local col = Theme.Vec4(Theme.COL_CLOSE)
     canvas:AddLine(rect.close.cx - half, rect.close.cy - half, rect.close.cx + half, rect.close.cy + half, 2, col)
@@ -266,7 +241,7 @@ function ColorPopup:drawSV(canvas, r)
     canvas:AddGradientV(r.x, r.y, r.w, r.h, Vector4.new(0, 0, 0, 0), Vector4.new(0, 0, 0, 1))
     canvas:AddOutline(r.x, r.y, r.w, r.h, 1, Theme.Vec4(Theme.COL_PALETTE_BORDER))
 
-    -- Crosshair at (s, 1-v): a small white square ringed in black so it reads on any hue.
+    -- White ringed in black so the SV cursor reads on any hue.
     local cx = r.x + self.s * r.w
     local cy = r.y + (1 - self.v) * r.h
     local half = 4
@@ -305,17 +280,12 @@ function ColorPopup:drawHex(canvas, r)
     canvas:AddOutline(r.x, r.y, r.w, r.h, 1, Theme.Vec4(Theme.COL_CONTROL_BORDER))
     local font = Theme.Font(11)
     if font ~= nil then
-        -- Goes through the swatch codec's own format hook, the same round-trip the hex field's
-        -- commit path uses, rather than hard-coding Color.FormatHex8 here and separately below.
+        -- Codec format hook (same as hex commit), not Color.FormatHex8.
         canvas:AddText(r.x + 4, r.y + r.h * 0.5 - 6, "#" .. self:Format(self.value), font,
             Theme.Vec4(Theme.COL_CONTROL_TEXT))
     end
 end
 
--- A labeled R/G/B drag row: a gradient track from 0 (that channel zeroed) to 255 (that
--- channel maxed, others held at their current value), a knob at the current byte, and the
--- numeric readout. `channelAt(byte)` returns {r,g,b} for a hypothetical value of this
--- channel, used to color the two gradient endpoints.
 function ColorPopup:drawChannelRow(canvas, r, label, byte, channelAt)
     local font = Theme.Font(11)
     local labelW = 12
@@ -343,9 +313,6 @@ function ColorPopup:drawChannelRow(canvas, r, label, byte, channelAt)
     end
 end
 
--- The alpha row: same drag track as a channel row, but its gradient goes from fully
--- transparent to fully opaque *at the current RGB* over a checker backing, so "how strong"
--- reads visually rather than as another flat 0..255 bar.
 function ColorPopup:drawAlphaRow(canvas, r)
     local font = Theme.Font(11)
     local labelW = 12

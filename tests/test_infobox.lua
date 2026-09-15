@@ -1,12 +1,7 @@
--- Exercises infobox.lua's InfoBox Area through its pure logic seam: the ordered box set
--- (insert / rewrite-in-place / remove-and-reflow), the horizontal-flow-with-wrap Layout,
--- hit-testing (BoxAt / TooltipAt), the overall Bounds, and drag-as-unit anchor moves. Canvas
--- drawing (ui.Canvas AddRectangle/AddSprite/AddText) is a client primitive and is not asserted
--- here, exactly like test_effects - only the geometry/state the node and draw loop depend on
--- is (#41 AC).
-
--- InfoBox.Draw resolves colors through Vector4 at draw time; stub it so requiring the module
--- (and any incidental color math) works under the bare Lua runtime, same as test_color does.
+-- InfoBox Area: ordered box set, wrap layout, hit-testing, Bounds, drag-as-unit.
+-- Canvas drawing is a client primitive and is not asserted here (#41 AC).
+--
+-- InfoBox.Draw resolves colors through Vector4 at draw time; stub so the module loads under bare Lua.
 _G.Vector4 = _G.Vector4 or { new = function(r, g, b, a) return { r, g, b, a } end }
 
 local luaunit = require("luaunit")
@@ -40,7 +35,7 @@ end
 function TestBoxSet:testSetSameOwnerRewritesInPlaceKeepingOrder()
     self.area:Set("a", { text = "1" })
     self.area:Set("b", { text = "2" })
-    self.area:Set("a", { text = "99" })  -- rewrite, must not move to the end
+    self.area:Set("a", { text = "99" })
     luaunit.assertEquals(self.area:Count(), 2)
     luaunit.assertEquals(self.area:Order(), { "a", "b" })
     luaunit.assertEquals(self.area:Get("a").text, "99")
@@ -59,7 +54,7 @@ function TestBoxSet:testRemoveDropsBoxAndReflows()
     self.area:Set("c", { text = "3" })
     luaunit.assertTrue(self.area:Remove("b"))
     luaunit.assertFalse(self.area:Has("b"))
-    luaunit.assertEquals(self.area:Order(), { "a", "c" })  -- compacted, order otherwise intact
+    luaunit.assertEquals(self.area:Order(), { "a", "c" })
     luaunit.assertEquals(self.area:Count(), 2)
 end
 
@@ -106,7 +101,7 @@ function TestLayout:testHorizontalFlowWithinARow()
     local rects = self.area:Layout()
     local step = Theme.INFOBOX_BOX_SIZE + Theme.INFOBOX_GAP
     luaunit.assertEquals(rects[2].x, 100 + step)
-    luaunit.assertEquals(rects[2].y, 50)  -- same row
+    luaunit.assertEquals(rects[2].y, 50)
 end
 
 function TestLayout:testWrapsToNextRowPastTheWrapWidth()
@@ -128,7 +123,7 @@ function TestLayout:testReflowAfterRemovePullsLaterBoxesUp()
     local rects = self.area:Layout()
     local d = rects[#rects]
     luaunit.assertEquals(d.owner, "d")
-    luaunit.assertEquals(d.y, 50)  -- reflowed onto the first row
+    luaunit.assertEquals(d.y, 50)
 end
 
 --- Hit-testing -----------------------------------------------------------------------------
@@ -218,12 +213,11 @@ function TestDrag:testBeginDragOutsideBoundsDoesNotGrab()
 end
 
 function TestDrag:testDragMovesAnchorByDelta()
-    self.area:BeginDrag(105, 105)   -- grabbed 5px into the box
-    self.area:Drag(155, 205)        -- moved the cursor +50,+100
+    self.area:BeginDrag(105, 105)
+    self.area:Drag(155, 205)
     local ax, ay = self.area:GetAnchor()
-    luaunit.assertEquals(ax, 150)   -- anchor tracks the cursor keeping the grab offset
+    luaunit.assertEquals(ax, 150)
     luaunit.assertEquals(ay, 200)
-    -- The box itself follows the anchor.
     local rects = self.area:Layout()
     luaunit.assertEquals(rects[1].x, 150)
     luaunit.assertEquals(rects[1].y, 200)

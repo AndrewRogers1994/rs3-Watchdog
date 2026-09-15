@@ -74,8 +74,6 @@ function TestColorPopupOpenClose:testOpenRecordsTheGivenCodec()
     luaunit.assertIs(self.cp.codec, CODEC)
 end
 
--- The hex row's display text goes through the swatch codec's own format hook, the same round-trip
--- the hex field's commit path uses - not a hard-coded Color.FormatHex8 call.
 function TestColorPopupOpenClose:testHexRowTextGoesThroughTheCodec()
     self.cp:Open("node1", "tint", CODEC, { r = 60, g = 200, b = 255, a = 180 }, 0, 0)
     local canvas = mockCanvas()
@@ -209,8 +207,8 @@ function TestColorPopupDrag:testHueSurvivesADropToValueZeroThenBackUp()
     local hueR, svR = self.cp.rect.hue, self.cp.rect.sv
     self.cp:ApplyDrag("hue", hueR.x + hueR.w * (120 / 360), hueR.y)  -- ~green
     luaunit.assertAlmostEquals(self.cp.h, 120, 1)
-    self.cp:ApplyDrag("sv", svR.x + svR.w, svR.y + svR.h)  -- v -> 0 (black)
-    self.cp:ApplyDrag("sv", svR.x + svR.w, svR.y)          -- v -> 1, s stays 1
+    self.cp:ApplyDrag("sv", svR.x + svR.w, svR.y + svR.h)
+    self.cp:ApplyDrag("sv", svR.x + svR.w, svR.y)
     luaunit.assertAlmostEquals(self.cp.h, 120, 1)
     luaunit.assertAlmostEquals(self.cp.value.g, 255, 1)
 end

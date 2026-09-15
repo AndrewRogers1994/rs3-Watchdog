@@ -340,7 +340,6 @@ function Multiplexer:SetVisible(v)
         -- Belt-and-suspenders: Show + registered overlays should already front the overlay,
         -- but fakes / older PrettyUI without _RegisterOverlay still need an explicit raise.
         self:RaiseToFront()
-        -- Restore only the current top; leave non-tops hidden. Stack itself is unchanged.
         applySurfaceVisibility(self, true)
         applyTitle(self)
     else

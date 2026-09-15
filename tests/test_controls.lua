@@ -1,9 +1,5 @@
--- controls.lua is the Type-Tag → Pin Control registry (ADR-0005). After #61 deleted the passive
--- Control Spec path, its whole surface is: Register(tag, descriptor) auto-wires a Pin Control by
--- widget kind, RegisterPinControl(tag, module) registers a composite band's module directly, and
--- PinControlFor(tag) resolves the module (nil for an unregistered tag - ADR-0004's "no Pin Control,
--- no Control" rule). These tests exercise that the built-ins and the descriptor kinds each land a
--- Pin Control, and that the per-kind config (an enum's choices) reaches it via its Display.
+-- controls.lua is the Type-Tag -> Pin Control registry (ADR-0005). PinControlFor(tag) is nil for
+-- an unregistered tag (ADR-0004: no Pin Control, no Control).
 
 config = config or {}
 config.Inv = config.Inv or {}
@@ -51,7 +47,6 @@ function TestRegisterWiring:testEnumDescriptorWiresAnEnumPinControlOverItsChoice
     })
     local pc = Controls.PinControlFor("test.enum61")
     luaunit.assertNotNil(pc)
-    -- The choice list reaches the Pin Control: its Display maps a value to that choice's label.
     luaunit.assertEquals(pc.Display({ value = 2 }), "Two")
 end
 
@@ -62,7 +57,6 @@ function TestRegisterWiring:testCaptureDescriptorThreadsItsConfig()
     })
     local pc = Controls.PinControlFor("test.capture61")
     luaunit.assertNotNil(pc)
-    -- The format hook reaches the Pin Control's Display.
     luaunit.assertEquals(pc.Display({ value = { name = "Anvil" } }), "Anvil")
 end
 
@@ -73,7 +67,7 @@ function TestRegisterWiring:testModeDescriptorWiresAModeBand()
     })
     local pc = Controls.PinControlFor("test.mode61")
     luaunit.assertNotNil(pc)
-    luaunit.assertNil(pc.Inline)  -- a band, not inline
+    luaunit.assertNil(pc.Inline)
     luaunit.assertEquals(pc.Display({ axis = "tile" }), "Tile")
 end
 

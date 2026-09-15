@@ -1,7 +1,6 @@
 local Theme = require("ui/theme")
 
--- A drawn/effect spec: the captured object plus the node's presentation controls. Shared by
--- DrawTile and BuildHandle so the draw and the handle can't disagree on what they render.
+-- Shared by DrawTile and BuildHandle so they can't disagree on what they render.
 ---@class Watchdog.ObjectMarker.Spec
 ---@field object Watchdog.ObjectMarker.Object|nil
 ---@field mode { tile: boolean|nil }|nil
@@ -13,8 +12,7 @@ local Theme = require("ui/theme")
 
 local ObjectMarker = {}
 
--- Defaults: a bright cyan outline (loud + unmissable on the world like Screen Marker's red),
--- a 5s TTL matching the Overlay idiom, and Tile the only enabled mode.
+-- 5s TTL matches the Overlay idiom.
 local DEFAULT_COLOR = { r = 0, g = 255, b = 255, a = 255 }
 local DEFAULT_WIDTH = 2
 local DEFAULT_TTL_SECONDS = 5.0
@@ -24,8 +22,7 @@ ObjectMarker.DEFAULT_TTL_SECONDS = DEFAULT_TTL_SECONDS
 local DEFAULT_MODE = { tile = true }
 ObjectMarker.DEFAULT_MODE = DEFAULT_MODE
 
--- The 4 modes, in display order. `enabled = false` rows are the unavailable-node idiom: shown but
--- inert, with the `reason` blurb. Only Tile is feasible (no LocEntity/render geometry in the API).
+-- `enabled = false` rows are shown but inert. Only Tile is feasible (no LocEntity/render geometry in the API).
 ObjectMarker.MODES = {
     { key = "tile",     label = "Tile",     enabled = true },
     { key = "hull",     label = "Hull",     enabled = false, reason = "needs render API" },
@@ -33,17 +30,12 @@ ObjectMarker.MODES = {
     { key = "clickbox", label = "Clickbox", enabled = false, reason = "needs render API" },
 }
 
--- Fine units per grid tile - a tile spans 512 fine units on each axis (see CoordFine docs / the
--- DevTools overlay corner offsets).
+-- A tile spans 512 fine units on each axis (CoordFine / DevTools overlay corner offsets).
 local TILE_FINE = 512
 
 --- Pure tile-corner projection -------------------------------------------------------------
 
--- The four corners of the tile at `coord` ({ x, z, level } grid), in screen space, via the injected
--- `project(level, fineX, fineZ) -> { x, y } | nil`. Corners walk the tile CCW from its base fine
--- origin, adding {0,0},{512,0},{512,512},{0,512}. Returns nil if `coord` is nil OR any single
--- corner is unavailable (off-screen / world not loaded) - a partial outline is never drawn (AC:
--- nil / !IsAvailable -> nothing, no clamp).
+-- Partial outline is never drawn (AC: nil / !IsAvailable -> nothing, no clamp).
 ---@param coord { x: integer, z: integer, level: integer|nil }|nil  # the marked tile (grid units)
 ---@param project fun(level: integer, fineX: number, fineZ: number): { x: number, y: number }|nil
 ---@return { x: number, y: number }[]|nil  # 4 screen-space corners, or nil if any is unavailable
@@ -65,9 +57,7 @@ function ObjectMarker.TileCorners(coord, project)
     return corners
 end
 
--- The live projector: grid-fine -> CoordFine -> ScreenConvert.CoordFineToScreen, each step guarded
--- (client globals may be momentarily unavailable) so a failure surfaces as nil -> "draw nothing"
--- rather than an error. Mirrors DevTools overlay.lua's newCoordFine/fineToScreen.
+-- pcall so missing client globals draw nothing. Mirrors DevTools overlay.lua.
 local function defaultProject(level, fineX, fineZ)
     if CoordFine == nil or ScreenConvert == nil then
         return nil
@@ -90,15 +80,11 @@ local function vec4(color)
     return Vector4.new((c.r or 0) / 255, (c.g or 0) / 255, (c.b or 0) / 255, a / 255)
 end
 
--- Whether Tile mode is on. Default (nil mode) is on, so a fresh node draws; explicit `tile = false`
--- turns the only feasible representation off (nothing drawn).
+-- nil mode defaults on so a fresh node draws.
 local function tileOn(mode)
     return mode == nil or mode.tile ~= false
 end
 
--- Draws the tile outline (and optional name label) for `spec` onto `canvas`, projecting through
--- `project` (defaults to the live CoordFine/ScreenConvert chain). A no-op when Tile mode is off,
--- the object has no coord, or the projection is unavailable. `project` is injectable for tests.
 ---@param spec Watchdog.ObjectMarker.Spec
 function ObjectMarker.DrawTile(canvas, spec, project)
     project = project or defaultProject
@@ -121,7 +107,6 @@ function ObjectMarker.DrawTile(canvas, spec, project)
         canvas:AddLine(a.x, a.y, b.x, b.y, width, color)
     end
 
-    -- Name label above the topmost (min screen-y) corner, when enabled and named.
     if spec.showLabel and object.name ~= nil and object.name ~= "" and canvas.AddText ~= nil then
         local top = corners[1]
         for _, c in ipairs(corners) do
@@ -136,10 +121,7 @@ end
 
 --- Effect handle (TTL + sticky) ------------------------------------------------------------
 
--- The uniform { kind, state, update(dt) -> alive, draw(canvas) } handle EffectRegistry holds.
--- `update` accumulates elapsed time; a non-sticky handle reports dead once past the TTL (default
--- 5s), a sticky one stays alive forever (only Dismiss removes it). `draw` re-projects and redraws
--- every frame - the tile is world-anchored, so its screen position changes as the camera moves.
+-- Sticky stays alive until Dismiss; otherwise TTL. draw re-projects each frame (world-anchored).
 ---@param spec Watchdog.ObjectMarker.Spec|nil
 function ObjectMarker.BuildHandle(spec, project)
     spec = spec or {}
@@ -165,17 +147,12 @@ end
 ---@param registry LibNodeGraph.Registry
 ---@param runtime Watchdog.Runtime
 function ObjectMarker.Register(registry, runtime)
-    -- Register the two Control Specs the config pins use (the capture button + the mode
-    -- multi-select), reusing ADR-0004's Control Spec seam. Guarded so a headless/test require of
-    -- this module (no ui layer wanted) still registers the node itself.
+    -- pcall so a headless/test require still registers the node without the ui layer.
     pcall(function()
         local Controls = require("ui/controls")
-        -- The "Select object" capture button: shows the captured object's name, or its placeholder
-        -- when nothing's been captured yet.
         Controls.Register("object_marker.object", {
             widget = "capture",
-            -- Discriminates this capture from Screen Marker's drag overlay: ui/graph.lua's
-            -- capture-click dispatch arms the MiniMenu select mode for captureKind == "object".
+            -- Distinguishes from Screen Marker's drag overlay; graph capture-click arms MiniMenu for "object".
             captureKind = "object",
             placeholder = "Select object",
             format = function(value)
@@ -183,9 +160,6 @@ function ObjectMarker.Register(registry, runtime)
                 return value.name or ""
             end,
         })
-        -- The 4-way mode multi-select: a composite band of one checkbox row per mode. The mode Pin
-        -- Control (ui/controls/mode.lua) owns the band layout/display/toggle; the modes list is all
-        -- the per-tag config it needs.
         Controls.Register("object_marker.mode", { widget = "mode", modes = ObjectMarker.MODES })
     end)
 
@@ -221,8 +195,7 @@ function ObjectMarker.Register(registry, runtime)
                 return
             end
 
-            -- Idempotent/Replace, keyed by this node's own persistent state table (Stack capped at
-            -- 1) - re-Show evicts this node's still-live handle first; different nodes stack.
+            -- Replace this node's handle (stack cap 1); other nodes still stack.
             dismiss()
 
             local object = ctx:In("object")

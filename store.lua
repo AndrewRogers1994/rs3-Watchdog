@@ -12,7 +12,6 @@ local Util = require("util")
 
 local Store = {}
 
--- Un-prefixed: PersistentDB is plugin-scoped. Character buckets: `player_<normalized>`.
 local DB_KEY = "global"
 local DOC_VERSION = 2
 
@@ -47,9 +46,7 @@ end
 ---@field layout Watchdog.Layout
 ---@field enabled boolean
 
--- The JSON codec and the graph (de)serializers live in the LibNodeGraph plugin, injected
--- as a global (same as main.lua reaches LibNodeGraph.NewGraph). Fetched lazily so this
--- module can load even if the lib isn't present yet.
+-- Lazy: this module must load even if LibNodeGraph is not injected yet.
 ---@return LibNodeGraph.Codec|nil
 local function codec()
     if LibNodeGraph ~= nil and LibNodeGraph.Json ~= nil then
@@ -184,7 +181,6 @@ function Store.DeleteById(doc, id)
     return entry
 end
 
--- Cycle guard: true if `targetId` is `entry` or nested under it.
 ---@param entry Watchdog.Entry
 ---@param targetId integer
 ---@return boolean
@@ -196,7 +192,6 @@ local function subtreeContains(entry, targetId)
     return false
 end
 
--- Reparent subtree to `newParentId` (nil = root). No-op on missing id, bad parent, or cycle.
 ---@param doc Watchdog.Bucket
 ---@param id integer
 ---@param newParentId integer|nil                  # nil ⇒ root; else a group entry's id
@@ -322,14 +317,13 @@ function Store.NearestCommonAncestor(doc, ids)
             if prefix[j] ~= chain[j] then break end
             kept = j
         end
-        -- Trim prefix to the shared head.
         for j = #prefix, kept + 1, -1 do prefix[j] = nil end
     end
     if #prefix == 0 then return nil end
     return prefix[#prefix]
 end
 
--- Mint a group under the NCA of `ids`, then MoveSubtree each id into it. Caller persists.
+-- Caller persists.
 ---@param doc Watchdog.Bucket
 ---@param ids integer[]
 ---@param name string|nil
@@ -376,7 +370,6 @@ local function remintCollidingIds(entry, destDoc)
     fix(entry)
 end
 
--- Cross-bucket: detach `id` from src, append at dest root. Preserve free ids; remint collisions.
 ---@param srcDoc Watchdog.Bucket
 ---@param destDoc Watchdog.Bucket
 ---@param id integer

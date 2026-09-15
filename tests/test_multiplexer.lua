@@ -1,5 +1,4 @@
--- Exercises ui/multiplexer.lua's stack + visibility bookkeeping through a fake window
--- (no prettyui / ui.*). Surfaces are plain tables with id / title / SetVisible.
+-- ui/multiplexer.lua stack + visibility via a fake window (no prettyui / ui.*).
 
 local luaunit = require("luaunit")
 local Multiplexer = require("ui/multiplexer")

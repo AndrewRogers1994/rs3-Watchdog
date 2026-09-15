@@ -16,8 +16,6 @@ end
 
 --- Node-facing pure helpers ----------------------------------------------------------------
 
--- The tile's display string: `tostring` of any value, nil -> "" (the issue's "shown via
--- tostring; no built-in formatting"). Static so the node can shape text before Set().
 function InfoBox.ResolveText(value)
     if value == nil then return "" end
     return tostring(value)
@@ -31,9 +29,7 @@ end
 
 --- Ordered box set -------------------------------------------------------------------------
 
--- Inserts `owner`'s tile, or rewrites it in place if it already exists (its flow slot is
--- preserved - a re-update never reorders). `fields` is { text, color, icon, title }, each
--- optional; text defaults to "".
+-- Rewrite in place when the owner already has a tile so a re-update never reorders.
 function InfoBox:Set(owner, fields)
     fields = fields or {}
     if self.boxes[owner] == nil then
@@ -66,8 +62,6 @@ function InfoBox:Order()
     return out
 end
 
--- Removes `owner`'s tile; everything after it slides up one slot (reflow-on-dismiss). Returns
--- true if a tile was removed, false if `owner` had none.
 function InfoBox:Remove(owner)
     if self.boxes[owner] == nil then return false end
     self.boxes[owner] = nil
@@ -107,8 +101,6 @@ end
 
 --- Layout: horizontal flow + wrap ----------------------------------------------------------
 
--- Fixed columns per row derived from the wrap width, so wrapping is a simple (index -> row/col)
--- map. At least one column always, however narrow the wrap width.
 function InfoBox:_columns()
     local step = Theme.INFOBOX_BOX_SIZE + Theme.INFOBOX_GAP
     local cols = math.floor((self.wrapWidth + Theme.INFOBOX_GAP) / step)
@@ -116,8 +108,6 @@ function InfoBox:_columns()
     return cols
 end
 
--- Screen rects for every tile in flow order: { owner, box, x, y, w, h }. Pure - nothing here
--- reads or mutates draw/hover state, so BoxAt/Bounds/Draw all just call it.
 function InfoBox:Layout()
     local size = Theme.INFOBOX_BOX_SIZE
     local step = size + Theme.INFOBOX_GAP
@@ -138,8 +128,6 @@ function InfoBox:Layout()
     return rects
 end
 
--- The bounding rect of every tile ({x, y, w, h}), or nil when the area is empty. Used both to
--- gate a drag grab (only inside the strip) and, in-client, to know what the pointer overlays.
 function InfoBox:Bounds()
     local rects = self:Layout()
     if #rects == 0 then return nil end
@@ -159,8 +147,6 @@ local function inRect(r, px, py)
     return px >= r.x and px <= r.x + r.w and py >= r.y and py <= r.y + r.h
 end
 
--- The owner of the tile under (px, py), or nil. Iterates in flow order; tiles never overlap so
--- the first hit is unambiguous.
 function InfoBox:BoxAt(px, py)
     for _, r in ipairs(self:Layout()) do
         if inRect(r, px, py) then return r.owner end
@@ -168,8 +154,6 @@ function InfoBox:BoxAt(px, py)
     return nil
 end
 
--- The tooltip string to show at (px, py): the hovered tile's `title`, or nil when there's no
--- tile there or its title is unset/empty (an empty title means "no tooltip").
 function InfoBox:TooltipAt(px, py)
     local owner = self:BoxAt(px, py)
     if owner == nil then return nil end
@@ -180,8 +164,6 @@ end
 
 --- Drag-as-unit ----------------------------------------------------------------------------
 
--- Grabs the strip for a drag if (px, py) is within its bounds, recording the grab offset so
--- the anchor tracks the cursor without snapping. Returns true if grabbed.
 function InfoBox:BeginDrag(px, py)
     local b = self:Bounds()
     if b == nil or not inRect(b, px, py) then return false end
@@ -189,14 +171,11 @@ function InfoBox:BeginDrag(px, py)
     return true
 end
 
--- Moves the anchor (and thus every tile) so the grab point stays under the cursor. No-op unless
--- a BeginDrag grabbed the strip.
 function InfoBox:Drag(px, py)
     if self._drag == nil then return end
     self.anchor = { x = px - self._drag.dx, y = py - self._drag.dy }
 end
 
--- Ends a drag and persists the resting anchor through the injected hook. No-op if not dragging.
 function InfoBox:EndDrag()
     if self._drag == nil then return end
     self._drag = nil
@@ -223,8 +202,6 @@ local function mousePos()
     return nil
 end
 
--- Mounts the click-capture layer as a direct child of `rootParent` (the same root the effect
--- overlay Canvas mounts under). Idempotent: a second Mount before Unmount is a no-op.
 function InfoBox:Mount(rootParent)
     if self._capture ~= nil then
         return
@@ -237,10 +214,6 @@ function InfoBox:Mount(rootParent)
         c:Subscribe(ui.Hook.ONCLICK, function()
             local mx, my = mousePos()
             if mx ~= nil and area:BeginDrag(mx, my) then
-                -- Grow the capture to full-screen for the duration of the drag so a fast
-                -- cursor can never outrun the strip-sized hit area and trigger ONRELEASE on
-                -- cursor-leave (which ends the drag prematurely). Reposition() leaves it alone
-                -- while IsDragging(); EndDrag's Reposition shrinks it back to Bounds.
                 area:_expandCapture()
             end
         end)
@@ -312,8 +285,6 @@ end
 
 --- Draw (client-only; untested under the bare Lua harness) ---------------------------------
 
--- Resolves a box's {r,g,b,a} (0..255) color to a Vector4, defaulting to white (an unset/nil
--- `color` data-in) so a box always draws with legible text.
 local function textVec4(color)
     if color == nil then
         return Theme.Vec4(Theme.COL_INFOBOX_TEXT)
@@ -322,9 +293,6 @@ local function textVec4(color)
     return Vector4.new((color.r or 0) / 255, (color.g or 0) / 255, (color.b or 0) / 255, a / 255)
 end
 
--- Draws every tile onto `canvas` (the overlay Canvas), plus the tooltip for the tile under
--- (hoverX, hoverY) when given. Each primitive is guarded so a missing font/sprite degrades
--- gracefully rather than breaking the always-on draw loop.
 function InfoBox:Draw(canvas, hoverX, hoverY)
     if canvas == nil then return end
     local font = Theme.Font(Theme.INFOBOX_TEXT_PT)

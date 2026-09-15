@@ -12,8 +12,7 @@ local function normalizeHold(hold)
     return hold
 end
 
--- Pure animation state for a given `elapsed` time and `hold` duration: the phase name and a
--- 0..1 alpha for fading. Split out from the handle so it's unit-testable without any Canvas.
+-- Split from the handle so animation is unit-testable without Canvas.
 function Popup.Anim(elapsed, hold)
     hold = normalizeHold(hold)
     local inT = Popup.IN_SECONDS
@@ -35,11 +34,7 @@ function Popup.Anim(elapsed, hold)
 end
 
 --- Theme registry -----------------------------------------------------------------------
--- A theme is a plain descriptor the Draw reads: `kind` ("primitive" = Canvas rectangles;
--- "sprites" = multi-part sprite frame), a `label` for the dropdown, colors, and (for the
--- sprite kind) the assembled left/mid/right sprite ids. New themes are one RegisterTheme
--- call - the registry seam the AC asks for. `themeOrder` keeps declaration order for the
--- dropdown so Parchment (the default) stays first.
+-- RegisterTheme is the AC registry seam. themeOrder keeps declaration order so Parchment stays first.
 
 Popup.DEFAULT_THEME = "parchment"
 
@@ -57,13 +52,11 @@ function Popup.RegisterTheme(name, descriptor)
     return descriptor
 end
 
--- The theme for `name`, falling back to the default (Parchment) for nil/unknown names so a
--- stale or blank `theme` control never leaves the banner un-drawable.
+-- Unknown/nil names fall back to Parchment so a stale theme control still draws.
 function Popup.ThemeFor(name)
     return themes[name] or themes[Popup.DEFAULT_THEME]
 end
 
--- { value, label } choices for the `theme` enum Control, in registration order.
 function Popup.ThemeChoices()
     local choices = {}
     for _, name in ipairs(themeOrder) do
@@ -72,24 +65,17 @@ function Popup.ThemeChoices()
     return choices
 end
 
--- Parchment (default): a primitive, sprite-free banner drawn from Canvas rectangles + text,
--- so it works with zero sprite-id assumptions. Colors are {r,g,b,a} 0..1, converted to the
--- client Vector4 at draw time.
+-- Sprite-free default (no sprite-id assumptions).
 Popup.RegisterTheme("parchment", {
     kind = "primitive",
     label = "Parchment",
-    bg     = { 0.90, 0.83, 0.63, 0.97 }, -- aged-paper fill
+    bg     = { 0.90, 0.83, 0.63, 0.97 },
     border = { 0.36, 0.26, 0.12, 1.0 },
     title  = { 0.24, 0.16, 0.06, 1.0 },
     body   = { 0.16, 0.11, 0.05, 1.0 },
 })
 
--- Leagues: the authentic league-task ribbon, assembled multi-part (left / stretchable middle
--- / right) from the RS3_RIBBON_LEAGUES_GOLD_* sprite set so it sidesteps the AddSprite-stretch
--- unknown flagged in the #20 research (single sprites distort; a 3-part frame keeps its ends
--- crisp). ids are the gold variant; swap `sprites` for RED (35189-35191) or RED_GOLD
--- (35192-35194) to reskin. Native piece widths are unknown from the docs - BUILD-VERIFY in
--- client and set `edgeW` to the measured end-cap width.
+-- 3-part frame sidesteps AddSprite stretch distortion (#20). Native end-cap width is BUILD-VERIFY.
 Popup.RegisterTheme("leagues", {
     kind = "sprites",
     label = "Leagues",
@@ -98,15 +84,13 @@ Popup.RegisterTheme("leagues", {
         mid   = 35187, -- id.Sprite.RS3_RIBBON_LEAGUES_GOLD_1  (stretch this)
         right = 35188, -- id.Sprite.RS3_RIBBON_LEAGUES_GOLD_2
     },
-    edgeW = 24, -- BUILD-VERIFY: end-cap width in px; middle stretches to fill the remainder.
+    edgeW = 24, -- BUILD-VERIFY: measured end-cap width in px.
     title = { 1.0, 0.92, 0.60, 1.0 },
     body  = { 1.0, 1.0, 1.0, 1.0 },
 })
 
 --- Curated notification-icon dropdown ----------------------------------------------------
--- A hand-picked subset of the #20 research's icon table (ids are High-confidence *icons*).
--- Reuses the enum Control like `theme`. "None" (value nil) draws no icon. Skill icons come
--- from STATICONS_* (build-verify the exact index->skill map - the research notes 0 = Attack).
+-- Subset of #20 research icon ids (high-confidence). nil = no icon.
 Popup.ICONS = {
     { value = nil,   label = "None" },
     { value = 17127, label = "Checkmark" },      -- id.Sprite.RS3_ICON_CHECK_MARK_24PX_0
@@ -122,10 +106,7 @@ function Popup.IconChoices()
 end
 
 --- Draw (client-only; untested under the standalone harness) -----------------------------
--- Assembles the banner top-centre on the overlay `canvas`, fading with `anim.alpha`. Every
--- client-global touch (Vector4, id.Sprite, canvas methods) is inside the pcall the caller
--- (EffectRegistry:Draw) already wraps and additionally guarded here, so a missing global or
--- a bad sprite id degrades to "nothing drawn this frame" instead of erroring sibling effects.
+-- Guard client globals here so a missing global / bad sprite id draws nothing this frame.
 
 local BANNER_W = 420
 local BANNER_H = 74
@@ -135,8 +116,7 @@ local function vec4(c, alpha)
     return Vector4.new(c[1], c[2], c[3], (c[4] or 1) * alpha)
 end
 
--- Best-effort screen width so the banner centres horizontally; the percent-sized overlay
--- Canvas doesn't reliably expose pixel width, so fall back to a sane default (1920).
+-- Overlay Canvas often has no pixel width; fall back to 1920.
 local function screenWidth(canvas)
     local w = 1920
     if canvas ~= nil and type(canvas.width) == "number" and canvas.width > 0 then
@@ -159,11 +139,9 @@ function Popup.Draw(canvas, opts)
     local x = (sw - BANNER_W) * 0.5
     local y = TOP_MARGIN
 
-    -- Frame: primitive rectangles, or the assembled 3-part sprite ribbon.
-    -- AddSprite's colour arg is a Uint RGBA (there is no Vector4 overload - see
-    -- docs/research/popup-frame-sprites.md), so tint via Color.ToRGBA, not Vector4.
+    -- AddSprite colour is Uint RGBA, not Vector4 (docs/research/popup-frame-sprites.md).
     local Color = require("ui/color")
-    local white = Color.ToRGBA(1, 1, 1, alpha) -- untinted white at the frame's current alpha
+    local white = Color.ToRGBA(1, 1, 1, alpha)
     if theme.kind == "sprites" and canvas.AddSprite ~= nil and id ~= nil then
         local s = theme.sprites
         local edge = theme.edgeW or 24
@@ -177,7 +155,6 @@ function Popup.Draw(canvas, opts)
         end
     end
 
-    -- Icon on the left, if one was picked and sprites are available.
     local textX = x + 16
     if opts.icon ~= nil and canvas.AddSprite ~= nil then
         local iconSize = 40
@@ -188,7 +165,6 @@ function Popup.Draw(canvas, opts)
         textX = x + 12 + iconSize + 12
     end
 
-    -- Title + body, if fonts resolve.
     if canvas.AddText ~= nil then
         local Theme = require("ui/theme")
         local titleFont = Theme.Font(18)
@@ -205,10 +181,6 @@ function Popup.Draw(canvas, opts)
 end
 
 --- Effect handle -------------------------------------------------------------------------
--- The uniform { kind, state, update(dt) -> alive, draw(canvas) } handle EffectRegistry holds.
--- `update` accumulates elapsed time and recomputes the animation; it returns falsy once the
--- timeline is spent, at which point the registry culls it (and promotes the next queued
--- popup). No onDone is needed - auto-expiry is the whole lifecycle.
 function Popup.BuildHandle(spec)
     spec = spec or {}
     local hold = normalizeHold(spec.hold)
@@ -243,10 +215,7 @@ end
 ---@param registry LibNodeGraph.Registry
 ---@param runtime Watchdog.Runtime
 function Popup.Register(registry, runtime)
-    -- Register the two enum Control Specs the config pins use (curated dropdowns), reusing
-    -- ADR-0004's Control Spec seam. Presentation lives in ui/controls.lua; the domain data
-    -- (themes/icons) lives here, so this is where the two meet. Guarded so a headless/test
-    -- require of this module (no ui layer wanted) still registers the node itself.
+    -- pcall so a headless/test require still registers the node without the ui layer.
     pcall(function()
         local Controls = require("ui/controls")
         Controls.Register("popup.theme", { widget = "enum", choices = Popup.ThemeChoices() })
@@ -258,7 +227,6 @@ function Popup.Register(registry, runtime)
         displayName = "Popup",
         pins = {
             { name = "in", kind = "exec", direction = "in" },
-            -- The one wire-able input. The rest are node-config (Control-only, per the header).
             { name = "body", kind = "data", direction = "in", dataType = "string", default = "" },
             { name = "title", kind = "data", direction = "in", dataType = "string", default = "Notification" },
             { name = "icon", kind = "data", direction = "in", dataType = "popup.icon", default = nil },
@@ -275,8 +243,7 @@ function Popup.Register(registry, runtime)
                 theme = ctx:In("theme"),
                 hold = ctx:In("hold"),
             })
-            -- Queue-only: one banner on screen at a time; the rest wait (AC). A nil effects
-            -- registry (misconfigured runtime) is a silent no-op rather than a crash.
+            -- Queue-only: one banner on screen at a time (AC).
             if runtime ~= nil and runtime.effects ~= nil then
                 runtime.effects:PushQueue(Popup.OWNER, handle)
             end

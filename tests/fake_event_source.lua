@@ -1,11 +1,6 @@
--- A fake client `Event` global for tests: records every Subscribe/Unsubscribe and lets a
--- test push a raw event through a named channel synchronously. Mirrors the shape runtime.lua
--- expects from `Event` - `source.<Channel>.Subscribe(name, fn)` / `.Unsubscribe(name)` - via
--- a metatable that lazily creates and caches each channel's API table on first index, just
--- like the client's real `Event` global already has every channel present.
---
--- This is the one test seam runtime.lua exposes (injectable event source); see #24's
--- acceptance criteria and docs/adr/ for the design rationale.
+-- Fake client `Event` global: records Subscribe/Unsubscribe and lets a test push a raw event
+-- through a named channel synchronously. Shape matches runtime.lua (`source.<Channel>.Subscribe`).
+-- This is the one test seam runtime.lua exposes (injectable event source).
 
 local function newFakeEventSource()
     local channels = {} -- name -> { subscriptions = { [subName] = fn }, subscribeCount = n }
@@ -30,8 +25,6 @@ local function newFakeEventSource()
 
     local harness = { source = source }
 
-    -- Synchronously invokes every live subscriber on `name` with `raw`, exactly like the
-    -- client firing a real game event.
     function harness:Push(name, raw)
         local channel = channels[name]
         if channel == nil then
@@ -42,8 +35,7 @@ local function newFakeEventSource()
         end
     end
 
-    -- Total number of Subscribe calls ever made on `name` - used to assert the reverse-index
-    -- fan-out subscribes a channel exactly once regardless of how many node types/nodes bind.
+    -- Total Subscribe calls on `name` - reverse-index fan-out must subscribe a channel exactly once.
     function harness:SubscribeCount(name)
         local channel = channels[name]
         return channel ~= nil and channel.subscribeCount or 0

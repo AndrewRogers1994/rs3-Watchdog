@@ -6,54 +6,54 @@ end
 
 --- Sizing (Graph-space units at zoom 1.0) -------------------------------------------
 
-Theme.NODE_WIDTH       = 250   -- default node body width
-Theme.HEADER_HEIGHT    = 26    -- category-colored title band
-Theme.PIN_ROW_HEIGHT   = 24    -- vertical stride between pin rows
-Theme.BODY_PAD_TOP     = 8     -- gap between header (or mode strip) and first pin row
-Theme.BODY_PAD_BOTTOM  = 10    -- gap below the last pin row
-Theme.PIN_MARGIN_X     = 10    -- inset of a pin glyph's center from the node edge
-Theme.PIN_GLYPH        = 12    -- pin glyph bounding size (square/triangle extent)
-Theme.PIN_LABEL_GAP    = 8     -- gap between a pin glyph and its label
-Theme.PIN_HIT_PAD      = 4     -- extra hit-test padding around a pin glyph
-Theme.CLOSE_SIZE       = 14    -- delete-button glyph bounding size, in the header
-Theme.CLOSE_MARGIN     = 14    -- inset of the close glyph's center from the node's right edge
+Theme.NODE_WIDTH       = 250
+Theme.HEADER_HEIGHT    = 26
+Theme.PIN_ROW_HEIGHT   = 24
+Theme.BODY_PAD_TOP     = 8
+Theme.BODY_PAD_BOTTOM  = 10
+Theme.PIN_MARGIN_X     = 10
+Theme.PIN_GLYPH        = 12
+Theme.PIN_LABEL_GAP    = 8
+Theme.PIN_HIT_PAD      = 4
+Theme.CLOSE_SIZE       = 14
+Theme.CLOSE_MARGIN     = 14
 
-Theme.CONTROL_H            = 16    -- value box height within a PIN_ROW_HEIGHT row
-Theme.MODE_STRIP_PAD       = 4     -- gap between header bottom and the dropdown box
+Theme.CONTROL_H            = 16
+Theme.MODE_STRIP_PAD       = 4
 Theme.MODE_STRIP_H         = Theme.MODE_STRIP_PAD + Theme.CONTROL_H + Theme.MODE_STRIP_PAD
-Theme.CONTROL_LABEL_CHAR_W = 7     -- approx per-char label width (graph units) for reserving room
-Theme.CONTROL_LABEL_GAP    = 8     -- gap kept between the input label and the value box
-Theme.CONTROL_OUT_RESERVE  = 52    -- space kept for an output pin+label sharing the row
-Theme.CONTROL_PAD_X        = 5     -- inner text inset / right inset when no output shares the row
-Theme.CONTROL_MIN_W        = 12    -- never draw a value box narrower than this (graph-space)
+Theme.CONTROL_LABEL_CHAR_W = 7     -- approx per-char width when Theme.TextWidth is unavailable
+Theme.CONTROL_LABEL_GAP    = 8
+Theme.CONTROL_OUT_RESERVE  = 52    -- space for an output pin+label sharing the row
+Theme.CONTROL_PAD_X        = 5
+Theme.CONTROL_MIN_W        = 12
 Theme.CONTROL_MIN_ZOOM     = 0.45  -- below this the box/text is unreadable, so it isn't drawn
 -- The transient editor is a real component with a native, fixed-pixel font that does NOT
 -- scale with the View, so it's sized in screen pixels independent of zoom (height fixed;
 -- width tracks the box but never below the min). Sizing it to view:Scale(box) made the text
 -- unreadable at zoom 1 - the box was 16px tall but the native font needs more.
-Theme.CONTROL_EDIT_MIN_W   = 60    -- min screen width for the transient editor component
-Theme.CONTROL_EDIT_H       = 24    -- fixed screen height for the transient editor component
+Theme.CONTROL_EDIT_MIN_W   = 60
+Theme.CONTROL_EDIT_H       = 24
 
-Theme.COORDGRID_TOP_GAP    = 4     -- gap between the pin row and the field row
-Theme.COORDGRID_FIELD_H    = 16    -- x/z/level field height
-Theme.COORDGRID_MID_GAP    = 4     -- gap between the field row and the button row
-Theme.COORDGRID_BUTTON_H   = 16    -- "Set to current position" button height
-Theme.COORDGRID_BOTTOM_GAP = 4     -- gap kept below the button, before the next pin row
-Theme.COORDGRID_FIELD_GAP  = 4     -- horizontal gap between the 3 fields
+Theme.COORDGRID_TOP_GAP    = 4
+Theme.COORDGRID_FIELD_H    = 16
+Theme.COORDGRID_MID_GAP    = 4
+Theme.COORDGRID_BUTTON_H   = 16
+Theme.COORDGRID_BOTTOM_GAP = 4
+Theme.COORDGRID_FIELD_GAP  = 4
 Theme.COORDGRID_BAND_H     = Theme.COORDGRID_TOP_GAP + Theme.COORDGRID_FIELD_H
     + Theme.COORDGRID_MID_GAP + Theme.COORDGRID_BUTTON_H + Theme.COORDGRID_BOTTOM_GAP
 
-Theme.MATCHER_TOP_GAP    = 4     -- gap between the pin row and the field/toggle row
-Theme.MATCHER_FIELD_H    = 16    -- needle field / toggle button height
-Theme.MATCHER_GAP        = 4     -- horizontal gap between the needle field and the toggle
-Theme.MATCHER_TOGGLE_W   = 64    -- toggle button width (fits "Substring")
-Theme.MATCHER_BOTTOM_GAP = 4     -- gap kept below the row, before the next pin row
+Theme.MATCHER_TOP_GAP    = 4
+Theme.MATCHER_FIELD_H    = 16
+Theme.MATCHER_GAP        = 4
+Theme.MATCHER_TOGGLE_W   = 64    -- fits "Substring"
+Theme.MATCHER_BOTTOM_GAP = 4
 Theme.MATCHER_BAND_H     = Theme.MATCHER_TOP_GAP + Theme.MATCHER_FIELD_H + Theme.MATCHER_BOTTOM_GAP
 
-Theme.MODE_TOP_GAP    = 4      -- gap between the pin row and the first checkbox row
-Theme.MODE_ROW_H      = 16     -- one checkbox row height
-Theme.MODE_ROW_GAP    = 3      -- vertical gap between checkbox rows
-Theme.MODE_BOTTOM_GAP = 4      -- gap kept below the last row, before the next pin row
+Theme.MODE_TOP_GAP    = 4
+Theme.MODE_ROW_H      = 16
+Theme.MODE_ROW_GAP    = 3
+Theme.MODE_BOTTOM_GAP = 4
 
 function Theme.ModeBandH(count)
     if count <= 0 then return Theme.MODE_TOP_GAP + Theme.MODE_BOTTOM_GAP end
@@ -64,35 +64,35 @@ end
 Theme.SWATCH_W             = 46
 Theme.SWATCH_CHECKER_CELL  = 4
 
-Theme.COLOR_POPUP_W        = 220   -- popup width
-Theme.COLOR_POPUP_PAD      = 10    -- inner padding around the body content
-Theme.COLOR_POPUP_HEADER_H = 22    -- title band height
-Theme.COLOR_POPUP_SV_H     = 110   -- saturation/value field height
-Theme.COLOR_POPUP_HUE_H    = 14    -- hue strip height
-Theme.COLOR_POPUP_ROW_H    = 18    -- prev/cur, hex, and each R/G/B/A row share this height
-Theme.COLOR_POPUP_ROW_GAP  = 6     -- vertical gap between stacked rows
-Theme.COLOR_POPUP_CHECKER_CELL = 6 -- screen-px checker cell behind the alpha preview
+Theme.COLOR_POPUP_W        = 220
+Theme.COLOR_POPUP_PAD      = 10
+Theme.COLOR_POPUP_HEADER_H = 22
+Theme.COLOR_POPUP_SV_H     = 110
+Theme.COLOR_POPUP_HUE_H    = 14
+Theme.COLOR_POPUP_ROW_H    = 18
+Theme.COLOR_POPUP_ROW_GAP  = 6
+Theme.COLOR_POPUP_CHECKER_CELL = 6
 
-Theme.TOAST_W            = 240   -- toast width
-Theme.TOAST_H            = 48    -- toast height
-Theme.TOAST_GAP          = 6     -- vertical gap between stacked toasts
-Theme.TOAST_ACCENT_W     = 3     -- left accent bar width
-Theme.TOAST_ICON_SIZE    = 28    -- optional icon sprite bounding box
-Theme.TOAST_PAD_X        = 8     -- inner left/right padding
-Theme.TOAST_TOP_MARGIN   = 24    -- default anchor distance below the top of the screen
+Theme.TOAST_W            = 240
+Theme.TOAST_H            = 48
+Theme.TOAST_GAP          = 6
+Theme.TOAST_ACCENT_W     = 3
+Theme.TOAST_ICON_SIZE    = 28
+Theme.TOAST_PAD_X        = 8
+Theme.TOAST_TOP_MARGIN   = 24
 
 Theme.COL_TOAST_BG     = col(24, 24, 28, 0.92)
 Theme.COL_TOAST_BORDER = col(10, 10, 12, 1.0)
 Theme.COL_TOAST_TEXT   = col(230, 230, 236, 1.0)
 
-Theme.INFOBOX_BOX_SIZE   = 36    -- side of each fixed square icon+text tile
-Theme.INFOBOX_GAP        = 2     -- gap between adjacent tiles (both axes)
-Theme.INFOBOX_DEFAULT_X  = 8     -- default anchor: top-left corner, small inset
+Theme.INFOBOX_BOX_SIZE   = 36
+Theme.INFOBOX_GAP        = 2
+Theme.INFOBOX_DEFAULT_X  = 8
 Theme.INFOBOX_DEFAULT_Y  = 8
-Theme.INFOBOX_WRAP_WIDTH = 220   -- row wraps once it would exceed this pixel width
-Theme.INFOBOX_TEXT_PT    = 14    -- point size for the value text drawn on a tile
-Theme.INFOBOX_TOOLTIP_PT = 12    -- point size for the hover tooltip
-Theme.INFOBOX_TOOLTIP_PAD = 4    -- inner padding around the tooltip text
+Theme.INFOBOX_WRAP_WIDTH = 220
+Theme.INFOBOX_TEXT_PT    = 14
+Theme.INFOBOX_TOOLTIP_PT = 12
+Theme.INFOBOX_TOOLTIP_PAD = 4
 
 Theme.COL_INFOBOX_BG      = col(30, 30, 34, 0.85)
 Theme.COL_INFOBOX_BORDER  = col(12, 12, 15, 1.0)
@@ -102,8 +102,8 @@ Theme.COL_INFOBOX_TIP_TX  = col(230, 232, 240, 1.0)
 
 Theme.BORDER_THICKNESS = 2
 Theme.WIRE_THICKNESS   = 3
-Theme.WIRE_SEGMENTS    = 16    -- straight segments a bezier Wire is tessellated into
-Theme.GRID_SPACING     = 32    -- background grid cell size
+Theme.WIRE_SEGMENTS    = 16
+Theme.GRID_SPACING     = 32
 
 -- Text can't shrink past the smallest font (font IDs are discrete - ADR-0001), so labels
 -- are dropped when zoomed out rather than left to overflow. Degrades in two stages: pin
@@ -137,16 +137,16 @@ Theme.WINDOW_TITLE         = "Watchdog - Editor"
 
 --- Palette (screen-space popup) + toolbar -----------------------------------------------
 
-Theme.PALETTE_W     = 220   -- popup width (clamped to the Viewport if narrower)
-Theme.PALETTE_ROW_H = 20    -- uniform row height (headers and items share it)
-Theme.PALETTE_PAD   = 6      -- inner padding above/below the row list
+Theme.PALETTE_W     = 220
+Theme.PALETTE_ROW_H = 20
+Theme.PALETTE_PAD   = 6
 Theme.PALETTE_MAX_H = 400   -- cap the popup height so a big Registry doesn't fill the screen
                             -- (scrolls past this); also bounded to 92% of the draw rect
 
 -- Scrollbar in the reserved right gutter (only drawn when the list overflows). Press-anywhere
 -- jumps the thumb under the cursor and scrubs (see Palette:ScrollToY); the wheel still scrolls.
-Theme.PALETTE_SCROLLBAR_W         = 8   -- gutter/track width reserved on the panel's right edge
-Theme.PALETTE_SCROLLBAR_MIN_THUMB = 24  -- floor on the proportional thumb so it stays grabbable
+Theme.PALETTE_SCROLLBAR_W         = 8
+Theme.PALETTE_SCROLLBAR_MIN_THUMB = 24
 
 -- Two clicks pairing into a double-click that opens the Palette on empty space.
 Theme.DOUBLECLICK_TICKS = 12  -- Logic ticks (~0.02s each) allowed between the two clicks
@@ -156,21 +156,21 @@ Theme.DOUBLECLICK_DIST  = 6   -- max screen-px drift between the two clicks
 
 -- PrettyUI Tabs uses MANAGER_TAB_BASELINE ≈ 42 for the tab header strip (see prettyui/src/tabs.lua).
 Theme.MANAGER_TAB_BASELINE   = 42
-Theme.MANAGER_ROW_H          = 22   -- one tree row
-Theme.MANAGER_HEADER_H       = 20   -- column-label row above the tree
-Theme.MANAGER_ENABLE_W       = 22   -- enable toggle width
+Theme.MANAGER_ROW_H          = 22
+Theme.MANAGER_HEADER_H       = 20
+Theme.MANAGER_ENABLE_W       = 22
 Theme.MANAGER_SELECT_W       = 22   -- multi-select checkbox column (#93)
 Theme.MANAGER_ACT_W          = 64   -- ren/del action button width (also Export per row, #94)
 Theme.MANAGER_ACT_COUNT      = 3    -- Rename + Export + Delete per row (#94)
-Theme.MANAGER_REORDER_W      = 22   -- Up / Down / Lift sprite buttons after select
+Theme.MANAGER_REORDER_W      = 22
 Theme.MANAGER_REORDER_COUNT  = 3
-Theme.MANAGER_ROW_GAP        = 2    -- gap between controls inside a row
-Theme.MANAGER_ROW_INDENT     = 12   -- px the name button shifts right per nesting level
-Theme.MANAGER_PAGE_PAD       = 8    -- inset from content edge for the tree
+Theme.MANAGER_ROW_GAP        = 2
+Theme.MANAGER_ROW_INDENT     = 12
+Theme.MANAGER_PAGE_PAD       = 8
 Theme.MANAGER_TOOLBAR_H      = 27   -- PrettyUI FancyButton height
-Theme.MANAGER_TOOLBAR_PAD    = 8    -- inset for tab-strip actions
-Theme.MANAGER_TOOLBAR_GAP    = 6    -- gap between toolbar buttons
-Theme.MANAGER_BULK_BAR_H     = 30   -- bulk-action bar height when any row is selected
+Theme.MANAGER_TOOLBAR_PAD    = 8
+Theme.MANAGER_TOOLBAR_GAP    = 6
+Theme.MANAGER_BULK_BAR_H     = 30
 Theme.MANAGER_TREE_TOP       = Theme.MANAGER_TAB_BASELINE + 4  -- tree below tab strip (no bulk bar)
 Theme.MANAGER_TRANSFER_W     = 440
 Theme.MANAGER_TRANSFER_H     = 420
@@ -183,7 +183,6 @@ Theme.COL_GRID_MAJOR  = col(52, 52, 60, 1.0)
 
 Theme.COL_WINDOW_BORDER = col(12, 12, 15, 1.0)
 
--- Palette popup + its toolbar launcher.
 Theme.COL_PALETTE_BG        = col(32, 32, 38, 0.98)
 Theme.COL_PALETTE_BORDER    = col(12, 12, 15, 1.0)
 Theme.COL_PALETTE_HEADER_BG = col(48, 48, 58, 1.0)
@@ -211,7 +210,6 @@ Theme.COL_CLOSE       = col(210, 210, 216, 1.0)
 Theme.COL_CLOSE_HOT   = col(255, 120, 120, 1.0)
 Theme.COL_CLOSE_BG    = col(150, 40, 40, 0.85)  -- hover backing behind the glyph
 
--- Inline Control value box.
 Theme.COL_CONTROL_BG     = col(28, 28, 33, 1.0)
 Theme.COL_CONTROL_BORDER = col(70, 70, 82, 1.0)
 Theme.COL_CONTROL_HOT    = col(240, 160, 32, 1.0)   -- border under the cursor
@@ -241,7 +239,7 @@ Theme.COL_EXEC        = col(242, 242, 242, 1.0)
 -- Per-exec-in-pin "test" button: a small square between an exec-in pin's glyph and its label
 -- that fires that pin (calls the node's run as if the wire had fired) for testing. Drawn/hit
 -- on the same CONTROL_MIN_ZOOM gate as inline Control boxes.
-Theme.TEST_BTN_W        = 18                        -- square button side (graph units)
+Theme.TEST_BTN_W        = 18
 Theme.COL_TEST_BTN_BG   = col(46, 78, 52, 1.0)      -- muted green (a "run/play" affordance)
 Theme.COL_TEST_BTN_HOT  = col(120, 210, 130, 1.0)   -- border + glyph under the cursor
 Theme.COL_TEST_BTN_GLYPH = col(200, 240, 205, 1.0)  -- the ▶ play triangle

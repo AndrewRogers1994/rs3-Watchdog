@@ -22,7 +22,7 @@ function Placeholder.Stubs(graph, nodeId)
         return pins[pinName]
     end
 
-    local seen = {}   -- (direction .. ":" .. name) -> true, for dedupe
+    local seen = {}
     local stubs = {}
     local function add(name, direction, otherId, otherPinName)
         local key = direction .. ":" .. name

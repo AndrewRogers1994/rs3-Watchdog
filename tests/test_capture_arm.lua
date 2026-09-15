@@ -1,6 +1,4 @@
--- Exercises ui/capture_arm.lua's pure Decide (#71): same-Control re-click cancels, anything
--- else arms (including retarget).
-
+-- CaptureArm.Decide (#71): same-control re-click cancels; anything else arms.
 local luaunit = require("luaunit")
 local CaptureArm = require("ui/capture_arm")
 

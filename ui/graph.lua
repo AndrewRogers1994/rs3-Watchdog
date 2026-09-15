@@ -128,7 +128,6 @@ function Editor:toScreen(lx, ly)
     return lx + self.window.x, ly + self.window.y
 end
 
--- Graph-space point under the viewport center (toolbar + placement).
 ---@return number gx
 ---@return number gy
 function Editor:viewCenterGraph()
@@ -160,7 +159,6 @@ function Editor:syncContentOrigin()
     self:layoutTransientEditors()
 end
 
--- Overlay parent, or contentParent if Mount lacked overlay.
 ---@return ui.ComponentCollection|nil
 function Editor:interactiveParent()
     return self.overlayParent or self.contentParent
@@ -653,7 +651,6 @@ function Editor:beginPress()
         return
     end
 
-    -- Empty space: double-click opens Palette; single click pans.
     if dbl then
         self.pressed = false          -- not a drag after all
         self:positionCapture()
@@ -713,7 +710,6 @@ function Editor:update()
             -- Palette hit-tests in screen space; scrub with raw mouse (no toLocal).
             self.palette:ScrollToY(my)
         end
-        -- "wire" needs no state here; the loose end follows self.mouse in Draw.
     end
 
     self.mouse.x, self.mouse.y = self:toLocal(mx, my)
@@ -1046,7 +1042,6 @@ end
 
 --- Control commit
 
--- Graph:SetControl then runtime:PreloadNode (control-commit preload).
 function Editor:setControl(nodeId, pinName, value)
     pcall(function() self.graph:SetControl(nodeId, pinName, value) end)
     if self.runtime ~= nil then
@@ -1279,7 +1274,6 @@ function Editor:controlHost(nodeId, ctrl)
         OpenColorPopup = function(_, codec)
             editor:openColorPopup(nodeId, ctrl, codec)
         end,
-        -- "object" → MiniMenu select; anything else → Screen Marker overlay.
         ArmCapture = function(_, kind)
             if kind == "object" then
                 editor:armObjectMarkerCapture(nodeId, ctrl.pinName)
@@ -1433,7 +1427,6 @@ function Editor:drawBackground()
     local gridCol = Theme.Vec4(Theme.COL_GRID)
     local panX, panY = self.view.panX, self.view.panY
 
-    -- Grid at graph multiples of GRID_SPACING; draw only in-viewport lines.
     for k = math.ceil((vx - panX) / step), math.floor((vx + vw - panX) / step) do
         local x = panX + k * step
         self.canvas:AddLine(x, vy, x, vy + vh, 1, gridCol)

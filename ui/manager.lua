@@ -1054,7 +1054,6 @@ function Manager:_mountToolbar()
     end)
     local y = math.max(0, math.floor((Theme.MANAGER_TAB_BASELINE - Theme.MANAGER_TOOLBAR_H) / 2))
     local group, alert, importBtn, exportBtn
-    -- Right-edge packing: [Import][Export][+ Alert][+ Group]  (rightmost = Group)
     local xGroup = -Theme.MANAGER_TOOLBAR_PAD - groupW
     local xAlert = xGroup - Theme.MANAGER_TOOLBAR_GAP - alertW
     local xExport = xAlert - Theme.MANAGER_TOOLBAR_GAP - exportW
@@ -1174,7 +1173,6 @@ function Manager:_mountTransfer()
                         if f:GetText() ~= frozen then f:SetText(frozen) end
                     end
                     field.root:Subscribe(ui.Hook.ONCLICK, function()
-                        -- not a thing right now
                         if field.root.SelectAll ~= nil then field.root:SelectAll() end
                         return true
                     end)
@@ -1254,7 +1252,6 @@ function Manager:_mountBulkBar(y)
         self:_rebuild()
     end)
 
-    -- Move: only when another scope is available (logged in).
     local scopes = self:ScopeList()
     local activeKey = self:ActiveScopeKey()
     local other

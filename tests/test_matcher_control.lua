@@ -1,9 +1,4 @@
--- matcher Pin Control (ADR-0005 / #59) driven through the shared FAKE HOST. The matcher is a
--- composite BAND (needle text field + Substring/Pattern toggle) whose two sub-rects both bind to
--- the whole { needle, mode } table read-modify-write: editing the needle preserves the mode, and
--- toggling the mode preserves the needle. Both are driven here through the same press->commit seam
--- the in-client Editor uses; an empty needle is a valid value (matches anything), unlike a
--- coordgrid axis, so it commits verbatim.
+-- Matcher pin control (ADR-0005 / #59) through FakeHost: needle and mode share one table.
 
 local luaunit = require("luaunit")
 local FakeHost = require("fake_control_host")
@@ -67,7 +62,7 @@ function TestMatcherToggle:testTogglePatternBackToSubstring()
     local host = FakeHost.new({ needle = "x", mode = "pattern" })
     Matcher.Press(host, toggleCtrl({ needle = "x", mode = "pattern" }))
     luaunit.assertEquals(host.committed.mode, "substring")
-    luaunit.assertEquals(host.committed.needle, "x")  -- needle survives the flip
+    luaunit.assertEquals(host.committed.needle, "x")
 end
 
 function TestMatcherToggle:testToggleFromDefaultOnlyMatcher()

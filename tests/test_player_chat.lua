@@ -104,7 +104,7 @@ function TestPlayerChat:testSenderMatcherFiltersOnChatSender()
 
     self.log = {}
     self:addWired({ type = "any", senderContains = sub("zezima") })
-    self:push("hello", 2, "Durial321") -- sender doesn't match
+    self:push("hello", 2, "Durial321")
     luaunit.assertEquals(#self.log, 0)
 end
 
@@ -112,7 +112,6 @@ function TestPlayerChat:testMessageAndSenderOutputs()
     local id = self:addWired({ type = "any", contains = sub("hi") })
     self:push("<col=00ffff>hi there</col>", 2, "<col=ffff00>Zezima</col>")
     luaunit.assertEquals(#self.log, 1)
-    -- Both outputs are the tag-stripped, what-you-see text.
     luaunit.assertEquals(self.graph:GetLastValue(id, "message"), "hi there")
     luaunit.assertEquals(self.graph:GetLastValue(id, "sender"), "Zezima")
 end
@@ -126,7 +125,6 @@ end
 -- --- Sender absent (client doesn't emit chatSender yet) ----------------------------------
 
 function TestPlayerChat:testNilSenderPassesSenderFilter()
-    -- A sender Matcher is set, but with no chatSender on the payload the filter passes anyway.
     self:addWired({ type = "any", senderContains = sub("zezima") })
     self:push("hello", 2) -- no sender
     luaunit.assertEquals(#self.log, 1)

@@ -13,13 +13,9 @@ Controls.Register("screen_marker.rect", {
     end,
 })
 
--- Full opaque red: a loud, unmissable default so a never-configured node still visibly draws.
 local DEFAULT_COLOR = { r = 255, g = 0, b = 0, a = 255 }
 local DEFAULT_THICKNESS = 2
 
--- Builds the uniform effect handle (effects.lua). Non-sticky handles expire after `opts.ttl`
--- (default 5s, Toast-parity Hold); sticky ignores Hold and stays until Dismiss. `draw` is a
--- single Canvas AddOutline at the captured rect.
 ---@param rect { x: number, y: number, w: number, h: number }
 ---@param thickness number|nil
 ---@param color { r: integer, g: integer, b: integer, a: integer|nil }|nil

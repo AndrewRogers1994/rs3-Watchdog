@@ -1,8 +1,4 @@
--- Exercises the action.alert_toggle node (nodes/actions/alert_toggle.lua, #35) through a real
--- LibNodeGraph Graph plus a fake runtime standing in for runtime.lua's alert store. The node
--- has enable/disable/toggle exec-in pins (the std.gate idiom, all terminating - no exec-out) and
--- a free-text `target` string naming the alert to affect. Firing each pin must flip the target
--- alert's enabled state through runtime:SetEnabled / runtime:Toggle.
+-- action.alert_toggle (#35) through a real LibNodeGraph Graph plus a fake runtime for the alert store.
 
 local luaunit = require("luaunit")
 local AlertToggle = require("nodes/actions/alert_toggle")
@@ -52,14 +48,12 @@ function TestAlertToggleRegistration:testRegistersActionAlertToggle()
         byName[pin.name] = pin
         if pin.kind == "exec" and pin.direction == "out" then execOutCount = execOutCount + 1 end
     end
-    -- Three exec-in pins, the std.gate idiom (all terminate - mutate then fire nothing).
     for _, name in ipairs({ "enable", "disable", "toggle" }) do
         luaunit.assertEquals(byName[name].kind, "exec")
         luaunit.assertEquals(byName[name].direction, "in")
         luaunit.assertTrue(byName[name].terminates)
     end
-    luaunit.assertEquals(execOutCount, 0) -- no exec-out (AC)
-    -- Target is a free-text string control (a data-in pin, not an exec pin).
+    luaunit.assertEquals(execOutCount, 0)
     luaunit.assertEquals(byName.target.kind, "data")
     luaunit.assertEquals(byName.target.direction, "in")
     luaunit.assertEquals(byName.target.dataType, "string")
@@ -102,7 +96,6 @@ function TestAlertToggleRun:testToggleFlipsTargetEnabled()
 end
 
 function TestAlertToggleRun:testSelfTargetingByOwnName()
-    -- A graph toggling itself just names itself in the target control - no special path.
     local id = self:add("Self") -- starts true
     self.graph:FireInput(id, "disable")
     luaunit.assertFalse(self.runtime.enabled["Self"])
@@ -111,7 +104,6 @@ function TestAlertToggleRun:testSelfTargetingByOwnName()
 end
 
 function TestAlertToggleRun:testEmptyTargetIsANoop()
-    -- Unconfigured target (empty string) reaches neither SetEnabled nor Toggle.
     local id = self:add("")
     self.graph:FireInput(id, "enable")
     self.graph:FireInput(id, "toggle")

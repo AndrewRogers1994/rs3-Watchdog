@@ -71,11 +71,11 @@ end
 function TestButton:testHitTestInsideAndOutside()
     local b = Button.new("go")
     local rect = { x = 10, y = 20, w = 100, h = 16 }
-    luaunit.assertTrue(b:HitTest(rect, 10, 20))       -- top-left corner (inclusive)
-    luaunit.assertTrue(b:HitTest(rect, 60, 28))       -- centre
-    luaunit.assertTrue(b:HitTest(rect, 110, 36))      -- bottom-right corner (inclusive)
-    luaunit.assertFalse(b:HitTest(rect, 9, 28))       -- left of the box
-    luaunit.assertFalse(b:HitTest(rect, 60, 37))      -- below the box
+    luaunit.assertTrue(b:HitTest(rect, 10, 20))
+    luaunit.assertTrue(b:HitTest(rect, 60, 28))
+    luaunit.assertTrue(b:HitTest(rect, 110, 36))
+    luaunit.assertFalse(b:HitTest(rect, 9, 28))
+    luaunit.assertFalse(b:HitTest(rect, 60, 37))
 end
 
 --- text_field Widget: the text codec -----------------------------------------------------
@@ -174,7 +174,7 @@ end
 function TestToggle:testNextCyclesAndWraps()
     local t = modeToggle()
     luaunit.assertEquals(t:Next("substring"), "pattern")
-    luaunit.assertEquals(t:Next("pattern"), "substring")  -- wraps back
+    luaunit.assertEquals(t:Next("pattern"), "substring")
 end
 
 function TestToggle:testNextFromUnknownLandsOnFirst()

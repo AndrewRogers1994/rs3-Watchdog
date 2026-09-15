@@ -13,7 +13,6 @@ local function categoryRank(cat)
     return CATEGORY_RANK[cat] or math.huge
 end
 
--- Title-cases a category key for the header label (e.g. "trigger" -> "Trigger").
 local function categoryLabel(cat)
     return cat:sub(1, 1):upper() .. cat:sub(2)
 end
@@ -68,7 +67,6 @@ function Palette:Open(registry, filterFn, opts)
     self.centerOnAnchor = opts.centerOnAnchor == true
     self.connect = opts.connect
 
-    -- Group the (compatible) Node Types by Category.
     local byCat, cats = {}, {}
     local function ensureCat(cat)
         if byCat[cat] == nil then
@@ -138,7 +136,6 @@ function Palette:Close()
     self.scrollDragging = false
 end
 
--- Scrolls the list. `delta` follows the wheel convention (delta > 0 = wheel up).
 function Palette:Scroll(delta)
     if not self.open then return end
     local dir = delta > 0 and 1 or -1     -- wheel up scrolls toward the top
@@ -147,9 +144,6 @@ function Palette:Scroll(delta)
     if self.scroll > self.maxScroll then self.scroll = self.maxScroll end
 end
 
--- Draws the panel, clamped fully inside the given bounds rect (vx,vy,vw,vh) - the Editor
--- passes the full screen so the panel may sit past the Window edges. Rows are a uniform height
--- so headers and items share the same scroll math. Records `self.rect` for hit-testing.
 function Palette:Draw(canvas, vx, vy, vw, vh, mx, my)
     if not self.open then return end
     local rowH = Theme.PALETTE_ROW_H
@@ -228,7 +222,6 @@ function Palette:Draw(canvas, vx, vy, vw, vh, mx, my)
                 end
                 if font ~= nil then
                     local tx, ty = px + ITEM_INSET, ry + 3
-                    -- The name takes the row's own color; an unavailable row dims it too.
                     local nameColor = row.unavailable and Theme.COL_PALETTE_TEXT_DIM
                         or Theme.COL_PALETTE_TEXT
                     canvas:AddText(tx, ty, row.displayName, font, Theme.Vec4(nameColor))
@@ -247,11 +240,6 @@ function Palette:Draw(canvas, vx, vy, vw, vh, mx, my)
         end
     end
 
-    -- Scrollbar in the reserved gutter (only when the list overflows). Track spans the row
-    -- viewport; the thumb is proportional (visible/total of the track) with a grabbable floor,
-    -- and slides from top (scroll 0) to bottom (scroll maxScroll). Recorded on self.rect so the
-    -- Editor can hit-test a drag against it (ScrollbarAt) and map cursor Y back to scroll
-    -- (ScrollToY). Drawn last so it sits above the rows.
     local scrollbar = nil
     if hasScrollbar then
         local trackX = px + panelW - Theme.PALETTE_SCROLLBAR_W - 1
@@ -276,8 +264,6 @@ function Palette:Draw(canvas, vx, vy, vw, vh, mx, my)
                   pad = pad, rowH = rowH, visibleRows = visibleRows, scrollbar = scrollbar }
 end
 
--- Whether a screen point is within the scrollbar's gutter column (its track). The Editor calls
--- this on press to decide whether to start a scroll-drag; false when no scrollbar is drawn.
 function Palette:ScrollbarAt(sx, sy)
     local r = self.rect
     if not self.open or r == nil or r.scrollbar == nil then return false end
@@ -314,7 +300,6 @@ function Palette:RowAt(sx, sy)
     return nil
 end
 
--- Whether a screen point falls within the drawn panel (a click inside keeps it open).
 function Palette:Contains(sx, sy)
     local r = self.rect
     if not self.open or r == nil then return false end

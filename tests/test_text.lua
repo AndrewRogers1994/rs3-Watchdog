@@ -1,6 +1,4 @@
--- Text.StripTags (#55): removes any `<…>` formatting tag from a client string so nodes
--- match and emit clean, what-you-see text. Cases are input/output tables asserting a single
--- tag, mid-string tags, multiple/adjacent tags, and the no-tag / empty-string pass-throughs.
+-- Text.StripTags (#55).
 
 local luaunit = require("luaunit")
 local Text = require("text")
@@ -17,9 +15,9 @@ end
 
 function TestStripTags:testStripsMultipleAndAdjacentTags()
     local cases = {
-        { "<col=ff0000>hi</col> there", "hi there" },       -- open + close, separated
-        { "<shad=0><col=ff0000>x</col></shad>", "x" },       -- adjacent tags, both ends
-        { "a<br><br>b", "ab" },                              -- two adjacent tags mid-string
+        { "<col=ff0000>hi</col> there", "hi there" },
+        { "<shad=0><col=ff0000>x</col></shad>", "x" },
+        { "a<br><br>b", "ab" },
     }
     for _, c in ipairs(cases) do
         luaunit.assertEquals(Text.StripTags(c[1]), c[2])

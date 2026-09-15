@@ -5,21 +5,19 @@ local Toggle    = require("ui/widgets/toggle")
 ---@class MatcherPinControl
 local Matcher = {}
 
--- The two modes, in cycle order. Substring is the default (an unseeded matcher reads as Substring).
+-- Unseeded matcher reads as Substring.
 local toggle = Toggle.new({
     { value = "substring", label = "Substring" },
     { value = "pattern",   label = "Pattern" },
 })
 
--- The needle string of a stored value, or nil when unset/not-a-table.
 ---@param value any
 ---@return string|nil
 local function needleOf(value)
     return (type(value) == "table" and type(value.needle) == "string") and value.needle or nil
 end
 
--- The mode of a stored value, normalized to a defined mode (defaults to substring). Never nil, so
--- the toggle Widget always cycles from a real mode.
+-- Never nil: toggle always cycles from a real mode.
 ---@param value any
 ---@return string  -- "substring" | "pattern"
 local function modeOf(value)
@@ -29,9 +27,7 @@ local function modeOf(value)
     return "substring"
 end
 
--- Read-modify-write base for the {needle, mode} table: starts from the stored value (or the pin
--- default when unseeded), yielding a fresh table with BOTH keys present so a caller can set one
--- without dropping the other. Same shape as the old Editor:matcherRMW this replaces.
+-- Fresh {needle, mode} with BOTH keys so setting one cannot drop the other.
 ---@param stored any
 ---@param default any
 ---@return { needle: string, mode: string }
@@ -46,16 +42,12 @@ local function rmw(stored, default)
     return updated
 end
 
--- (a) The band height reserved below the pin row for the needle field + mode toggle.
 ---@return number
 function Matcher.ReservedHeight(_pin)
     return Theme.MATCHER_BAND_H
 end
 
--- (b) Lays the needle field (left) and the mode toggle (right) out on one row within the reserved
--- `band` (graph-space, relative to the node origin). Byte-identical geometry to the old composite
--- spec's Layout so the migrated Control draws exactly where it did. The needle carries a generic
--- empty-state placeholder (an empty matcher matches anything, whatever node it sits on).
+-- Empty matcher matches anything (placeholder is generic, not per-node).
 ---@param band { x: number, y: number, w: number, h: number }
 ---@return table[]
 function Matcher.Layout(band)
@@ -72,8 +64,6 @@ function Matcher.Layout(band)
     }
 end
 
--- (c) The text a sub-rect shows: the needle field shows just the `needle` string (empty falls back
--- to the placeholder, drawn dimmed by node.lua); the toggle shows the current mode's label.
 ---@param ctrl table
 ---@return string
 function Matcher.Display(ctrl)
@@ -83,7 +73,6 @@ function Matcher.Display(ctrl)
     return needleOf(ctrl.value) or ""
 end
 
--- (d) Click. The needle mounts a transient text editor; the toggle flips the mode in one shot.
 ---@param host ControlHost
 ---@param ctrl table
 function Matcher.Press(host, ctrl)
@@ -94,9 +83,7 @@ function Matcher.Press(host, ctrl)
     end
 end
 
--- Flips Substring <-> Pattern, read-modify-write against the whole table so the needle survives.
--- Bases the flip on ctrl.value (already default-resolved in the geometry rebuild) so the first
--- flip off a default-only matcher toggles from the shown mode rather than re-deriving nil.
+-- Flip from ctrl.value (default-resolved) so a default-only matcher toggles from the shown mode.
 ---@param host ControlHost
 ---@param ctrl table
 function Matcher.ToggleMode(host, ctrl)
@@ -105,9 +92,7 @@ function Matcher.ToggleMode(host, ctrl)
     host:Commit(updated)
 end
 
--- Mounts a text field over the needle box, seeded from the current needle, and commits the whole
--- table on every change with the mode preserved (re-read fresh from the host so a concurrent mode
--- flip isn't lost). Empty text is committed verbatim - an empty needle is a valid "match anything".
+-- Re-read from host so a concurrent mode flip isn't lost. Empty needle is a valid "match anything".
 ---@param host ControlHost
 ---@param ctrl table
 function Matcher.EditNeedle(host, ctrl)
@@ -120,10 +105,6 @@ function Matcher.EditNeedle(host, ctrl)
     end)
 end
 
--- (e) Draw one sub-rect: the "toggle" is an action button (Toggle) showing the mode label; the
--- needle is a plain text box (TextField) with the "matches anything" placeholder when empty. The
--- kind discriminator stays internal to this composite - the Node calls this once per sub-rect with
--- an already-projected screen rect + draw context.
 ---@param canvas any
 ---@param rect { x: number, y: number, w: number, h: number }
 ---@param ctrl table

@@ -1,8 +1,4 @@
--- Exercises the Screen Marker capture overlay's (ui/screen_marker_capture.lua, #39) pure
--- Arm/Cancel/BeginDrag/UpdateDrag/EndDrag state machine and its static Rect() normalizer in
--- isolation -- no client globals (ui.Button/Mouse) involved, the same way ui/color.lua's math
--- is tested without a client. Mount/Reposition/Unmount/Draw are client-only and intentionally
--- not asserted here (see the module's own header note).
+-- Screen marker capture (#39): Rect() and Arm/Cancel/BeginDrag/UpdateDrag/EndDrag. No client UI.
 
 local luaunit = require("luaunit")
 local ScreenMarkerCapture = require("ui/screen_marker_capture")
@@ -20,7 +16,6 @@ function TestScreenMarkerCaptureRect:testNormalizesBottomRightToTopLeftDrag()
 end
 
 function TestScreenMarkerCaptureRect:testNormalizesMixedDirectionDrags()
-    -- top-right to bottom-left, and bottom-left to top-right.
     luaunit.assertEquals(ScreenMarkerCapture.Rect(110, 20, 10, 220), { x = 10, y = 20, w = 100, h = 200 })
     luaunit.assertEquals(ScreenMarkerCapture.Rect(10, 220, 110, 20), { x = 10, y = 20, w = 100, h = 200 })
 end
@@ -67,7 +62,7 @@ function TestScreenMarkerCaptureStateMachine:testBeginDragTwiceKeepsTheFirstStar
 end
 
 function TestScreenMarkerCaptureStateMachine:testUpdateDragNoopsWhenNotDragging()
-    self.sm:UpdateDrag(99, 99) -- never armed/dragging
+    self.sm:UpdateDrag(99, 99)
     luaunit.assertFalse(self.sm:IsDragging())
 end
 
@@ -89,7 +84,7 @@ end
 function TestScreenMarkerCaptureStateMachine:testEndDragNoopsWhenNotDragging()
     local calls = 0
     self.sm:Arm("n1", "rect", function() calls = calls + 1 end)
-    self.sm:EndDrag() -- armed but never began a drag
+    self.sm:EndDrag()
     luaunit.assertEquals(calls, 0)
 end
 
@@ -141,16 +136,11 @@ function TestScreenMarkerCaptureDimRegions:testNilHoleDimsTheWholeScreen()
 end
 
 function TestScreenMarkerCaptureDimRegions:testHoleSplitsIntoFourSurroundingRects()
-    -- Selection at (100,50) size 200x100 inside 800x600.
     local regions = ScreenMarkerCapture.DimRegions(800, 600, { x = 100, y = 50, w = 200, h = 100 })
     luaunit.assertEquals(#regions, 4)
-    -- top band
     luaunit.assertEquals(regions[1], { x = 0, y = 0, w = 800, h = 50 })
-    -- left of hole
     luaunit.assertEquals(regions[2], { x = 0, y = 50, w = 100, h = 100 })
-    -- right of hole
     luaunit.assertEquals(regions[3], { x = 300, y = 50, w = 500, h = 100 })
-    -- bottom band
     luaunit.assertEquals(regions[4], { x = 0, y = 150, w = 800, h = 450 })
 end
 

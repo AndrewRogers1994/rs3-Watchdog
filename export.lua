@@ -114,7 +114,7 @@ local function isEnvelope(value)
     return true
 end
 
--- Rejects non-JSON / wrong-shape before any write. schemaVersion is gated in Import.
+-- schemaVersion is gated in Import, not here.
 ---@param text string
 ---@return boolean ok
 ---@return Watchdog.ExportEnvelope|string envelopeOrErr
@@ -221,7 +221,6 @@ local function formatReportMessage(entryCount, unknownCount, unknownTypes)
         listed)
 end
 
--- Mutates `doc` only after every gate passes (atomic).
 ---@param doc Watchdog.Bucket
 ---@param text string
 ---@param opts { registry: LibNodeGraph.Registry|nil }|nil
@@ -240,7 +239,6 @@ function Export.Import(doc, text, opts)
     end
 
     local used = {}
-    -- Claim every id already in the destination so mints never collide.
     local function claim(entries)
         for _, e in ipairs(entries or {}) do
             if type(e.id) == "number" then used[e.id] = true end

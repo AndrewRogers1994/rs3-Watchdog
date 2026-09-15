@@ -1,6 +1,4 @@
--- Matcher.Test (#55): the reusable text-match helper. A `{ needle, mode }` value tested
--- against a haystack, with Substring (case-insensitive, literal) and Pattern (case-sensitive,
--- Lua magic characters) modes, and an empty/nil needle acting as a no-op filter (matches all).
+-- Matcher.Test (#55): empty/nil needle matches all; substring is literal and case-insensitive.
 
 local luaunit = require("luaunit")
 local Matcher = require("matcher")
@@ -57,7 +55,6 @@ function TestMatcherEmptyNeedle:testNilValueMatchesEverything()
 end
 
 function TestMatcherEmptyNeedle:testMissingModeDefaultsToSubstring()
-    -- No mode given: behaves as substring (case-insensitive, literal).
     luaunit.assertTrue(Matcher.Test({ needle = "zulrah" }, "Zulrah here"))
     luaunit.assertTrue(Matcher.Test({ needle = "a.b" }, "a.b"))
     luaunit.assertFalse(Matcher.Test({ needle = "a.b" }, "axb"))

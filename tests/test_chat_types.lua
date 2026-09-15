@@ -1,6 +1,4 @@
--- Exercises the Chat Type Group taxonomy (chat_types.lua, #56): the curated group→id maps and
--- the Any-is-the-union matcher shared by both Chat Triggers. Pure-unit coverage of the mapping
--- itself, complementing the node tests that drive it end-to-end through the dispatcher.
+-- Chat type groups (#56): curated group→id maps; Any is the union of that trigger's groups.
 
 local luaunit = require("luaunit")
 local ChatTypes = require("chat_types")
@@ -10,14 +8,12 @@ TestChatTypesChoices = {}
 function TestChatTypesChoices:testGameMessageChoicesLeadWithAny()
     local choices = ChatTypes.Choices(ChatTypes.GAME_MESSAGE)
     luaunit.assertEquals(choices[1], { value = "any", label = "Any" })
-    -- 8 Game Message groups incl. Any.
     luaunit.assertEquals(#choices, 8)
 end
 
 function TestChatTypesChoices:testPlayerChatChoicesLeadWithAny()
     local choices = ChatTypes.Choices(ChatTypes.PLAYER_CHAT)
     luaunit.assertEquals(choices[1], { value = "any", label = "Any" })
-    -- 9 Player Chat groups incl. Any.
     luaunit.assertEquals(#choices, 9)
 end
 
@@ -36,7 +32,6 @@ function TestChatTypesMatcher:testNamedGroupMatchesOnlyItsIds()
 end
 
 function TestChatTypesMatcher:testAnyIsUnionOfOwnGroups()
-    -- Every Game Message group id passes Any.
     for _, id in ipairs({ 0, 27, 116, 115, 109, 5, 126 }) do
         luaunit.assertTrue(self.game("any", id))
     end

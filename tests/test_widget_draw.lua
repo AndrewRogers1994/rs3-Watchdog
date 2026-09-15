@@ -68,14 +68,13 @@ end
 TestCheckboxDraw = {}
 
 function TestCheckboxDraw:testCheckedRowDrawsBoxPlusTwoTickLines()
-    -- A ticked, enabled row: the checkbox square (rect + outline) plus the two-segment gold tick.
     local canvas, calls = makeFakeCanvas()
     Checkbox.Draw(canvas, RECT,
         { enabled = true, axis = "tile", value = { tile = true }, display = "Tile" }, dctx(false, 1))
     luaunit.assertTrue(calls.rects >= 1)
     luaunit.assertEquals(calls.outlines, 1)
-    luaunit.assertEquals(calls.lines, 2)   -- the tick's two segments
-    luaunit.assertEquals(calls.texts, 1)   -- the row label
+    luaunit.assertEquals(calls.lines, 2)
+    luaunit.assertEquals(calls.texts, 1)
 end
 
 function TestCheckboxDraw:testUncheckedRowDrawsNoTick()
@@ -118,13 +117,12 @@ end
 TestDropdownDraw = {}
 
 function TestDropdownDraw:testDrawsBoxPlusOneCaretTriangle()
-    -- The enum's tell: a filled ▾ caret triangle over the plain value box.
     local canvas, calls = makeFakeCanvas()
     local d = Dropdown.new({ { value = true, label = "true" } })
     d:Draw(canvas, RECT, { display = "true" }, dctx(false, nil))
     luaunit.assertEquals(calls.rects, 1)
     luaunit.assertEquals(calls.outlines, 1)
-    luaunit.assertEquals(calls.triangles, 1)   -- the caret
+    luaunit.assertEquals(calls.triangles, 1)
 end
 
 --- field / button / toggle Widget draw (plain and action boxes) ---------------------------

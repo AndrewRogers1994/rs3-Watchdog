@@ -1,9 +1,5 @@
--- mode Pin Control (ADR-0005 / #61) driven through the shared FAKE HOST. The object_marker mode
--- multi-select (#40) is a composite BAND of one checkbox row per mode: only enabled rows toggle,
--- disabled rows ("needs render API") are inert. The behavior under test is: Layout produces one
--- "mode" row per mode carrying its enabled flag, Display decorates the label with the disabled
--- reason, and Press flips one enabled row (read-modify-write, siblings preserved) while a disabled
--- row commits nothing.
+-- mode Pin Control (ADR-0005 / #61) through the fake host. Disabled rows ("needs render API")
+-- are inert: Press flips an enabled row (siblings preserved) and a disabled row commits nothing.
 
 local luaunit = require("luaunit")
 local FakeHost = require("fake_control_host")
@@ -42,7 +38,6 @@ function TestModeLayout:testOneRowPerModeCarryingEnabled()
     for _, r in ipairs(rects) do
         luaunit.assertEquals(r.kind, "mode")
         byAxis[r.axis] = r
-        -- Each row stays within the reserved band.
         luaunit.assertTrue(r.y >= band.y - 1e-9)
         luaunit.assertTrue(r.y + r.h <= band.y + band.h + 1e-9)
     end
@@ -99,7 +94,7 @@ end
 function TestModePress:testDisabledRowIsInert()
     local host = FakeHost.new({ tile = true })
     mode.Press(host, modeCtrl("hull", { tile = true }))
-    luaunit.assertEquals(host.commitCount, 0)  -- a disabled row writes nothing
+    luaunit.assertEquals(host.commitCount, 0)
 end
 
 return {}

@@ -46,16 +46,12 @@ function TestSkill:setUp()
     })
 end
 
--- Adds an XP Drop node (optionally filtered to `skillFilter`) with its `out` wired to the xp
--- counter. Returns the node id so a test can read its data outputs.
 function TestSkill:addXpDrop(skillFilter)
     local id = self.graph:AddNode("trigger.xp_drop", { skillFilter = skillFilter })
     self.graph:Connect(id, "out", self.graph:AddNode("fixture.xp"), "in")
     return id
 end
 
--- Adds a Stat Changed node (optionally filtered to `skillFilter`) with its `out` wired to the
--- stat counter. Returns the node id.
 function TestSkill:addStatChanged(skillFilter)
     local id = self.graph:AddNode("trigger.stat_changed", { skillFilter = skillFilter })
     self.graph:Connect(id, "out", self.graph:AddNode("fixture.stat"), "in")
@@ -79,14 +75,12 @@ end
 function TestSkill:testBothNodesSubscribeSkillTransmitExactlyOnce()
     self:addXpDrop(nil)
     self:addStatChanged(nil)
-    -- One Subscribe on the channel no matter how many node types / nodes bind it.
     luaunit.assertEquals(self.source:SubscribeCount("SkillTransmit"), 1)
 end
 
 function TestSkill:testOneEventFeedsBothNodesThroughSharedTransform()
     self:addXpDrop(nil)
     self:addStatChanged(nil)
-    -- An XP gain that also raises the gameplay level satisfies both discriminants at once.
     self:transmit(WOODCUTTING, 100, 250, 4, 5)
     luaunit.assertEquals(self.counts.xp, 1)
     luaunit.assertEquals(self.counts.stat, 1)
@@ -116,7 +110,7 @@ end
 
 function TestSkill:testXpDropDoesNotFireWhenXpDecreases()
     self:addXpDrop(nil)
-    self:transmit(ATTACK, 1000, 900, 10, 10) -- XP went down: not a drop
+    self:transmit(ATTACK, 1000, 900, 10, 10)
     luaunit.assertEquals(self.counts.xp, 0)
 end
 
@@ -168,7 +162,7 @@ function TestSkill:testAnyPassesEverySkillAndReportsWhichFired()
     luaunit.assertEquals(self.graph:GetLastValue(id, "skill"), ATTACK)
     self:transmit(FISHING, 100, 200, 1, 1)
     luaunit.assertEquals(self.graph:GetLastValue(id, "skill"), FISHING)
-    luaunit.assertEquals(self.counts.xp, 2) -- both skills passed the "Any" default
+    luaunit.assertEquals(self.counts.xp, 2)
 end
 
 function TestSkill:testFilterAlsoAppliesToStatChanged()

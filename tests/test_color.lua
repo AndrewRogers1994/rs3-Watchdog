@@ -99,9 +99,7 @@ function TestDrawChecker:testTilesFullAreaWithoutGaps()
         calls[#calls + 1] = { x = x, y = y, w = w, h = h, col = col }
     end }
     Color.DrawChecker(canvas, 0, 0, 10, 6, 4, "A", "B")
-    -- 3 columns (4,4,2) x 2 rows (4,2) = 6 tiles.
     luaunit.assertEquals(#calls, 6)
-    -- Every tile is fully inside the requested area.
     for _, c in ipairs(calls) do
         luaunit.assertTrue(c.x + c.w <= 10 + 1e-9)
         luaunit.assertTrue(c.y + c.h <= 6 + 1e-9)

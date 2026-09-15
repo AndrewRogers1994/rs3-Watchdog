@@ -1,7 +1,5 @@
--- Exercises effects.lua's EffectRegistry through its pure logic seam: Update/Dismiss/Clear
--- against hand-built effect handles ({ kind, state, update(dt) -> alive, draw(canvas), onDone }).
--- Canvas drawing is a client primitive (ui.Canvas) and is intentionally not asserted here - a
--- handle's draw is just recorded as called, never asserted against real pixels (#29 AC).
+-- effects.lua EffectRegistry through Update/Dismiss/Clear against hand-built handles.
+-- Canvas drawing is a client primitive and is not asserted here - draw is only recorded as called (#29 AC).
 
 local luaunit = require("luaunit")
 local EffectRegistry = require("effects")
@@ -64,11 +62,11 @@ function TestEffects:testUpdateCullsExpiredQueueActiveAndPromotesNext()
     self.registry:PushQueue("owner", first)
     self.registry:PushQueue("owner", second)
 
-    self.registry:Update(1) -- first expires here, second should be promoted to active
+    self.registry:Update(1)
 
     luaunit.assertTrue(firstCalls.done)
     luaunit.assertEquals(firstCalls.updates, 1)
-    luaunit.assertEquals(secondCalls.updates, 0) -- wasn't active yet during this tick
+    luaunit.assertEquals(secondCalls.updates, 0)
 
     self.registry:Update(1)
     luaunit.assertEquals(secondCalls.updates, 1)
@@ -93,7 +91,7 @@ function TestEffects:testStackEvictsOldestPastMax()
     local c = makeHandle(10)
     self.registry:PushStack("owner", a, 2)
     self.registry:PushStack("owner", b, 2)
-    self.registry:PushStack("owner", c, 2) -- pushes a out (oldest)
+    self.registry:PushStack("owner", c, 2)
 
     luaunit.assertTrue(aCalls.done)
     luaunit.assertEquals(self.registry:StackCount("owner"), 2)
@@ -122,7 +120,7 @@ function TestEffects:testDismissRemovesTheRightStackHandle()
     luaunit.assertTrue(aCalls.done)
     luaunit.assertFalse(bCalls.done)
     self.registry:Update(1)
-    luaunit.assertEquals(aCalls.updates, 0) -- removed handle is never advanced again
+    luaunit.assertEquals(aCalls.updates, 0)
     luaunit.assertEquals(bCalls.updates, 1)
 end
 
@@ -137,19 +135,19 @@ function TestEffects:testDismissOnQueueActivePromotesNext()
     luaunit.assertTrue(firstCalls.done)
     self.registry:Update(1)
     luaunit.assertEquals(firstCalls.updates, 0)
-    luaunit.assertEquals(secondCalls.updates, 1) -- promoted and now advancing
+    luaunit.assertEquals(secondCalls.updates, 1)
 end
 
 function TestEffects:testDismissOnPendingQueueEntryRemovesWithoutPromoting()
     local first = makeHandle(10)
     local second, secondCalls = makeHandle(10)
     self.registry:PushQueue("owner", first)
-    self.registry:PushQueue("owner", second) -- second sits pending behind first
+    self.registry:PushQueue("owner", second)
 
     self.registry:Dismiss(second)
 
     self.registry:Update(1)
-    luaunit.assertEquals(secondCalls.updates, 0) -- never promoted, never advanced
+    luaunit.assertEquals(secondCalls.updates, 0)
 end
 
 function TestEffects:testDismissOfUnknownHandleIsANoOp()
@@ -170,7 +168,6 @@ function TestEffects:testClearEmptiesStackAndQueueWithoutFiringOnDone()
 
     luaunit.assertFalse(aCalls.done)
     luaunit.assertFalse(bCalls.done)
-    -- Nothing left to advance.
     self.registry:Update(1)
     luaunit.assertEquals(aCalls.updates, 0)
     luaunit.assertEquals(bCalls.updates, 0)
@@ -196,7 +193,7 @@ function TestEffects:testBeginFrameLeavesHandlesUntouched()
 
     luaunit.assertEquals(self.registry:StackCount("owner"), 1)
     self.registry:Update(1)
-    luaunit.assertEquals(aCalls.updates, 1) -- still live and advancing
+    luaunit.assertEquals(aCalls.updates, 1)
 end
 
 function TestEffects:testBeginFrameIsANoOpWithNoCanvas()
@@ -219,7 +216,7 @@ function TestEffects:testDrawInvokesLiveStackAndActiveQueueHandlesOnly()
 
     luaunit.assertEquals(stackedCalls.draws, 1)
     luaunit.assertEquals(activeCalls.draws, 1)
-    luaunit.assertEquals(pendingCalls.draws, 0) -- not live yet, must not draw
+    luaunit.assertEquals(pendingCalls.draws, 0)
 end
 
 return TestEffects

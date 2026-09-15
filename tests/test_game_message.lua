@@ -1,11 +1,6 @@
--- Exercises the Game Message trigger (`trigger.game_message`, #56) against a REAL LibNodeGraph
--- driven through the fake event source + runtime dispatcher - never a hand-built ctx (see
--- CONTEXT.md *Testing node types*). Pushes ChatMessage payloads (chatMessage + chatType) and
--- asserts external behavior: whether `out` fires and what the `message` output holds.
---
--- Covers: Chat Type Group filtering to the right ids, Any = the union of Game Message's own
--- Groups (and the other trigger's types NOT leaking in), substring vs pattern matching, the
--- empty needle matching everything, and tag stripping affecting both the match and the output.
+-- Game Message trigger (`trigger.game_message`, #56) against a real LibNodeGraph driven
+-- through the fake event source + runtime dispatcher - never a hand-built ctx
+-- (see CONTEXT.md *Testing node types*).
 
 local luaunit = require("luaunit")
 local Registry = require("registry")
@@ -36,8 +31,6 @@ function TestGameMessage:setUp()
     })
 end
 
--- Adds a game_message node wired to a mark action, returning the node id so a test can read
--- its `message` output.
 function TestGameMessage:addWired(controls)
     local id = self.graph:AddNode("trigger.game_message", controls)
     local markId = self.graph:AddNode("fixture.mark")
@@ -123,7 +116,6 @@ function TestGameMessage:testTagsStrippedForMatching()
     -- A mid-line <col=…> tag must not break an otherwise-obvious substring match.
     self:addWired({ type = "any", contains = sub("Zulrah defeated") })
     self:push("<col=ff0000>Zulrah</col> defeated", 0)
-    -- Stripped haystack is "Zulrah defeated", so the needle matches.
     luaunit.assertEquals(#self.log, 1)
 end
 

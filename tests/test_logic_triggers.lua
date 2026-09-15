@@ -1,9 +1,5 @@
--- Exercises the two clock triggers (#52) through the same dispatch seam test_chat.lua uses:
--- a real Registry + Graph + Runtime.new(fakeEventSource), the node file registered, the
--- trigger's `out` wired into a fixture "mark" node, then synthetic `Logic` / `ServerLogic`
--- events pushed through the fake source. Nothing hand-builds a ctx - behaviour is observed
--- through the real engine, so the interval-gating in `run` and the ctx.state counter are
--- exercised exactly as the client would drive them.
+-- Clock triggers (#52) through Registry + Graph + Runtime.new(fakeEventSource). Nothing
+-- hand-builds a ctx - interval-gating in `run` and ctx.state are observed through the engine.
 
 local luaunit = require("luaunit")
 local Registry = require("registry")
@@ -31,7 +27,6 @@ function TestLogicTriggers:setUp()
     })
 end
 
--- Wires a fresh mark node into `nodeId`'s `out` pin so a fire is observable as a log entry.
 function TestLogicTriggers:markInto(nodeId)
     local markId = self.graph:AddNode("fixture.mark")
     self.graph:Connect(nodeId, "out", markId, "in")
@@ -120,7 +115,7 @@ function TestLogicTriggers:testServerTickFiresWithNoPayloadAndHonoursInterval()
         self.source:Push("ServerLogic")   -- ServerLogic carries no payload
     end
 
-    luaunit.assertEquals(#self.log, 3)   -- floor(6/2)
+    luaunit.assertEquals(#self.log, 3)
 end
 
 function TestLogicTriggers:testServerTickExposesNoLogicTick()
@@ -135,7 +130,6 @@ end
 function TestLogicTriggers:testTwoClientTicksKeepIndependentCadence()
     local fastId = self.graph:AddNode("trigger.logic", { interval = 1 })
     local slowId = self.graph:AddNode("trigger.logic", { interval = 5 })
-    -- Separate mark logs so each node's fire count is independently observable.
     local fastLog, slowLog = {}, {}
     self.registry:RegisterNodeType("fixture.markFast", {
         category = "action",
@@ -154,8 +148,8 @@ function TestLogicTriggers:testTwoClientTicksKeepIndependentCadence()
 
     self:pushLogic(10)
 
-    luaunit.assertEquals(#fastLog, 10)   -- interval 1
-    luaunit.assertEquals(#slowLog, 2)    -- interval 5 -> floor(10/5)
+    luaunit.assertEquals(#fastLog, 10)
+    luaunit.assertEquals(#slowLog, 2)
 end
 
 function TestLogicTriggers:testNTickNodesCostExactlyOneSubscriptionPerChannel()

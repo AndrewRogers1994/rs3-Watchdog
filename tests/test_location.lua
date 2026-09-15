@@ -1,12 +1,5 @@
--- Exercises the Location trigger (`trigger.location`, #34) end-to-end through the real poll
--- dispatcher: representative player-position samples are pushed as Logic ticks, and the tests
--- assert the Enter/Leave edges the gate decides plus the `coord`/`distance` data outputs.
--- Load and target-Control rewrites seed the edge baseline without firing (#72).
---
--- The node's `transform` reads the client `Player` global directly (like chat.lua reads
--- ChatType), so a fake `Player` is installed as a global and `setPos`/`logOut` steer what each
--- tick samples. Everything else rides the same injected fake event source the other runtime
--- tests use.
+-- Location trigger (#34) through poll dispatcher. Load/retarget seed without firing (#72).
+-- Fake Player global; Logic ticks via fake event source.
 
 local luaunit = require("luaunit")
 local Registry = require("registry")
@@ -15,8 +8,7 @@ local Runtime = require("runtime")
 local newFakeEventSource = require("fake_event_source")
 local Location = require("nodes/triggers/location")
 
--- Fake client `Player` global. `available`/`coord` are steered per test; GetEntity mirrors the
--- real API shape (`.coordGrid`).
+-- GetEntity mirrors the client API (`.coordGrid`).
 Player = {
     available = true,
     coord = { x = 100, z = 100, level = 0 },
@@ -35,8 +27,6 @@ function TestLocation:setUp()
 
     Location.Register(self.registry, self.runtime)
 
-    -- Downstream counters wired to each edge pin, so a test can prove the exec pin actually
-    -- propagated (and which one).
     self.counts = { enter = 0, leave = 0 }
     local counts = self.counts
     self.registry:RegisterNodeType("fixture.enter", {
@@ -54,7 +44,6 @@ function TestLocation:setUp()
     Player.coord = { x = 0, z = 0, level = 0 }
 end
 
--- Adds a Location node with the given target/radius and wires Enter+Leave to the counters.
 function TestLocation:addLocation(target, radius)
     local id = self.graph:AddNode("trigger.location", { target = target, radius = radius })
     local enterId = self.graph:AddNode("fixture.enter")
@@ -64,20 +53,16 @@ function TestLocation:addLocation(target, radius)
     return id
 end
 
--- Moves the fake player to (x, z, level) and pushes one Logic tick so the poll transform samples
--- it. `level` defaults to 0.
 function TestLocation:moveTo(x, z, level)
     Player.coord = { x = x, z = z, level = level or 0 }
     self.source:Push("Logic", {})
 end
 
--- First sample after load reseeds without an edge (#72). Tick far from every target these
--- tests use (0/10/50/100) so the next in-range sample is a real Enter.
+-- First sample after load reseeds without an edge (#72). Far from targets used here (0/10/50/100).
 function TestLocation:primeOutside()
     self:moveTo(9999, 9999)
 end
 
--- Logs out (transform will sample nil) and pushes one Logic tick.
 function TestLocation:logOutTick()
     Player.available = false
     self.source:Push("Logic", {})
@@ -152,7 +137,7 @@ end
 --- nil / partial target never fires -----------------------------------------------------
 
 function TestLocation:testNilTargetNeverFires()
-    self:addLocation(nil, 5) -- no target set
+    self:addLocation(nil, 5)
 
     self:moveTo(0, 0)
     self:moveTo(1, 1)
@@ -258,9 +243,6 @@ end
 --- transform samples once per tick regardless of node count -----------------------------
 
 function TestLocation:testEachNodeKeepsItsOwnEdgeState()
-    -- Two Location nodes with different radii around the same tile: a sample in only the wider
-    -- one's range fires only it. Proves per-node edge state through the real node (not just the
-    -- fixture). Each node's Enter gets its own dedicated counter so the assertions read straight.
     local hits = { near = 0, far = 0 }
     self.registry:RegisterNodeType("fixture.nearHit", {
         category = "action",
@@ -280,8 +262,8 @@ function TestLocation:testEachNodeKeepsItsOwnEdgeState()
 
     self:primeOutside()
     self:moveTo(5, 0) -- distance 5: inside far (10), outside near (2)
-    luaunit.assertEquals(hits.near, 0) -- near did NOT enter
-    luaunit.assertEquals(hits.far, 1)  -- far DID enter
+    luaunit.assertEquals(hits.near, 0)
+    luaunit.assertEquals(hits.far, 1)
 end
 
 return TestLocation

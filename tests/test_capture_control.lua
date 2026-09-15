@@ -1,21 +1,17 @@
--- capture Pin Control (ADR-0005 / #60) driven through the shared FAKE HOST. One factory serves both
--- flavors, chosen by captureKind: Screen Marker's `rect` (the drag overlay) and Object Marker's
--- `object` (the MiniMenu select mode). The behavior under test is: pressing the button ARMS the
--- correct capture through the host, and Display summarizes the captured value (or falls back to the
--- placeholder) exactly as each node's format hook does.
+-- Capture pin control (ADR-0005 / #60) through FakeHost; screen vs object kinds.
 
 local luaunit = require("luaunit")
 local FakeHost = require("fake_control_host")
 local Capture = require("ui/controls/capture")
 
--- Mirrors screen_marker.rect's spec: a rect summary, default "screen" kind + "Draw on screen".
+-- Same format hook as screen_marker.rect.
 local screenCapture = Capture.new({
     format = function(value)
         if value == nil then return "" end
         return string.format("%d,%d %dx%d", value.x or 0, value.y or 0, value.w or 0, value.h or 0)
     end,
 })
--- Mirrors object_marker.object's spec: an object name, "object" kind + "Select object".
+-- Same format hook as object_marker.object.
 local objectCapture = Capture.new({
     captureKind = "object", placeholder = "Select object",
     format = function(value)
