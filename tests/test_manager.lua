@@ -7,6 +7,7 @@ _G.Vector4 = _G.Vector4 or { new = function(r, g, b, a) return { r, g, b, a } en
 
 local luaunit = require("luaunit")
 local Manager = require("ui/manager")
+local Confirm = require("ui/confirm")
 
 -- Bucket/Entry builders mirroring store.lua's shapes (the Manager only reads them).
 local function alert(id, name, enabled)
@@ -386,15 +387,45 @@ function TestManager:testCreateGroupReturnsMintedIdFromHost()
     luaunit.assertEquals(mgr:CreateGroup(), 42)
 end
 
-function TestManager:testDeleteConfirmLabelDisclosesDescendantCount()
+function TestManager:testConfirmDefaultsTitleAndConfirmLabel()
+    local opts = Confirm.resolve({})
+    luaunit.assertEquals(opts.title, "CONFIRM")
+    luaunit.assertEquals(opts.confirmLabel, "CONFIRM")
+    luaunit.assertTrue(opts.modal)
+    luaunit.assertFalse(Confirm.resolve({ modal = false }).modal)
+end
+
+function TestManager:testDeleteConfirmBodyDisclosesDescendantCount()
+    local doc = bucket({
+        group(1, "g", { alert(2, "a"), group(3, "inner", { alert(4, "b") }) }),
+        alert(5, "leaf"),
+        group(6, "empty", {}),
+    })
+    local mgr = self:makeManager({ { key = "global", label = "Global", doc = doc } })
+    luaunit.assertEquals(mgr:_descendantCount(1), 3) -- a + inner + b
+    luaunit.assertEquals(
+        mgr:_deleteConfirmBody(1),
+        'Delete "g" and 3 descendants? This cannot be undone.'
+    )
+    luaunit.assertEquals(mgr:_deleteConfirmBody(5), 'Delete "leaf"? This cannot be undone.')
+    luaunit.assertEquals(mgr:_deleteConfirmBody(6), 'Delete "empty"? This cannot be undone.')
+end
+
+function TestManager:testBulkDeleteConfirmBodyDisclosesRideAlongCount()
     local doc = bucket({
         group(1, "g", { alert(2, "a"), group(3, "inner", { alert(4, "b") }) }),
         alert(5, "leaf"),
     })
     local mgr = self:makeManager({ { key = "global", label = "Global", doc = doc } })
-    luaunit.assertEquals(mgr:_descendantCount(1), 3) -- a + inner + b
-    luaunit.assertEquals(mgr:_deleteConfirmLabel(1), "OK 3?")
-    luaunit.assertEquals(mgr:_deleteConfirmLabel(5), "OK?") -- leaf: no ride-alongs
+    mgr:ToggleSelection(5, false)
+    luaunit.assertEquals(mgr:_bulkDeleteConfirmBody(), "Delete 1 selected?")
+    mgr:ClearSelection()
+    mgr:ToggleSelection(1, false)
+    mgr:ToggleSelection(5, false)
+    luaunit.assertEquals(
+        mgr:_bulkDeleteConfirmBody(),
+        "Delete 2 selected? This also deletes 3 descendants."
+    )
 end
 
 --- PrettyUI chrome helpers (pure; mount/render still client-only) -------------------------

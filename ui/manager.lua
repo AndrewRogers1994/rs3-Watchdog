@@ -10,6 +10,10 @@
 
 local Theme = require("ui/theme")
 local Export = require("export")
+local Confirm = require("ui/confirm")
+
+local DELETE_CONFIRM_TITLE = "CONFIRM DELETE"
+local DELETE_CONFIRM_LABEL = "DELETE"
 
 local Manager = {}
 Manager.__index = Manager
@@ -92,12 +96,11 @@ function Manager.new(opts)
         lastSignature = nil,
         renameField = nil,
         renameId = nil,
-        pendingDeleteId = nil,
-        pendingBulkDelete = false,
         pendingRenameId = nil,      -- begin inline rename once the row is rebuilt
         transfer = nil,
         transferWindow = nil,
         transferField = nil,
+        confirmWindow = nil,
     }, Manager)
     return self
 end
@@ -199,7 +202,6 @@ function Manager:ToggleExpand(scopeKey, id)
         end
         if changed then
             self.selectVersion = self.selectVersion + 1
-            self.pendingBulkDelete = false
         end
     end
 end
@@ -355,7 +357,6 @@ end
 
 local function bumpSelect(self)
     self.selectVersion = self.selectVersion + 1
-    self.pendingBulkDelete = false
 end
 
 ---@param entries Watchdog.Entry[]|nil
@@ -399,7 +400,6 @@ function Manager:ClearSelection()
     for _ in pairs(self.selected) do any = true break end
     self.selected = {}
     self.lastSelectId = nil
-    self.pendingBulkDelete = false
     if any then bumpSelect(self) end
 end
 
@@ -768,7 +768,6 @@ function Manager:_ensureTabs()
             scrollable = false,
             activeIndex = activeIndex,
             onChange = function(_, _index, value, _page)
-                self.pendingDeleteId = nil
                 self:SetActiveScope(value)
                 self:_rebuild()
             end,
@@ -974,32 +973,31 @@ end
 
 ---@param id integer
 function Manager:_onDeletePress(id)
-    if self.pendingDeleteId == id then
-        self.pendingDeleteId = nil
-        self:Delete(id)
-        self:_rebuild()
-    else
-        self.pendingDeleteId = id
-        self:_rebuild()
-    end
+    self:_openConfirm({
+        title = DELETE_CONFIRM_TITLE,
+        confirmLabel = DELETE_CONFIRM_LABEL,
+        confirmVariant = 'negative',
+        body = self:_deleteConfirmBody(id),
+        onConfirm = function()
+            self:Delete(id)
+            self:_rebuild()
+        end,
+    })
+end
+
+---@param id integer
+---@return Watchdog.Entry|nil
+function Manager:_entryById(id)
+    local scope = self:ActiveScope()
+    if scope == nil or scope.doc == nil then return nil end
+    local entry = findInTree(scope.doc.entries, id, nil)
+    return entry
 end
 
 ---@param id integer
 ---@return integer
 function Manager:_descendantCount(id)
-    local scope = self:ActiveScope()
-    if scope == nil or scope.doc == nil then return 0 end
-    local function find(entries)
-        for _, e in ipairs(entries or {}) do
-            if e.id == id then return e end
-            if e.children ~= nil then
-                local found = find(e.children)
-                if found ~= nil then return found end
-            end
-        end
-        return nil
-    end
-    local entry = find((scope.doc or {}).entries)
+    local entry = self:_entryById(id)
     if entry == nil or entry.kind ~= "group" then return 0 end
     local n = 0
     local function count(children)
@@ -1014,10 +1012,15 @@ end
 
 ---@param id integer
 ---@return string
-function Manager:_deleteConfirmLabel(id)
+function Manager:_deleteConfirmBody(id)
+    local entry = self:_entryById(id)
+    local name = entry and entry.name or ""
     local n = self:_descendantCount(id)
-    if n > 0 then return "OK " .. tostring(n) .. "?" end
-    return "OK?"
+    if n > 0 then
+        local noun = n == 1 and "descendant" or "descendants"
+        return string.format('Delete "%s" and %d %s? This cannot be undone.', name, n, noun)
+    end
+    return string.format('Delete "%s"? This cannot be undone.', name)
 end
 
 ---@param ids integer[]|nil
@@ -1028,6 +1031,46 @@ function Manager:_bulkRideAlongCount(ids)
         n = n + self:_descendantCount(id)
     end
     return n
+end
+
+---@param ids integer[]|nil
+---@return string
+function Manager:_bulkDeleteConfirmBody(ids)
+    ids = ids or self:SelectedIds()
+    local body = string.format("Delete %d selected?", #ids)
+    local n = self:_bulkRideAlongCount(ids)
+    if n > 0 then
+        local noun = n == 1 and "descendant" or "descendants"
+        body = body .. string.format(" This also deletes %d %s.", n, noun)
+    end
+    return body
+end
+
+function Manager:CloseConfirm()
+    local win = self.confirmWindow
+    self.confirmWindow = nil
+    Confirm.destroy(win)
+end
+
+---@param opts Watchdog.ConfirmOpts
+function Manager:_openConfirm(opts)
+    self:CloseConfirm()
+    local parent
+    if self.windowParent ~= nil then
+        local ok, p = pcall(self.windowParent)
+        if ok then parent = p end
+    end
+    if parent == nil then return end
+    local onConfirm, onCancel = opts.onConfirm, opts.onCancel
+    opts.onConfirm = function()
+        self.confirmWindow = nil
+        if onConfirm ~= nil then onConfirm() end
+    end
+    opts.onCancel = function()
+        self.confirmWindow = nil
+        if onCancel ~= nil then onCancel() end
+    end
+    self.confirmWindow = Confirm.mount(parent, opts)
 end
 
 ---@return boolean
@@ -1230,20 +1273,17 @@ function Manager:_mountBulkBar(y)
         end
     end
 
-    local delLabel = "Delete"
-    if self.pendingBulkDelete then
-        local ride = self:_bulkRideAlongCount(ids)
-        delLabel = ride > 0 and ("OK " .. tostring(ride) .. "?") or "OK?"
-    end
-    addFancy(delLabel, "negative", function()
-        if self.pendingBulkDelete then
-            self.pendingBulkDelete = false
-            self:BulkDelete(ids)
-            self:_rebuild()
-        else
-            self.pendingBulkDelete = true
-            self:_rebuild()
-        end
+    addFancy("Delete", "negative", function()
+        self:_openConfirm({
+            title = DELETE_CONFIRM_TITLE,
+            confirmLabel = DELETE_CONFIRM_LABEL,
+            confirmVariant = 'negative',
+            body = self:_bulkDeleteConfirmBody(ids),
+            onConfirm = function()
+                self:BulkDelete(ids)
+                self:_rebuild()
+            end,
+        })
     end)
 
     addFancy("New group", "positive", function()
@@ -1369,8 +1409,6 @@ function Manager:_rebuild()
                     check.value = row.enabled and true or false
                     check.label = ""
                     check:Subscribe(ui.Hook.ONBUTTONPRESSED, function()
-                        self.pendingDeleteId = nil
-                        self.pendingBulkDelete = false
                         self:ToggleEnabled(capturedRow.id)
                         self:_rebuild()
                         return true
@@ -1382,8 +1420,6 @@ function Manager:_rebuild()
         if not enableMounted then
             local mark = row.enabled and "[x]" or "[ ]"
             mountButton(rowPanel, 0, 0, Theme.MANAGER_ENABLE_W, Theme.MANAGER_ROW_H, mark, function()
-                self.pendingDeleteId = nil
-                self.pendingBulkDelete = false
                 self:ToggleEnabled(capturedRow.id)
                 self:_rebuild()
             end)
@@ -1403,7 +1439,6 @@ function Manager:_rebuild()
                     sel.value = self.selected[row.id] and true or false
                     sel.label = ""
                     sel:Subscribe(ui.Hook.ONBUTTONPRESSED, function()
-                        self.pendingDeleteId = nil
                         self:ToggleSelection(capturedRow.id, isShiftDown())
                         self:_rebuild()
                         return true
@@ -1415,7 +1450,6 @@ function Manager:_rebuild()
         if not selectMounted then
             local mark = self.selected[row.id] and "[*]" or "[ ]"
             mountButton(rowPanel, selectX, 0, Theme.MANAGER_SELECT_W, Theme.MANAGER_ROW_H, mark, function()
-                self.pendingDeleteId = nil
                 self:ToggleSelection(capturedRow.id, isShiftDown())
                 self:_rebuild()
             end)
@@ -1449,8 +1483,6 @@ function Manager:_rebuild()
                 id.Sprite.RS3_ICON_DIRECTION_UP_32PX_3,
                 id.Sprite.RS3_ICON_DIRECTION_UP_32PX_4,
                 canUp, function()
-                    self.pendingDeleteId = nil
-                    self.pendingBulkDelete = false
                     self:ReorderSibling(capturedRow.id, -1)
                     self:_rebuild()
                 end)
@@ -1459,8 +1491,6 @@ function Manager:_rebuild()
                 id.Sprite.RS3_ICON_DIRECTION_DOWN_32PX_3,
                 id.Sprite.RS3_ICON_DIRECTION_DOWN_32PX_4,
                 canDown, function()
-                    self.pendingDeleteId = nil
-                    self.pendingBulkDelete = false
                     self:ReorderSibling(capturedRow.id, 1)
                     self:_rebuild()
                 end)
@@ -1469,8 +1499,6 @@ function Manager:_rebuild()
                 id.Sprite.RS3_ICON_DIRECTION_LEFT_32PX_3,
                 id.Sprite.RS3_ICON_DIRECTION_LEFT_32PX_4,
                 canLift, function()
-                    self.pendingDeleteId = nil
-                    self.pendingBulkDelete = false
                     self:Lift(capturedRow.id)
                     self:_rebuild()
                 end)
@@ -1491,16 +1519,12 @@ function Manager:_rebuild()
         end
 
         mountButton(rowPanel, nameX, 0, nameW, Theme.MANAGER_ROW_H, self:RowLabel(row), function()
-            self.pendingDeleteId = nil
-            self.pendingBulkDelete = false
             self:_onRowPress(capturedRow)
             if capturedRow.kind == "group" then self:_rebuild() end
         end)
 
         local renameX = nameX + nameW + Theme.MANAGER_ROW_GAP
         mountButton(rowPanel, renameX, 0, Theme.MANAGER_ACT_W, Theme.MANAGER_ROW_H, "Rename", function()
-            self.pendingDeleteId = nil
-            self.pendingBulkDelete = false
             local fieldY = 0
             pcall(function() fieldY = rowPanel.y or 0 end)
             -- content-local for layoutHost:AddTextField (not treePanel-local)
@@ -1516,17 +1540,11 @@ function Manager:_rebuild()
 
         local exportX = renameX + Theme.MANAGER_ACT_W + Theme.MANAGER_ROW_GAP
         mountButton(rowPanel, exportX, 0, Theme.MANAGER_ACT_W, Theme.MANAGER_ROW_H, "Export", function()
-            self.pendingDeleteId = nil
-            self.pendingBulkDelete = false
             self:ExportRow(capturedRow.id)
         end)
 
         local deleteX = exportX + Theme.MANAGER_ACT_W + Theme.MANAGER_ROW_GAP
-        local armed = self.pendingDeleteId == row.id
-        local delLabel = armed and self:_deleteConfirmLabel(row.id) or "Delete"
-        local delW = math.max(Theme.MANAGER_ACT_W, 8 + 7 * #delLabel)
-        mountButton(rowPanel, deleteX, 0, delW, Theme.MANAGER_ROW_H, delLabel, function()
-            self.pendingBulkDelete = false
+        mountButton(rowPanel, deleteX, 0, Theme.MANAGER_ACT_W, Theme.MANAGER_ROW_H, "Delete", function()
             self:_onDeletePress(capturedRow.id)
         end)
 
@@ -1609,9 +1627,10 @@ function Manager:SetVisible(v)
     end
     setChildVisible(self.treePanel, self.visible)
     setChildVisible(componentRoot(self.renameField), self.visible)
-    -- Transfer is its own Window under the game root - close it when the Manager tucks away.
+    -- Transfer / Confirm are their own Windows under the mux root - close when Manager tucks away.
     if not self.visible then
         self:CloseTransfer()
+        self:CloseConfirm()
     end
     if becomingVisible and self.tabs ~= nil then
         self:_rebuild()
@@ -1632,11 +1651,10 @@ end
 -- the window Destroy owns native teardown. Mid-session rebuild still uses _destroyTree /
 -- _destroyToolbar / _destroyTabs while the window stays alive.
 function Manager:Unmount()
-    self.pendingDeleteId = nil
-    self.pendingBulkDelete = false
     self:_endRename(false)
-    -- Transfer Window lives under the game root (not mux content) - Destroy it on Stop.
+    -- Transfer / Confirm live under the mux root (not mux content) - Destroy on Stop.
     self:CloseTransfer()
+    self:CloseConfirm()
     self.toolbarButtons = {}
     self.bulkBarButtons = {}
     self.treePanel = nil
