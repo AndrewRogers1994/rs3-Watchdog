@@ -107,7 +107,7 @@ end
 
 -- Mounts a text field over the needle box, seeded from the current needle, and commits the whole
 -- table on every change with the mode preserved (re-read fresh from the host so a concurrent mode
--- flip isn't lost). Empty text is committed verbatim — an empty needle is a valid "match anything".
+-- flip isn't lost). Empty text is committed verbatim - an empty needle is a valid "match anything".
 ---@param host ControlHost
 ---@param ctrl table
 function Matcher.EditNeedle(host, ctrl)
@@ -122,7 +122,7 @@ end
 
 -- (e) Draw one sub-rect: the "toggle" is an action button (Toggle) showing the mode label; the
 -- needle is a plain text box (TextField) with the "matches anything" placeholder when empty. The
--- kind discriminator stays internal to this composite — the Node calls this once per sub-rect with
+-- kind discriminator stays internal to this composite - the Node calls this once per sub-rect with
 -- an already-projected screen rect + draw context.
 ---@param canvas any
 ---@param rect { x: number, y: number, w: number, h: number }

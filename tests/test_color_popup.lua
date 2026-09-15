@@ -1,6 +1,6 @@
 -- Same stubbing convention as test_palette.lua: ColorPopup draws via the client's Canvas,
 -- and Theme.Vec4/Theme.Font defer their Vector4/id dependency to draw time specifically so
--- tests can stub them — stub before requiring anything that might touch them at load time.
+-- tests can stub them - stub before requiring anything that might touch them at load time.
 _G.Vector4 = { new = function(r, g, b, a) return { r, g, b, a } end }
 _G.id = { Font = setmetatable({}, { __index = function() return 1 end }) }
 _G.config = { Font = setmetatable({}, { __index = function()
@@ -12,7 +12,7 @@ local ColorPopup = require("ui/color_popup")
 local Swatch = require("ui/widgets/swatch")
 local Theme = require("ui/theme")
 
--- The hex codec the swatch Pin Control hands the popup (its Widget's Color hex8 round-trip) — the
+-- The hex codec the swatch Pin Control hands the popup (its Widget's Color hex8 round-trip) - the
 -- popup's only knowledge of how a color turns into text and back, replacing the old Control Spec.
 local CODEC = { format = Swatch.Format, parse = Swatch.Parse }
 
@@ -75,7 +75,7 @@ function TestColorPopupOpenClose:testOpenRecordsTheGivenCodec()
 end
 
 -- The hex row's display text goes through the swatch codec's own format hook, the same round-trip
--- the hex field's commit path uses — not a hard-coded Color.FormatHex8 call.
+-- the hex field's commit path uses - not a hard-coded Color.FormatHex8 call.
 function TestColorPopupOpenClose:testHexRowTextGoesThroughTheCodec()
     self.cp:Open("node1", "tint", CODEC, { r = 60, g = 200, b = 255, a = 180 }, 0, 0)
     local canvas = mockCanvas()

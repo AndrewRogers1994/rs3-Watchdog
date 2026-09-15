@@ -1,9 +1,9 @@
 -- Exercises store.lua's `global` Bucket + Entry-tree model (#86): the tree helpers (mint id,
--- walk leaves, find/insert/delete by id — all id-keyed, name-agnostic), the id-keyed mutators
+-- walk leaves, find/insert/delete by id - all id-keyed, name-agnostic), the id-keyed mutators
 -- (SetEnabled, UpdateAlertGraph), RestoreAll over alert leaves, and the persistence round-trip
 -- under the un-prefixed `global` key.
 --
--- store.lua reaches its dependencies as globals — `LibNodeGraph` (Serialize/Deserialize/Json)
+-- store.lua reaches its dependencies as globals - `LibNodeGraph` (Serialize/Deserialize/Json)
 -- and `PersistentDB`. Neither exists under the bare interpreter, so this suite stands both up:
 -- LibNodeGraph from the sibling lib's own modules (already on the path, see run.lua) and a tiny
 -- in-memory fake PersistentDB standing in for the client key/value store.
@@ -85,7 +85,7 @@ function TestStore:testSaveWritesUnderUnprefixedGlobalKey()
     seedAlert(self, doc, "alpha", true)
     Store.Save(doc)
 
-    -- The key is plain `global` — no `watchdog_` prefix (PersistentDB is already plugin-scoped).
+    -- The key is plain `global` - no `watchdog_` prefix (PersistentDB is already plugin-scoped).
     luaunit.assertNotNil(PersistentDB.data["global"])
     luaunit.assertNil(PersistentDB.data["watchdog_graphs"])
 end
@@ -248,7 +248,7 @@ function TestStore:testDeleteByIdTakesTheWholeSubtree()
     Store.InsertEntry(doc, Store.NewGroupEntry(groupId, "group", true, {}))
     seedAlert(self, doc, "nested", true, groupId)
 
-    -- Deleting the group removes its child alert with it — the leaf count drops to zero.
+    -- Deleting the group removes its child alert with it - the leaf count drops to zero.
     Store.DeleteById(doc, groupId)
     luaunit.assertEquals(#doc.entries, 0)
     luaunit.assertEquals(#Store.Leaves(doc), 0)
@@ -309,7 +309,7 @@ function TestStore:testMoveSubtreeCarriesAWholeGroupSubtree()
 end
 
 function TestStore:testMoveSubtreeIntoOwnDescendantIsRefused()
-    -- Moving a group under one of its own descendants would sever the tree — must be refused.
+    -- Moving a group under one of its own descendants would sever the tree - must be refused.
     local doc = Store.Empty()
     local outerId = Store.MintId(doc)
     Store.InsertEntry(doc, Store.NewGroupEntry(outerId, "outer", true, {}))
@@ -585,7 +585,7 @@ function TestStore:testDisablingGroupLeavesDescendantOwnFlagsUntouched()
 end
 
 function TestStore:testEnabledChainReEvaluatesAfterMove()
-    -- Moving an alert out of a disabled group must restore it; moving it back in re-suppresses —
+    -- Moving an alert out of a disabled group must restore it; moving it back in re-suppresses -
     -- the chain is resolved live over the tree, never cached at insert time.
     local doc = Store.Empty()
     local offGroup = Store.MintId(doc)
@@ -700,7 +700,7 @@ function TestStore:testUpdateAlertGraphRewritesGraphById()
 end
 
 function TestStore:testUpdateAlertGraphPreservesEnabled()
-    -- Autosave must not re-arm an alert the user disabled — it only touches graph + layout.
+    -- Autosave must not re-arm an alert the user disabled - it only touches graph + layout.
     local doc = Store.Empty()
     local id = seedAlert(self, doc, "alpha", false)
     Store.UpdateAlertGraph(doc, id, graphWithOneNode(self.registry), {})
@@ -801,7 +801,7 @@ function TestStore:testPlaceholderRoundTripsLosslesslyWhileTypeAbsent()
     local first = Store.RestoreAll(bucketWithUnknownNode(), self.registry)[1]
 
     -- Re-persist the restored (placeholder-bearing) graph exactly as the editor autosave loop
-    -- would — the unknown node must re-emit its ORIGINAL type + controls verbatim.
+    -- would - the unknown node must re-emit its ORIGINAL type + controls verbatim.
     local doc = Store.Empty()
     Store.InsertEntry(doc, Store.NewAlertEntry(first.id, first.name, first.graph, first.layout, first.enabled))
     local reloaded = saveAndReload(doc)
@@ -822,7 +822,7 @@ function TestStore:testKnownNodesStillFireAlongsideAPlaceholder()
 end
 
 -- Once the missing type is registered again, the same saved bucket loads the REAL node with its
--- original controls + wiring — no placeholder remains.
+-- original controls + wiring - no placeholder remains.
 function TestStore:testPlaceholderRestoresToRealNodeWhenTypeReturns()
     self.registry:RegisterNodeType("action.overlay", {
         category = "action",
@@ -877,7 +877,7 @@ function TestStore:testPlayerKeyNormalizesDisplayName()
     luaunit.assertEquals(Store.PlayerKey("Zezima"), "player_zezima")
     -- Cosmetic case/whitespace variants collapse to the same key so they can't orphan a bucket.
     luaunit.assertEquals(Store.PlayerKey("Ze  ZIMA "), Store.PlayerKey("ze zima"))
-    -- No `watchdog_` prefix — PersistentDB is already plugin-scoped (#81).
+    -- No `watchdog_` prefix - PersistentDB is already plugin-scoped (#81).
     luaunit.assertStrContains(Store.PlayerKey("A"), "player_")
     luaunit.assertNil(string.find(Store.PlayerKey("A"), "watchdog"))
 end

@@ -112,7 +112,7 @@ function ObjectMarkerCapture:Arm(nodeId, pinName, onCommit)
     self.nodeId, self.pinName, self.onCommit = nodeId, pinName, onCommit
     local capture = self
     local channel = self.eventSource and self.eventSource.MiniMenuReady
-    -- LOAD-BEARING print() — do NOT remove (undocumented client quirk): a same-scope print() is
+    -- LOAD-BEARING print() - do NOT remove (undocumented client quirk): a same-scope print() is
     -- required before touching an event-source channel + :Subscribe, or the client hard-crashes.
     -- See CLAUDE.md "Three ways to hard-crash the client" (#3) / memory client-event-param-crash.
     print()
@@ -154,7 +154,7 @@ function ObjectMarkerCapture:_unsubscribe()
     local channel = self.eventSource and self.eventSource.MiniMenuReady
     if channel ~= nil and channel.Unsubscribe ~= nil then
         pcall(function()
-            -- LOAD-BEARING print() — do NOT remove. Same client quirk as the Subscribe side: a
+            -- LOAD-BEARING print() - do NOT remove. Same client quirk as the Subscribe side: a
             -- same-scope print() is required before touching the channel + :Unsubscribe.
             -- See CLAUDE.md "Three ways to hard-crash the client" (#3) / memory client-event-param-crash.
             print()

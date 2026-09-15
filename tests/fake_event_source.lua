@@ -1,6 +1,6 @@
 -- A fake client `Event` global for tests: records every Subscribe/Unsubscribe and lets a
 -- test push a raw event through a named channel synchronously. Mirrors the shape runtime.lua
--- expects from `Event` — `source.<Channel>.Subscribe(name, fn)` / `.Unsubscribe(name)` — via
+-- expects from `Event` - `source.<Channel>.Subscribe(name, fn)` / `.Unsubscribe(name)` - via
 -- a metatable that lazily creates and caches each channel's API table on first index, just
 -- like the client's real `Event` global already has every channel present.
 --
@@ -42,7 +42,7 @@ local function newFakeEventSource()
         end
     end
 
-    -- Total number of Subscribe calls ever made on `name` — used to assert the reverse-index
+    -- Total number of Subscribe calls ever made on `name` - used to assert the reverse-index
     -- fan-out subscribes a channel exactly once regardless of how many node types/nodes bind.
     function harness:SubscribeCount(name)
         local channel = channels[name]

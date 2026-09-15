@@ -1,4 +1,4 @@
--- runtime.lua — trigger Event Subscribe/Unsubscribe dispatcher (BindTrigger, injectable sources).
+-- runtime.lua - trigger Event Subscribe/Unsubscribe dispatcher (BindTrigger, injectable sources).
 -- Live alerts: Entry `id` is persistence identity (unique within a Bucket); `name` is free-text
 -- and not unique. Name-targeted SetEnabled/Toggle act on every match; persistence writes by `id`.
 -- Bucket keys: `global` (always armed) and `player_<normalized>` (arm/disarm with login).
@@ -144,7 +144,7 @@ function Runtime:_bindActivityTracking()
         return
     end
     local runtime = self
-    -- LOAD-BEARING print() — do NOT remove (undocumented client-API quirk, measured in-client):
+    -- LOAD-BEARING print() - do NOT remove (undocumented client-API quirk, measured in-client):
     -- reading an injected event-source channel and calling :Subscribe in the same scope hard-crashes
     -- the client unless a print() executes in that scope first. Looks like a stray debug line; it
     -- isn't. Every event-source Subscribe/Unsubscribe site needs it. See CLAUDE.md "Three ways to hard-crash the client" (#3) / memory client-event-param-crash.
@@ -163,7 +163,7 @@ function Runtime:_bindLifecycle()
         return
     end
     local runtime = self
-    -- LOAD-BEARING print() — do NOT remove. Without it, this GameStateChanged Subscribe hard-crashes
+    -- LOAD-BEARING print() - do NOT remove. Without it, this GameStateChanged Subscribe hard-crashes
     -- the client on plugin load (this was the #89 crash: the function was copied from
     -- _bindActivityTracking above but dropped its print()). See CLAUDE.md "Three ways to hard-crash the client" (#3) / memory client-event-param-crash.
     print()
@@ -304,7 +304,7 @@ function Runtime:Update(dt)
     self.effects:Update(dt)
 end
 
--- Interface units — use this, not raw Mouse.GetPosition (ui/iface_scale.lua).
+-- Interface units - use this, not raw Mouse.GetPosition (ui/iface_scale.lua).
 ---@return number|nil x
 ---@return number|nil y
 function Runtime:GetMousePos()
@@ -325,7 +325,7 @@ function Runtime:_pollMouseActivity()
     end
     local ix, iy = IfaceScale.ToInterface(pos.x, pos.y)
     local last = self._lastMousePos
-    -- The first poll only establishes a baseline — there's nothing to compare yet, so it
+    -- The first poll only establishes a baseline - there's nothing to compare yet, so it
     -- must not itself count as "activity" (a plugin load/reload isn't a mouse movement).
     if last ~= nil and (ix ~= last.x or iy ~= last.y) then
         self.mouseActivityTick = self.mouseActivityTick + 1
@@ -467,7 +467,7 @@ function Runtime:_ancestorsEnabled(id)
     return result ~= false
 end
 
--- Persist by Entry id, `global` Bucket only — ids are unique within a Bucket, not across them.
+-- Persist by Entry id, `global` Bucket only - ids are unique within a Bucket, not across them.
 ---@param alert { id: integer|nil, bucketKey: string }
 ---@param enabled boolean
 function Runtime:_persistEnabled(alert, enabled)
@@ -573,7 +573,7 @@ function Runtime:_dispatch(eventName, raw)
         end
         if transformOk then
             if binding.kind == "poll" then
-                -- Nil sample (unreadable source): freeze edge state — no spurious Leave/relog-Enter.
+                -- Nil sample (unreadable source): freeze edge state - no spurious Leave/relog-Enter.
                 if payload ~= nil then
                     self:_firePollBinding(binding, payload)
                 end

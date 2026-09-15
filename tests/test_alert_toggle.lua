@@ -1,12 +1,12 @@
 -- Exercises the action.alert_toggle node (nodes/actions/alert_toggle.lua, #35) through a real
 -- LibNodeGraph Graph plus a fake runtime standing in for runtime.lua's alert store. The node
--- has enable/disable/toggle exec-in pins (the std.gate idiom, all terminating — no exec-out) and
+-- has enable/disable/toggle exec-in pins (the std.gate idiom, all terminating - no exec-out) and
 -- a free-text `target` string naming the alert to affect. Firing each pin must flip the target
 -- alert's enabled state through runtime:SetEnabled / runtime:Toggle.
 
 local luaunit = require("luaunit")
 local AlertToggle = require("nodes/actions/alert_toggle")
--- Real engine (LibNodeGraph, on package.path — see tests/run.lua), so run() is exercised
+-- Real engine (LibNodeGraph, on package.path - see tests/run.lua), so run() is exercised
 -- through a genuine ctx rather than a fabricated one (mirrors test_infobox_node).
 local Registry = require("registry")
 local Graph = require("graph")
@@ -52,7 +52,7 @@ function TestAlertToggleRegistration:testRegistersActionAlertToggle()
         byName[pin.name] = pin
         if pin.kind == "exec" and pin.direction == "out" then execOutCount = execOutCount + 1 end
     end
-    -- Three exec-in pins, the std.gate idiom (all terminate — mutate then fire nothing).
+    -- Three exec-in pins, the std.gate idiom (all terminate - mutate then fire nothing).
     for _, name in ipairs({ "enable", "disable", "toggle" }) do
         luaunit.assertEquals(byName[name].kind, "exec")
         luaunit.assertEquals(byName[name].direction, "in")
@@ -102,7 +102,7 @@ function TestAlertToggleRun:testToggleFlipsTargetEnabled()
 end
 
 function TestAlertToggleRun:testSelfTargetingByOwnName()
-    -- A graph toggling itself just names itself in the target control — no special path.
+    -- A graph toggling itself just names itself in the target control - no special path.
     local id = self:add("Self") -- starts true
     self.graph:FireInput(id, "disable")
     luaunit.assertFalse(self.runtime.enabled["Self"])

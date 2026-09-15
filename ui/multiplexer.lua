@@ -1,4 +1,4 @@
--- multiplexer.lua — one prettyui.Window host; Push/Pop surfaces inside window.content.
+-- multiplexer.lua - one prettyui.Window host; Push/Pop surfaces inside window.content.
 -- Overlay Layer is a sibling of the window (full-screen capture/palette). Show/Close is
 -- independent of stack depth (F8/ribbon/close hide without clearing the stack).
 
@@ -155,7 +155,7 @@ function Multiplexer:Mount(parent)
 
     -- Register the overlay with PrettyUI's window overlay list so Show / title-drag end
     -- re-MoveToFront it after the window root (and titleDrag). Without this, Window:Show
-    -- and title ONCLICK leave the window above the overlay — Editor capture never receives
+    -- and title ONCLICK leave the window above the overlay - Editor capture never receives
     -- content clicks, and the palette Canvas draws behind the chrome.
     if self.window._RegisterOverlay ~= nil then
         pcall(function()
@@ -166,7 +166,7 @@ function Multiplexer:Mount(parent)
     end
 
     -- Start hidden (Close = hide; destroyOnClose false). Overlay is a sibling of the window
-    -- root, so Close alone does not cover it — hide it explicitly or Editor capture can
+    -- root, so Close alone does not cover it - hide it explicitly or Editor capture can
     -- intercept game input while the shell is tucked away.
     self._visible = false
     self.window:Close()
@@ -351,7 +351,7 @@ function Multiplexer:SetVisible(v)
             pcall(function() top:OnShellHide() end)
         end
         -- Hide overlay first so Editor capture (mounted there) cannot eat clicks while the
-        -- shell is closed. Do not flip surface SetVisible — keeps pan/zoom across F8 and
+        -- shell is closed. Do not flip surface SetVisible - keeps pan/zoom across F8 and
         -- lets Show restore the same top without resetView side effects.
         if self._overlay ~= nil then
             pcall(function() self._overlay.hidden = true end)

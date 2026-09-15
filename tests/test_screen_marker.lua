@@ -10,7 +10,7 @@ _G.Vector4 = _G.Vector4 or { new = function(r, g, b, a) return { r, g, b, a } en
 local luaunit = require("luaunit")
 local ScreenMarker = require("nodes/actions/screen_marker")
 local EffectRegistry = require("effects")
--- Real engine (LibNodeGraph, on package.path — see tests/run.lua), so run() is exercised
+-- Real engine (LibNodeGraph, on package.path - see tests/run.lua), so run() is exercised
 -- through a genuine ctx rather than a fabricated one.
 local Registry = require("registry")
 local Graph = require("graph")
@@ -59,7 +59,7 @@ end
 
 --- run(): fired through a REAL LibNodeGraph, so ctx is the engine's genuine run context rather
 --- than a hand-built stand-in. A fabricated ctx can only ever agree with the code's own
---- assumptions — that is exactly how the original ctx.pin/ctx.exec divergence slipped through.
+--- assumptions - that is exactly how the original ctx.pin/ctx.exec divergence slipped through.
 --- (See CONTEXT.md: node behavior is verified against a real Graph.) ------------------------
 
 TestScreenMarkerRun = {}

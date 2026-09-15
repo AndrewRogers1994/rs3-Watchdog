@@ -1,7 +1,7 @@
--- store.lua — PersistentDB Buckets and the Entry tree (LibNodeGraph never touches persistentdb).
+-- store.lua - PersistentDB Buckets and the Entry tree (LibNodeGraph never touches persistentdb).
 --
 -- One Bucket per scope: `{ version, entries, infoboxAnchor }` under an un-prefixed key
--- (`global` or `player_<normalized>` — PersistentDB is already plugin-scoped).
+-- (`global` or `player_<normalized>` - PersistentDB is already plugin-scoped).
 --
 -- `id` is identity: every op keys on `id`, never `name` (display text, not unique). Alerts
 -- carry Serialize `graph` + `layout`; groups carry `children`. Layout is an array of
@@ -27,7 +27,7 @@ end
 --- Persisted schema -----------------------------------------------------------------------
 
 ---@class Watchdog.Entry
----@field id integer                               # minted identity — the key every op uses
+---@field id integer                               # minted identity - the key every op uses
 ---@field kind "alert"|"group"                     # leaf (alert) vs branch (group)
 ---@field name string                              # display text; NOT unique
 ---@field enabled boolean                          # whether this entry fires (alert) / its subtree (group)
@@ -119,7 +119,7 @@ local function walk(entries, fn)
     end
 end
 
--- max(id)+1. Mint, then insert, before minting again — two mints on the same tree collide.
+-- max(id)+1. Mint, then insert, before minting again - two mints on the same tree collide.
 ---@param doc Watchdog.Bucket
 ---@return integer
 function Store.MintId(doc)
@@ -249,7 +249,7 @@ function Store.LiftEntry(doc, id)
     else
         local grand = Store.FindById(doc, newParentId)
         if grand == nil or grand.kind ~= "group" then
-            -- Destination vanished mid-op — put the entry back where it was.
+            -- Destination vanished mid-op - put the entry back where it was.
             table.insert(siblings, index, entry)
             return false
         end
@@ -505,7 +505,7 @@ function Store.RestoreAll(doc, registry)
                 enabled = normalizeEnabled(entry.enabled),
             }
         elseif log ~= nil then
-            log("Watchdog: skipping unrestorable alert '" .. tostring(entry.name) .. "' — " .. tostring(graph))
+            log("Watchdog: skipping unrestorable alert '" .. tostring(entry.name) .. "' - " .. tostring(graph))
         end
     end
     return restored
@@ -555,7 +555,7 @@ function Store.LoadKey(key)
     if c == nil then return Store.Empty() end
     local ok, doc = pcall(function() return c.decode(text) end)
     if not ok or type(doc) ~= "table" then
-        if log ~= nil then log("Watchdog: saved bucket '" .. tostring(key) .. "' unreadable, starting fresh — " .. tostring(doc)) end
+        if log ~= nil then log("Watchdog: saved bucket '" .. tostring(key) .. "' unreadable, starting fresh - " .. tostring(doc)) end
         return Store.Empty()
     end
     doc.version = doc.version or DOC_VERSION

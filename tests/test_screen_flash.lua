@@ -1,5 +1,5 @@
 -- Exercises action.screen_flash's pure shaping/dismiss-on math (#37) in isolation, the same
--- way ui/color.lua's math is tested without a client — ScreenFlash.AlphaAt/ShouldAutoDismiss
+-- way ui/color.lua's math is tested without a client - ScreenFlash.AlphaAt/ShouldAutoDismiss
 -- take/return plain values, no Canvas/Graph/Registry involved. The Register/run wiring against
 -- a real LibNodeGraph Graph is exercised only in-client (LibNodeGraph is an external sibling
 -- dependency not present under this standalone harness -- see CLAUDE.md and the other

@@ -184,7 +184,7 @@ function Node.BuildGeometry(pins, x, y, width, opts)
             if pinControl.Inline then
                 -- Start the box past the label instead of at a fixed reserve, so it can't cover long
                 -- labels like "contains"/"soundId". Measured with real font metrics (Theme.TextWidth)
-                -- at the zoom-1 label size — geometry is Graph-space at zoom 1 — falling back to a
+                -- at the zoom-1 label size - geometry is Graph-space at zoom 1 - falling back to a
                 -- per-char estimate when unavailable.
                 local label = pin.label or pin.name or ""
                 local labelW = Theme.TextWidth(12, label) or (#label * Theme.CONTROL_LABEL_CHAR_W)
@@ -334,14 +334,14 @@ function Node.Draw(canvas, view, geom, meta, opts)
     end
 
     -- Control value boxes. Skipped when zoomed too far out to read, and the box currently
-    -- being edited is skipped entirely — the transient InputField/ComboField covers it. A
+    -- being edited is skipped entirely - the transient InputField/ComboField covers it. A
     -- composite Control (#25) contributes several boxes sharing one pinName, so the "is this
-    -- the one being edited" check also matches kind/axis — otherwise opening the editor on
+    -- the one being edited" check also matches kind/axis - otherwise opening the editor on
     -- one coordgrid field would blank out its whole band.
     --
     -- Each box's paint is the Widget's own (ADR-0005 #63 render seam): the Node projects the
     -- graph-space rect to screen, computes `hot`, and hands both to the Pin Control's Draw with a
-    -- small draw-context (dctx) — there is NO `kind`/`widget` branch here. The Node keeps only what
+    -- small draw-context (dctx) - there is NO `kind`/`widget` branch here. The Node keeps only what
     -- is genuinely its own: the row/View transform and the isEditingThis skip (the transient editor
     -- overlay is an Editor concern, not the control's). The Widget never sees `view`/ToScreen/Scale.
     if view.zoom >= Theme.CONTROL_MIN_ZOOM then

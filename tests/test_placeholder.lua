@@ -1,6 +1,6 @@
 -- Exercises ui/placeholder.lua's stub reconstruction (#53): a placeholder node has no real
 -- pins, so its editor geometry is rebuilt from the wires touching it, with each stub's kind /
--- dataType inferred from the OTHER (known) end of the wire — neutral when that end is itself a
+-- dataType inferred from the OTHER (known) end of the wire - neutral when that end is itself a
 -- placeholder.
 --
 -- Placeholders are made the real way: deserialize a serialized graph that names an unregistered

@@ -1,4 +1,4 @@
--- export.lua — copy-paste transfer envelope `{ schemaVersion, pluginVersion, entries }`.
+-- export.lua - copy-paste transfer envelope `{ schemaVersion, pluginVersion, entries }`.
 -- TreeEntry `id` is omitted on export. Import is append-only (never merge-by-name):
 -- decode → reject a forward schemaVersion → mint ids → migrate → append at scope root.
 
@@ -43,7 +43,7 @@ local function codec()
 end
 
 -- Deep-copies an Entry (or ExportEntry) subtree with TreeEntry `id` fields removed. Graph /
--- layout node ids are left untouched — they are graph-local and referenced by layout.
+-- layout node ids are left untouched - they are graph-local and referenced by layout.
 ---@param entry Watchdog.Entry|Watchdog.ExportEntry
 ---@return Watchdog.ExportEntry
 function Export.StripIds(entry)
@@ -259,7 +259,7 @@ function Export.Import(doc, text, opts)
 
     minted = migrateEntries(envelope.schemaVersion, minted)
 
-    -- Append only after materialize+migrate succeed — import is atomic.
+    -- Append only after materialize+migrate succeed - import is atomic.
     for _, entry in ipairs(minted) do
         Store.InsertEntry(doc, entry, nil)
     end

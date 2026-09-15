@@ -28,7 +28,7 @@ end
 
 function TestUtil:testNormalizeFoldsUtf8NonBreakingSpace()
     -- The same non-breaking space encoded as the UTF-8 two-byte sequence 0xC2 0xA0 must fold whole
-    -- — folding only 0xA0 would leave a stray 0xC2 and a *different* key (the orphan we prevent).
+    -- - folding only 0xA0 would leave a stray 0xC2 and a *different* key (the orphan we prevent).
     luaunit.assertEquals(Util.NormalizePlayerName("Ze\194\160Zima"), "ze zima")
     luaunit.assertEquals(Util.NormalizePlayerName("Ze\194\160Zima"), Util.NormalizePlayerName("Ze Zima"))
 end

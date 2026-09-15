@@ -93,7 +93,7 @@ function TestRuntime:testIdentityPayloadWhenTransformOmitted()
 end
 
 -- Registers a trigger whose run() records "run" into `order` and republishes ctx.payload on
--- the `value` pin — shared by the two order/gating tests below, which each supply their own
+-- the `value` pin - shared by the two order/gating tests below, which each supply their own
 -- `order` table and transform/filter pair to bind against it.
 local function registerPipedTrigger(registry, order)
     registry:RegisterNodeType("fixture.piped", {
@@ -358,7 +358,7 @@ end
 --- Alert model: all-graphs-live fan-out + enable/disable (#27, #86) -----------------------
 
 -- A fake persistence hook standing in for the Store wiring: records every SetEnabled call and
--- exposes the last-known flag per Entry *id* (persistence keys on id, not name — #86) so a test
+-- exposes the last-known flag per Entry *id* (persistence keys on id, not name - #86) so a test
 -- can assert the runtime persisted the change.
 local function newFakePersistence()
     local fake = { calls = {}, state = {} }
@@ -373,7 +373,7 @@ function TestRuntime:testTriggerFiresInAllEnabledAlertsNotJustOne()
     registerEchoTrigger(self.registry, "fixture.echo")
     self.runtime:BindTrigger("fixture.echo", { { event = "Custom" } })
 
-    -- Two independent live graphs, each an enabled alert — mirrors two saved alert graphs.
+    -- Two independent live graphs, each an enabled alert - mirrors two saved alert graphs.
     local graphA = Graph.new(self.registry)
     local graphB = Graph.new(self.registry)
     self.runtime:SetGraph(nil) -- clear the setUp single-graph alert
@@ -441,7 +441,7 @@ function TestRuntime:testToggleReturnsNilForUnknownAlert()
 end
 
 function TestRuntime:testSetEnabledReturnsFalseAndPersistsNothingForUnknownName()
-    -- A stale name (post-rename) has no live alert — and thus no Entry id to key persistence on,
+    -- A stale name (post-rename) has no live alert - and thus no Entry id to key persistence on,
     -- so nothing is written. Firing is unaffected (nothing live matches).
     local fake = newFakePersistence()
     self.runtime:SetPersistence(fake)
@@ -493,7 +493,7 @@ function TestRuntime:testToggleFlipsEachMatchIndependently()
     local aId = graphA:AddNode("fixture.echo")
     local bId = graphB:AddNode("fixture.echo")
 
-    -- Each match inverts its *own* state — the mix stays mixed-but-inverted, no shared target.
+    -- Each match inverts its *own* state - the mix stays mixed-but-inverted, no shared target.
     luaunit.assertEquals(self.runtime:Toggle("dup"), 2)
     luaunit.assertEquals(fake.state[1], false) -- was on  -> off
     luaunit.assertEquals(fake.state[2], true)  -- was off -> on
@@ -571,7 +571,7 @@ function TestRuntime:testEnabledResolverSuppressesFiringForDescendantsOfADisable
     registerEchoTrigger(self.registry, "fixture.echo")
     self.runtime:BindTrigger("fixture.echo", { { event = "Custom" } })
 
-    -- Alert 1 sits under a disabled group, alert 2 under an enabled one — modelled by a resolver
+    -- Alert 1 sits under a disabled group, alert 2 under an enabled one - modelled by a resolver
     -- that reports ancestor-enabled per Entry id (what Store.AncestorsEnabled provides live).
     self.runtime:SetEnabledResolver(function(id) return id ~= 1 end)
 
@@ -643,7 +643,7 @@ function TestRuntime:testNoResolverFiresAsBefore()
 end
 
 function TestRuntime:testResolverErrorFailsOpenSoOneBadGateCannotSilenceEverything()
-    -- A resolver that raises must not take down dispatch — fire-time gating is lenient like the
+    -- A resolver that raises must not take down dispatch - fire-time gating is lenient like the
     -- transform/filter fan-out, so the alert still fires.
     registerEchoTrigger(self.registry, "fixture.echo")
     self.runtime:BindTrigger("fixture.echo", { { event = "Custom" } })
@@ -735,7 +735,7 @@ function TestRuntime:testStopUnsubscribesAllChannels()
     self.runtime:Stop()
     self.source:Push("Custom", "second")
 
-    -- Unchanged since Stop — the dispatcher never saw the second push.
+    -- Unchanged since Stop - the dispatcher never saw the second push.
     luaunit.assertEquals(self.graph:GetLastValue(nodeId, "payload"), "first")
 end
 

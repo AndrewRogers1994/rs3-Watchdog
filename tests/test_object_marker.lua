@@ -11,7 +11,7 @@ _G.Vector4 = _G.Vector4 or { new = function(r, g, b, a) return { r, g, b, a } en
 local luaunit = require("luaunit")
 local ObjectMarker = require("nodes/actions/object_marker")
 local EffectRegistry = require("effects")
--- Real engine (LibNodeGraph, on package.path — see tests/run.lua), so run() is exercised
+-- Real engine (LibNodeGraph, on package.path - see tests/run.lua), so run() is exercised
 -- through a genuine ctx rather than a fabricated one.
 local Registry = require("registry")
 local Graph = require("graph")

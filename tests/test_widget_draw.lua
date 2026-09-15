@@ -1,7 +1,7 @@
 -- Widget draw (ADR-0005 / #63, the render seam): each Widget owns its Canvas drawing at an
 -- already-projected screen rect. These drive every Widget's Draw through a recording canvas and
--- assert the PRIMITIVE SHAPE the render seam promises — empty swatch = one box, filled = checker +
--- fill, checked mode row = box + two tick lines, dropdown = a caret triangle — without asserting
+-- assert the PRIMITIVE SHAPE the render seam promises - empty swatch = one box, filled = checker +
+-- fill, checked mode row = box + two tick lines, dropdown = a caret triangle - without asserting
 -- pixels (cf. test_popup's makeFakeCanvas note). Colors resolve through Vector4/ui.TextDataConfig
 -- at draw time, so both are stubbed here exactly as the other draw suites stub Vector4.
 
@@ -56,7 +56,7 @@ end
 
 function TestSwatchDraw:testFilledValueCheckersThenFills()
     -- A set color paints the checkerboard (many cell rects, so alpha reads) then the fill rect on
-    -- top — strictly more rects than the empty case — still one framing outline.
+    -- top - strictly more rects than the empty case - still one framing outline.
     local canvas, calls = makeFakeCanvas()
     Swatch.Draw(canvas, RECT, { value = { r = 255, g = 0, b = 16, a = 128 } }, dctx(false, nil))
     luaunit.assertTrue(calls.rects > 1)   -- checker cells + fill
@@ -89,7 +89,7 @@ function TestCheckboxDraw:testDisabledRowNeverTicksEvenIfStoredTrue()
     -- A disabled row is inert: even a stored `true` shows no tick (the enabled gate in the Widget).
     local canvas, calls = makeFakeCanvas()
     Checkbox.Draw(canvas, RECT,
-        { enabled = false, axis = "hull", value = { hull = true }, display = "Hull — needs render API" },
+        { enabled = false, axis = "hull", value = { hull = true }, display = "Hull - needs render API" },
         dctx(false, 1))
     luaunit.assertEquals(calls.lines, 0)
 end
@@ -105,12 +105,12 @@ function TestCheckboxDraw:testLabelClipBoxIsTheGapBeforeTheTickNotMeasuredWidth(
     end
     local rect = { x = 0, y = 0, w = 230, h = 16 }
     Checkbox.Draw(canvas, rect,
-        { enabled = false, axis = "hull", value = {}, display = "Hull — needs render API" },
+        { enabled = false, axis = "hull", value = {}, display = "Hull - needs render API" },
         dctx(false, 1))
     local boxSz = rect.h * 0.72
     local boxX = rect.w - Theme.CONTROL_PAD_X - boxSz
     luaunit.assertEquals(recorded.w, boxX - Theme.CONTROL_PAD_X - Theme.CONTROL_PAD_X)
-    luaunit.assertEquals(recorded.text, "Hull — needs render API")
+    luaunit.assertEquals(recorded.text, "Hull - needs render API")
 end
 
 --- dropdown Widget draw (enum) ------------------------------------------------------------

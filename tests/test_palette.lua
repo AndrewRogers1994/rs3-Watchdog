@@ -4,7 +4,7 @@
 _G.Vector4 = { new = function(r, g, b, a) return { r, g, b, a } end }
 _G.id = { Font = setmetatable({}, { __index = function() return 1 end }) }
 -- Theme.TextWidth measures via config.Font[name]:GetStringWidth; stub a deterministic
--- (if unrealistic) metric — 7px/byte — so panel-width tests can assert exact numbers.
+-- (if unrealistic) metric - 7px/byte - so panel-width tests can assert exact numbers.
 _G.config = { Font = setmetatable({}, { __index = function()
     return { GetStringWidth = function(_, text) return #text * 7 end }
 end }) }
@@ -164,7 +164,7 @@ function TestPalette:testDrawShowsInlineDescriptionOnLiveNodeType()
     local rowH, pad, px, py = Theme.PALETTE_ROW_H, Theme.PALETTE_PAD, 10, 10
     -- Row order within the trigger group is alphabetical by displayName; "Client Tick" sorts
     -- after "Alarm" (row 2) and the interleaved unavailable "Overhead Text"/
-    -- "Sound Fired" — but we don't need its exact index: assert the drawn call carried a
+    -- "Sound Fired" - but we don't need its exact index: assert the drawn call carried a
     -- typeKey-bearing item row by finding it back through the rows list.
     local found
     for _, r in ipairs(self.palette.rows) do

@@ -1,4 +1,4 @@
--- coordgrid Pin Control (ADR-0005 / #58) driven through a FAKE HOST — the tracer-bullet test.
+-- coordgrid Pin Control (ADR-0005 / #58) driven through a FAKE HOST - the tracer-bullet test.
 --
 -- Good tests exercise external behavior through the highest available seam, not implementation
 -- details. For a Pin Control that seam is the host: a test drives a realistic press->commit
@@ -10,7 +10,7 @@
 
 local luaunit = require("luaunit")
 local CoordGrid = require("ui/controls/coordgrid")
--- The fake host is the Editor-side analogue of driving a node against a real Graph — a minimal,
+-- The fake host is the Editor-side analogue of driving a node against a real Graph - a minimal,
 -- real-shaped stand-in for the Editor's few capabilities (read the stored Control, commit a new
 -- one, mount a transient field), so the interface the test drives is the same one the in-client
 -- Editor drives. Shared across all the Pin Control tests (tests/fake_control_host.lua).
@@ -99,7 +99,7 @@ TestCoordgridGrab = {}
 function TestCoordgridGrab:setUp()
     -- Stub the client Player global for the grab-position call the Pin Control makes itself.
     -- The client Player global is called by dot (Player.IsAvailable() / Player.GetEntity()), so
-    -- the stub's functions take no self — matching the in-client contract the Pin Control uses.
+    -- the stub's functions take no self - matching the in-client contract the Pin Control uses.
     self.savedPlayer = _G.Player
     local player = { available = true }
     player.IsAvailable = function() return player.available end

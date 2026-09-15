@@ -23,7 +23,7 @@ function Mode.new(modes)
         return nil
     end
 
-    -- (a) The band height reserved below the pin row for the checkbox rows — one place, keyed off
+    -- (a) The band height reserved below the pin row for the checkbox rows - one place, keyed off
     -- the row count so an added/removed mode resizes the band automatically.
     ---@return number
     function M.ReservedHeight(_pin)
@@ -49,7 +49,7 @@ function Mode.new(modes)
     end
 
     -- (c) A row's label. Enabled rows show the plain label; a disabled row appends its reason
-    -- (" — needs render API"), the unavailable-node idiom the Node draws dimmed. `ctrl` is one
+    -- (" - needs render API"), the unavailable-node idiom the Node draws dimmed. `ctrl` is one
     -- sub-rect from Layout, its axis naming the row.
     ---@param ctrl table
     ---@return string
@@ -57,7 +57,7 @@ function Mode.new(modes)
         local m = descriptor(ctrl.axis)
         if m == nil then return tostring(ctrl.axis) end
         if not m.enabled and m.reason then
-            return m.label .. " — " .. m.reason
+            return m.label .. " - " .. m.reason
         end
         return m.label
     end

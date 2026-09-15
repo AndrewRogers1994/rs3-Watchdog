@@ -1,5 +1,5 @@
 -- Shared fake host for Pin Control tests (ADR-0005). A Pin Control reaches the Editor only through
--- the host SEAM — read/commit the Pin's stored Control value, mount a transient field or dropdown —
+-- the host SEAM - read/commit the Pin's stored Control value, mount a transient field or dropdown -
 -- and this is the test-side adapter of that seam: the Editor-side analogue of driving a node
 -- against a real Graph. It records every Commit and captures the mounted field/dropdown callback so
 -- a test can "type" or "pick" and then assert the value COMMITTED, exercising a Pin Control through
@@ -28,7 +28,7 @@ end
 
 -- Records a commit. `commitCount` is tracked separately from the `commits` array because a
 -- committed value may legitimately be nil (an enum's "None"), and nil can't be appended to a Lua
--- array — so a test asserting "a commit happened" checks commitCount, not #commits.
+-- array - so a test asserting "a commit happened" checks commitCount, not #commits.
 function FakeHost:Commit(value)
     self.committed = value
     self.commitCount = self.commitCount + 1
@@ -64,7 +64,7 @@ function FakeHost:Type(raw, quantity)
 end
 
 -- Drive a selection through the mounted dropdown, as the real host does on ONSELECTIONCHANGED:
--- hand the Pin Control the picked label (the one field ComboField reports reliably — ADR-0004).
+-- hand the Pin Control the picked label (the one field ComboField reports reliably - ADR-0004).
 function FakeHost:Pick(label)
     assert(self.mounted ~= nil and self.mounted.kind == "dropdown", "no dropdown mounted")
     self.mounted.onSelect(label)

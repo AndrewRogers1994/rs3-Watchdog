@@ -2,12 +2,12 @@
 -- representative `SkillTransmit` events are pushed through a fake event source and the tests
 -- assert which node fires (via a downstream counter wired to its `out` pin) and its data
 -- outputs. Both nodes bind `Event.SkillTransmit` and share one `transform`, so a single event
--- can satisfy both discriminants at once (an XP gain that also changes gameplay level) — the
+-- can satisfy both discriminants at once (an XP gain that also changes gameplay level) - the
 -- combined-fire test proves the shared dispatch feeds both.
 --
 -- Skill ids are the raw `SkillType` member values the client delivers on `SkillTransmit.skill`
--- (0..28, see runescape-api-stubs game/player.lua). The node keeps them as ids — the enum
--- Control (Controls.Register("skill", …)) supplies the human labels — so no `SkillType` global
+-- (0..28, see runescape-api-stubs game/player.lua). The node keeps them as ids - the enum
+-- Control (Controls.Register("skill", …)) supplies the human labels - so no `SkillType` global
 -- stub is needed here; the tests reference ids by a small local alias for readability.
 
 local luaunit = require("luaunit")

@@ -33,7 +33,7 @@ ObjectMarker.MODES = {
     { key = "clickbox", label = "Clickbox", enabled = false, reason = "needs render API" },
 }
 
--- Fine units per grid tile — a tile spans 512 fine units on each axis (see CoordFine docs / the
+-- Fine units per grid tile - a tile spans 512 fine units on each axis (see CoordFine docs / the
 -- DevTools overlay corner offsets).
 local TILE_FINE = 512
 
@@ -42,7 +42,7 @@ local TILE_FINE = 512
 -- The four corners of the tile at `coord` ({ x, z, level } grid), in screen space, via the injected
 -- `project(level, fineX, fineZ) -> { x, y } | nil`. Corners walk the tile CCW from its base fine
 -- origin, adding {0,0},{512,0},{512,512},{0,512}. Returns nil if `coord` is nil OR any single
--- corner is unavailable (off-screen / world not loaded) — a partial outline is never drawn (AC:
+-- corner is unavailable (off-screen / world not loaded) - a partial outline is never drawn (AC:
 -- nil / !IsAvailable -> nothing, no clamp).
 ---@param coord { x: integer, z: integer, level: integer|nil }|nil  # the marked tile (grid units)
 ---@param project fun(level: integer, fineX: number, fineZ: number): { x: number, y: number }|nil
@@ -139,7 +139,7 @@ end
 -- The uniform { kind, state, update(dt) -> alive, draw(canvas) } handle EffectRegistry holds.
 -- `update` accumulates elapsed time; a non-sticky handle reports dead once past the TTL (default
 -- 5s), a sticky one stays alive forever (only Dismiss removes it). `draw` re-projects and redraws
--- every frame — the tile is world-anchored, so its screen position changes as the camera moves.
+-- every frame - the tile is world-anchored, so its screen position changes as the camera moves.
 ---@param spec Watchdog.ObjectMarker.Spec|nil
 function ObjectMarker.BuildHandle(spec, project)
     spec = spec or {}
@@ -222,7 +222,7 @@ function ObjectMarker.Register(registry, runtime)
             end
 
             -- Idempotent/Replace, keyed by this node's own persistent state table (Stack capped at
-            -- 1) — re-Show evicts this node's still-live handle first; different nodes stack.
+            -- 1) - re-Show evicts this node's still-live handle first; different nodes stack.
             dismiss()
 
             local object = ctx:In("object")

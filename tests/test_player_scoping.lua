@@ -1,13 +1,13 @@
 -- Exercises runtime.lua's player-scoping + armed/resident lifecycle (#89) through its injected
 -- seams: the fake event source (fake_event_source.lua) drives `GameStateChanged`, a fake identity
 -- source stands in for the client `Player` read, and a fake Bucket loader stands in for
--- Store.LoadKey + Store.RestoreAll. No client globals are touched — this is the headless proof
+-- Store.LoadKey + Store.RestoreAll. No client globals are touched - this is the headless proof
 -- the acceptance criteria call for.
 --
 -- The model under test: `global` is armed at plugin start and never disarmed; a character Bucket
 -- arms on the GAME transition (identity resolved deferred, on a Logic tick), disarms but stays
 -- resident on leaving GAME, and is discarded+reloaded only on a genuine character switch. The fire
--- predicate is exactly *armed Bucket AND enabled* — nothing else.
+-- predicate is exactly *armed Bucket AND enabled* - nothing else.
 
 local luaunit = require("luaunit")
 local Registry = require("registry")
@@ -16,7 +16,7 @@ local Runtime = require("runtime")
 local newFakeEventSource = require("fake_event_source")
 
 -- GameState.GAME (30, docs core/events.html) and an arbitrary non-GAME state standing in for a
--- logout / world-hop / reconnect — the runtime treats every non-GAME newState identically (leave
+-- logout / world-hop / reconnect - the runtime treats every non-GAME newState identically (leave
 -- GAME → disarm), so the exact value doesn't matter to it.
 local GAME = 30
 local NOT_GAME = 20 -- LOBBY; any newState ~= GAME behaves the same
@@ -90,7 +90,7 @@ function TestPlayerScoping:login(displayName)
     self.runtime:Update(0.02)
 end
 
--- Leaves GAME (logout / world-hop / reconnect). Does not clear the identity name — a world-hop
+-- Leaves GAME (logout / world-hop / reconnect). Does not clear the identity name - a world-hop
 -- keeps the same character; a test that models a real logout clears it separately.
 function TestPlayerScoping:leaveGame()
     self.source:Push("GameStateChanged", { newState = NOT_GAME })
@@ -180,7 +180,7 @@ function TestPlayerScoping:testIdentityResolvesDeferredOnLogicTick()
     self.identity.name = "Alice"
     self.source:Push("GameStateChanged", { newState = GAME })
 
-    -- The GAME callback only raised the flag — nothing loaded yet.
+    -- The GAME callback only raised the flag - nothing loaded yet.
     luaunit.assertEquals(#self.loader.calls, 0)
     self.source:Push("Custom", "before-tick")
     luaunit.assertNil(g:GetLastValue(nid, "payload"))
@@ -207,7 +207,7 @@ end
 
 function TestPlayerScoping:testColdStartResolvesInWorldOnConstruction()
     -- A plugin reload mid-session gets no GameStateChanged: construction must poll once and, if
-    -- in-world, raise the same pending flag — one code path, drained on the first Update tick.
+    -- in-world, raise the same pending flag - one code path, drained on the first Update tick.
     local source = newFakeEventSource()
     local identity = newFakeIdentity("Alice") -- already in-world at construction
     local runtime = Runtime.new(source.source, nil, identity)
@@ -321,7 +321,7 @@ end
 function TestPlayerScoping:testRenameOrphansOldBucketNoAdoption()
     -- No stable account id: a rename is indistinguishable from a fresh alt. "Alicia" resolves to a
     -- different normalized key, so the old "alice" bucket is discarded (orphaned on disk) and a
-    -- fresh bucket loads — no adoption of the old one (#77 §3).
+    -- fresh bucket loads - no adoption of the old one (#77 §3).
     self:seedCharacterAlert("alice", 1, "a", true)
     self:seedCharacterAlert("alicia", 2, "b", true)
 
@@ -335,7 +335,7 @@ function TestPlayerScoping:testRenameOrphansOldBucketNoAdoption()
     luaunit.assertEquals(self.loader.calls, { "alice", "alicia" })
 end
 
---- Fire predicate: exactly *armed Bucket AND enabled* — nothing else ----------------------
+--- Fire predicate: exactly *armed Bucket AND enabled* - nothing else ----------------------
 
 function TestPlayerScoping:testArmedButDisabledDoesNotFire()
     local g, nid = self:seedCharacterAlert("alice", 1, "a", true)

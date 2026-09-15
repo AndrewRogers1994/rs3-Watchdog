@@ -1,11 +1,11 @@
--- manager.lua — Alert Manager: scope tabs + Entry tree (PrettyUI chrome, native tree Panel).
+-- manager.lua - Alert Manager: scope tabs + Entry tree (PrettyUI chrome, native tree Panel).
 --
 -- Native tree mounts under `mux:Content()`; PrettyUI chrome uses `mux:Window():Add*` so
 -- Layout.manage owns teardown (unmanaged `prettyui.*.new` under a Layer hard-crashes on
--- poff — see .memory/spritebutton-teardown-crash.md). Tabs are strip-height only — a
+-- poff - see .memory/spritebutton-teardown-crash.md). Tabs are strip-height only - a
 -- full-height Tabs paints empty page content over the tree. Mid-session rebuild Destroys
 -- managed widgets while the window stays alive (Layout.remove); Stop/Unmount only clears
--- Lua refs (mux window Destroy owns native teardown — Destroying Tabs then the window
+-- Lua refs (mux window Destroy owns native teardown - Destroying Tabs then the window
 -- double-frees after Show).
 
 local Theme = require("ui/theme")
@@ -46,7 +46,7 @@ Manager.__index = Manager
 ---@field onBulkMove fun(scopeKey: string, destScopeKey: string, ids: integer[])|nil
 ---@field onExportEntries fun(scopeKey: string, ids: integer[]|nil): boolean, string  # nil ids = whole scope; err or json
 ---@field onImportJson fun(scopeKey: string, text: string): boolean, Watchdog.ImportReport|string
----@field windowParent fun(): any|nil  # parent Layer for the transfer Window (mux.rootLayer — plugin-owned)
+---@field windowParent fun(): any|nil  # parent Layer for the transfer Window (mux.rootLayer - plugin-owned)
 
 ---@param opts Watchdog.ManagerOpts|nil
 ---@return table
@@ -585,7 +585,7 @@ function Manager:_remountTransfer()
     self:_mountTransfer()
 end
 
--- Tear down the open transfer Window only — keeps `self.transfer` so remount can rebuild.
+-- Tear down the open transfer Window only - keeps `self.transfer` so remount can rebuild.
 function Manager:_destroyTransfer()
     local win = self.transferWindow
     self.transferWindow = nil
@@ -715,7 +715,7 @@ function Manager:_destroyTree()
     end
 end
 
--- Live rebuild only — not Unmount/Stop (must not Destroy before mux window Destroy).
+-- Live rebuild only - not Unmount/Stop (must not Destroy before mux window Destroy).
 function Manager:_destroyTabs()
     self:_destroyToolbar()
     self:_destroyBulkBar()
@@ -936,7 +936,7 @@ function Manager:_endRename(commit)
     pcall(function() field:Destroy() end)
 end
 
--- Content-local coords on layoutHost (treePanel is native — not a Layout host).
+-- Content-local coords on layoutHost (treePanel is native - not a Layout host).
 ---@param id integer
 ---@param name string
 ---@param x number
@@ -1041,7 +1041,7 @@ local function isShiftDown()
     return shift
 end
 
--- Tabs has no trailing-actions API (only TabPage is a ContentMethods host) — AddFancyButton + abs coords.
+-- Tabs has no trailing-actions API (only TabPage is a ContentMethods host) - AddFancyButton + abs coords.
 function Manager:_mountToolbar()
     if self.layoutHost == nil or self.layoutHost.AddFancyButton == nil then return end
     if prettyui == nil or prettyui.FancyButton == nil then return end
@@ -1102,7 +1102,7 @@ function Manager:_mountToolbar()
     if group ~= nil then self.toolbarButtons[#self.toolbarButtons + 1] = group end
 end
 
--- Transfer Window under mux-owned root Layer so poff/Stop tears it down — never parent to the game area.
+-- Transfer Window under mux-owned root Layer so poff/Stop tears it down - never parent to the game area.
 function Manager:_mountTransfer()
     if self.transfer == nil then return end
     if prettyui == nil or prettyui.Window == nil then return end
@@ -1299,7 +1299,7 @@ function Manager:_rebuild()
     self.treeTop = treeTop
 
     -- Tree: sibling of Tabs under contentParent, below the tab strip (and bulk bar when raised).
-    -- Do NOT assign scrollable — read-only on ComponentCollection; writing it aborts the pcall
+    -- Do NOT assign scrollable - read-only on ComponentCollection; writing it aborts the pcall
     -- and leaves no tree.
     local rowW = math.max(40, w - 2 * Theme.MANAGER_PAGE_PAD)
     local treeH = math.max(40, h - treeTop - Theme.MANAGER_PAGE_PAD)
@@ -1351,7 +1351,7 @@ function Manager:_rebuild()
         local upX = selectX + Theme.MANAGER_SELECT_W + Theme.MANAGER_ROW_GAP
         local downX = upX + Theme.MANAGER_REORDER_W + Theme.MANAGER_ROW_GAP
         local liftX = downX + Theme.MANAGER_REORDER_W + Theme.MANAGER_ROW_GAP
-        -- Horizontal ui.Panel auto-layouts children (ADR-0007) — SetPos X is ignored. Indent by
+        -- Horizontal ui.Panel auto-layouts children (ADR-0007) - SetPos X is ignored. Indent by
         -- inserting a spacer before the name button; size it so spacer + layout gap + nameW
         -- equals baseNameW and the Rename column stays put across depths.
         local indent = (row.depth or 0) * Theme.MANAGER_ROW_INDENT
@@ -1612,7 +1612,7 @@ function Manager:SetVisible(v)
     end
     setChildVisible(self.treePanel, self.visible)
     setChildVisible(componentRoot(self.renameField), self.visible)
-    -- Transfer is its own Window under the game root — close it when the Manager tucks away.
+    -- Transfer is its own Window under the game root - close it when the Manager tucks away.
     if not self.visible then
         self:CloseTransfer()
     end
@@ -1631,14 +1631,14 @@ end
 -- Stop/Unmount must NOT :Destroy() Tabs/tree/toolbar. Those are children of the mux
 -- prettyui.Window content; api.Stop then calls mux:Destroy() which Destroy()s the window
 -- and its content tree. Destroying Tabs first, then the window, double-frees realized
--- components and freezes/crashes after the window has been shown. Clear Lua refs only —
+-- components and freezes/crashes after the window has been shown. Clear Lua refs only -
 -- the window Destroy owns native teardown. Mid-session rebuild still uses _destroyTree /
 -- _destroyToolbar / _destroyTabs while the window stays alive.
 function Manager:Unmount()
     self.pendingDeleteId = nil
     self.pendingBulkDelete = false
     self:_endRename(false)
-    -- Transfer Window lives under the game root (not mux content) — Destroy it on Stop.
+    -- Transfer Window lives under the game root (not mux content) - Destroy it on Stop.
     self:CloseTransfer()
     self.toolbarButtons = {}
     self.bulkBarButtons = {}

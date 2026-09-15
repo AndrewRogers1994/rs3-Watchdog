@@ -1,4 +1,4 @@
--- Canvas has no native curve — tessellate a cubic into AddLine segments.
+-- Canvas has no native curve - tessellate a cubic into AddLine segments.
 
 local Theme = require("ui/theme")
 

@@ -32,7 +32,7 @@ end
 --- Ordered box set -------------------------------------------------------------------------
 
 -- Inserts `owner`'s tile, or rewrites it in place if it already exists (its flow slot is
--- preserved — a re-update never reorders). `fields` is { text, color, icon, title }, each
+-- preserved - a re-update never reorders). `fields` is { text, color, icon, title }, each
 -- optional; text defaults to "".
 function InfoBox:Set(owner, fields)
     fields = fields or {}
@@ -59,7 +59,7 @@ function InfoBox:Count()
     return #self.order
 end
 
--- The owner keys in insertion order (a fresh copy — callers can't mutate the internal list).
+-- The owner keys in insertion order (a fresh copy - callers can't mutate the internal list).
 function InfoBox:Order()
     local out = {}
     for i, owner in ipairs(self.order) do out[i] = owner end
@@ -116,7 +116,7 @@ function InfoBox:_columns()
     return cols
 end
 
--- Screen rects for every tile in flow order: { owner, box, x, y, w, h }. Pure — nothing here
+-- Screen rects for every tile in flow order: { owner, box, x, y, w, h }. Pure - nothing here
 -- reads or mutates draw/hover state, so BoxAt/Bounds/Draw all just call it.
 function InfoBox:Layout()
     local size = Theme.INFOBOX_BOX_SIZE
@@ -212,7 +212,7 @@ end
 --- Click-capture mount (client-only; untested under the standalone Lua harness) -----------
 -- The overlay Canvas effects.lua mounts is `clickthrough = true` (Canvas drawables are inert,
 -- CONTEXT.md's Capture Layer note), so dragging the strip needs its own small clickable
--- component — same alpha-0 ui.Button + ONCLICK/ONRELEASE idiom ui/graph.lua's own Capture
+-- component - same alpha-0 ui.Button + ONCLICK/ONRELEASE idiom ui/graph.lua's own Capture
 -- Layer uses (`mousePos()` there), sized to the strip's current Bounds rather than the whole
 -- screen since this capture must never swallow clicks meant for the game or the editor.
 
@@ -254,7 +254,7 @@ function InfoBox:Mount(rootParent)
         self._capture = capture
         self:Reposition()
     elseif log ~= nil then
-        log("Watchdog infobox: Mount failed — " .. tostring(capture))
+        log("Watchdog infobox: Mount failed - " .. tostring(capture))
     end
 end
 
@@ -268,7 +268,7 @@ end
 -- Also fronts it above every sibling (notably the editor's own Capture Layer, mounted after
 -- ours) so crossing into the editor's area during a drag can't steal the hover and drop the
 -- grab. main.lua restores the editor's z-order on drag end (Editor:RaiseToFront), so this
--- front-ing is scoped to the drag — the idle strip-sized capture never out-ranks the editor.
+-- front-ing is scoped to the drag - the idle strip-sized capture never out-ranks the editor.
 function InfoBox:_expandCapture()
     if self._capture == nil then return end
     pcall(function()
@@ -285,7 +285,7 @@ function InfoBox:Unmount()
     end
 end
 
--- Resizes/repositions the capture layer to the strip's current on-screen Bounds — called once
+-- Resizes/repositions the capture layer to the strip's current on-screen Bounds - called once
 -- per Logic tick (main.lua, alongside runtime:Update) since Bounds shift as tiles are added or
 -- removed. An empty area (no live tiles) shrinks the capture to nothing so it can't sit over
 -- the game or editor with nothing to actually drag.
@@ -340,7 +340,7 @@ function InfoBox:Draw(canvas, hoverX, hoverY)
             canvas:AddRectangle(r.x + r.w - t, r.y, t, r.h, bv)
         end)
         if box.icon ~= nil then
-            -- AddSprite(x, y, w, h, spriteID, colourRGBA) — stretch the icon to fill the tile
+            -- AddSprite(x, y, w, h, spriteID, colourRGBA) - stretch the icon to fill the tile
             -- (see docs/research/popup-frame-sprites.md; no built-in 9-slice). Untinted white.
             pcall(function() canvas:AddSprite(r.x, r.y, r.w, r.h, box.icon, 0xFFFFFFFF) end)
         end

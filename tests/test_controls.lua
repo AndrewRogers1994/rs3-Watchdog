@@ -1,7 +1,7 @@
 -- controls.lua is the Type-Tag → Pin Control registry (ADR-0005). After #61 deleted the passive
 -- Control Spec path, its whole surface is: Register(tag, descriptor) auto-wires a Pin Control by
 -- widget kind, RegisterPinControl(tag, module) registers a composite band's module directly, and
--- PinControlFor(tag) resolves the module (nil for an unregistered tag — ADR-0004's "no Pin Control,
+-- PinControlFor(tag) resolves the module (nil for an unregistered tag - ADR-0004's "no Pin Control,
 -- no Control" rule). These tests exercise that the built-ins and the descriptor kinds each land a
 -- Pin Control, and that the per-kind config (an enum's choices) reaches it via its Display.
 

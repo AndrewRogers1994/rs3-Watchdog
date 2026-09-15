@@ -1,5 +1,5 @@
 -- Exercises the action.infobox node (nodes/actions/infobox.lua, #41) through a fake registry
--- + fake ctx driving a real ui/infobox.lua InfoBox Area — no LibNodeGraph required, matching
+-- + fake ctx driving a real ui/infobox.lua InfoBox Area - no LibNodeGraph required, matching
 -- test_popup's convention (a real EffectRegistry driven through a fake registry/ctx).
 
 _G.Vector4 = _G.Vector4 or { new = function(r, g, b, a) return { r, g, b, a } end }
@@ -7,7 +7,7 @@ _G.Vector4 = _G.Vector4 or { new = function(r, g, b, a) return { r, g, b, a } en
 local luaunit = require("luaunit")
 local InfoBoxNode = require("nodes/actions/infobox")
 local InfoBox = require("ui/infobox")
--- Real engine (LibNodeGraph, on package.path — see tests/run.lua), so run() is exercised
+-- Real engine (LibNodeGraph, on package.path - see tests/run.lua), so run() is exercised
 -- through a genuine ctx rather than a fabricated one.
 local Registry = require("registry")
 local Graph = require("graph")
@@ -58,7 +58,7 @@ function TestInfoBoxNodeRegistration:testIconChoicesIncludeNoneAndAreCurated()
 end
 
 -- Run tests fire through a REAL LibNodeGraph, so ctx is the engine's genuine run context (a
--- fabricated ctx can only agree with the code's own assumptions — how the ctx.pin/ctx.exec
+-- fabricated ctx can only agree with the code's own assumptions - how the ctx.pin/ctx.exec
 -- divergence slipped through). The tile owner is the node's real integer id (ctx.nodeId).
 TestInfoBoxNodeRun = {}
 

@@ -62,7 +62,7 @@ function TestModeDisplay:testEnabledRowShowsPlainLabel()
 end
 
 function TestModeDisplay:testDisabledRowAppendsReason()
-    luaunit.assertEquals(mode.Display(modeCtrl("hull", nil)), "Hull — needs render API")
+    luaunit.assertEquals(mode.Display(modeCtrl("hull", nil)), "Hull - needs render API")
 end
 
 --- Press: toggle enabled rows read-modify-write, disabled rows inert ----------------------

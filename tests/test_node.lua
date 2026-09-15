@@ -139,7 +139,7 @@ TestPlaceholderGeometry = {}
 -- per-exec-in test buttons (FireInput would assert on a pin the engine can't resolve).
 function TestPlaceholderGeometry:setUp()
     -- One exec input stub (would normally spawn a test button) + one data input stub (would
-    -- normally spawn a Control box) + one output — none of the interactive parts should appear.
+    -- normally spawn a Control box) + one output - none of the interactive parts should appear.
     self.pins = {
         { name = "gate", kind = "exec", direction = "in", label = "gate" },
         { name = "amount", kind = "data", direction = "in", dataType = "number", label = "amount" },
@@ -167,7 +167,7 @@ function TestPlaceholderGeometry:testStubsStillLayOutAsPins()
     luaunit.assertEquals(self.geom.byName.result.direction, "out")
 end
 
--- A non-placeholder node with the same exec-in/data-in pins DOES get the interactive parts —
+-- A non-placeholder node with the same exec-in/data-in pins DOES get the interactive parts -
 -- proof the suppression is the flag's doing, not an accident of these pins.
 function TestPlaceholderGeometry:testNonPlaceholderSamePinsGetsControlsAndTestButtons()
     local geom = Node.BuildGeometry(self.pins, 0, 0, Theme.NODE_WIDTH)
@@ -189,7 +189,7 @@ function TestSwatchGeometry:testOneSwatchControlIsProduced()
     local ctrl = self.geom.controls[1]
     luaunit.assertEquals(ctrl.pinName, "tint")
     -- `kind` names the row for press/hit-test; how the chip PAINTS is the swatch Widget's Draw
-    -- (#63), routed through the Pin Control — no separate "widget" hint on the sub-rect anymore.
+    -- (#63), routed through the Pin Control - no separate "widget" hint on the sub-rect anymore.
     luaunit.assertEquals(ctrl.kind, "swatch")
 end
 
@@ -230,8 +230,8 @@ function TestSwatchGeometry:testConnectedPinReservesNoSwatchControl()
 end
 
 -- #59/#60: the migrated tags (number/string scalars, the bool enum, the matcher, the color swatch,
--- and the screen/object capture) must route to their Pin Control — every geom.controls entry carries
--- `pinControl` — so buildGeoms/beginPress delegate to the module and never reach the old `kind`/spec
+-- and the screen/object capture) must route to their Pin Control - every geom.controls entry carries
+-- `pinControl` - so buildGeoms/beginPress delegate to the module and never reach the old `kind`/spec
 -- switches for these tags.
 TestMigratedControlRouting = {}
 
@@ -266,7 +266,7 @@ end
 
 function TestMigratedControlRouting:testSwatchPinCarriesAPinControl()
     -- The `color` tag is registered by ui/controls.lua itself (loaded via Node), so its swatch Pin
-    -- Control is already wired — the chip routes through the module, not the old kind == "swatch" path.
+    -- Control is already wired - the chip routes through the module, not the old kind == "swatch" path.
     local geom = Node.BuildGeometry({ inPin("tint", "color") }, 0, 0, Theme.NODE_WIDTH)
     luaunit.assertEquals(#geom.controls, 1)
     luaunit.assertNotNil(geom.controls[1].pinControl)

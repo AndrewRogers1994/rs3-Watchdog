@@ -34,7 +34,7 @@ end
 
 -- Opens the popup anchored near (anchorX, anchorY) (the clicked chip's screen position),
 -- seeded from `value` (falls back to opaque white when there's no stored Control or pin
--- default to show — an arbitrary but harmless starting point, since nothing commits until
+-- default to show - an arbitrary but harmless starting point, since nothing commits until
 -- the user actually drags or types something). `codec` is the hex format/parse table the swatch
 -- Pin Control hands in (its Widget's Color hex8 round-trip), so the hex field's display and commit
 -- go through it without the popup knowing anything about Controls.
@@ -82,7 +82,7 @@ function ColorPopup:Parse(raw, current)
     return current
 end
 
--- A fresh copy of the working color (never the live internal table — a caller must not be able
+-- A fresh copy of the working color (never the live internal table - a caller must not be able
 -- to mutate the popup's state through the returned value).
 function ColorPopup:Value()
     return { r = self.value.r, g = self.value.g, b = self.value.b, a = self.value.a }
@@ -169,8 +169,8 @@ end
 --- Hit-testing (uses the rect from the last Draw) -----------------------------------------
 
 -- The part under a screen point: "close" | "sv" | "hue" | "hex" | "r" | "g" | "b" | "a" |
--- "other" (padding/prev-cur chips/header — inert, click keeps the popup open) | nil (Draw
--- hasn't run, or the point is outside the panel entirely — caller treats this as "outside").
+-- "other" (padding/prev-cur chips/header - inert, click keeps the popup open) | nil (Draw
+-- hasn't run, or the point is outside the panel entirely - caller treats this as "outside").
 function ColorPopup:PartAt(sx, sy)
     local r = self.rect
     if not self.open or r == nil then return nil end
@@ -206,7 +206,7 @@ end
 
 -- Draws the panel clamped fully inside the Viewport rect (vx,vy,vw,vh), records `self.rect`
 -- for hit-testing, and returns nothing. `opts.hexEditing` skips the hex box's own text (a
--- real transient InputField sits over it instead — same convention as Node.Draw's Control
+-- real transient InputField sits over it instead - same convention as Node.Draw's Control
 -- boxes skipping their own text while being edited).
 function ColorPopup:Draw(canvas, vx, vy, vw, vh, mx, my, opts)
     if not self.open then return end

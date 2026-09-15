@@ -1,7 +1,7 @@
 -- Exercises the two clock triggers (#52) through the same dispatch seam test_chat.lua uses:
 -- a real Registry + Graph + Runtime.new(fakeEventSource), the node file registered, the
 -- trigger's `out` wired into a fixture "mark" node, then synthetic `Logic` / `ServerLogic`
--- events pushed through the fake source. Nothing hand-builds a ctx — behaviour is observed
+-- events pushed through the fake source. Nothing hand-builds a ctx - behaviour is observed
 -- through the real engine, so the interval-gating in `run` and the ctx.state counter are
 -- exercised exactly as the client would drive them.
 

@@ -1,5 +1,5 @@
 -- Exercises action.sound (#33 retrofit) through a fake registry + fake ctx and a stubbed
--- `audio` global — no LibNodeGraph required, matching test_infobox_node's convention (a plain
+-- `audio` global - no LibNodeGraph required, matching test_infobox_node's convention (a plain
 -- Register/run wiring test needs no real Graph, since ctx:In is all `run` touches).
 
 _G.id = _G.id or {}

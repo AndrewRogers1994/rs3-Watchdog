@@ -55,7 +55,7 @@ function CoordGrid.Display(ctrl)
 end
 
 -- (e) Engine binding: read-modify-write one axis of the stored table, preserving the others.
--- An empty/whitespace/unparsable edit yields (current, false) — the empty-box guard, so a
+-- An empty/whitespace/unparsable edit yields (current, false) - the empty-box guard, so a
 -- mid-edit blank field can't clobber sibling axes (the number Widget's Parse returns nil there).
 -- `quantity` is the field's own suffix-aware number, preferred over re-parsing `raw`.
 ---@param current table|nil
@@ -98,7 +98,7 @@ end
 
 -- Overwrites the whole {x,z,level} table in one shot from the live player position. Reading the
 -- position is a plain client-API call (ADR-0005: not a host capability); only IsAvailable() is
--- guarded — a documented state check, not a client-global existence check (Player is present at
+-- guarded - a documented state check, not a client-global existence check (Player is present at
 -- load; see the pcall-defensive-style convention). Silent no-op when the player is unavailable.
 ---@param host ControlHost
 function CoordGrid.GrabCurrentPosition(host)
@@ -110,7 +110,7 @@ function CoordGrid.GrabCurrentPosition(host)
 end
 
 -- (f) Draw one sub-rect: a "field" is a plain number box (NumberField), the "action" an action
--- button (Button). Same kind discriminator Display/Press use, now internal to this composite —
+-- button (Button). Same kind discriminator Display/Press use, now internal to this composite -
 -- the Node calls this once per sub-rect with an already-projected screen rect + draw context.
 ---@param canvas any
 ---@param rect { x: number, y: number, w: number, h: number }

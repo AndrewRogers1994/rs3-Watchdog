@@ -1,5 +1,5 @@
 -- Exercises action.custom_sound (#33) through a fake registry + fake ctx and a stubbed
--- `Plugin.resources`/`audio` global — same convention as test_sound.lua, no LibNodeGraph
+-- `Plugin.resources`/`audio` global - same convention as test_sound.lua, no LibNodeGraph
 -- required since `run`/`preload` only touch ctx:In/ctx:GetControl.
 
 local luaunit = require("luaunit")

@@ -1,5 +1,5 @@
 -- Exercises toast.lua's ToastStack through its pure logic seam: Show/Dismiss/Update
--- against a real EffectRegistry (in-memory, no Canvas needed — mirrors test_effects.lua) plus
+-- against a real EffectRegistry (in-memory, no Canvas needed - mirrors test_effects.lua) plus
 -- the anchor drag/persistence math. Canvas drawing (_drawHandle) and the client-only capture
 -- mount are intentionally not asserted here, same convention as effects.lua's own Mount/Draw.
 

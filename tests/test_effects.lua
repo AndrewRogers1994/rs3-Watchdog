@@ -1,6 +1,6 @@
 -- Exercises effects.lua's EffectRegistry through its pure logic seam: Update/Dismiss/Clear
 -- against hand-built effect handles ({ kind, state, update(dt) -> alive, draw(canvas), onDone }).
--- Canvas drawing is a client primitive (ui.Canvas) and is intentionally not asserted here — a
+-- Canvas drawing is a client primitive (ui.Canvas) and is intentionally not asserted here - a
 -- handle's draw is just recorded as called, never asserted against real pixels (#29 AC).
 
 local luaunit = require("luaunit")
@@ -200,7 +200,7 @@ function TestEffects:testBeginFrameLeavesHandlesUntouched()
 end
 
 function TestEffects:testBeginFrameIsANoOpWithNoCanvas()
-    -- Unmounted (canvas nil) and no override passed — must not error.
+    -- Unmounted (canvas nil) and no override passed - must not error.
     self.registry:BeginFrame()
 end
 

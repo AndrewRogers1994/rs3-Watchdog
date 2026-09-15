@@ -1,5 +1,5 @@
 -- scalar Pin Control (ADR-0005 / #59) driven through the shared FAKE HOST. The scalar factory
--- builds the `number` and `string` Type Tags from one code path — the only difference is the
+-- builds the `number` and `string` Type Tags from one code path - the only difference is the
 -- codec + filter, and the empty-box behavior that difference produces: number guards an empty box
 -- (leave the stored value alone), string commits it verbatim (clearing the field). Both are driven
 -- here through the same press->type->commit seam the in-client Editor uses.
@@ -78,7 +78,7 @@ function TestScalarString:testCommitsTextVerbatim()
 end
 
 function TestScalarString:testEmptyBoxCommitsAnEmptyString()
-    -- Clearing a text field is a real edit (unlike a numeric axis) — it commits "" rather than
+    -- Clearing a text field is a real edit (unlike a numeric axis) - it commits "" rather than
     -- snapping back to the previous text.
     local host = FakeHost.new("old")
     text.Press(host, fieldCtrl("old"))

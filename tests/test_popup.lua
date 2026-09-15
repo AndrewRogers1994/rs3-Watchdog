@@ -4,7 +4,7 @@
 -- pushing a Queue-only effect handle onto a real EffectRegistry.
 --
 -- The Canvas draw is a client primitive (ui.Canvas / id.Sprite) and is intentionally not
--- asserted here — the handle's draw is only exercised for not-erroring against a fake canvas,
+-- asserted here - the handle's draw is only exercised for not-erroring against a fake canvas,
 -- never against real pixels, matching test_effects' convention. No LibNodeGraph is required:
 -- the node's `run` is driven through a fake registry + fake ctx + a real EffectRegistry, so
 -- this file runs standalone even where the engine isn't deployed.
@@ -92,7 +92,7 @@ end
 function TestPopup:testDrawIsInvokedThroughRegistryWithoutPropagatingErrors()
     -- The real safety net is EffectRegistry:Draw wrapping each handle's draw (a bad frame
     -- can't kill sibling effects). Drive the popup handle through it with a recording canvas
-    -- and assert nothing propagates — pixels themselves are never asserted (test_effects AC).
+    -- and assert nothing propagates - pixels themselves are never asserted (test_effects AC).
     local effects = EffectRegistry.new()
     local h = Popup.BuildHandle({ body = "hi", title = "Nice", hold = 4 })
     effects:PushQueue(Popup.OWNER, h)
@@ -103,8 +103,8 @@ function TestPopup:testDrawIsInvokedThroughRegistryWithoutPropagatingErrors()
 end
 
 function TestPopup:testAddSpriteColoursAreUintNotVector4()
-    -- Regression (#47): ui.Canvas:AddSprite's colour arg is a Uint RGBA — there is no Vector4
-    -- overload — so a Vector4 there renders nothing. Drive both sprite paths (the 3-part frame
+    -- Regression (#47): ui.Canvas:AddSprite's colour arg is a Uint RGBA - there is no Vector4
+    -- overload - so a Vector4 there renders nothing. Drive both sprite paths (the 3-part frame
     -- ribbon and the left icon) and assert every colour handed to AddSprite is a number.
     _G.id = _G.id or {}
     Popup.RegisterTheme("sprite_regression", {
@@ -198,7 +198,7 @@ function TestPopup:testRegistersActionPopupWithBodyPinAndNoDismiss()
     -- `body` is the one wire-able data input; title/icon/theme/hold ride along as node-config
     -- (this engine stores per-node config only as data-input pin Controls, ADR-0004). The AC
     -- that this node *can* enforce is opting out of the dismiss idiom: no `dismiss` pin and no
-    -- exec output — it auto-expires, so there's nothing to dismiss or chain from.
+    -- exec output - it auto-expires, so there's nothing to dismiss or chain from.
     local byName, hasDismiss, hasExecOut = {}, false, false
     for _, pin in ipairs(desc.pins) do
         byName[pin.name] = pin

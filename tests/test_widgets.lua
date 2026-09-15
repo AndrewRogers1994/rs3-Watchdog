@@ -1,6 +1,6 @@
 -- Widget primitives (ADR-0005): generic, engine-agnostic input primitives under ui/widgets/.
 -- These are pure value-in -> value-out tests: a Widget owns its own value codec (number field)
--- or its config + hit-testing (button), and depends only on Theme/Color/ui.* — never on a Pin
+-- or its config + hit-testing (button), and depends only on Theme/Color/ui.* - never on a Pin
 -- Control, the Editor, the Store, or the engine. The dependency rule is asserted directly below
 -- so a stray require of a forbidden module surfaces here rather than at a future extraction.
 
@@ -34,7 +34,7 @@ end
 
 function TestNumberFieldParse:testEmptyStringIsNoValue()
     -- Empty/whitespace means "nothing to commit" (nil), so a caller leaves its stored value
-    -- alone rather than clobbering it with 0 — the empty-box guard that motivated ADR-0005.
+    -- alone rather than clobbering it with 0 - the empty-box guard that motivated ADR-0005.
     luaunit.assertNil(NumberField.Parse("", nil))
     luaunit.assertNil(NumberField.Parse("   ", nil))
 end
@@ -225,7 +225,7 @@ end
 
 --- Dependency rule: ui/widgets/ files require only Theme/Color/ui.* -----------------------
 -- A Widget must not reach into a Pin Control, the Editor, the Store, the runtime, or the
--- engine — that isolation is what keeps a future UI-library extraction a move, not a rewrite
+-- engine - that isolation is what keeps a future UI-library extraction a move, not a rewrite
 -- (ADR-0005). Scanning the source for a forbidden require is deterministic regardless of what
 -- other suites have loaded into package.loaded, so it stays a real guard in the full run.
 

@@ -37,7 +37,7 @@ end
 
 function TestEnumSelect:testNilValuedNoneCommitsNil()
     -- The "None" choice's value is nil, but picking it is a REAL commit (commitCount rises), not a
-    -- dropped pick — the Widget's `found` flag is what distinguishes the two.
+    -- dropped pick - the Widget's `found` flag is what distinguishes the two.
     local host = FakeHost.new(431)
     iconEnum.Press(host, fieldCtrl(431))
     host:Pick("None")
@@ -85,7 +85,7 @@ function TestEnumLayout:testInlineSingleFieldRect()
     luaunit.assertEquals(boolEnum.ReservedHeight({}), 0)
     local rects = boolEnum.Layout({ x = 0, y = 0, w = 60, h = 16 })
     luaunit.assertEquals(#rects, 1)
-    -- The dropdown caret is the dropdown Widget's own draw (#63), so the sub-rect is a plain field —
+    -- The dropdown caret is the dropdown Widget's own draw (#63), so the sub-rect is a plain field -
     -- it carries no "enum" hint for node.lua to branch on.
     luaunit.assertEquals(rects[1].kind, "field")
 end

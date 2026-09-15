@@ -1,5 +1,5 @@
 -- swatch Pin Control (ADR-0005 / #60) driven through the shared FAKE HOST. Unlike the editable
--- controls the swatch edits nothing itself — the whole edit is the Color Popup — so the behavior
+-- controls the swatch edits nothing itself - the whole edit is the Color Popup - so the behavior
 -- under test is: pressing the chip OPENS the popup through the host and hands it a working hex
 -- codec, and the chip's geometry/display project the stored color the way the Node draws it.
 
@@ -24,7 +24,7 @@ function TestSwatchPress:testPressOpensTheColorPopup()
     local host = FakeHost.new(RED)
     swatch.Press(host, swatchCtrl(RED))
     luaunit.assertNotNil(host.openedPopup)
-    -- The swatch commits nothing itself — the popup owns the edit.
+    -- The swatch commits nothing itself - the popup owns the edit.
     luaunit.assertEquals(host.commitCount, 0)
 end
 

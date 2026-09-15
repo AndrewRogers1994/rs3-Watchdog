@@ -132,7 +132,7 @@ local function seedDemo()
     local function tryConnect(fromN, fromP, toN, toP)
         local id, reason = graph:Connect(fromN, fromP, toN, toP)
         if id == nil and log ~= nil then
-            log("Watchdog: demo connect failed — " .. tostring(reason))
+            log("Watchdog: demo connect failed - " .. tostring(reason))
         end
     end
 
@@ -158,7 +158,7 @@ do
     if ok and all ~= nil then
         restored = all
     elseif log ~= nil then
-        log("Watchdog: RestoreAll failed, seeding demo — " .. tostring(all))
+        log("Watchdog: RestoreAll failed, seeding demo - " .. tostring(all))
     end
     if #restored == 0 then
         local graph, layout = seedDemo()
@@ -673,7 +673,7 @@ manager = Manager.new({
     onBulkMove = onBulkMove,
     onExportEntries = onExportEntries,
     onImportJson = onImportJson,
-    -- Same owned Layer the main shell Window uses — dialog dies with mux.rootLayer on
+    -- Same owned Layer the main shell Window uses - dialog dies with mux.rootLayer on
     -- Stop / reload, instead of orphaning under the game area.
     windowParent = function()
         return mux ~= nil and mux.rootLayer or nil
@@ -787,7 +787,7 @@ local function onLogic()
                 if ok and mux:Content() ~= nil then
                     state.muxMounted = true
                 elseif log ~= nil and not ok then
-                    log("Watchdog: mux mount failed — " .. tostring(err))
+                    log("Watchdog: mux mount failed - " .. tostring(err))
                 end
             end
             if state.muxMounted then
@@ -802,7 +802,7 @@ local function onLogic()
                     if ok and editor.canvas ~= nil then
                         state.mounted = true
                     elseif log ~= nil and not ok then
-                        log("Watchdog: mount failed — " .. tostring(err))
+                        log("Watchdog: mount failed - " .. tostring(err))
                     end
                 end
                 if state.managerMounted and not state.rootPushed then
@@ -930,7 +930,7 @@ ribbon = prettyui.RibbonBar.Register({
 Watchdog = api
 print("Watchdog editor loaded")
 
--- ADR-0008: PersistentDB writes work here. Do not Destroy UI — client tears the tree down after.
+-- ADR-0008: PersistentDB writes work here. Do not Destroy UI - client tears the tree down after.
 function PluginShutdown()
     pcall(persistNow)
     ribbon:Destroy()

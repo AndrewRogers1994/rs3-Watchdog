@@ -60,7 +60,7 @@ function TestExport:testEncodeOmitsEntryIdsAndBuildsEnvelope()
     luaunit.assertNil(envelope.entries[1].id)
     luaunit.assertEquals(envelope.entries[1].name, "alpha")
     luaunit.assertEquals(envelope.entries[1].kind, "alert")
-    -- Graph node ids (and layout node ids) stay — only TreeEntry.id is stripped.
+    -- Graph node ids (and layout node ids) stay - only TreeEntry.id is stripped.
     luaunit.assertEquals(envelope.entries[1].layout[1].id, 1)
     luaunit.assertNotNil(envelope.entries[1].graph.nodes[1].id)
 end
@@ -210,7 +210,7 @@ function TestExport:testImportMintsIdsAppendsAtRootNeverMergesByName()
     local ok, report = Export.Import(doc, payload)
     luaunit.assertTrue(ok)
     luaunit.assertEquals(report.entryCount, 1)
-    -- Appended as a new root sibling — three roots, two named Slayer.
+    -- Appended as a new root sibling - three roots, two named Slayer.
     luaunit.assertEquals(#doc.entries, 3)
     luaunit.assertEquals(doc.entries[1].id, existing)
     luaunit.assertEquals(doc.entries[2].id, groupId)

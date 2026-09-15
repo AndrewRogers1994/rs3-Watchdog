@@ -141,7 +141,7 @@ function ScreenMarkerCapture:Mount(rootParent)
         self._capture = capture
         self:Reposition()
     elseif log ~= nil then
-        log("Watchdog screen_marker: Mount failed — " .. tostring(capture))
+        log("Watchdog screen_marker: Mount failed - " .. tostring(capture))
     end
 end
 

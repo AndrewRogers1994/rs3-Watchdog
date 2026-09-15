@@ -1,5 +1,5 @@
 -- Exercises the Player Chat trigger (`trigger.player_chat`, #56) against a REAL LibNodeGraph
--- driven through the fake event source + runtime dispatcher — never a hand-built ctx (see
+-- driven through the fake event source + runtime dispatcher - never a hand-built ctx (see
 -- CONTEXT.md *Testing node types*). Pushes ChatMessage payloads (chatMessage, chatType, and the
 -- placeholder chatSender) and asserts external behavior: whether `out` fires and what the
 -- `message`/`sender` outputs hold.

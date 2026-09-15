@@ -272,7 +272,7 @@ end
 
 function TestMuxVisibility:testHideCallsTopOnShellHideWithoutSurfaceHide()
     -- Shell hide must notify the top surface (palette/gesture cleanup) without flipping
-    -- surface SetVisible — pan/zoom and bound editor state survive F8.
+    -- surface SetVisible - pan/zoom and bound editor state survive F8.
     local shellHides = 0
     local a = fakeSurface("manager")
     local b = fakeSurface("editor")

@@ -2,7 +2,7 @@
 -- (insert / rewrite-in-place / remove-and-reflow), the horizontal-flow-with-wrap Layout,
 -- hit-testing (BoxAt / TooltipAt), the overall Bounds, and drag-as-unit anchor moves. Canvas
 -- drawing (ui.Canvas AddRectangle/AddSprite/AddText) is a client primitive and is not asserted
--- here, exactly like test_effects — only the geometry/state the node and draw loop depend on
+-- here, exactly like test_effects - only the geometry/state the node and draw loop depend on
 -- is (#41 AC).
 
 -- InfoBox.Draw resolves colors through Vector4 at draw time; stub it so requiring the module

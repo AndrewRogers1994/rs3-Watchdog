@@ -1,10 +1,10 @@
--- Exercises Editor:linkPins (ui/graph.lua) — the connection-commit path shared by Wire drops
+-- Exercises Editor:linkPins (ui/graph.lua) - the connection-commit path shared by Wire drops
 -- and Palette auto-connect. Focus: #3's toggle-off-on-duplicate and its ordering against the
 -- data-input single-connection replace. The full Editor is Canvas/immediate-mode and not
 -- unit-testable here, but linkPins only touches self.graph and self:connectionInto, so we drive
 -- it against a real engine Graph via a metatable-backed fake `self` (no Canvas mount needed).
 --
--- Client/UI globals the module builds colors/fonts from at load time — stubbed minimally so
+-- Client/UI globals the module builds colors/fonts from at load time - stubbed minimally so
 -- ui/graph (and its Theme/Palette/... requires) load under a standalone interpreter.
 _G.Vector4 = { new = function(r, g, b, a) return { r, g, b, a } end }
 _G.id = setmetatable({}, { __index = function() return setmetatable({}, { __index = function() return 1 end }) end })
@@ -62,7 +62,7 @@ function TestGraphEditor:testDuplicateExecWireTogglesOff()
 end
 
 -- #3 applies uniformly: re-committing the identical DATA wire also toggles off (it is not the
--- old invisible replace — the wire disappears).
+-- old invisible replace - the wire disappears).
 function TestGraphEditor:testDuplicateDataWireTogglesOff()
     local num = self.graph:AddNode("fixture.number")
     local act = self.graph:AddNode("fixture.action")
@@ -102,7 +102,7 @@ end
 
 --- Unbound construction + BindEntry (#80) -------------------------------------------------
 -- Editor.new(registry, runtime) constructs the surface with NO graph; the Manager binds one on
--- open. These drive the real (unmounted) Editor — construction touches no ui.* — so BindEntry's
+-- open. These drive the real (unmounted) Editor - construction touches no ui.* - so BindEntry's
 -- reset behavior is assertable headless.
 
 function TestGraphEditor:testConstructedUnbound()

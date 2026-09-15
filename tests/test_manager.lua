@@ -1,11 +1,11 @@
--- Exercises the Alert Manager's pure tree/scope/expand logic (ui/manager.lua) — the half that
+-- Exercises the Alert Manager's pure tree/scope/expand logic (ui/manager.lua) - the half that
 -- turns a Watchdog.Bucket tree into a flat visible-row list, tracks per-scope collapse state, and
 -- resolves the active scope against the injected provider. The mount/render half is client-only
 -- (ui.*) and not unit-testable here, exactly like the Editor's Canvas mount; but every decision the
--- renderer reads — row order, indent depth, chevron/child-count, active tab, double-click open — is
+-- renderer reads - row order, indent depth, chevron/child-count, active tab, double-click open - is
 -- driven from this pure layer, so it is all assertable headless with a fake scope provider.
 --
--- Client/UI globals ui/manager builds constants from at load time (via its Theme require) — stubbed
+-- Client/UI globals ui/manager builds constants from at load time (via its Theme require) - stubbed
 -- minimally so the module loads under a standalone interpreter.
 _G.Vector4 = _G.Vector4 or { new = function(r, g, b, a) return { r, g, b, a } end }
 

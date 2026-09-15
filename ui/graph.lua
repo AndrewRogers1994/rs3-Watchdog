@@ -548,7 +548,7 @@ end
 --- Interaction
 
 -- Only from ONCLICK (real mouse-DOWN on this layer). Never ONHOLD: that fires when a press
--- started elsewhere is held over us, and that press's ONRELEASE never routes here — starting
+-- started elsewhere is held over us, and that press's ONRELEASE never routes here - starting
 -- a gesture from it strands the drag stuck-to-cursor. pressed-guard still blocks duplicate ONCLICK.
 function Editor:beginPress()
     if self.pressed or not self.visible then return end
@@ -749,7 +749,7 @@ function Editor:linkPins(outNode, outPin, inNode, inPin, isData)
     end
     local id, reason = self.graph:Connect(outNode, outPin, inNode, inPin)
     if id == nil and log ~= nil then
-        log("Watchdog: connect rejected — " .. tostring(reason))
+        log("Watchdog: connect rejected - " .. tostring(reason))
     end
     return id ~= nil
 end
@@ -876,7 +876,7 @@ function Editor:placeFromPalette(row)
         return self.graph:AddNode(row.typeKey, nil, row.targetMode)
     end)
     if not ok or newId == nil then
-        if log ~= nil then log("Watchdog: AddNode failed — " .. tostring(newId)) end
+        if log ~= nil then log("Watchdog: AddNode failed - " .. tostring(newId)) end
         return
     end
     local x, y = anchorGX, anchorGY
@@ -1060,7 +1060,7 @@ end
 function Editor:fireTestPin(nodeId, pinName)
     local ok, err = pcall(function() self.graph:FireInput(nodeId, pinName) end)
     if not ok and log ~= nil then
-        log("Watchdog: test fire failed — " .. tostring(err))
+        log("Watchdog: test fire failed - " .. tostring(err))
     end
 end
 

@@ -183,7 +183,7 @@ function InvViewer.Sync(editor)
                 if show then
                     local vg = geom.viewerGrid
                     -- view:ToScreen is content-local (Canvas). Overlay SetPos is absolute
-                    -- screen — same as toolbar / Control Editors (`Editor:toScreen`).
+                    -- screen - same as toolbar / Control Editors (`Editor:toScreen`).
                     local lx, ly = editor.view:ToScreen(geom.x + vg.x, geom.y + vg.y)
                     local sx, sy = editor:toScreen(lx, ly)
                     local sw, sh = InvViewer.ScreenSize()

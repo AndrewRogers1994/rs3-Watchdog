@@ -147,7 +147,7 @@ function Palette:Scroll(delta)
     if self.scroll > self.maxScroll then self.scroll = self.maxScroll end
 end
 
--- Draws the panel, clamped fully inside the given bounds rect (vx,vy,vw,vh) — the Editor
+-- Draws the panel, clamped fully inside the given bounds rect (vx,vy,vw,vh) - the Editor
 -- passes the full screen so the panel may sit past the Window edges. Rows are a uniform height
 -- so headers and items share the same scroll math. Records `self.rect` for hit-testing.
 function Palette:Draw(canvas, vx, vy, vw, vh, mx, my)
@@ -170,7 +170,7 @@ function Palette:Draw(canvas, vx, vy, vw, vh, mx, my)
 
     -- The list overflows exactly when not every row is visible; only then is a scrollbar (and
     -- the gutter it needs) drawn. `rowW` is the width available to row text/hover/hit (measured
-    -- from the panel's left px) — the full panel normally, pulled in by the reserved gutter when
+    -- from the panel's left px) - the full panel normally, pulled in by the reserved gutter when
     -- the scrollbar is present.
     local hasScrollbar = total > visibleRows
     local gutter = hasScrollbar and (Theme.PALETTE_SCROLLBAR_W + 2) or 0
@@ -300,7 +300,7 @@ function Palette:ScrollToY(sy)
 end
 
 -- The item row under a screen point, or nil (header rows, unavailable rows, and empty
--- padding all return nil — an unavailable row has nothing to create).
+-- padding all return nil - an unavailable row has nothing to create).
 function Palette:RowAt(sx, sy)
     local r = self.rect
     if not self.open or r == nil then return nil end

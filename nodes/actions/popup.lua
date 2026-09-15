@@ -38,7 +38,7 @@ end
 -- A theme is a plain descriptor the Draw reads: `kind` ("primitive" = Canvas rectangles;
 -- "sprites" = multi-part sprite frame), a `label` for the dropdown, colors, and (for the
 -- sprite kind) the assembled left/mid/right sprite ids. New themes are one RegisterTheme
--- call — the registry seam the AC asks for. `themeOrder` keeps declaration order for the
+-- call - the registry seam the AC asks for. `themeOrder` keeps declaration order for the
 -- dropdown so Parchment (the default) stays first.
 
 Popup.DEFAULT_THEME = "parchment"
@@ -88,7 +88,7 @@ Popup.RegisterTheme("parchment", {
 -- / right) from the RS3_RIBBON_LEAGUES_GOLD_* sprite set so it sidesteps the AddSprite-stretch
 -- unknown flagged in the #20 research (single sprites distort; a 3-part frame keeps its ends
 -- crisp). ids are the gold variant; swap `sprites` for RED (35189-35191) or RED_GOLD
--- (35192-35194) to reskin. Native piece widths are unknown from the docs — BUILD-VERIFY in
+-- (35192-35194) to reskin. Native piece widths are unknown from the docs - BUILD-VERIFY in
 -- client and set `edgeW` to the measured end-cap width.
 Popup.RegisterTheme("leagues", {
     kind = "sprites",
@@ -106,7 +106,7 @@ Popup.RegisterTheme("leagues", {
 --- Curated notification-icon dropdown ----------------------------------------------------
 -- A hand-picked subset of the #20 research's icon table (ids are High-confidence *icons*).
 -- Reuses the enum Control like `theme`. "None" (value nil) draws no icon. Skill icons come
--- from STATICONS_* (build-verify the exact index->skill map — the research notes 0 = Attack).
+-- from STATICONS_* (build-verify the exact index->skill map - the research notes 0 = Attack).
 Popup.ICONS = {
     { value = nil,   label = "None" },
     { value = 17127, label = "Checkmark" },      -- id.Sprite.RS3_ICON_CHECK_MARK_24PX_0
@@ -160,7 +160,7 @@ function Popup.Draw(canvas, opts)
     local y = TOP_MARGIN
 
     -- Frame: primitive rectangles, or the assembled 3-part sprite ribbon.
-    -- AddSprite's colour arg is a Uint RGBA (there is no Vector4 overload — see
+    -- AddSprite's colour arg is a Uint RGBA (there is no Vector4 overload - see
     -- docs/research/popup-frame-sprites.md), so tint via Color.ToRGBA, not Vector4.
     local Color = require("ui/color")
     local white = Color.ToRGBA(1, 1, 1, alpha) -- untinted white at the frame's current alpha
@@ -208,7 +208,7 @@ end
 -- The uniform { kind, state, update(dt) -> alive, draw(canvas) } handle EffectRegistry holds.
 -- `update` accumulates elapsed time and recomputes the animation; it returns falsy once the
 -- timeline is spent, at which point the registry culls it (and promotes the next queued
--- popup). No onDone is needed — auto-expiry is the whole lifecycle.
+-- popup). No onDone is needed - auto-expiry is the whole lifecycle.
 function Popup.BuildHandle(spec)
     spec = spec or {}
     local hold = normalizeHold(spec.hold)

@@ -1,6 +1,6 @@
 -- Exercises the Entity Spawn trigger (`trigger.entity_spawn`, #32) end-to-end through the
--- real event dispatcher. The node fans in all 7 entity channels — NPC/Player/ObjStack ×
--- Added/Removed plus ObjStackEntityChanged — and abstracts them to Spawned / Despawned exec
+-- real event dispatcher. The node fans in all 7 entity channels - NPC/Player/ObjStack ×
+-- Added/Removed plus ObjStackEntityChanged - and abstracts them to Spawned / Despawned exec
 -- pins, so these tests push representative raw events through a fake event source and assert
 -- which exec pin fired plus the shaped data outputs (kind / name / coordGrid / count / entity).
 --

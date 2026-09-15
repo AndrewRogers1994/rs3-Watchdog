@@ -1,5 +1,5 @@
 -- Exercises the Game Message trigger (`trigger.game_message`, #56) against a REAL LibNodeGraph
--- driven through the fake event source + runtime dispatcher — never a hand-built ctx (see
+-- driven through the fake event source + runtime dispatcher - never a hand-built ctx (see
 -- CONTEXT.md *Testing node types*). Pushes ChatMessage payloads (chatMessage + chatType) and
 -- asserts external behavior: whether `out` fires and what the `message` output holds.
 --
@@ -72,7 +72,7 @@ function TestGameMessage:testAnyMatchesUnionOfOwnGroups()
 end
 
 function TestGameMessage:testAnyDoesNotLeakOtherTriggersTypes()
-    -- 2 is a Player Chat (Public) id — Game Message's Any must not fire on it.
+    -- 2 is a Player Chat (Public) id - Game Message's Any must not fire on it.
     self:addWired({ type = "any" })
     self:push("hi there", 2)
     luaunit.assertEquals(#self.log, 0)

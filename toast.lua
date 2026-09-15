@@ -53,7 +53,7 @@ function Toast:_saveAnchor()
 end
 
 -- The current anchor as a {dx, dy} pixel offset from the default top-center point (see
--- Theme.TOAST_TOP_MARGIN for that default's own screen placement — client-only concern,
+-- Theme.TOAST_TOP_MARGIN for that default's own screen placement - client-only concern,
 -- kept out of this pure module).
 function Toast:GetAnchorOffset()
     return { dx = self.anchor.dx, dy = self.anchor.dy }
@@ -77,7 +77,7 @@ function Toast:DragTo(mousePos)
     self.anchor = { dx = self.drag.startAnchor.dx + dx, dy = self.drag.startAnchor.dy + dy }
 end
 
--- Ends the gesture and persists the final position — the only point in a drag that writes
+-- Ends the gesture and persists the final position - the only point in a drag that writes
 -- through the persistence hook, so dragging doesn't re-encode/save every polled frame.
 function Toast:EndDrag()
     if self.drag == nil then
@@ -90,7 +90,7 @@ end
 --- Show / Dismiss --------------------------------------------------------------------------
 
 -- `params`: { text, color, icon, sticky }. Pushes a new toast handle for `nodeKey` onto the
--- shared Stack (cap MAX_STACK, oldest evicted first — see effects.lua:PushStack) and tracks
+-- shared Stack (cap MAX_STACK, oldest evicted first - see effects.lua:PushStack) and tracks
 -- it under `nodeKey` so a later Dismiss(nodeKey) can find it. A node re-firing `show` calls
 -- this again and gets a SECOND handle stacked alongside the first (#36: "same-node re-fire
 -- STACKs"), never replacing it.
@@ -135,7 +135,7 @@ function Toast:Show(nodeKey, params)
 end
 
 -- Removes `handle` from `live`/`byOwner` bookkeeping (called from its own onDone, whether it
--- left the live set via natural TTL expiry, an explicit Dismiss, or a cap eviction — all
+-- left the live set via natural TTL expiry, an explicit Dismiss, or a cap eviction - all
 -- three route through EffectRegistry's onDone the same way).
 function Toast:_forget(handle)
     for i, h in ipairs(self.live) do
@@ -160,7 +160,7 @@ function Toast:_forget(handle)
 end
 
 -- Clears every live toast belonging to `nodeKey` (#36: "dismiss clears all of that node's
--- live toasts" — including sticky ones, which never expire on their own). No-op for a
+-- live toasts" - including sticky ones, which never expire on their own). No-op for a
 -- node with nothing live. Snapshots the owned list first since each Dismiss's onDone
 -- mutates `byOwner[nodeKey]` in place.
 function Toast:Dismiss(nodeKey)
@@ -184,7 +184,7 @@ end
 --- Canvas drawing (client-only; untested under the standalone Lua test harness) -----------
 
 -- Full-screen width, read from the client's root component (the same source, and fallback,
--- as the Editor's own screenSize() in ui/graph.lua — the Canvas can't be measured for this).
+-- as the Editor's own screenSize() in ui/graph.lua - the Canvas can't be measured for this).
 -- Falls back to a fixed guess so this never errors outside the client.
 function Toast:_screenWidth()
     local w = 1920
@@ -205,7 +205,7 @@ function Toast:_anchorPoint()
 end
 
 -- Body + left accent bar (the `color` data pin's dynamic tint) + outline + optional icon
--- sprite + text (#36 AC) — Canvas primitives only, not ui.GroupBox. Stacked vertically below
+-- sprite + text (#36 AC) - Canvas primitives only, not ui.GroupBox. Stacked vertically below
 -- the shared anchor in `live` order (oldest on top), independent of which node owns which.
 function Toast:_drawHandle(canvas, handle)
     local index
@@ -249,7 +249,7 @@ end
 
 -- Draws every live toast (client-only entry point; main.lua calls this from the same
 -- onDraw that already drives runtime.effects:Draw()). `canvas` defaults to the mounted
--- capture's own canvas — but the toasts actually draw on the shared effect overlay Canvas
+-- capture's own canvas - but the toasts actually draw on the shared effect overlay Canvas
 -- (effects.lua), passed in by the caller, same as every other effect kind.
 function Toast:Draw(canvas)
     if canvas == nil then
@@ -263,7 +263,7 @@ end
 --- Drag capture mount (client-only; untested under the standalone Lua test harness) -------
 
 -- The always-on effect overlay Canvas (effects.lua) is `clickthrough = true` so it never
--- steals a game click — dragging instead needs a small, separate, NON-clickthrough capture
+-- steals a game click - dragging instead needs a small, separate, NON-clickthrough capture
 -- component sized to the live toast stack's own bounds, mounted only while something is
 -- live and repositioned every frame, mirroring the Editor's own Capture Layer (ui/graph.lua)
 -- press-then-poll gesture: ONCLICK begins the drag, Mouse.GetPosition() is polled each Logic
@@ -293,7 +293,7 @@ function Toast:Mount(rootParent)
     if ok then
         self.capture = capture
     elseif log ~= nil then
-        log("Watchdog toast: Mount failed — " .. tostring(capture))
+        log("Watchdog toast: Mount failed - " .. tostring(capture))
     end
 end
 

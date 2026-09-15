@@ -15,7 +15,7 @@ function Enum.new(choices)
     local M = Inline.apply({})
 
     -- One sub-rect: the value-column box. The dropdown caret is the dropdown Widget's own draw
-    -- (#63), so the box carries no "enum" hint for the Node to branch on — it is a plain field rect.
+    -- (#63), so the box carries no "enum" hint for the Node to branch on - it is a plain field rect.
     ---@param box { x: number, y: number, w: number, h: number }
     ---@return table[]
     function M.Layout(box)
@@ -35,7 +35,7 @@ function Enum.new(choices)
 
     -- Click: mount the dropdown seeded to the current value's label (or the first choice when the
     -- value matches nothing), committing the picked label's value. `found` guards a stray label the
-    -- widget doesn't know — and lets a nil-valued "None" pick commit nil rather than be dropped.
+    -- widget doesn't know - and lets a nil-valued "None" pick commit nil rather than be dropped.
     ---@param host ControlHost
     ---@param ctrl table
     function M.Press(host, ctrl)

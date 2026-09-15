@@ -30,7 +30,7 @@ function Capture.new(opts)
     end
 
     -- The captured value's summary text (a rect "x,y wxh" or the object's name), or "" when nothing
-    -- is captured — the empty string is what makes the Node fall back to the box's placeholder. The
+    -- is captured - the empty string is what makes the Node fall back to the box's placeholder. The
     -- format hook is guarded (pcall) so a malformed stored value degrades to the placeholder rather
     -- than erroring the whole draw.
     ---@param ctrl table

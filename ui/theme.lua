@@ -30,7 +30,7 @@ Theme.CONTROL_MIN_ZOOM     = 0.45  -- below this the box/text is unreadable, so 
 -- The transient editor is a real component with a native, fixed-pixel font that does NOT
 -- scale with the View, so it's sized in screen pixels independent of zoom (height fixed;
 -- width tracks the box but never below the min). Sizing it to view:Scale(box) made the text
--- unreadable at zoom 1 — the box was 16px tall but the native font needs more.
+-- unreadable at zoom 1 - the box was 16px tall but the native font needs more.
 Theme.CONTROL_EDIT_MIN_W   = 60    -- min screen width for the transient editor component
 Theme.CONTROL_EDIT_H       = 24    -- fixed screen height for the transient editor component
 
@@ -96,7 +96,7 @@ Theme.INFOBOX_TOOLTIP_PAD = 4    -- inner padding around the tooltip text
 
 Theme.COL_INFOBOX_BG      = col(30, 30, 34, 0.85)
 Theme.COL_INFOBOX_BORDER  = col(12, 12, 15, 1.0)
-Theme.COL_INFOBOX_TEXT    = col(255, 255, 255, 1.0)  -- default (unset/nil color) — white
+Theme.COL_INFOBOX_TEXT    = col(255, 255, 255, 1.0)  -- default (unset/nil color) - white
 Theme.COL_INFOBOX_TIP_BG  = col(18, 18, 22, 0.96)    -- hover tooltip backing
 Theme.COL_INFOBOX_TIP_TX  = col(230, 232, 240, 1.0)
 
@@ -105,7 +105,7 @@ Theme.WIRE_THICKNESS   = 3
 Theme.WIRE_SEGMENTS    = 16    -- straight segments a bezier Wire is tessellated into
 Theme.GRID_SPACING     = 32    -- background grid cell size
 
--- Text can't shrink past the smallest font (font IDs are discrete — ADR-0001), so labels
+-- Text can't shrink past the smallest font (font IDs are discrete - ADR-0001), so labels
 -- are dropped when zoomed out rather than left to overflow. Degrades in two stages: pin
 -- labels go first, node titles persist further out so nodes stay identifiable.
 Theme.LABEL_MIN_ZOOM   = 0.45   -- pin labels
@@ -133,7 +133,7 @@ Theme.WINDOW_H             = 560
 Theme.WINDOW_HEADER_H      = 32   -- PrettyUI TITLE_HEIGHT
 Theme.WINDOW_BORDER        = 8    -- PrettyUI BORDER; content is inset this much
 Theme.WINDOW_CLOSE_RESERVE = 34   -- CLOSE_SIZE (20) + 14; keep PLUS left of close
-Theme.WINDOW_TITLE         = "Watchdog — Editor"
+Theme.WINDOW_TITLE         = "Watchdog - Editor"
 
 --- Palette (screen-space popup) + toolbar -----------------------------------------------
 
@@ -198,7 +198,7 @@ Theme.COL_PALETTE_THUMB_HOT = col(110, 122, 148, 1.0)   -- thumb while being dra
 Theme.COL_NODE_BODY   = col(43, 43, 48, 0.96)
 Theme.COL_NODE_BORDER = col(15, 15, 18, 1.0)
 
--- Unknown-node placeholder (#53): a desaturated, muted box so it reads as inert/degraded —
+-- Unknown-node placeholder (#53): a desaturated, muted box so it reads as inert/degraded -
 -- distinct from any real category color, signalling "a node used to be here."
 Theme.COL_NODE_UNKNOWN_BODY   = col(38, 36, 40, 0.94)
 Theme.COL_NODE_UNKNOWN_HEADER = col(74, 68, 60, 1.0)   -- muted amber-grey (a warning, dimmed)
@@ -220,7 +220,7 @@ Theme.COL_CONTROL_EMPTY  = col(120, 122, 132, 1.0)  -- placeholder when the valu
 Theme.COL_CONTROL_CARET  = col(170, 172, 182, 1.0)  -- enum dropdown ▾ indicator
 Theme.COL_CONTROL_ACTION_BG = col(52, 56, 66, 1.0)  -- composite-control action button (e.g. coordgrid's "set to current position")
 Theme.COL_CHECK_BOX_BG   = col(20, 20, 24, 1.0)     -- mode checkbox (#40) inner fill
-Theme.COL_CHECK_MARK     = col(245, 205, 70, 1.0)   -- mode checkbox tick — gold, drawn when checked
+Theme.COL_CHECK_MARK     = col(245, 205, 70, 1.0)   -- mode checkbox tick - gold, drawn when checked
 
 -- Checkerboard behind a color swatch/preview, so alpha reads visually (#30).
 Theme.COL_CHECKER_LIGHT = col(150, 150, 150, 1.0)
@@ -361,7 +361,7 @@ function Theme.FontObject(pt)
     return f or nil
 end
 
--- Pixel width of `text` drawn at ~`pt`, tags ignored, via the real font metrics — or nil if
+-- Pixel width of `text` drawn at ~`pt`, tags ignored, via the real font metrics - or nil if
 -- fonts/metrics are unavailable (a bare Lua runtime), so callers fall back to an estimate.
 -- Cached per (pt,text) because node geometry is rebuilt every frame.
 local widthCache = {}

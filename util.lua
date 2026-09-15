@@ -4,7 +4,7 @@ local Util = {}
 function Util.CallOrLog(label, context, fn, ...)
     local ok, result = pcall(fn, ...)
     if not ok and log ~= nil then
-        log("Watchdog " .. label .. ": " .. context .. " — " .. tostring(result))
+        log("Watchdog " .. label .. ": " .. context .. " - " .. tostring(result))
     end
     return ok, result
 end

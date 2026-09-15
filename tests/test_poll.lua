@@ -45,7 +45,7 @@ local function registerPollFixture(registry, log)
 end
 
 -- A downstream action that counts how many times it ran, keyed by the exec input it entered
--- through — lets a test prove an edge pin actually propagates to wired targets (and that an
+-- through - lets a test prove an edge pin actually propagates to wired targets (and that an
 -- unwired pin is a no-op).
 local function registerCounter(registry, counts)
     registry:RegisterNodeType("fixture.counter", {
@@ -56,7 +56,7 @@ local function registerCounter(registry, counts)
 end
 
 -- Binds the poll fixture to the Logic channel: transform samples `raw.sample` (nil when the raw
--- event carries none — the "logged out / source unreadable" case), filter is the per-node
+-- event carries none - the "logged out / source unreadable" case), filter is the per-node
 -- predicate `sample >= target`.
 local function bindPoll(runtime)
     runtime:BindTrigger("fixture.poll", {
@@ -235,7 +235,7 @@ end
 
 function TestPoll:testFilterErrorFreezesThatNodesEdge()
     -- A per-node filter that *errors* (a broken predicate, distinct from a nil sample) must
-    -- freeze that node's edge like a nil tick would — no spurious Leave, no re-Enter — so a bug
+    -- freeze that node's edge like a nil tick would - no spurious Leave, no re-Enter - so a bug
     -- in one node's predicate can't manufacture phantom transitions.
     local log = {}
     registerPollFixture(self.registry, log)
@@ -385,7 +385,7 @@ end
 
 function TestPoll:testEventBindingFiresEveryPassWithNoEdgeGate()
     -- A plain (non-poll) binding on the same dispatcher fires on *every* filter pass, with no
-    -- edge state — proving edge detection is poll-only.
+    -- edge state - proving edge detection is poll-only.
     local runs = {}
     self.registry:RegisterNodeType("fixture.event", {
         category = "trigger",
