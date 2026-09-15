@@ -174,7 +174,7 @@ function Editor:frontOverlayInteractives()
     if self.backButton ~= nil then pcall(function() self.backButton:MoveToFront() end) end
     if self.zoomSlider ~= nil then pcall(function() self.zoomSlider:MoveToFront() end) end
     if self.zoomTickCanvas ~= nil then pcall(function() self.zoomTickCanvas:MoveToFront() end) end
-    if self.resetViewButton ~= nil then pcall(function() self.resetViewButton:MoveToFront() end) end
+    if self.resetViewButton ~= nil then self.resetViewButton.root:MoveToFront() end
     if self.plusButton ~= nil then pcall(function() self.plusButton:MoveToFront() end) end
     InvViewer.FrontTooltips(self)
     if self.editing ~= nil and self.editing.field ~= nil then
@@ -1612,7 +1612,7 @@ function Editor:SetVisible(v)
         pcall(function() self.plusButton.hidden = not self.visible end)
     end
     if self.resetViewButton ~= nil then
-        pcall(function() self.resetViewButton.hidden = not self.visible end)
+        self.resetViewButton.root.hidden = not self.visible
     end
     if self.zoomSlider ~= nil then
         pcall(function() self.zoomSlider.hidden = not self.visible end)
@@ -1673,10 +1673,8 @@ function Editor:layoutToolbar()
         end)
     end
     if self.resetViewButton ~= nil then
-        pcall(function()
-            self.resetViewButton:SetPos(hashX, btnY)
-            self.resetViewButton:SetSize(bs, bs)
-        end)
+        self.resetViewButton.root:SetPos(hashX, btnY)
+        self.resetViewButton.root:SetSize(bs, bs)
     end
     if self.zoomTickCanvas ~= nil then
         pcall(function()
@@ -1783,20 +1781,11 @@ function Editor:mountToolbar(overlayParent)
         self.zoomTickCanvas = tick
     end
 
-    local okHash, hash = pcall(function() return ui.Button.new(overlayParent) end)
-    if okHash and hash ~= nil then
-        pcall(function() hash.stylesheetID = safeButtonStyle() end)
-        hash.clickthrough = false
-        hash.text.content = "#"
-        hash:Subscribe(ui.Hook.ONBUTTONPRESSED, function()
-            self:onResetView()
-            return true
-        end)
-        pcall(function()
-            hash.cursorConfig.mouseOverCursor = id.Cursor.CURSOR_GOTO
-        end)
-        self.resetViewButton = hash
-    end
+    local hash = prettyui.SimpleButton.new(overlayParent, "#", function()
+        self:onResetView()
+    end)
+    hash:SetHoverCursor(id.Cursor.CURSOR_GOTO)
+    self.resetViewButton = hash
 
     local okPlus, plus = pcall(function() return ui.Button.new(overlayParent) end)
     if okPlus and plus ~= nil then
@@ -1856,7 +1845,7 @@ function Editor:Unmount()
         self.zoomSlider = nil
     end
     if self.resetViewButton ~= nil then
-        pcall(function() self.resetViewButton:Destroy() end)
+        self.resetViewButton:Destroy()
         self.resetViewButton = nil
     end
     if self.plusButton ~= nil then
