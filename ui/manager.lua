@@ -10,7 +10,9 @@
 
 local Theme = require("ui/theme")
 local Export = require("export")
+local Dialog = require("ui/dialog")
 local Confirm = require("ui/confirm")
+local ImportExport = require("ui/import_export")
 
 local DELETE_CONFIRM_TITLE = "CONFIRM DELETE"
 local DELETE_CONFIRM_LABEL = "DELETE"
@@ -50,7 +52,7 @@ Manager.__index = Manager
 ---@field onBulkMove fun(scopeKey: string, destScopeKey: string, ids: integer[])|nil
 ---@field onExportEntries fun(scopeKey: string, ids: integer[]|nil): boolean, string  # nil ids = whole scope; err or json
 ---@field onImportJson fun(scopeKey: string, text: string): boolean, Watchdog.ImportReport|string
----@field windowParent fun(): any|nil  # parent Layer for the transfer Window (mux.rootLayer - plugin-owned)
+---@field windowParent fun(): any|nil  # parent Layer for Dialogs (mux.rootLayer - plugin-owned)
 
 ---@param opts Watchdog.ManagerOpts|nil
 ---@return table
@@ -99,10 +101,6 @@ function Manager.new(opts)
         renameField = nil,
         renameId = nil,
         pendingRenameId = nil,      -- begin inline rename once the row is rebuilt
-        transfer = nil,
-        transferWindow = nil,
-        transferField = nil,
-        confirmWindow = nil,
     }, Manager)
     return self
 end
@@ -515,89 +513,60 @@ end
 function Manager:_runExport(ids)
     local scopeKey = self:ActiveScopeKey()
     if scopeKey == nil or self.onExportEntries == nil then return end
+    local parent = self:_dialogParent()
+    if parent == nil then return end
     local okCall, ok, result = pcall(function()
         return self.onExportEntries(scopeKey, ids)
     end)
     if not okCall then return end
     if ok then
-        self:_openTransfer("export", result, "Select all and copy (Ctrl+A / Ctrl+C).")
+        ImportExport.mountExport(parent, {
+            text = result,
+            message = "Select all and copy (Ctrl+A / Ctrl+C).",
+            maxLength = Export.MAX_BYTES,
+        })
     else
-        self:_openTransfer("error", "", tostring(result))
+        Dialog.mount(parent, {
+            title = "Export",
+            content = function(win)
+                win:AddText(tostring(result))
+            end,
+            actions = { { label = "Close" } },
+        })
     end
 end
 
 function Manager:OpenImport()
-    self:_openTransfer("import", "", "Paste an export envelope, then Import.")
-end
-
-function Manager:CloseTransfer()
-    self.transfer = nil
-    local win = self.transferWindow
-    self.transferWindow = nil
-    self.transferField = nil
-    if win ~= nil then
-        pcall(function()
-            win.onClose = nil
-            win:Destroy()
-        end)
-    end
-end
-
--- Failures stay in the modal with the pasted text intact.
-function Manager:ApplyImport()
-    if self.transfer == nil or self.transfer.mode ~= "import" then return end
+    local parent = self:_dialogParent()
+    if parent == nil then return end
     local scopeKey = self:ActiveScopeKey()
     if scopeKey == nil or self.onImportJson == nil then return end
-    local text = self.transfer.text or ""
-    pcall(function()
-        if self.transferField ~= nil and self.transferField.GetText ~= nil then
-            text = self.transferField:GetText() or text
-        end
-    end)
-    local okCall, ok, report = pcall(function()
-        return self.onImportJson(scopeKey, text)
-    end)
-    if not okCall then return end
-    if not ok then
-        self.transfer.text = text
-        self.transfer.message = tostring(report)
-        self:_remountTransfer()
-        return
-    end
-    local message = (type(report) == "table" and report.message) or "Imported."
-    self:CloseTransfer()
-    bumpMutate(self)
-    self:_openTransfer("notice", "", message)
+    ImportExport.mountImport(parent, {
+        message = "Paste an export envelope, then Import.",
+        maxLength = Export.MAX_BYTES,
+        onImport = function(text)
+            local okCall, ok, report = pcall(function()
+                return self.onImportJson(scopeKey, text)
+            end)
+            if not okCall then return false, ok end
+            if not ok then return false, report end
+            bumpMutate(self)
+            self:_rebuild()
+            return true
+        end,
+    })
 end
 
----@param mode "export"|"import"|"error"|"notice"
----@param text string|nil
----@param message string|nil
-function Manager:_openTransfer(mode, text, message)
-    self.transfer = {
-        mode = mode,
-        text = text or "",
-        message = message,
-    }
-    self:_remountTransfer()
+---@return any|nil
+function Manager:_dialogParent()
+    if self.windowParent == nil then return nil end
+    local ok, p = pcall(self.windowParent)
+    if ok then return p end
+    return nil
 end
 
-function Manager:_remountTransfer()
-    self:_destroyTransfer()
-    self:_mountTransfer()
-end
-
--- Tear down the open transfer Window only - keeps `self.transfer` so remount can rebuild.
-function Manager:_destroyTransfer()
-    local win = self.transferWindow
-    self.transferWindow = nil
-    self.transferField = nil
-    if win ~= nil then
-        pcall(function()
-            win.onClose = nil
-            win:Destroy()
-        end)
-    end
+function Manager:DismissDialogs()
+    Dialog.dismissAll(self:_dialogParent())
 end
 
 --- Rebuild signature ----------------------------------------------------------------------
@@ -737,8 +706,7 @@ function Manager:OnShellHide()
     self:_hideRowTooltips()
     for _, b in ipairs(self.toolbarButtons or {}) do hideBoundTooltip(b) end
     for _, b in ipairs(self.bulkBarButtons or {}) do hideBoundTooltip(b) end
-    self:CloseTransfer()
-    self:CloseConfirm()
+    self:DismissDialogs()
 end
 
 function Manager:_releaseRowTooltips()
@@ -1209,31 +1177,11 @@ function Manager:_bulkDeleteConfirmBody(ids)
     return body
 end
 
-function Manager:CloseConfirm()
-    local win = self.confirmWindow
-    self.confirmWindow = nil
-    Confirm.destroy(win)
-end
-
 ---@param opts Watchdog.ConfirmOpts
 function Manager:_openConfirm(opts)
-    self:CloseConfirm()
-    local parent
-    if self.windowParent ~= nil then
-        local ok, p = pcall(self.windowParent)
-        if ok then parent = p end
-    end
+    local parent = self:_dialogParent()
     if parent == nil then return end
-    local onConfirm, onCancel = opts.onConfirm, opts.onCancel
-    opts.onConfirm = function()
-        self.confirmWindow = nil
-        if onConfirm ~= nil then onConfirm() end
-    end
-    opts.onCancel = function()
-        self.confirmWindow = nil
-        if onCancel ~= nil then onCancel() end
-    end
-    self.confirmWindow = Confirm.mount(parent, opts)
+    Confirm.mount(parent, opts)
 end
 
 ---@return boolean
@@ -1305,107 +1253,6 @@ function Manager:_mountToolbar()
     if exportBtn ~= nil then self.toolbarButtons[#self.toolbarButtons + 1] = exportBtn end
     if alert ~= nil then self.toolbarButtons[#self.toolbarButtons + 1] = alert end
     if group ~= nil then self.toolbarButtons[#self.toolbarButtons + 1] = group end
-end
-
--- Transfer Window under mux-owned root Layer so poff/Stop tears it down - never parent to the game area.
-function Manager:_mountTransfer()
-    if self.transfer == nil then return end
-    if prettyui == nil or prettyui.Window == nil then return end
-    local parent
-    if self.windowParent ~= nil then
-        local ok, p = pcall(self.windowParent)
-        if ok then parent = p end
-    end
-    if parent == nil then return end
-
-    local mode = self.transfer.mode
-    local title = "Export"
-    if mode == "import" or mode == "notice" then title = "Import"
-    elseif mode == "error" then title = "Export / Import"
-    end
-
-    local win
-    local ok = pcall(function()
-        win = prettyui.Window.new(parent, {
-            title = title,
-            x = -math.floor(Theme.MANAGER_TRANSFER_W / 2),
-            y = -math.floor(Theme.MANAGER_TRANSFER_H / 2),
-            xAnchor = 0.5,
-            yAnchor = 0.5,
-            width = Theme.MANAGER_TRANSFER_W,
-            height = Theme.MANAGER_TRANSFER_H,
-            minWidth = Theme.MANAGER_TRANSFER_W,
-            minHeight = Theme.MANAGER_TRANSFER_H,
-            maxWidth = Theme.MANAGER_TRANSFER_W,
-            maxHeight = Theme.MANAGER_TRANSFER_H,
-            destroyOnClose = true,
-            onClose = function()
-                -- Window:Close will Destroy after this (destroyOnClose). Clear Lua refs only.
-                self.transfer = nil
-                self.transferWindow = nil
-                self.transferField = nil
-            end,
-        })
-    end)
-    if not ok or win == nil then return end
-    self.transferWindow = win
-
-    local msg = self.transfer.message or ""
-    if msg ~= "" then
-        pcall(function() win:AddText(msg) end)
-    end
-
-    if mode == "export" or mode == "import" then
-        local field
-        local okf = pcall(function()
-            field = win:AddTextField({
-                text = self.transfer.text or "",
-                placeholder = mode == "import" and "Paste export JSON here" or nil,
-                maxLength = Export.MAX_BYTES,
-                height = 280,
-                disabled = mode == "export",
-            })
-            field.root.text.maxLines = 10
-        end)
-        if okf and field ~= nil then
-            self.transferField = field
-            -- Export is copy-out: keep content selectable. PrettyUI `disabled` blocks focus;
-            -- leave enabled so Ctrl+A/C works, and ignore edits by resetting on change.
-            if mode == "export" then
-                pcall(function()
-                    if field.SetDisabled ~= nil then field:SetDisabled(false) end
-                    local frozen = self.transfer.text or ""
-                    field.onChange = function(f)
-                        if f:GetText() ~= frozen then f:SetText(frozen) end
-                    end
-                    field.root:Subscribe(ui.Hook.ONCLICK, function()
-                        if field.root.SelectAll ~= nil then field.root:SelectAll() end
-                        return true
-                    end)
-                end)
-            end
-        end
-    end
-
-    pcall(function()
-        win:AddFancyButton("Close", function()
-            self:CloseTransfer()
-        end)
-        if mode == "import" then
-            win:AddFancyButton("Import", function()
-                self:ApplyImport()
-                self:_rebuild()
-            end, { inline = true, variant = "positive" })
-        elseif mode == "export" then
-            win:AddFancyButton("Save to file", function() end, {
-                inline = true,
-                disabled = true,
-                tooltip = "File export needs a client filesystem API",
-            })
-        end
-    end)
-
-    pcall(function() win:Show() end)
 end
 
 function Manager:_mountBulkBar(y)
@@ -1737,13 +1584,12 @@ function Manager:SetVisible(v)
     end
     setChildVisible(self.treePanel, self.visible)
     setChildVisible(componentRoot(self.renameField), self.visible)
-    -- Transfer / Confirm are their own Windows under the mux root - close when Manager tucks away.
+    -- Dialogs live under the mux root - dismiss the stack when Manager tucks away.
     if not self.visible then
         self:_hideRowTooltips()
         for _, b in ipairs(self.toolbarButtons or {}) do hideBoundTooltip(b) end
         for _, b in ipairs(self.bulkBarButtons or {}) do hideBoundTooltip(b) end
-        self:CloseTransfer()
-        self:CloseConfirm()
+        self:DismissDialogs()
     end
     if becomingVisible and self.tabs ~= nil then
         self:_rebuild()
@@ -1767,9 +1613,8 @@ function Manager:Unmount()
     self:_endRename(false)
     -- Overlay-parented row tooltips are not in the window content tree.
     self:_releaseRowTooltips()
-    -- Transfer / Confirm live under the mux root (not mux content) - Destroy on Stop.
-    self:CloseTransfer()
-    self:CloseConfirm()
+    -- Dialogs live under the mux root (not mux content) - Destroy on Stop.
+    self:DismissDialogs()
     self.toolbarButtons = {}
     self.bulkBarButtons = {}
     self.treePanel = nil

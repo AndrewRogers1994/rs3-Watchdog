@@ -174,8 +174,8 @@ Theme.MANAGER_TOOLBAR_PAD    = 8
 Theme.MANAGER_TOOLBAR_GAP    = 6
 Theme.MANAGER_BULK_BAR_H     = 30
 Theme.MANAGER_TREE_TOP       = Theme.MANAGER_TAB_BASELINE + 4  -- tree below tab strip (no bulk bar)
-Theme.MANAGER_TRANSFER_W     = 440
-Theme.MANAGER_TRANSFER_H     = 420
+Theme.MANAGER_IMPORT_EXPORT_W = 440
+Theme.MANAGER_IMPORT_EXPORT_H = 420
 
 --- Colors --------------------------------------------------------------------------
 

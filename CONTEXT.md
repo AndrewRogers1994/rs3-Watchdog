@@ -160,7 +160,7 @@ mode toggle. Draws itself at a rect and edits a value, reporting the edited valu
 nothing of Pins, Nodes, or the Graph. The reusable half, isolated for a possible future UI-library
 extraction, so it may depend only on Theme/Color/`ui.*` — never on a Pin Control, the Editor, the
 Store, or the engine. Lives under `ui/widgets/`, one file per Widget.
-_Avoid_: control, component (that's the client's), field/box (those name one Widget kind, not the concept)
+_Avoid_: control, component (that's the client's), field/box (those name one Widget kind, not the concept), Dialog (PrettyUI overlay chrome, not a Canvas primitive)
 
 **Pin Control** _(target model, not yet built)_:
 The per-Type-Tag module that composes Widgets and binds them to a Pin's stored Control value (the
@@ -211,7 +211,7 @@ like the Palette — drawn on the same editor-chrome Canvas, in the same fixed s
 clamped inside the Viewport, and dismissed by an outside click / Esc / re-click / its own ✕ —
 but unlike the Palette its SV/hue/channel rows are themselves draggable, not single-shot
 picks. Deliberately transient editor state, not part of any Node's `geom.controls`.
-_Avoid_: Color picker dialog, swatch popup, panel (in prose — that's the Palette's own word)
+_Avoid_: Color picker dialog (Dialog is PrettyUI overlay chrome; this is Canvas), swatch popup, panel (in prose — that's the Palette's own word)
 
 **Test Button**:
 A small ▶ button drawn between an exec-in Pin's glyph and its label (`geom.testButtons`, one
@@ -245,11 +245,24 @@ The tree/scope/expand/mutation logic is pure and headless-tested; the mount/rend
 client-only, the same split the Editor uses.
 _Avoid_: Alert list, manager window, dashboard; the Editor (that is the Canvas graph surface)
 
+**Dialog**:
+Watchdog overlay chrome: a centered PrettyUI Window with a caller-filled body, footer actions,
+and a modal dim by default. A footer action can dismiss it or leave it open; an action with no
+click handler dismisses. Titlebar X fires `onDismiss()` (optional, no args) and pops — it is not a generic
+close hook and does not also run an action `onClick`. Footer actions left-to-right in table order,
+last is primary (rightmost), group at the bottom-right. Dialogs on one parent Layer **stack**: mount
+pushes, dismiss pops; one visual dim for the stack; a blocker under the top Dialog so buried Dialogs
+stay mounted and inert. Not dismissed by Esc — the client would also open the pause menu. Distinct
+from Palette and Color Popup (Canvas editor chrome) and from Widget (Canvas input primitives).
+_Avoid_: Window (the PrettyUI primitive it wraps), transfer, popup, Widget, onClose (that's PrettyUI's)
+
 **Confirm dialog**:
-A small PrettyUI Window that asks the player to confirm a destructive Manager action (one Entry
-or a bulk Selection). Cancel is a neutral FancyButton; confirm is a positive FancyButton. Title
-and body name what will be deleted. Distinct from Export / Import transfer.
-_Avoid_: modal, popup, two-click delete, armed delete, OK N?
+A Dialog preconfigured as a yes/no ask: Cancel (neutral) and a confirm FancyButton (positive by
+default). Callers see `onConfirm` and `onCancel` only — titlebar X is Cancel (`onDismiss` →
+`onCancel`); the Cancel button is an action `onClick` → `onCancel`. Title, body, confirm label, and
+confirm variant are the caller's. Delete copy belongs to the Manager (trash / bulk delete), not to
+Confirm.
+_Avoid_: modal, popup, two-click delete, armed delete, OK N?, treating Confirm as the delete UI, onClose
 
 **Entry**:
 A node in a Scope's persisted tree — `kind = "alert" | "group"` — carrying a minted `id`. Identity
@@ -320,15 +333,20 @@ The per-tab set of checked Entries a bulk action operates on. **Group-as-unit** 
 replaced (scope switch, collapse); preserved across export and hide/show (#82).
 _Avoid_: Checked set, marked rows; "multi-select" (that names the gesture, not the resulting set)
 
-**Export / Import**:
-Transfer of Entries as a JSON envelope (`{ schemaVersion, pluginVersion, entries }`) through a
-single `ui.InputField` the user copies/pastes by hand — no clipboard API, and save-to-file is
-designed but disabled until a filesystem API exists (#79). Import is **append, never merge-by-name**.
-Every export shape (whole scope, single row, multi-select) passes a uniform **2,500-byte pre-flight
-guard**: serialize the envelope, measure its UTF-8 byte length, and refuse the entire export —
-exporting nothing — if it exceeds 2,500 (the `InputField` hard cap, #83); no chunking or compaction
-(#84).
-_Avoid_: Backup; "sync" (import is append, not sync); clipboard (no API); "serialize" (engine's word)
+**Import / Export dialog**:
+A Dialog wrapper with two recipes: **Import** (paste a JSON envelope) and **Export** (copy one
+out). Envelope is `{ schemaVersion, pluginVersion, entries }`; there is no clipboard API, and
+save-to-file is designed but disabled until a filesystem API exists (#79) — Export still shows that
+dead footer action. Import is **append, never merge-by-name**. The wrapper does not import: it asks
+the caller to apply the pasted text. A failed apply leaves Import mounted and stacks a message
+Dialog on top (closing the error reveals the paste field intact). A successful apply just dismisses
+Import — no success notice; the Manager tree is the feedback. Every export shape (whole scope,
+single row, multi-select) passes a uniform **2,500-byte pre-flight guard**: serialize the envelope,
+measure its UTF-8 byte length, and refuse the entire export — exporting nothing — if it exceeds
+2,500 (the `InputField` hard cap, #83); no chunking or compaction (#84). Export preflight failure
+is a message Dialog and never opens Export.
+_Avoid_: Transfer; Backup; "sync" (import is append, not sync); clipboard (no API); "serialize"
+(engine's word); Export / Import (Import comes first); an Import-success Dialog
 
 ## Node domain
 

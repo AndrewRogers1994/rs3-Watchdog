@@ -691,7 +691,7 @@ mux = Multiplexer.new({
     minHeight = 220,
     scrollable = false,
     onHide = function()
-        pcall(function() manager:CloseTransfer() end)
+        pcall(function() manager:DismissDialogs() end)
         if ribbon ~= nil then
             pcall(function() ribbon:SetActive(false) end)
         end
