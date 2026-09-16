@@ -681,8 +681,10 @@ manager = Manager.new({
 })
 
 mux = Multiplexer.new({
-    x = Theme.WINDOW_X,
-    y = Theme.WINDOW_Y,
+    x = -math.floor(Theme.WINDOW_W / 2),
+    y = -math.floor(Theme.WINDOW_H / 2),
+    xAnchor = 0.5,
+    yAnchor = 0.5,
     width = Theme.WINDOW_W,
     height = Theme.WINDOW_H,
     minWidth = 320,

@@ -31,6 +31,8 @@
 ---@class Watchdog.MultiplexerOpts
 ---@field x number|nil
 ---@field y number|nil
+---@field xAnchor number|nil
+---@field yAnchor number|nil
 ---@field width number|nil
 ---@field height number|nil
 ---@field minWidth number|nil
@@ -86,6 +88,8 @@ function Multiplexer.new(opts)
         _winOpts = {
             x = opts.x,
             y = opts.y,
+            xAnchor = opts.xAnchor,
+            yAnchor = opts.yAnchor,
             width = opts.width,
             height = opts.height,
             minWidth = opts.minWidth,
@@ -136,6 +140,8 @@ function Multiplexer:Mount(parent)
         title = "",
         x = self._winOpts.x,
         y = self._winOpts.y,
+        xAnchor = self._winOpts.xAnchor,
+        yAnchor = self._winOpts.yAnchor,
         width = self._winOpts.width,
         height = self._winOpts.height,
         minWidth = self._winOpts.minWidth,

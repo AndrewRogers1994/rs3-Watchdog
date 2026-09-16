@@ -340,3 +340,24 @@ function TestMuxTitle:testFunctionTitleReappliedOnShow()
     self.mux:SetVisible(true)
     luaunit.assertEquals(self.win.title, "t2")
 end
+
+--- Placement ------------------------------------------------------------------------------
+
+TestMuxPlacement = {}
+
+function TestMuxPlacement:testCenterAnchorsStoredOnNew()
+    local mux = Multiplexer.new({
+        x = -450,
+        y = -280,
+        xAnchor = 0.5,
+        yAnchor = 0.5,
+        width = 900,
+        height = 560,
+        window = fakeWindow(),
+        overlay = {},
+    })
+    luaunit.assertEquals(mux._winOpts.x, -450)
+    luaunit.assertEquals(mux._winOpts.y, -280)
+    luaunit.assertEquals(mux._winOpts.xAnchor, 0.5)
+    luaunit.assertEquals(mux._winOpts.yAnchor, 0.5)
+end
