@@ -97,6 +97,34 @@ function TestObjectMarkerCaptureExtract:testReadsCoordNestedUnderLocData()
     luaunit.assertEquals(o.coordGrid.level, 2)
 end
 
+-- Many LocType.name values are "" (Sawmill, Bank chest); MiniMenu subjectText is the label.
+function TestObjectMarkerCaptureExtract:testEmptyConfigNameUsesSubjectText()
+    local o = ObjectMarkerCapture.Extract({
+        subjectHash = 1,
+        subjectText = "Bank chest",
+        locData = { config = { name = "" } },
+    })
+    luaunit.assertEquals(o.name, "Bank chest")
+end
+
+function TestObjectMarkerCaptureExtract:testPrefersSubjectTextOverConfigName()
+    local o = ObjectMarkerCapture.Extract({
+        subjectHash = 1,
+        subjectText = "Sawmill",
+        locData = { config = { name = "SAWMILL_INTERNAL" } },
+    })
+    luaunit.assertEquals(o.name, "Sawmill")
+end
+
+function TestObjectMarkerCaptureExtract:testFallsBackToConfigNameWhenDisplayBlank()
+    local o = ObjectMarkerCapture.Extract({
+        subjectHash = 1,
+        subjectText = "",
+        locData = { config = { name = "", configName = "WINCHLADDER1" } },
+    })
+    luaunit.assertEquals(o.name, "WINCHLADDER1")
+end
+
 TestObjectMarkerCaptureFlow = {}
 
 local function armed()

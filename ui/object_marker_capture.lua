@@ -110,8 +110,15 @@ function ObjectMarkerCapture.Extract(raw)
         if entry[field] ~= nil then return entry[field] end
         return locData[field]
     end
+    local function nonempty(s)
+        return type(s) == "string" and s ~= "" and s or nil
+    end
+    -- LocType.name is often "" on scenery; MiniMenu subjectText is the player-facing label.
+    local name = nonempty(entry.subjectText)
+        or nonempty(config.name)
+        or nonempty(config.configName)
     return {
-        name = config.name,
+        name = name,
         coordGrid = {
             x = coord("coordGridX"),
             z = coord("coordGridZ"),
