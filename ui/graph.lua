@@ -1583,26 +1583,6 @@ function Editor:RaiseToFront()
     self:frontOverlayInteractives()
 end
 
--- Dismiss popups/gestures without flipping self.visible (F8 must keep pan/zoom).
-function Editor:OnShellHide()
-    self.pressed = false
-    self.mode = "idle"
-    self.wire = nil
-    self.dragNodeId = nil
-    self:closePalette()
-    self:closeControlEditor()
-    self:closeColorPopup()
-    self:positionCapture()
-end
-
--- Default pan/zoom on Mount and each open (avoids irrecoverable off-screen pan).
-function Editor:resetView()
-    self.view.panX = 0
-    self.view.panY = 0
-    self.view.zoom = 1.0
-    self:syncZoomSlider()
-end
-
 -- PrettyUI tooltips parent to the overlay, not the SpriteButton. Hiding the button
 -- does not fire ONMOUSELEAVE, so a hovered Back tooltip would stick over the manager.
 local function hideToolbarButton(btn, hidden)
@@ -1620,6 +1600,41 @@ local function hideToolbarButton(btn, hidden)
             btn:_UpdateState()
         end
     end
+end
+
+local function dismissToolbarTooltip(btn)
+    if btn == nil then return end
+    if btn.tooltip ~= nil and btn.tooltip.Hide ~= nil then
+        btn.tooltip:Hide()
+    end
+    btn.hovered = false
+    btn.pressed = false
+    if btn._UpdateState ~= nil then
+        btn:_UpdateState()
+    end
+end
+
+-- Dismiss popups/gestures without flipping self.visible (F8 must keep pan/zoom).
+function Editor:OnShellHide()
+    self.pressed = false
+    self.mode = "idle"
+    self.wire = nil
+    self.dragNodeId = nil
+    self:closePalette()
+    self:closeControlEditor()
+    self:closeColorPopup()
+    self:positionCapture()
+    dismissToolbarTooltip(self.plusButton)
+    dismissToolbarTooltip(self.resetViewButton)
+    dismissToolbarTooltip(self.backButton)
+end
+
+-- Default pan/zoom on Mount and each open (avoids irrecoverable off-screen pan).
+function Editor:resetView()
+    self.view.panX = 0
+    self.view.panY = 0
+    self.view.zoom = 1.0
+    self:syncZoomSlider()
 end
 
 function Editor:SetVisible(v)

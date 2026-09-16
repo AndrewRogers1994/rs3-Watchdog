@@ -177,6 +177,24 @@ function TestGraphEditor:testSetVisibleFalseHidesToolbarTooltips()
     luaunit.assertEquals(updateCount, 1)
 end
 
+function TestGraphEditor:testOnShellHideHidesToolbarTooltipsWithoutTuckingButtons()
+    local editor = Editor.new(self.registry, nil)
+    local hideCount = 0
+    editor.backButton = {
+        root = { hidden = false },
+        tooltip = { Hide = function() hideCount = hideCount + 1 end },
+        hovered = true,
+        pressed = true,
+        _UpdateState = function() end,
+    }
+    editor.visible = true
+    editor:OnShellHide()
+    luaunit.assertEquals(hideCount, 1)
+    luaunit.assertFalse(editor.backButton.root.hidden)
+    luaunit.assertFalse(editor.backButton.hovered)
+    luaunit.assertTrue(editor.visible)
+end
+
 -- The Esc cascade's final rung is nav-up: with no popup/capture active, Escape calls goBack.
 function TestGraphEditor:testEscapeNavigatesUpWhenNothingElseActive()
     local editor = Editor.new(self.registry, nil)

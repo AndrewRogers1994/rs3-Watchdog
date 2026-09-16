@@ -289,6 +289,27 @@ function TestMuxVisibility:testHideCallsTopOnShellHideWithoutSurfaceHide()
     luaunit.assertTrue(self.mux:IsTop("editor"))
 end
 
+function TestMuxVisibility:testHideHidesWindowTooltipContext()
+    local hideCount = 0
+    self.win.tooltipContext = {
+        tooltips = {
+            { Hide = function() hideCount = hideCount + 1 end },
+        },
+        children = {
+            {
+                tooltips = {
+                    { Hide = function() hideCount = hideCount + 1 end },
+                },
+                children = {},
+            },
+        },
+    }
+    self.mux:Push(fakeSurface("manager"))
+    self.mux:SetVisible(true)
+    self.mux:SetVisible(false)
+    luaunit.assertEquals(hideCount, 2)
+end
+
 function TestMuxVisibility:testRaiseToFront()
     self.mux:RaiseToFront()
     luaunit.assertEquals(self.win.raiseCount, 1)

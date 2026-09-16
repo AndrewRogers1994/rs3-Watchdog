@@ -158,8 +158,10 @@ Theme.DOUBLECLICK_DIST  = 6   -- max screen-px drift between the two clicks
 Theme.MANAGER_TAB_BASELINE   = 42
 Theme.MANAGER_ROW_H          = 22
 Theme.MANAGER_HEADER_H       = 20
-Theme.MANAGER_ENABLE_W       = 22
-Theme.MANAGER_SELECT_W       = 22   -- multi-select checkbox column (#93)
+-- Wider than the checkbox glyph so the "Enabled" header is not ellipsized.
+-- ui.Check.buttonSize is still capped to MANAGER_ROW_H, so the tick box stays 20px.
+Theme.MANAGER_ENABLE_W       = 72
+Theme.MANAGER_SELECT_W       = 22   -- multi-select checkbox in the Actions cluster (#93)
 Theme.MANAGER_ACT_W          = 22   -- pencil / export / trash SpriteButton size
 Theme.MANAGER_ACT_COUNT      = 3    -- pencil + export + trash per row (#94)
 Theme.MANAGER_REORDER_W      = 22

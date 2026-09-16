@@ -601,3 +601,24 @@ function TestManager:testSelectedIdsFollowVisibleTreeOrder()
     mgr:ToggleSelection(1, false)
     luaunit.assertEquals(mgr:SelectedIds(), { 3, 1, 2 })
 end
+
+-- F8/Close notifies OnShellHide instead of SetVisible(false); overlay-parented
+-- PrettyUI tips must Hide or they stick after the window tucks.
+function TestManager:testOnShellHideHidesRowAndToolbarTooltips()
+    local mgr = self:makeManager({})
+    local hides = {}
+    mgr.rowSpriteButtons = {
+        {
+            tooltip = { Hide = function() hides[#hides + 1] = "row" end },
+            hovered = true,
+            pressed = true,
+            _UpdateState = function() end,
+        },
+    }
+    mgr.toolbarButtons = {
+        { tooltip = { Hide = function() hides[#hides + 1] = "toolbar" end } },
+    }
+    mgr:OnShellHide()
+    luaunit.assertEquals(hides, { "row", "toolbar" })
+    luaunit.assertFalse(mgr.rowSpriteButtons[1].hovered)
+end

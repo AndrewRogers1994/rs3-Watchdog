@@ -93,6 +93,8 @@ function Manager.new(opts)
         treeTop = 0,                -- content-local Y (rename AddTextField coords)
         bulkBarButtons = {},
         toolbarButtons = {},
+        rowSpriteButtons = {},      -- PrettyUI SpriteButtons (tooltips parent to overlay)
+        rowTooltipHosts = {},       -- native row Panels with a PrettyUI tooltip context
         lastSignature = nil,
         renameField = nil,
         renameId = nil,
@@ -707,9 +709,84 @@ function Manager:_destroyBulkBar()
     self.bulkBarButtons = {}
 end
 
+-- Overlay-parented PrettyUI tooltips outlive the row Sprite; Hide on tuck-away, unbind
+-- before tree Destroy so a hovered tip does not stick (same pattern as the Editor toolbar).
+function Manager:_hideRowTooltips()
+    for _, btn in ipairs(self.rowSpriteButtons or {}) do
+        pcall(function()
+            if btn.tooltip ~= nil and btn.tooltip.Hide ~= nil then btn.tooltip:Hide() end
+            btn.hovered = false
+            btn.pressed = false
+            if btn._UpdateState ~= nil then btn:_UpdateState() end
+        end)
+    end
+end
+
+local function hideBoundTooltip(btn)
+    if btn == nil then return end
+    pcall(function()
+        if btn.tooltip ~= nil and btn.tooltip.Hide ~= nil then btn.tooltip:Hide() end
+        btn.hovered = false
+        btn.pressed = false
+        if btn._UpdateState ~= nil then btn:_UpdateState() end
+    end)
+end
+
+-- F8/Close does not call SetVisible(false); mux notifies OnShellHide instead.
+function Manager:OnShellHide()
+    self:_hideRowTooltips()
+    for _, b in ipairs(self.toolbarButtons or {}) do hideBoundTooltip(b) end
+    for _, b in ipairs(self.bulkBarButtons or {}) do hideBoundTooltip(b) end
+    self:CloseTransfer()
+    self:CloseConfirm()
+end
+
+function Manager:_releaseRowTooltips()
+    self:_hideRowTooltips()
+    if prettyui ~= nil and prettyui.Tooltip ~= nil then
+        for _, btn in ipairs(self.rowSpriteButtons) do
+            pcall(function() prettyui.Tooltip.unbind(btn) end)
+        end
+        for _, host in ipairs(self.rowTooltipHosts) do
+            pcall(function() prettyui.Tooltip.unregisterContext(host) end)
+        end
+    end
+    self.rowSpriteButtons = {}
+    self.rowTooltipHosts = {}
+end
+
+-- Native row Panels are not PrettyUI content, so SpriteButton tooltips would clip inside
+-- the 22px row. Register a context that parents tips to the Window overlay and maps
+-- sprite coords through tree + row.
+---@param rowPanel ui.ComponentCollection
+function Manager:_bindRowTooltipContext(rowPanel)
+    local Tooltip = prettyui and prettyui.Tooltip
+    if Tooltip == nil or Tooltip.registerContext == nil or rowPanel == nil then return end
+    local content = self.layoutHost and self.layoutHost.content
+    if content == nil then return end
+    local parentCtx = Tooltip.getContext(content)
+    local tooltipParent = (parentCtx and parentCtx.parent) or content
+    local tree = self.treePanel
+    local ok = pcall(function()
+        Tooltip.registerContext(rowPanel, tooltipParent, function(target)
+            local rx, ry = rowPanel.x or 0, rowPanel.y or 0
+            if parentCtx ~= nil and type(parentCtx.position) == "function" and tree ~= nil then
+                local ox, oy = parentCtx.position(tree)
+                return (ox or 0) + rx + (target.x or 0), (oy or 0) + ry + (target.y or 0)
+            end
+            return (tree and tree.x or 0) + rx + (target.x or 0),
+                (tree and tree.y or 0) + ry + (target.y or 0)
+        end, parentCtx)
+    end)
+    if ok then
+        self.rowTooltipHosts[#self.rowTooltipHosts + 1] = rowPanel
+    end
+end
+
 -- Destroy the tree panel only - not each row SpriteButton then the parent.
 function Manager:_destroyTree()
     self:_endRename(false)
+    self:_releaseRowTooltips()
     if self.treePanel ~= nil then
         pcall(function() self.treePanel:Destroy() end)
         self.treePanel = nil
@@ -834,8 +911,9 @@ local function managerColumnWidths(rowW, depth)
     local nameW = math.max(40, baseNameW - indent)
     local moveW = Theme.MANAGER_REORDER_COUNT * Theme.MANAGER_REORDER_W
         + (Theme.MANAGER_REORDER_COUNT - 1) * Theme.MANAGER_ROW_GAP
-    local actionsW = Theme.MANAGER_ACT_COUNT * Theme.MANAGER_ACT_W
-        + (Theme.MANAGER_ACT_COUNT - 1) * Theme.MANAGER_ROW_GAP
+    -- Select checkbox lives in the Actions cluster (select + pencil + export + trash).
+    local actionsW = Theme.MANAGER_SELECT_W + Theme.MANAGER_ACT_COUNT * Theme.MANAGER_ACT_W
+        + Theme.MANAGER_ACT_COUNT * Theme.MANAGER_ROW_GAP
     return baseNameW, nameW, moveW, actionsW
 end
 
@@ -905,10 +983,83 @@ end
 ---@param onPress fun()
 ---@param size integer
 ---@param disabled boolean|nil
-local function mountRowSprite(parent, spriteName, onPress, size, disabled)
-    local btn = prettyui.SpriteButton.new(parent, spriteName, onPress, { size = size })
+---@param tooltip string|nil
+local function mountRowSprite(parent, spriteName, onPress, size, disabled, tooltip)
+    local btn = prettyui.SpriteButton.new(parent, spriteName, onPress, {
+        size = size,
+        tooltip = tooltip,
+    })
     if disabled then btn:SetDisabled(true) end
     return btn
+end
+
+---@param parent ui.ComponentCollection
+---@param w number
+---@param h number
+local function mountClickthroughSpacer(parent, w, h)
+    if w <= 0 then return end
+    pcall(function()
+        local spacer = ui.Panel.new(parent)
+        spacer.isVertical = false
+        spacer.spacing = 0
+        spacer.clickthrough = true
+        spacer:SetSize(w, h)
+    end)
+end
+
+-- Enable lives in a wide header cell; wrap the glyph in spacers so it sits centred.
+---@param parent ui.ComponentCollection
+---@param checked boolean
+---@param onPress fun()
+local function mountEnableToggle(parent, checked, onPress)
+    local cellW, cellH = Theme.MANAGER_ENABLE_W, Theme.MANAGER_ROW_H
+    local box = cellH
+    local cell
+    pcall(function()
+        cell = ui.Panel.new(parent)
+        cell.isVertical = false
+        cell.spacing = 0
+        cell.clickthrough = true
+        cell:SetSize(cellW, cellH)
+    end)
+    local host = cell or parent
+    local side = 0
+    if cell ~= nil then
+        side = math.floor((cellW - box) / 2)
+        mountClickthroughSpacer(cell, side, cellH)
+    else
+        box = cellW
+    end
+
+    local enableMounted = false
+    if ui.Check ~= nil then
+        local check
+        local okc = pcall(function() check = ui.Check.new(host) end)
+        if okc and check ~= nil then
+            pcall(function()
+                check.stylesheetID = safeCheckStyle()
+                check:SetSize(box, cellH)
+                check.buttonSize = math.min(box, cellH)
+                check.value = checked and true or false
+                check.label = ""
+                if ui.CheckAlignMode ~= nil then
+                    check.alignment = ui.CheckAlignMode.LEFT
+                end
+                check:Subscribe(ui.Hook.ONBUTTONPRESSED, function()
+                    onPress()
+                    return true
+                end)
+            end)
+            enableMounted = true
+        end
+    end
+    if not enableMounted then
+        local mark = checked and "[x]" or "[ ]"
+        mountButton(host, 0, 0, box, cellH, mark, onPress)
+    end
+    if cell ~= nil then
+        mountClickthroughSpacer(cell, cellW - box - side, cellH)
+    end
 end
 
 local SUBMIT_CAUSES = {
@@ -1368,7 +1519,7 @@ function Manager:_rebuild()
 
     local rows = self:VisibleRows()
     local treeParent = self.treePanel
-    -- PrettyUI name/actions/reorder on the native row; enable/select stay ui.Check.
+    -- PrettyUI name/reorder on the native row; enable + Actions-cluster select stay ui.Check.
     local baseNameW, headerNameW, headerMoveW, headerActionsW = managerColumnWidths(rowW, 0)
     pcall(function()
         local header = ui.Panel.new(treeParent)
@@ -1377,7 +1528,6 @@ function Manager:_rebuild()
         header.clickthrough = true
         header:SetSize(rowW, Theme.MANAGER_HEADER_H)
         mountHeaderCell(header, Theme.MANAGER_ENABLE_W, Theme.MANAGER_HEADER_H, "Enabled", true)
-        mountHeaderCell(header, Theme.MANAGER_SELECT_W, Theme.MANAGER_HEADER_H, "Select", true)
         mountHeaderCell(header, headerMoveW, Theme.MANAGER_HEADER_H, "Move", true)
         mountHeaderCell(header, headerNameW, Theme.MANAGER_HEADER_H, "Alert", false)
         mountHeaderCell(header, headerActionsW, Theme.MANAGER_HEADER_H, "Actions", true)
@@ -1394,92 +1544,42 @@ function Manager:_rebuild()
         end)
         if not okRow or rowPanel == nil then
             rowPanel = treeParent
+        else
+            self:_bindRowTooltipContext(rowPanel)
         end
 
-        local selectX = Theme.MANAGER_ENABLE_W + Theme.MANAGER_ROW_GAP
         -- Horizontal ui.Panel auto-layouts children (ADR-0007) - SetPos X is ignored. Indent by
         -- inserting a spacer before the name button; size it so spacer + layout gap + nameW
-        -- equals baseNameW and pencil/export/trash stay put across depths.
+        -- equals baseNameW and the Actions cluster stays put across depths.
         local indent = (row.depth or 0) * Theme.MANAGER_ROW_INDENT
-        local nameX = Theme.MANAGER_ENABLE_W + Theme.MANAGER_SELECT_W
+        local nameX = Theme.MANAGER_ENABLE_W
             + Theme.MANAGER_REORDER_COUNT * Theme.MANAGER_REORDER_W
-            + (2 + Theme.MANAGER_REORDER_COUNT) * Theme.MANAGER_ROW_GAP
+            + (1 + Theme.MANAGER_REORDER_COUNT) * Theme.MANAGER_ROW_GAP
             + indent
         local _, nameW = managerColumnWidths(rowW, row.depth)
         local canUp, canDown, canLift = self:RowMoveCaps(row.id)
 
-        local enableMounted = false
-        if ui.Check ~= nil then
-            local check
-            local okc = pcall(function() check = ui.Check.new(rowPanel) end)
-            if okc and check ~= nil then
-                pcall(function()
-                    check.stylesheetID = safeCheckStyle()
-                    check:SetPos(0, 0)
-                    check:SetSize(Theme.MANAGER_ENABLE_W, Theme.MANAGER_ROW_H)
-                    check.buttonSize = math.min(Theme.MANAGER_ENABLE_W - 2, Theme.MANAGER_ROW_H - 2)
-                    check.value = row.enabled and true or false
-                    check.label = ""
-                    check:Subscribe(ui.Hook.ONBUTTONPRESSED, function()
-                        self:ToggleEnabled(capturedRow.id)
-                        self:_rebuild()
-                        return true
-                    end)
-                end)
-                enableMounted = true
-            end
-        end
-        if not enableMounted then
-            local mark = row.enabled and "[x]" or "[ ]"
-            mountButton(rowPanel, 0, 0, Theme.MANAGER_ENABLE_W, Theme.MANAGER_ROW_H, mark, function()
-                self:ToggleEnabled(capturedRow.id)
-                self:_rebuild()
-            end)
-        end
-
-        -- Native ui.Check, not prettyui.CheckboxButton.
-        local selectMounted = false
-        if ui.Check ~= nil then
-            local sel
-            local oks = pcall(function() sel = ui.Check.new(rowPanel) end)
-            if oks and sel ~= nil then
-                pcall(function()
-                    sel.stylesheetID = safeCheckStyle()
-                    sel:SetPos(selectX, 0)
-                    sel:SetSize(Theme.MANAGER_SELECT_W, Theme.MANAGER_ROW_H)
-                    sel.buttonSize = math.min(Theme.MANAGER_SELECT_W - 2, Theme.MANAGER_ROW_H - 2)
-                    sel.value = self.selected[row.id] and true or false
-                    sel.label = ""
-                    sel:Subscribe(ui.Hook.ONBUTTONPRESSED, function()
-                        self:ToggleSelection(capturedRow.id, isShiftDown())
-                        self:_rebuild()
-                        return true
-                    end)
-                end)
-                selectMounted = true
-            end
-        end
-        if not selectMounted then
-            local mark = self.selected[row.id] and "[*]" or "[ ]"
-            mountButton(rowPanel, selectX, 0, Theme.MANAGER_SELECT_W, Theme.MANAGER_ROW_H, mark, function()
-                self:ToggleSelection(capturedRow.id, isShiftDown())
-                self:_rebuild()
-            end)
-        end
+        mountEnableToggle(rowPanel, row.enabled and true or false, function()
+            self:ToggleEnabled(capturedRow.id)
+            self:_rebuild()
+        end)
 
         -- Illegal moves stay mounted, disabled.
-        mountRowSprite(rowPanel, "ARROW_UP", function()
-            self:ReorderSibling(capturedRow.id, -1)
-            self:_rebuild()
-        end, Theme.MANAGER_REORDER_W, not canUp)
-        mountRowSprite(rowPanel, "ARROW_DOWN", function()
-            self:ReorderSibling(capturedRow.id, 1)
-            self:_rebuild()
-        end, Theme.MANAGER_REORDER_W, not canDown)
-        mountRowSprite(rowPanel, "ARROW_LEFT", function()
-            self:Lift(capturedRow.id)
-            self:_rebuild()
-        end, Theme.MANAGER_REORDER_W, not canLift)
+        self.rowSpriteButtons[#self.rowSpriteButtons + 1] = mountRowSprite(
+            rowPanel, "ARROW_UP", function()
+                self:ReorderSibling(capturedRow.id, -1)
+                self:_rebuild()
+            end, Theme.MANAGER_REORDER_W, not canUp, "Move up")
+        self.rowSpriteButtons[#self.rowSpriteButtons + 1] = mountRowSprite(
+            rowPanel, "ARROW_DOWN", function()
+                self:ReorderSibling(capturedRow.id, 1)
+                self:_rebuild()
+            end, Theme.MANAGER_REORDER_W, not canDown, "Move down")
+        self.rowSpriteButtons[#self.rowSpriteButtons + 1] = mountRowSprite(
+            rowPanel, "ARROW_LEFT", function()
+                self:Lift(capturedRow.id)
+                self:_rebuild()
+            end, Theme.MANAGER_REORDER_W, not canLift, "Lift")
 
         -- Nesting indent: empty Panel so horizontal auto-layout shifts the name button right.
         -- spacerW + Theme.MANAGER_ROW_GAP + nameW == baseNameW keeps action columns aligned.
@@ -1503,7 +1603,38 @@ function Manager:_rebuild()
             height = Theme.MANAGER_ROW_H,
         })
 
-        mountRowSprite(rowPanel, "PENCIL", function()
+        -- Actions cluster: select checkbox, then pencil / export / trash.
+        -- Native ui.Check, not prettyui.CheckboxButton.
+        local selectMounted = false
+        if ui.Check ~= nil then
+            local sel
+            local oks = pcall(function() sel = ui.Check.new(rowPanel) end)
+            if oks and sel ~= nil then
+                pcall(function()
+                    sel.stylesheetID = safeCheckStyle()
+                    sel:SetSize(Theme.MANAGER_SELECT_W, Theme.MANAGER_ROW_H)
+                    sel.buttonSize = math.min(Theme.MANAGER_SELECT_W - 2, Theme.MANAGER_ROW_H - 2)
+                    sel.value = self.selected[row.id] and true or false
+                    sel.label = ""
+                    sel:Subscribe(ui.Hook.ONBUTTONPRESSED, function()
+                        self:ToggleSelection(capturedRow.id, isShiftDown())
+                        self:_rebuild()
+                        return true
+                    end)
+                end)
+                selectMounted = true
+            end
+        end
+        if not selectMounted then
+            local mark = self.selected[row.id] and "[*]" or "[ ]"
+            mountButton(rowPanel, 0, 0, Theme.MANAGER_SELECT_W, Theme.MANAGER_ROW_H, mark, function()
+                self:ToggleSelection(capturedRow.id, isShiftDown())
+                self:_rebuild()
+            end)
+        end
+
+        self.rowSpriteButtons[#self.rowSpriteButtons + 1] = mountRowSprite(
+            rowPanel, "PENCIL", function()
             local fieldY = 0
             pcall(function() fieldY = rowPanel.y or 0 end)
             -- content-local for layoutHost:AddTextField (not treePanel-local)
@@ -1515,15 +1646,17 @@ function Manager:_rebuild()
                 nameW,
                 Theme.MANAGER_ROW_H
             )
-        end, Theme.MANAGER_ACT_W)
+        end, Theme.MANAGER_ACT_W, false, "Rename")
 
-        mountRowSprite(rowPanel, "EXPORT", function()
+        self.rowSpriteButtons[#self.rowSpriteButtons + 1] = mountRowSprite(
+            rowPanel, "EXPORT", function()
             self:ExportRow(capturedRow.id)
-        end, Theme.MANAGER_ACT_W)
+        end, Theme.MANAGER_ACT_W, false, "Export")
 
-        mountRowSprite(rowPanel, "TRASH", function()
+        self.rowSpriteButtons[#self.rowSpriteButtons + 1] = mountRowSprite(
+            rowPanel, "TRASH", function()
             self:_onDeletePress(capturedRow.id)
-        end, Theme.MANAGER_ACT_W)
+        end, Theme.MANAGER_ACT_W, false, "Delete")
 
         if self.pendingRenameId == row.id then
             self.pendingRenameId = nil
@@ -1606,6 +1739,9 @@ function Manager:SetVisible(v)
     setChildVisible(componentRoot(self.renameField), self.visible)
     -- Transfer / Confirm are their own Windows under the mux root - close when Manager tucks away.
     if not self.visible then
+        self:_hideRowTooltips()
+        for _, b in ipairs(self.toolbarButtons or {}) do hideBoundTooltip(b) end
+        for _, b in ipairs(self.bulkBarButtons or {}) do hideBoundTooltip(b) end
         self:CloseTransfer()
         self:CloseConfirm()
     end
@@ -1629,6 +1765,8 @@ end
 -- _destroyToolbar / _destroyTabs while the window stays alive.
 function Manager:Unmount()
     self:_endRename(false)
+    -- Overlay-parented row tooltips are not in the window content tree.
+    self:_releaseRowTooltips()
     -- Transfer / Confirm live under the mux root (not mux content) - Destroy on Stop.
     self:CloseTransfer()
     self:CloseConfirm()

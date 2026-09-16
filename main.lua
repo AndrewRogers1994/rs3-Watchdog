@@ -702,6 +702,8 @@ managerSurface = {
     id = "manager",
     title = "Watchdog - Alerts",
     SetVisible = function(_, v) manager:SetVisible(v) end,
+    -- F8/Close does not flip surface SetVisible; overlay-parented row tooltips must Hide here.
+    OnShellHide = function() manager:OnShellHide() end,
 }
 editorSurface = {
     id = "editor",

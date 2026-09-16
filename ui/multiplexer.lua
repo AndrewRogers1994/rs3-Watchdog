@@ -329,6 +329,20 @@ end
 
 --- Window shell visibility ----------------------------------------------------------------
 
+-- Overlay-parented PrettyUI tooltips live on the mux root Layer, not the Window.
+-- Window:Close() therefore leaves a hovered tip stuck until we Hide() it.
+local function hidePrettyUiTooltipTree(ctx)
+    if ctx == nil then return end
+    for _, tip in ipairs(ctx.tooltips or {}) do
+        pcall(function()
+            if tip.Hide ~= nil then tip:Hide() end
+        end)
+    end
+    for _, child in ipairs(ctx.children or {}) do
+        hidePrettyUiTooltipTree(child)
+    end
+end
+
 ---@param v boolean
 function Multiplexer:SetVisible(v)
     v = not not v
@@ -354,6 +368,13 @@ function Multiplexer:SetVisible(v)
         local top = self._stack[#self._stack]
         if top ~= nil and top.OnShellHide ~= nil then
             pcall(function() top:OnShellHide() end)
+        end
+        hidePrettyUiTooltipTree(self.window and self.window.tooltipContext)
+        if prettyui ~= nil and prettyui.Tooltip ~= nil and prettyui.Tooltip.getContext ~= nil then
+            local content = self.window and self.window.content
+            if content ~= nil then
+                hidePrettyUiTooltipTree(prettyui.Tooltip.getContext(content))
+            end
         end
         -- Hide overlay first so Editor capture (mounted there) cannot eat clicks while the
         -- shell is closed. Do not flip surface SetVisible - keeps pan/zoom across F8 and
