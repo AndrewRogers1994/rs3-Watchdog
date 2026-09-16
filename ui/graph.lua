@@ -1603,6 +1603,25 @@ function Editor:resetView()
     self:syncZoomSlider()
 end
 
+-- PrettyUI tooltips parent to the overlay, not the SpriteButton. Hiding the button
+-- does not fire ONMOUSELEAVE, so a hovered Back tooltip would stick over the manager.
+local function hideToolbarButton(btn, hidden)
+    if btn == nil then return end
+    if btn.root ~= nil then
+        btn.root.hidden = hidden
+    end
+    if hidden then
+        if btn.tooltip ~= nil and btn.tooltip.Hide ~= nil then
+            btn.tooltip:Hide()
+        end
+        btn.hovered = false
+        btn.pressed = false
+        if btn._UpdateState ~= nil then
+            btn:_UpdateState()
+        end
+    end
+end
+
 function Editor:SetVisible(v)
     local becomingVisible = v and not self.visible
     self.visible = v and true or false
@@ -1619,20 +1638,14 @@ function Editor:SetVisible(v)
     if self.canvas ~= nil then
         pcall(function() self.canvas.hidden = not self.visible end)
     end
-    if self.plusButton ~= nil then
-        self.plusButton.root.hidden = not self.visible
-    end
-    if self.resetViewButton ~= nil then
-        self.resetViewButton.root.hidden = not self.visible
-    end
+    hideToolbarButton(self.plusButton, not self.visible)
+    hideToolbarButton(self.resetViewButton, not self.visible)
+    hideToolbarButton(self.backButton, not self.visible)
     if self.zoomSlider ~= nil then
         pcall(function() self.zoomSlider.hidden = not self.visible end)
     end
     if self.zoomTickCanvas ~= nil then
         pcall(function() self.zoomTickCanvas.hidden = not self.visible end)
-    end
-    if self.backButton ~= nil then
-        self.backButton.root.hidden = not self.visible
     end
     if self.paletteCanvas ~= nil then
         pcall(function() self.paletteCanvas.hidden = not self.visible end)

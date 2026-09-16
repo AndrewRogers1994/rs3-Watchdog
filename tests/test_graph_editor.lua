@@ -151,6 +151,32 @@ function TestGraphEditor:testGoBackInvokesOnBack()
     luaunit.assertEquals(calls, 1)
 end
 
+-- Hiding the editor must Hide() overlay-parented PrettyUI tooltips; ONMOUSELEAVE never
+-- fires when the hovered Back button is hidden under the cursor.
+function TestGraphEditor:testSetVisibleFalseHidesToolbarTooltips()
+    local editor = Editor.new(self.registry, nil)
+    local hideCount = 0
+    local updateCount = 0
+    editor.backButton = {
+        root = { hidden = false },
+        tooltip = { Hide = function() hideCount = hideCount + 1 end },
+        hovered = true,
+        pressed = true,
+        _UpdateState = function() updateCount = updateCount + 1 end,
+    }
+    editor.plusButton = { root = { hidden = false } }
+    editor.resetViewButton = { root = { hidden = false } }
+    editor.visible = true
+    editor:SetVisible(false)
+    luaunit.assertTrue(editor.backButton.root.hidden)
+    luaunit.assertTrue(editor.plusButton.root.hidden)
+    luaunit.assertTrue(editor.resetViewButton.root.hidden)
+    luaunit.assertEquals(hideCount, 1)
+    luaunit.assertFalse(editor.backButton.hovered)
+    luaunit.assertFalse(editor.backButton.pressed)
+    luaunit.assertEquals(updateCount, 1)
+end
+
 -- The Esc cascade's final rung is nav-up: with no popup/capture active, Escape calls goBack.
 function TestGraphEditor:testEscapeNavigatesUpWhenNothingElseActive()
     local editor = Editor.new(self.registry, nil)
