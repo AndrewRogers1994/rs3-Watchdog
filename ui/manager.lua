@@ -1,8 +1,8 @@
 -- manager.lua - Alert Manager: scope tabs + Entry tree (PrettyUI chrome, native tree Panel).
 --
 -- Native tree mounts under `mux:Content()`; PrettyUI chrome uses `mux:Window():Add*` so
--- Layout.manage owns teardown (unmanaged `prettyui.*.new` under a Layer hard-crashes on
--- poff - see .memory/spritebutton-teardown-crash.md). Tabs are strip-height only - a
+-- Layout.manage owns teardown. Row name/actions/reorder use unmanaged `*.new` on the
+-- native row panel so they scroll with the tree. Tabs are strip-height only - a
 -- full-height Tabs paints empty page content over the tree. Mid-session rebuild Destroys
 -- managed widgets while the window stays alive (Layout.remove); Stop/Unmount only clears
 -- Lua refs (mux window Destroy owns native teardown - Destroying Tabs then the window
@@ -707,6 +707,7 @@ function Manager:_destroyBulkBar()
     self.bulkBarButtons = {}
 end
 
+-- Destroy the tree panel only - not each row SpriteButton then the parent.
 function Manager:_destroyTree()
     self:_endRename(false)
     if self.treePanel ~= nil then
@@ -897,6 +898,17 @@ local function mountButton(parent, x, y, w, h, label, onPress, enabled)
     end)
     pcall(function() button:MoveToFront() end)
     return button
+end
+
+---@param parent ui.ComponentCollection
+---@param spriteName string
+---@param onPress fun()
+---@param size integer
+---@param disabled boolean|nil
+local function mountRowSprite(parent, spriteName, onPress, size, disabled)
+    local btn = prettyui.SpriteButton.new(parent, spriteName, onPress, { size = size })
+    if disabled then btn:SetDisabled(true) end
+    return btn
 end
 
 local SUBMIT_CAUSES = {
@@ -1356,7 +1368,7 @@ function Manager:_rebuild()
 
     local rows = self:VisibleRows()
     local treeParent = self.treePanel
-    -- Native ui.Button ren/export/del; enable/select ui.Check; move arrows ui.Sprite.
+    -- PrettyUI name/actions/reorder on the native row; enable/select stay ui.Check.
     local baseNameW, headerNameW, headerMoveW, headerActionsW = managerColumnWidths(rowW, 0)
     pcall(function()
         local header = ui.Panel.new(treeParent)
@@ -1385,14 +1397,14 @@ function Manager:_rebuild()
         end
 
         local selectX = Theme.MANAGER_ENABLE_W + Theme.MANAGER_ROW_GAP
-        local upX = selectX + Theme.MANAGER_SELECT_W + Theme.MANAGER_ROW_GAP
-        local downX = upX + Theme.MANAGER_REORDER_W + Theme.MANAGER_ROW_GAP
-        local liftX = downX + Theme.MANAGER_REORDER_W + Theme.MANAGER_ROW_GAP
         -- Horizontal ui.Panel auto-layouts children (ADR-0007) - SetPos X is ignored. Indent by
         -- inserting a spacer before the name button; size it so spacer + layout gap + nameW
-        -- equals baseNameW and the Rename column stays put across depths.
+        -- equals baseNameW and pencil/export/trash stay put across depths.
         local indent = (row.depth or 0) * Theme.MANAGER_ROW_INDENT
-        local nameX = liftX + Theme.MANAGER_REORDER_W + Theme.MANAGER_ROW_GAP + indent
+        local nameX = Theme.MANAGER_ENABLE_W + Theme.MANAGER_SELECT_W
+            + Theme.MANAGER_REORDER_COUNT * Theme.MANAGER_REORDER_W
+            + (2 + Theme.MANAGER_REORDER_COUNT) * Theme.MANAGER_ROW_GAP
+            + indent
         local _, nameW = managerColumnWidths(rowW, row.depth)
         local canUp, canDown, canLift = self:RowMoveCaps(row.id)
 
@@ -1455,57 +1467,22 @@ function Manager:_rebuild()
             end)
         end
 
-        -- Sprite icons (client fonts are ASCII-only). Disabled sprite + no-op when illegal.
-        do
-            local function mountIconButton(x, y, w, h, sprite, spriteHover, spriteDisabled, isEnabled, onClick)
-                local iconBtn
-                local ok = pcall(function() iconBtn = ui.Sprite.new(rowPanel) end)
-                if not ok or iconBtn == nil then return end
-                pcall(function()
-                    iconBtn.spriteID = isEnabled and sprite or spriteDisabled
-                    iconBtn:SetPos(x, y)
-                    iconBtn:SetSize(w, h)
-                end)
-                iconBtn:Subscribe(ui.Hook.ONCLICK, function()
-                    if not isEnabled then return true end
-                    onClick()
-                    return true
-                end)
-                iconBtn:Subscribe(ui.Hook.ONMOUSEOVER, function()
-                    if isEnabled then iconBtn.spriteID = spriteHover end
-                end)
-                iconBtn:Subscribe(ui.Hook.ONMOUSELEAVE, function()
-                    if isEnabled then iconBtn.spriteID = sprite end
-                end)
-            end
-            mountIconButton(upX, 0, Theme.MANAGER_REORDER_W, Theme.MANAGER_ROW_H,
-                id.Sprite.RS3_ICON_DIRECTION_UP_32PX_2,
-                id.Sprite.RS3_ICON_DIRECTION_UP_32PX_3,
-                id.Sprite.RS3_ICON_DIRECTION_UP_32PX_4,
-                canUp, function()
-                    self:ReorderSibling(capturedRow.id, -1)
-                    self:_rebuild()
-                end)
-            mountIconButton(downX, 0, Theme.MANAGER_REORDER_W, Theme.MANAGER_ROW_H,
-                id.Sprite.RS3_ICON_DIRECTION_DOWN_32PX_2,
-                id.Sprite.RS3_ICON_DIRECTION_DOWN_32PX_3,
-                id.Sprite.RS3_ICON_DIRECTION_DOWN_32PX_4,
-                canDown, function()
-                    self:ReorderSibling(capturedRow.id, 1)
-                    self:_rebuild()
-                end)
-            mountIconButton(liftX, 0, Theme.MANAGER_REORDER_W, Theme.MANAGER_ROW_H,
-                id.Sprite.RS3_ICON_DIRECTION_LEFT_32PX_2,
-                id.Sprite.RS3_ICON_DIRECTION_LEFT_32PX_3,
-                id.Sprite.RS3_ICON_DIRECTION_LEFT_32PX_4,
-                canLift, function()
-                    self:Lift(capturedRow.id)
-                    self:_rebuild()
-                end)
-        end
+        -- Illegal moves stay mounted, disabled.
+        mountRowSprite(rowPanel, "ARROW_UP", function()
+            self:ReorderSibling(capturedRow.id, -1)
+            self:_rebuild()
+        end, Theme.MANAGER_REORDER_W, not canUp)
+        mountRowSprite(rowPanel, "ARROW_DOWN", function()
+            self:ReorderSibling(capturedRow.id, 1)
+            self:_rebuild()
+        end, Theme.MANAGER_REORDER_W, not canDown)
+        mountRowSprite(rowPanel, "ARROW_LEFT", function()
+            self:Lift(capturedRow.id)
+            self:_rebuild()
+        end, Theme.MANAGER_REORDER_W, not canLift)
 
         -- Nesting indent: empty Panel so horizontal auto-layout shifts the name button right.
-        -- spacerW + Theme.MANAGER_ROW_GAP + nameW == baseNameW keeps Rename/Export/Delete column-aligned.
+        -- spacerW + Theme.MANAGER_ROW_GAP + nameW == baseNameW keeps action columns aligned.
         if indent > Theme.MANAGER_ROW_GAP then
             local spacerW = indent - Theme.MANAGER_ROW_GAP
             local spacer
@@ -1518,13 +1495,15 @@ function Manager:_rebuild()
             end)
         end
 
-        mountButton(rowPanel, nameX, 0, nameW, Theme.MANAGER_ROW_H, self:RowLabel(row), function()
+        prettyui.SimpleButton.new(rowPanel, self:RowLabel(row), function()
             self:_onRowPress(capturedRow)
             if capturedRow.kind == "group" then self:_rebuild() end
-        end)
+        end, {
+            width = nameW,
+            height = Theme.MANAGER_ROW_H,
+        })
 
-        local renameX = nameX + nameW + Theme.MANAGER_ROW_GAP
-        mountButton(rowPanel, renameX, 0, Theme.MANAGER_ACT_W, Theme.MANAGER_ROW_H, "Rename", function()
+        mountRowSprite(rowPanel, "PENCIL", function()
             local fieldY = 0
             pcall(function() fieldY = rowPanel.y or 0 end)
             -- content-local for layoutHost:AddTextField (not treePanel-local)
@@ -1536,17 +1515,15 @@ function Manager:_rebuild()
                 nameW,
                 Theme.MANAGER_ROW_H
             )
-        end)
+        end, Theme.MANAGER_ACT_W)
 
-        local exportX = renameX + Theme.MANAGER_ACT_W + Theme.MANAGER_ROW_GAP
-        mountButton(rowPanel, exportX, 0, Theme.MANAGER_ACT_W, Theme.MANAGER_ROW_H, "Export", function()
+        mountRowSprite(rowPanel, "EXPORT", function()
             self:ExportRow(capturedRow.id)
-        end)
+        end, Theme.MANAGER_ACT_W)
 
-        local deleteX = exportX + Theme.MANAGER_ACT_W + Theme.MANAGER_ROW_GAP
-        mountButton(rowPanel, deleteX, 0, Theme.MANAGER_ACT_W, Theme.MANAGER_ROW_H, "Delete", function()
+        mountRowSprite(rowPanel, "TRASH", function()
             self:_onDeletePress(capturedRow.id)
-        end)
+        end, Theme.MANAGER_ACT_W)
 
         if self.pendingRenameId == row.id then
             self.pendingRenameId = nil
