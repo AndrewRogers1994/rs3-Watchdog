@@ -164,6 +164,13 @@ function Editor:interactiveParent()
     return self.overlayParent or self.contentParent
 end
 
+-- PLUS is fronted last among toolbar buttons; visible tips must follow or Reset view sits under +.
+local function frontToolbarTooltip(btn)
+    if btn == nil or btn.tooltip == nil or btn.tooltip.root == nil then return end
+    if btn.tooltip.root.hidden == true then return end
+    btn.tooltip.root:MoveToFront()
+end
+
 -- Capture under palette under toolbar under transient editors (overlay above PrettyUI window).
 function Editor:frontOverlayInteractives()
     pcall(function() if self.capture ~= nil then self.capture:MoveToFront() end end)
@@ -174,6 +181,9 @@ function Editor:frontOverlayInteractives()
     if self.zoomTickCanvas ~= nil then pcall(function() self.zoomTickCanvas:MoveToFront() end) end
     if self.resetViewButton ~= nil then self.resetViewButton.root:MoveToFront() end
     if self.plusButton ~= nil then self.plusButton.root:MoveToFront() end
+    frontToolbarTooltip(self.backButton)
+    frontToolbarTooltip(self.resetViewButton)
+    frontToolbarTooltip(self.plusButton)
     InvViewer.FrontTooltips(self)
     if self.editing ~= nil and self.editing.field ~= nil then
         pcall(function() self.editing.field:MoveToFront() end)

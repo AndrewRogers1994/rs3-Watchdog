@@ -195,6 +195,43 @@ function TestGraphEditor:testOnShellHideHidesToolbarTooltipsWithoutTuckingButton
     luaunit.assertTrue(editor.visible)
 end
 
+-- Visible Reset-view tooltip must MoveToFront after PLUS.
+function TestGraphEditor:testFrontOverlayInteractivesRaisesResetViewTooltipAbovePlus()
+    local editor = Editor.new(self.registry, nil)
+    local order = {}
+    local function tracked(name, hidden)
+        return {
+            hidden = hidden,
+            MoveToFront = function() table.insert(order, name) end,
+        }
+    end
+    editor.plusButton = { root = tracked("plus") }
+    editor.resetViewButton = {
+        root = tracked("reset"),
+        tooltip = { root = tracked("reset-tip", false) },
+    }
+    editor:frontOverlayInteractives()
+    luaunit.assertEquals(order, { "reset", "plus", "reset-tip" })
+end
+
+function TestGraphEditor:testFrontOverlayInteractivesSkipsHiddenToolbarTooltip()
+    local editor = Editor.new(self.registry, nil)
+    local order = {}
+    local function tracked(name, hidden)
+        return {
+            hidden = hidden,
+            MoveToFront = function() table.insert(order, name) end,
+        }
+    end
+    editor.plusButton = { root = tracked("plus") }
+    editor.resetViewButton = {
+        root = tracked("reset"),
+        tooltip = { root = tracked("reset-tip", true) },
+    }
+    editor:frontOverlayInteractives()
+    luaunit.assertEquals(order, { "reset", "plus" })
+end
+
 -- The Esc cascade's final rung is nav-up: with no popup/capture active, Escape calls goBack.
 function TestGraphEditor:testEscapeNavigatesUpWhenNothingElseActive()
     local editor = Editor.new(self.registry, nil)
