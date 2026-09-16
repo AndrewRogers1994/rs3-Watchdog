@@ -322,6 +322,38 @@ function TestMuxVisibility:testShowRaisesWindowToFront()
     luaunit.assertEquals(self.win.raiseCount, 1)
 end
 
+-- Object-select (#14): tuck the shell only if it was showing, and only restore if we tucked it.
+function TestMuxVisibility:testHideForCaptureTucksAVisibleShell()
+    self.mux:SetVisible(true)
+    self.mux:HideForCapture()
+    luaunit.assertFalse(self.mux:IsVisible())
+    luaunit.assertTrue(self.mux:IsHiddenForCapture())
+end
+
+function TestMuxVisibility:testHideForCaptureIsNoopWhenAlreadyHidden()
+    self.mux:HideForCapture()
+    luaunit.assertFalse(self.mux:IsVisible())
+    luaunit.assertFalse(self.mux:IsHiddenForCapture())
+    self.mux:RestoreFromCapture()
+    luaunit.assertFalse(self.mux:IsVisible())
+end
+
+function TestMuxVisibility:testRestoreFromCaptureShowsOnlyIfWeHid()
+    self.mux:SetVisible(true)
+    self.mux:HideForCapture()
+    self.mux:RestoreFromCapture()
+    luaunit.assertTrue(self.mux:IsVisible())
+    luaunit.assertFalse(self.mux:IsHiddenForCapture())
+end
+
+function TestMuxVisibility:testRestoreFromCaptureIsIdempotent()
+    self.mux:SetVisible(true)
+    self.mux:HideForCapture()
+    self.mux:RestoreFromCapture()
+    self.mux:RestoreFromCapture()
+    luaunit.assertTrue(self.mux:IsVisible())
+end
+
 --- Titles ---------------------------------------------------------------------------------
 
 TestMuxTitle = {}

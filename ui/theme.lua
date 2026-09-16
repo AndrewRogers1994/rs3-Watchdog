@@ -149,7 +149,7 @@ Theme.PALETTE_SCROLLBAR_W         = 8
 Theme.PALETTE_SCROLLBAR_MIN_THUMB = 24
 
 -- Two clicks pairing into a double-click that opens the Palette on empty space.
-Theme.DOUBLECLICK_TICKS = 12  -- Logic ticks (~0.02s each) allowed between the two clicks
+Theme.DOUBLECLICK_TICKS = 24  -- Logic ticks (~0.02s each) allowed between the two clicks
 Theme.DOUBLECLICK_DIST  = 6   -- max screen-px drift between the two clicks
 
 --- Alert Manager (screen-space layout) -----------------------------------------------

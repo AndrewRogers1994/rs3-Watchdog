@@ -204,4 +204,55 @@ function TestObjectMarkerCaptureFlow:testAcceptsBareMenuPayload()
     luaunit.assertEquals(menu.addCount, 1)
 end
 
+-- Shell hide/restore (#14) is driven by armed transitions, not MiniMenu traffic.
+function TestObjectMarkerCaptureFlow:testArmNotifiesOnArmedChangeTrue()
+    local harness = newFakeEventSource()
+    local capture = ObjectMarkerCapture.new(harness.source)
+    local log = {}
+    capture.onArmedChange = function(armed) log[#log + 1] = armed end
+    capture:Arm("node1", "object", function() end)
+    luaunit.assertEquals(log, { true })
+end
+
+function TestObjectMarkerCaptureFlow:testCancelNotifiesOnArmedChangeFalse()
+    local capture = armed()
+    local log = {}
+    capture.onArmedChange = function(armed) log[#log + 1] = armed end
+    capture:Cancel()
+    luaunit.assertEquals(log, { false })
+end
+
+function TestObjectMarkerCaptureFlow:testSelectNotifiesDisarmBeforeCommit()
+    local capture, harness, rec = armed()
+    local log = {}
+    capture.onArmedChange = function(armed)
+        log[#log + 1] = armed
+        -- Window must be restorable before the control write (editor still bound).
+        luaunit.assertEquals(rec.count, 0)
+    end
+    local menu = fakeMenu({ locEntry() })
+    harness:Push("MiniMenuReady", { miniMenu = menu })
+    menu.lastAddFn()
+    luaunit.assertEquals(log, { false })
+    luaunit.assertEquals(rec.count, 1)
+end
+
+function TestObjectMarkerCaptureFlow:testReArmWhileArmedDoesNotRenotify()
+    local capture = armed()
+    local log = {}
+    capture.onArmedChange = function(armed) log[#log + 1] = armed end
+    capture:Arm("node1", "object", function() end)
+    luaunit.assertEquals(#log, 0)
+    luaunit.assertTrue(capture:IsArmed())
+end
+
+function TestObjectMarkerCaptureFlow:testCancelWhileDisarmedDoesNotNotify()
+    local harness = newFakeEventSource()
+    local capture = ObjectMarkerCapture.new(harness.source)
+    local log = {}
+    capture.onArmedChange = function(armed) log[#log + 1] = armed end
+    capture:Cancel()
+    luaunit.assertEquals(#log, 0)
+end
+
 return TestObjectMarkerCaptureFindLoc

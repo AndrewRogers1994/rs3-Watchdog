@@ -56,6 +56,7 @@
 ---@field _ownsOverlay boolean
 ---@field _inCloseCallback boolean
 ---@field _useParentAsRoot boolean
+---@field _hiddenForCapture boolean         # shell tucked for Object Marker select (#14)
 local Multiplexer = {}
 Multiplexer.__index = Multiplexer
 
@@ -100,6 +101,7 @@ function Multiplexer.new(opts)
         _ownsRoot = false,
         _ownsOverlay = false,
         _inCloseCallback = false,
+        _hiddenForCapture = false,
         _useParentAsRoot = opts.useParentAsRoot == true,
     }, Multiplexer)
 
@@ -391,6 +393,29 @@ function Multiplexer:SetVisible(v)
             self.onHide()
         end
     end
+end
+
+-- Object Marker select: hide Watchdog chrome (and the overlay capture) so Loc MiniMenu
+-- hover works. No-op if the shell was already down (F8); Restore must not pop it back up.
+function Multiplexer:HideForCapture()
+    if self._hiddenForCapture or not self._visible then
+        return
+    end
+    self._hiddenForCapture = true
+    self:SetVisible(false)
+end
+
+function Multiplexer:RestoreFromCapture()
+    if not self._hiddenForCapture then
+        return
+    end
+    self._hiddenForCapture = false
+    self:SetVisible(true)
+end
+
+---@return boolean
+function Multiplexer:IsHiddenForCapture()
+    return self._hiddenForCapture == true
 end
 
 function Multiplexer:Toggle()

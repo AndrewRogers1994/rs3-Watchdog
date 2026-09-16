@@ -680,6 +680,12 @@ manager = Manager.new({
     end,
 })
 
+local function syncRibbon()
+    if ribbon ~= nil and mux ~= nil then
+        pcall(function() ribbon:SetActive(mux:IsVisible()) end)
+    end
+end
+
 mux = Multiplexer.new({
     x = -math.floor(Theme.WINDOW_W / 2),
     y = -math.floor(Theme.WINDOW_H / 2),
@@ -697,6 +703,17 @@ mux = Multiplexer.new({
         end
     end,
 })
+
+-- Tuck the Watchdog shell while Select Object is armed so Loc MiniMenu isn't under the window.
+runtime.objectMarkerCapture.onArmedChange = function(armed)
+    if mux == nil then return end
+    if armed then
+        mux:HideForCapture()
+    else
+        mux:RestoreFromCapture()
+    end
+    syncRibbon()
+end
 
 managerSurface = {
     id = "manager",
@@ -864,6 +881,9 @@ end
 local api = {}
 
 function api.Stop()
+    if runtime.objectMarkerCapture ~= nil then
+        runtime.objectMarkerCapture.onArmedChange = nil
+    end
     pcall(persistNow)
     pcall(function() Event.Logic.Unsubscribe(Events.Logic) end)
     pcall(function() Event.Draw.Unsubscribe(Events.Draw) end)
@@ -887,10 +907,13 @@ end
 
 function api.Toggle()
     if mux == nil then return end
-    mux:Toggle()
-    if ribbon ~= nil then
-        pcall(function() ribbon:SetActive(mux:IsVisible()) end)
+    -- F8 during object select leaves the gesture, restoring the shell instead of toggling it away.
+    if runtime.objectMarkerCapture ~= nil and runtime.objectMarkerCapture:IsArmed() then
+        runtime.objectMarkerCapture:Cancel()
+        return
     end
+    mux:Toggle()
+    syncRibbon()
 end
 
 api.editor = editor
@@ -904,6 +927,10 @@ Event.Draw.Subscribe(Events.Draw, onDraw)
 Event.KeyDown.Subscribe(Events.KeyDown, function(keyEvent)
     if keyEvent == nil or keyEvent.isRepeat then return end
     if keyEvent.gameKey == GameKey.ESCAPE then
+        if runtime.objectMarkerCapture ~= nil and runtime.objectMarkerCapture:IsArmed() then
+            runtime.objectMarkerCapture:Cancel()
+            return
+        end
         if mux ~= nil and mux:IsVisible() then
             if mux:IsTop("manager") and manager ~= nil and manager:IsVisible() then
                 if manager:HasSelection() then

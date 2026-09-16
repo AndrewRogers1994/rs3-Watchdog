@@ -21,7 +21,22 @@ function ObjectMarkerCapture.new(eventSource)
         nodeId = nil,
         pinName = nil,
         onCommit = nil,
+        -- Optional: fun(armed: boolean). Fires only on true transitions (Arm from idle,
+        -- Cancel/select from armed). The Watchdog shell uses this to tuck itself so MiniMenu
+        -- hover isn't covered by the editor window.
+        onArmedChange = nil,
     }, ObjectMarkerCapture)
+end
+
+function ObjectMarkerCapture:_setArmed(armed)
+    armed = not not armed
+    if self.armed == armed then
+        return
+    end
+    self.armed = armed
+    if self.onArmedChange ~= nil then
+        Util.CallOrLog("object_marker_capture", "onArmedChange error", self.onArmedChange, armed)
+    end
 end
 
 -- Client API objects are userdata, not table; tests fabricate tables. Both must pass.
@@ -108,8 +123,8 @@ end
 
 function ObjectMarkerCapture:Arm(nodeId, pinName, onCommit)
     self:_unsubscribe()
-    self.armed = true
     self.nodeId, self.pinName, self.onCommit = nodeId, pinName, onCommit
+    self:_setArmed(true)
     local capture = self
     local channel = self.eventSource and self.eventSource.MiniMenuReady
     -- LOAD-BEARING print() - do NOT remove (undocumented client quirk): a same-scope print() is
@@ -130,8 +145,8 @@ end
 
 function ObjectMarkerCapture:Cancel()
     self:_unsubscribe()
-    self.armed = false
     self.nodeId, self.pinName, self.onCommit = nil, nil, nil
+    self:_setArmed(false)
 end
 
 ---@param canvas any

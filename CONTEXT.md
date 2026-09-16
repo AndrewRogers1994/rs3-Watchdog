@@ -372,6 +372,9 @@ _Avoid_: ground marker, tile marker (as the node name); "object" alone (ambiguou
 A top-of-screen instruction strip shown while a Screen or Object Marker capture is waiting for
 input (drag a region / Select Object on a Loc). Non-interactive — cancel is Esc or re-click of the same
 Capture Control. Screen Marker also dims the screen behind it (Snipping-Tool hole while dragging).
+Object Marker select additionally hides the Watchdog window (and its overlay capture) so Loc MiniMenu
+hover is not covered; Esc or F8 cancels and brings the window back. The shell is restored on a
+successful Select Object. If Watchdog was already F8-hidden, it stays hidden.
 _Avoid_: toast, notification, armed banner, overlay prompt
 
 **Chat Trigger**:
