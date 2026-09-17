@@ -43,7 +43,8 @@ function Node.Register(registry, runtime)
             if area == nil then
                 return
             end
-            local owner = ctx.nodeId
+            -- Shared strip is process-wide; node ids are graph-local, so key by instance state.
+            local owner = ctx.state
 
             if ctx.exec == "dismiss" then
                 area:Remove(owner)

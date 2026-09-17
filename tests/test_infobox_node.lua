@@ -9,6 +9,7 @@ local InfoBox = require("ui/infobox")
 -- through a genuine ctx rather than a fabricated one.
 local Registry = require("registry")
 local Graph = require("graph")
+local Serialize = require("serialize")
 
 local function makeFakeRegistry()
     return {
@@ -57,7 +58,7 @@ end
 
 -- Run tests fire through a REAL LibNodeGraph, so ctx is the engine's genuine run context (a
 -- fabricated ctx can only agree with the code's own assumptions - how the ctx.pin/ctx.exec
--- divergence slipped through). The tile owner is the node's real integer id (ctx.nodeId).
+-- divergence slipped through). Tile owner is graph.nodes[id].state, not ctx.nodeId.
 TestInfoBoxNodeRun = {}
 
 function TestInfoBoxNodeRun:setUp()
@@ -71,12 +72,16 @@ function TestInfoBoxNodeRun:add(controls)
     return self.graph:AddNode("action.infobox", controls)
 end
 
+local function ownerOf(graph, id)
+    return graph.nodes[id].state
+end
+
 function TestInfoBoxNodeRun:testUpdateLazyCreatesTheTile()
     local id = self:add({ value = 5, title = "HP" })
     self.graph:FireInput(id, "update")
-    luaunit.assertTrue(self.area:Has(id))
-    luaunit.assertEquals(self.area:Get(id).text, "5")
-    luaunit.assertEquals(self.area:Get(id).title, "HP")
+    luaunit.assertTrue(self.area:Has(ownerOf(self.graph, id)))
+    luaunit.assertEquals(self.area:Get(ownerOf(self.graph, id)).text, "5")
+    luaunit.assertEquals(self.area:Get(ownerOf(self.graph, id)).title, "HP")
 end
 
 function TestInfoBoxNodeRun:testUpdateRewritesInPlaceNotANewTile()
@@ -85,7 +90,7 @@ function TestInfoBoxNodeRun:testUpdateRewritesInPlaceNotANewTile()
     self.graph:SetControl(id, "value", 2)
     self.graph:FireInput(id, "update")
     luaunit.assertEquals(self.area:Count(), 1)
-    luaunit.assertEquals(self.area:Get(id).text, "2")
+    luaunit.assertEquals(self.area:Get(ownerOf(self.graph, id)).text, "2")
 end
 
 function TestInfoBoxNodeRun:testExternalFireWithNoExecPinFallsBackToUpdate()
@@ -93,21 +98,21 @@ function TestInfoBoxNodeRun:testExternalFireWithNoExecPinFallsBackToUpdate()
     -- creates/refreshes the tile rather than dismissing it.
     local id = self:add({ value = "x" })
     self.graph:Fire(id)
-    luaunit.assertTrue(self.area:Has(id))
+    luaunit.assertTrue(self.area:Has(ownerOf(self.graph, id)))
 end
 
 function TestInfoBoxNodeRun:testDismissRemovesTheTile()
     local id = self:add({ value = 1 })
     self.graph:FireInput(id, "update")
     self.graph:FireInput(id, "dismiss")
-    luaunit.assertFalse(self.area:Has(id))
+    luaunit.assertFalse(self.area:Has(ownerOf(self.graph, id)))
 end
 
 function TestInfoBoxNodeRun:testDismissOnUnknownOwnerIsANoop()
     local id = self:add({})
     local ok = pcall(function() self.graph:FireInput(id, "dismiss") end)
     luaunit.assertTrue(ok)
-    luaunit.assertFalse(self.area:Has(id))
+    luaunit.assertFalse(self.area:Has(ownerOf(self.graph, id)))
 end
 
 function TestInfoBoxNodeRun:testDismissWhenEmptyRemovesOnEmptyUpdate()
@@ -116,7 +121,7 @@ function TestInfoBoxNodeRun:testDismissWhenEmptyRemovesOnEmptyUpdate()
     self.graph:SetControl(id, "value", 0)
     self.graph:SetControl(id, "dismissWhenEmpty", true)
     self.graph:FireInput(id, "update")
-    luaunit.assertFalse(self.area:Has(id))
+    luaunit.assertFalse(self.area:Has(ownerOf(self.graph, id)))
 end
 
 function TestInfoBoxNodeRun:testDismissWhenEmptyOffKeepsTheTileOnEmptyUpdate()
@@ -125,14 +130,14 @@ function TestInfoBoxNodeRun:testDismissWhenEmptyOffKeepsTheTileOnEmptyUpdate()
     self.graph:SetControl(id, "value", 0)
     self.graph:SetControl(id, "dismissWhenEmpty", false)
     self.graph:FireInput(id, "update")
-    luaunit.assertTrue(self.area:Has(id))
-    luaunit.assertEquals(self.area:Get(id).text, "0")
+    luaunit.assertTrue(self.area:Has(ownerOf(self.graph, id)))
+    luaunit.assertEquals(self.area:Get(ownerOf(self.graph, id)).text, "0")
 end
 
 function TestInfoBoxNodeRun:testFirstUpdateEmptyWithDismissWhenEmptyNeverAppears()
     local id = self:add({ value = nil, dismissWhenEmpty = true })
     self.graph:FireInput(id, "update")
-    luaunit.assertFalse(self.area:Has(id))
+    luaunit.assertFalse(self.area:Has(ownerOf(self.graph, id)))
 end
 
 function TestInfoBoxNodeRun:testDifferentNodesGetDifferentTiles()
@@ -140,6 +145,17 @@ function TestInfoBoxNodeRun:testDifferentNodesGetDifferentTiles()
     local b = self:add({ value = 2 })
     self.graph:FireInput(a, "update")
     self.graph:FireInput(b, "update")
+    luaunit.assertEquals(self.area:Count(), 2)
+end
+
+function TestInfoBoxNodeRun:testDeserializedCloneWithSameNodeIdGetsItsOwnTile()
+    local id = self:add({ value = 1, title = "original" })
+    self.graph:FireInput(id, "update")
+    local clone = Serialize.Deserialize(Serialize.Serialize(self.graph), self.registry)
+    luaunit.assertEquals(id, clone.nodes[id].id)
+    clone:SetControl(id, "value", 2)
+    clone:SetControl(id, "title", "imported")
+    clone:FireInput(id, "update")
     luaunit.assertEquals(self.area:Count(), 2)
 end
 
@@ -156,5 +172,5 @@ function TestInfoBoxNodeRun:testColorPassesThroughUnmodified()
     local color = { r = 10, g = 20, b = 30, a = 255 }
     local id = self:add({ value = 1, color = color })
     self.graph:FireInput(id, "update")
-    luaunit.assertEquals(self.area:Get(id).color, color)
+    luaunit.assertEquals(self.area:Get(ownerOf(self.graph, id)).color, color)
 end

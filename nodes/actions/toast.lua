@@ -25,7 +25,8 @@ function Toast.Register(registry, runtime)
             if stack == nil then
                 return
             end
-            local nodeKey = ctx.nodeId
+            -- Node ids are graph-local; instance state stays unique after import.
+            local nodeKey = ctx.state
             if ctx.exec == "dismiss" then
                 stack:Dismiss(nodeKey)
                 return

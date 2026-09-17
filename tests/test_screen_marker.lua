@@ -14,6 +14,7 @@ local EffectRegistry = require("effects")
 -- through a genuine ctx rather than a fabricated one.
 local Registry = require("registry")
 local Graph = require("graph")
+local Serialize = require("serialize")
 
 local function makeFakeRegistry()
     return {
@@ -115,6 +116,17 @@ function TestScreenMarkerRun:testDifferentNodesStackIndependently()
     self.graph:FireInput(b, "show")
     luaunit.assertEquals(self.effects:StackCount(stateOf(self.graph, a)), 1)
     luaunit.assertEquals(self.effects:StackCount(stateOf(self.graph, b)), 1)
+end
+
+function TestScreenMarkerRun:testDeserializedCloneWithSameNodeIdStacksSeparately()
+    local rect = { x = 1, y = 2, w = 3, h = 4 }
+    local id = self.graph:AddNode("action.screen_marker", { rect = rect })
+    self.graph:FireInput(id, "show")
+    local clone = Serialize.Deserialize(Serialize.Serialize(self.graph), self.registry)
+    clone:FireInput(id, "show")
+    luaunit.assertEquals(self.effects:StackCount(stateOf(self.graph, id)), 1)
+    luaunit.assertEquals(self.effects:StackCount(stateOf(clone, id)), 1)
+    luaunit.assertNotEquals(stateOf(self.graph, id), stateOf(clone, id))
 end
 
 function TestScreenMarkerRun:testExternalFireWithNoExecPinFallsBackToShowBehavior()

@@ -6,6 +6,10 @@
 local luaunit = require("luaunit")
 local EffectRegistry = require("effects")
 local Toast = require("toast")
+local ToastNode = require("nodes/actions/toast")
+local Registry = require("registry")
+local Graph = require("graph")
+local Serialize = require("serialize")
 
 TestToast = {}
 
@@ -182,6 +186,27 @@ function TestToast:testSecondDragStartsFromThePreviousAnchor()
     self.toast:BeginDrag({ x = 50, y = 50 })
     self.toast:DragTo({ x = 60, y = 45 })
     luaunit.assertEquals(self.toast:GetAnchorOffset(), { dx = 20, dy = 5 })
+end
+
+TestToastNodeRun = {}
+
+function TestToastNodeRun:setUp()
+    self.registry = Registry.new()
+    self.effects = EffectRegistry.new()
+    self.toast = Toast.new(self.effects)
+    ToastNode.Register(self.registry, { toast = self.toast })
+    self.graph = Graph.new(self.registry)
+end
+
+function TestToastNodeRun:testDeserializedCloneDismissDoesNotClearOriginal()
+    local id = self.graph:AddNode("action.toast", { text = "original" })
+    self.graph:FireInput(id, "show")
+    local clone = Serialize.Deserialize(Serialize.Serialize(self.graph), self.registry)
+    clone:SetControl(id, "text", "imported")
+    clone:FireInput(id, "show")
+    luaunit.assertEquals(self.toast:LiveCount(), 2)
+    clone:FireInput(id, "dismiss")
+    luaunit.assertEquals(self.toast:LiveCount(), 1)
 end
 
 return TestToast
