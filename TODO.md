@@ -17,6 +17,8 @@
 - [#] 12. Screen Marker and Object Marker need a "hold" control like Toast. They also need their "armed modes" to be more noticable with instructions. Screen marker should have a "dimming overlay" and when you drag a box, it's not dim inside. like how windows snipping tool works. And object marker needs to have some sort of indicator that it's enabled and that you need to examine an object. maybe just a big text notification type thing in the top of the screen. ([#71](https://github.com/adamk33n3r/rs3-Watchdog/issues/71))
 - [x] 13. Location trigger node needs to not fire upon 1. load and 2. setting position ([#72](https://github.com/adamk33n3r/rs3-Watchdog/issues/72))
 - [x] 14. Hide watchdog window during object select _(Mux `HideForCapture` while `objectMarkerCapture` is armed; restore on commit/Esc/F8. No-op if the shell was already down.)_
+- [ ] 15. Area select + copy/paste in editor view
+- [ ] 16. Disabling an alert that has an infobox in it should clear that infobox (and probably any other visuals spawned by that alert)
 
 ## Node port backlog (mirroring runelite-watchdog)
 

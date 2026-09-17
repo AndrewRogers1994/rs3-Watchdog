@@ -5,10 +5,13 @@
 .DESCRIPTION
     Stages the same "core" file set as .vscode/deploy.ps1 for Watchdog and each
     entry in plugin.json's requiredDependencies: plugin.json (if present), every
-    file under resources/, and every *.lua file outside tests/docs/.git/.vscode/staging.
+    file under resources/, and every *.lua file outside
+    tests/docs/.git/.vscode/staging/scripts.
     Lua files are naively stripped: drop whole-line -- comments (including simple
     --[[ ... ]] blocks) and inline trailing -- comments; -- inside quoted/long
-    strings is preserved.
+    strings is preserved. With -Minify, that stripper is skipped for a whitelist of
+    plugins (Watchdog, LibNodeGraph, LibNodeGraphStd) and those Lua files are
+    rewritten by scripts/minify.lua instead. prettyui is never minified.
 
     The zip layout mirrors the live client: one top-level folder per plugin
     (Watchdog/, LibNodeGraph/, …).
@@ -17,12 +20,18 @@
     Path for the output zip. Defaults to Watchdog-<version>.zip beside this script,
     where <version> comes from plugin.json.
 
+.PARAMETER Minify
+    Minify staged Lua via scripts/minify.lua instead of naive comment stripping,
+    but only for Watchdog, LibNodeGraph, and LibNodeGraphStd.
+
 .EXAMPLE
     powershell -NoProfile -ExecutionPolicy Bypass -File bundle.ps1
     powershell -NoProfile -ExecutionPolicy Bypass -File bundle.ps1 -Output dist/Watchdog-custom.zip
+    powershell -NoProfile -ExecutionPolicy Bypass -File bundle.ps1 -Minify
 #>
 param(
-    [string]$Output
+    [string]$Output,
+    [switch]$Minify
 )
 
 $ErrorActionPreference = 'Stop'
@@ -30,7 +39,8 @@ $ErrorActionPreference = 'Stop'
 $watchdogDir = $PSScriptRoot
 $rs3Root = Split-Path -Parent $watchdogDir
 $pluginName = 'Watchdog'
-$pruneSegments = @('tests', 'docs', '.git', '.vscode', 'staging')
+$pruneSegments = @('tests', 'docs', '.git', '.vscode', 'staging', 'scripts')
+$minifyPlugins = @('Watchdog', 'LibNodeGraph', 'LibNodeGraphStd')
 
 function Test-Pruned {
     param([string]$RelativePath)
@@ -171,16 +181,71 @@ function Remove-NaiveLuaComments {
     return ($out -join "`n") + "`n"
 }
 
-function Copy-BundledFile {
+function Invoke-MinifyLua {
     param(
         [string]$Src,
         [string]$Dst,
         [string]$RelativePath
     )
 
+    $minifyScript = Join-Path $watchdogDir 'scripts\minify.lua'
+    if (-not (Test-Path -LiteralPath $minifyScript -PathType Leaf)) {
+        throw "Missing minify script: $minifyScript"
+    }
+
+    $lua = Get-Command lua -ErrorAction SilentlyContinue
+    if (-not $lua) {
+        throw "lua is not on PATH; required for -Minify"
+    }
+
+    $quote = {
+        param([string]$Value)
+        '"' + ($Value -replace '"', '\"') + '"'
+    }
+
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $lua.Source
+    $psi.Arguments = (& $quote $minifyScript) + ' minify ' + (& $quote $Src)
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.StandardOutputEncoding = New-Object System.Text.UTF8Encoding $false
+    $psi.StandardErrorEncoding = New-Object System.Text.UTF8Encoding $false
+
+    $proc = New-Object System.Diagnostics.Process
+    $proc.StartInfo = $psi
+    [void]$proc.Start()
+    $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
+    $stderrTask = $proc.StandardError.ReadToEndAsync()
+    $proc.WaitForExit()
+    $stdout = $stdoutTask.GetAwaiter().GetResult()
+    $stderr = $stderrTask.GetAwaiter().GetResult()
+
+    if ($proc.ExitCode -ne 0) {
+        throw "minify.lua failed for $RelativePath (exit $($proc.ExitCode)): $stderr"
+    }
+
+    $utf8 = New-Object System.Text.UTF8Encoding $false
+    [System.IO.File]::WriteAllText($Dst, $stdout, $utf8)
+}
+
+function Copy-BundledFile {
+    param(
+        [string]$Src,
+        [string]$Dst,
+        [string]$RelativePath,
+        [switch]$Minify
+    )
+
     New-Item -ItemType Directory -Path (Split-Path -Parent $Dst) -Force | Out-Null
 
     if ($RelativePath -like '*.lua') {
+        if ($Minify) {
+            Invoke-MinifyLua -Src $Src -Dst $Dst -RelativePath $RelativePath
+            return
+        }
+
         $text = [System.IO.File]::ReadAllText($Src)
         $stripped = Remove-NaiveLuaComments $text
         $utf8 = New-Object System.Text.UTF8Encoding $false
@@ -194,7 +259,8 @@ function Copy-BundledFile {
 function Stage-Plugin {
     param(
         [string]$Name,
-        [string]$StageRoot
+        [string]$StageRoot,
+        [switch]$Minify
     )
 
     $srcDir = Join-Path $rs3Root $Name
@@ -209,7 +275,7 @@ function Stage-Plugin {
 
     foreach ($rel in $files) {
         $dst = Join-Path $StageRoot (Join-Path $Name $rel)
-        Copy-BundledFile -Src (Join-Path $srcDir $rel) -Dst $dst -RelativePath $rel
+        Copy-BundledFile -Src (Join-Path $srcDir $rel) -Dst $dst -RelativePath $rel -Minify:$Minify
     }
 
     return $files.Count
@@ -234,7 +300,8 @@ New-Item -ItemType Directory -Path $stage -Force | Out-Null
 try {
     $totalFiles = 0
     foreach ($name in $plugins) {
-        $count = Stage-Plugin -Name $name -StageRoot $stage
+        $minifyThis = $Minify -and ($minifyPlugins -contains $name)
+        $count = Stage-Plugin -Name $name -StageRoot $stage -Minify:$minifyThis
         $totalFiles += $count
         Write-Host "  $name  ($count files)"
     }

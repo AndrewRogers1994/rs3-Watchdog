@@ -46,7 +46,7 @@ local function addBody(win, message, fieldOpts)
     pcall(function()
         field = win:AddTextField(fieldOpts)
         if field ~= nil and field.root ~= nil and field.root.text ~= nil then
-            field.root.text.maxLines = 10
+            field.root.text.maxLines = 100
         end
     end)
     return field
