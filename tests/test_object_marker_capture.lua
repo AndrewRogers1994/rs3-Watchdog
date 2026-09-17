@@ -21,12 +21,23 @@ local function npcEntry()
 end
 
 local function fakeMenu(entries)
-    local menu = { entries = entries or {}, addCount = 0, swaps = {} }
+    local list = entries or {}
+    local menu = {
+        entries = list,
+        entryCount = #list,
+        addCount = 0,
+        swaps = {},
+        addNames = {},
+        addFns = {},
+    }
     function menu:Add(name, fn)
         self.addCount = self.addCount + 1
         self.lastAddName = name
         self.lastAddFn = fn
+        self.addNames[#self.addNames + 1] = name
+        self.addFns[#self.addFns + 1] = fn
         self.entries[#self.entries + 1] = { overrideText = name }
+        self.entryCount = #self.entries
     end
     function menu:Swap(a, b)
         self.swaps[#self.swaps + 1] = { a, b }
@@ -43,6 +54,31 @@ function TestObjectMarkerCaptureFindLoc:testPicksLastLocInReversedPriorityList()
     local found = ObjectMarkerCapture.FindLocEntry({ entries = { under, npcEntry(), top } })
     luaunit.assertEquals(found.locData.config.name, "Top")
     luaunit.assertEquals(found.subjectHash, 2)
+end
+
+function TestObjectMarkerCaptureFindLoc:testFindLocEntriesDedupesProcessAndExamineOnSameLoc()
+    local process = locEntry({
+        subjectHash = 1,
+        locData = { config = { id = 42, name = "Sawmill" } },
+        subjectText = "<col=ffff00>Sawmill</col>",
+    })
+    local examine = locEntry({
+        subjectHash = 2,
+        locData = { config = { id = 42, name = "Sawmill" } },
+        subjectText = "<col=ffff00>Sawmill</col>",
+    })
+    local locs = ObjectMarkerCapture.FindLocEntries({ entries = { process, examine } })
+    luaunit.assertEquals(#locs, 1)
+    luaunit.assertEquals(locs[1].subjectHash, 2)
+end
+
+function TestObjectMarkerCaptureFindLoc:testFindLocEntriesReturnsEveryLocInMenuOrder()
+    local under = locEntry({ locData = { config = { name = "Under" } }, subjectHash = 1 })
+    local top = locEntry({ locData = { config = { name = "Top" } }, subjectHash = 2 })
+    local locs = ObjectMarkerCapture.FindLocEntries({ entries = { under, npcEntry(), top } })
+    luaunit.assertEquals(#locs, 2)
+    luaunit.assertEquals(locs[1].subjectHash, 1)
+    luaunit.assertEquals(locs[2].subjectHash, 2)
 end
 
 function TestObjectMarkerCaptureFindLoc:testIgnoresNpcOnlyMenu()
@@ -151,11 +187,51 @@ function TestObjectMarkerCaptureFlow:testLocMenuAddsSelectObjectAndSwapsToIndex1
     local menu = fakeMenu({ loc })
     harness:Push("MiniMenuReady", { miniMenu = menu })
     luaunit.assertEquals(menu.addCount, 1)
-    luaunit.assertEquals(menu.lastAddName, "Select Object")
+    luaunit.assertEquals(menu.lastAddName, "Select Bank booth")
     luaunit.assertEquals(#menu.swaps, 1)
     luaunit.assertEquals(menu.swaps[1][1], 1)
     luaunit.assertEquals(menu.swaps[1][2], 2)
-    luaunit.assertEquals(menu.entries[1].overrideText, "Select Object")
+    luaunit.assertEquals(menu.entries[1].overrideText, "Select Bank booth")
+end
+
+function TestObjectMarkerCaptureFlow:testAddsSelectEntryPerLocKeepingTopFirst()
+    local _capture, harness, rec = armed()
+    local under = locEntry({
+        locData = { config = { name = "Under" } }, subjectHash = 11, subjectText = "Under",
+    })
+    local top = locEntry({
+        locData = { config = { name = "Top" } }, subjectHash = 22,
+        subjectText = "<col=ffff00>Top</col>",
+    })
+    local menu = fakeMenu({ under, npcEntry(), top })
+    harness:Push("MiniMenuReady", { miniMenu = menu })
+    luaunit.assertEquals(menu.addCount, 2)
+    luaunit.assertEquals(menu.addNames[1], "Select <col=ffff00>Top</col>")
+    luaunit.assertEquals(menu.addNames[2], "Select Under")
+    -- First Add is rotated via Swap(i,i+1); later Adds append after that Select.
+    luaunit.assertEquals(menu.entries[3].overrideText, "Select <col=ffff00>Top</col>")
+    luaunit.assertEquals(menu.entries[5].overrideText, "Select Under")
+    menu.addFns[2]()
+    luaunit.assertEquals(rec.committed.subjectHash, 11)
+end
+
+function TestObjectMarkerCaptureFlow:testOneSelectPerLocWhenMenuHasProcessAndExamine()
+    local _capture, harness = armed()
+    local process = locEntry({
+        subjectHash = 1,
+        locData = { config = { id = 99, name = "Sawmill" } },
+        subjectText = "<col=ffff00>Sawmill</col>",
+    })
+    local examine = locEntry({
+        subjectHash = 2,
+        locData = { config = { id = 99, name = "Sawmill" } },
+        subjectText = "<col=ffff00>Sawmill</col>",
+    })
+    local menu = fakeMenu({ process, examine })
+    harness:Push("MiniMenuReady", { miniMenu = menu })
+    luaunit.assertEquals(menu.addCount, 1)
+    luaunit.assertEquals(menu.lastAddName, "Select <col=ffff00>Sawmill</col>")
+    luaunit.assertEquals(menu.entries[2].overrideText, "Select <col=ffff00>Sawmill</col>")
 end
 
 function TestObjectMarkerCaptureFlow:testReverseScanPicksTopLocForCallback()
@@ -164,7 +240,7 @@ function TestObjectMarkerCaptureFlow:testReverseScanPicksTopLocForCallback()
     local top = locEntry({ locData = { config = { name = "Top" } }, subjectHash = 22 })
     local menu = fakeMenu({ under, top })
     harness:Push("MiniMenuReady", { miniMenu = menu })
-    menu.lastAddFn()
+    menu.addFns[1]()
     luaunit.assertEquals(rec.count, 1)
     luaunit.assertEquals(rec.committed.name, "Top")
     luaunit.assertEquals(rec.committed.subjectHash, 22)

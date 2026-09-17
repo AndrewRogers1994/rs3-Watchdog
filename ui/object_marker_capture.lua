@@ -2,7 +2,7 @@
 
 local Util = require("util")
 
-local SELECT_LABEL = "Select Object"
+local SELECT_PREFIX = "Select "
 local SUBSCRIBE_NAME = "watchdog_object_marker_capture"
 
 -- Stored on the node; coordGrid is a plain {x,z,level} table (level defaults to 0).
@@ -44,18 +44,6 @@ local function isApiTable(v)
     return type(v) == "userdata" or type(v) == "table"
 end
 
--- entries is reversed priority: last index is the top of the MiniMenu.
-local function reversediter(t, i)
-    i = i - 1
-    if i ~= 0 then
-        return i, t[i]
-    end
-end
-
-local function reversed(t)
-    return reversediter, t, #t + 1
-end
-
 local function menuOf(raw)
     if not isApiTable(raw) then
         return nil
@@ -76,22 +64,122 @@ local function entryOf(raw)
     return raw
 end
 
----@param menu any
----@return any|nil
-function ObjectMarkerCapture.FindLocEntry(menu)
-    if not isApiTable(menu) then
+local function menuLen(menu)
+    local n = 0
+    if type(menu.entryCount) == "number" then
+        n = menu.entryCount
+    end
+    local entries = menu.entries
+    if isApiTable(entries) then
+        local len = #entries
+        if len > n then
+            n = len
+        end
+    end
+    return n
+end
+
+-- MiniMenu:Add appends; docs only guarantee Swap(1, last) to reach the top. Bubble otherwise.
+local function promoteLastTo(menu, target)
+    local last = menuLen(menu)
+    if last < 1 or target < 1 then
+        return
+    end
+    if target == 1 then
+        menu:Swap(1, last)
+        return
+    end
+    local i = last
+    while i > target do
+        menu:Swap(i - 1, i)
+        i = i - 1
+    end
+end
+
+-- Same Loc across Process/Examine: LocType.id + tile. No id → subjectHash (tests / odd entries).
+---@param entry any
+---@return string|nil
+function ObjectMarkerCapture.LocKey(entry)
+    if not isApiTable(entry) then
         return nil
+    end
+    local locData = isApiTable(entry.locData) and entry.locData or {}
+    local config = isApiTable(locData.config) and locData.config or {}
+    local function coord(field)
+        if entry[field] ~= nil then return entry[field] end
+        return locData[field]
+    end
+    local x, z = coord("coordGridX"), coord("coordGridZ")
+    local level = coord("coordGridLevel") or entry.level or 0
+    if config.id ~= nil then
+        return table.concat({ "id", tostring(config.id), tostring(x), tostring(z), tostring(level) }, ":")
+    end
+    if entry.subjectHash ~= nil then
+        return "hash:" .. tostring(entry.subjectHash)
+    end
+    return nil
+end
+
+---@param menu any
+---@return any[]
+function ObjectMarkerCapture.FindLocEntries(menu)
+    local out = {}
+    if not isApiTable(menu) then
+        return out
     end
     local entries = menu.entries
     if not isApiTable(entries) then
-        return nil
+        return out
     end
-    for _, entry in reversed(entries) do
+    local n = menuLen(menu)
+    if n < 1 then
+        n = #entries
+    end
+    -- Walk top-first (last index is MiniMenu top); keep the first time we see each Loc.
+    local topFirst = {}
+    local seen = {}
+    for i = n, 1, -1 do
+        local entry = entries[i]
         if isApiTable(entry) and entry.locData ~= nil then
-            return entry
+            local key = ObjectMarkerCapture.LocKey(entry)
+            if key == nil or not seen[key] then
+                if key ~= nil then
+                    seen[key] = true
+                end
+                topFirst[#topFirst + 1] = entry
+            end
         end
     end
-    return nil
+    for i = #topFirst, 1, -1 do
+        out[#out + 1] = topFirst[i]
+    end
+    return out
+end
+
+-- Last loc in menu.entries is MiniMenu top (reversed priority).
+---@param menu any
+---@return any|nil
+function ObjectMarkerCapture.FindLocEntry(menu)
+    local locs = ObjectMarkerCapture.FindLocEntries(menu)
+    return locs[#locs]
+end
+
+local function nonempty(s)
+    return type(s) == "string" and s ~= "" and s or nil
+end
+
+-- MiniMenu subjectText keeps <col> tags so "Select "..label colors the Loc name.
+---@param entry any
+---@return string|nil
+function ObjectMarkerCapture.LocLabel(entry)
+    if not isApiTable(entry) then
+        return nil
+    end
+    local locData = isApiTable(entry.locData) and entry.locData or {}
+    local config = isApiTable(locData.config) and locData.config or {}
+    return nonempty(entry.subjectText)
+        or nonempty(config.name)
+        or nonempty(config.configName)
 end
 
 ---@param raw any
@@ -110,15 +198,8 @@ function ObjectMarkerCapture.Extract(raw)
         if entry[field] ~= nil then return entry[field] end
         return locData[field]
     end
-    local function nonempty(s)
-        return type(s) == "string" and s ~= "" and s or nil
-    end
-    -- LocType.name is often "" on scenery; MiniMenu subjectText is the player-facing label.
-    local name = nonempty(entry.subjectText)
-        or nonempty(config.name)
-        or nonempty(config.configName)
     return {
-        name = name,
+        name = ObjectMarkerCapture.LocLabel(entry),
         coordGrid = {
             x = coord("coordGridX"),
             z = coord("coordGridZ"),
@@ -186,7 +267,7 @@ function ObjectMarkerCapture:_unsubscribe()
     self._subscribed = false
 end
 
--- MiniMenuReady repeats every Logic tick; Add each time. Add() name is overrideText, not verbText.
+-- MiniMenuReady repeats every Logic tick
 function ObjectMarkerCapture:_onReady(raw)
     if not self.armed then
         return
@@ -195,17 +276,25 @@ function ObjectMarkerCapture:_onReady(raw)
     if menu == nil or menu.Add == nil then
         return
     end
-    local locEntry = ObjectMarkerCapture.FindLocEntry(menu)
-    if locEntry == nil then
+    local locs = ObjectMarkerCapture.FindLocEntries(menu)
+    if #locs == 0 then
         return
     end
     local capture = self
-    pcall(function()
-        menu:Add(SELECT_LABEL, function()
-            capture:_onSelect(locEntry)
+    for rank = #locs, 1, -1 do
+        local locEntry = locs[rank]
+        local label = SELECT_PREFIX .. (ObjectMarkerCapture.LocLabel(locEntry) or "Object")
+        local pinned = locEntry
+        menu:Add(label, function()
+            capture:_onSelect(pinned)
         end)
-        menu:Swap(1, #menu.entries)
-    end)
+        -- Only have to move the first one, subsequent adds will add after this one
+        if rank == #locs then
+            for i = 1, menu.entryCount - 1 do
+                menu:Swap(i, i + 1)
+            end
+        end
+    end
 end
 
 function ObjectMarkerCapture:_onSelect(locEntry)
