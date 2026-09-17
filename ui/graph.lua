@@ -986,11 +986,7 @@ function Editor:openNodeModeDropdown(nodeId)
         end)
 end
 
-function Editor:onScroll(...)
-    local delta
-    for _, v in ipairs({ ... }) do
-        if type(v) == "number" then delta = v break end
-    end
+function Editor:onScroll(delta)
     if delta == nil or delta == 0 then return end
     -- Palette open: wheel scrolls the list instead of zooming.
     if self.palette.open then
@@ -1795,7 +1791,7 @@ function Editor:Mount(contentParent, overlayParent)
     if self.capture ~= nil then
         self.capture:Subscribe(ui.Hook.ONCLICK, function() self:beginPress() end)
         self.capture:Subscribe(ui.Hook.ONRELEASE, function() self:endPress() end)
-        self.capture:Subscribe(ui.Hook.ONSCROLLWHEEL, function(...) self:onScroll(...) end)
+        self.capture:Subscribe(ui.Hook.ONSCROLLWHEEL, function(_, delta) self:onScroll(delta) end)
     end
 
     self:frontOverlayInteractives()
