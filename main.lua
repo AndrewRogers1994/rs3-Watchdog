@@ -1,9 +1,3 @@
--- Watchdog: LibNodeGraph editor + Alert Manager. Reload tears down the previous instance first.
-
-if Watchdog ~= nil and Watchdog.Stop ~= nil then
-    pcall(function() Watchdog.Stop() end)
-end
-
 local Editor = require("ui/graph")
 local Manager = require("ui/manager")
 local Multiplexer = require("ui/multiplexer")
@@ -14,27 +8,6 @@ local Runtime = require("runtime")
 local ToastStack = require("toast")
 local Theme = require("ui/theme")
 
-local function RegisterToPluginMenu()
-    LibPluginMenu.Unregister("watchdog")
-    LibPluginMenu.Register({
-        id = "watchdog",
-        name = "Watchdog",
-        icon = "W",
-        onClick = function()
-            pcall(function() Watchdog.Toggle() end)
-        end
-    })
-end
-Event.OptionalDependencyChanged.Subscribe('opdepchanged', function(dep)
-    if LibPluginMenu ~= nil then
-        RegisterToPluginMenu()
-    end
-end)
-
-if LibPluginMenu ~= nil then
-    RegisterToPluginMenu()
-end
-
 local Events = {
     Logic = "logic",
     Draw = "draw",
@@ -42,8 +15,6 @@ local Events = {
 }
 
 local TOGGLE_KEY = "F8"
--- Logic has no measured dt; effects TTL uses this (~0.02s per tick).
-local LOGIC_TICK_SECONDS = 0.02
 
 if Plugin.HasPermission(PluginPermissions.httpAccess) then
     log("Watchdog: plugin has HTTP access")
@@ -103,6 +74,38 @@ require("nodes/actions/screen_marker").Register(registry, runtime)
 require("nodes/actions/object_marker").Register(registry, runtime)
 require("nodes/actions/toast").Register(registry, runtime)
 require("nodes/actions/alert_toggle").Register(registry, runtime)
+if shortestpath ~= nil then
+    require("nodes/actions/shortest_path").Register(registry, runtime)
+end
+
+local function RegisterToPluginMenu()
+    LibPluginMenu.Unregister("watchdog")
+    LibPluginMenu.Register({
+        id = "watchdog",
+        name = "Watchdog",
+        icon = "W",
+        onClick = function()
+            pcall(function() Watchdog.Toggle() end)
+        end
+    })
+end
+Event.OptionalDependencyChanged.Subscribe('opdepchanged', function(dep)
+    if dep.pluginIdentifier == "LibPluginMenu" and LibPluginMenu ~= nil then
+        if dep.enabled then
+            RegisterToPluginMenu()
+        end
+    elseif dep.pluginIdentifier == "shortestpath" and shortestpath ~= nil then
+        if dep.enabled then
+            print("shortestpath is now available, reloading")
+            -- require("nodes/actions/shortest_path").Register(registry, runtime)
+            ExecuteConsoleCommand("prl Watchdog")
+        end
+    end
+end)
+
+if LibPluginMenu ~= nil then
+    RegisterToPluginMenu()
+end
 
 runtime:SetRegistry(registry)
 
@@ -759,9 +762,13 @@ persistNow = function()
     end
 end
 
-local function onLogic()
-    pcall(function() runtime:Update(LOGIC_TICK_SECONDS) end)
-    pcall(function() runtime.toast:Update(LOGIC_TICK_SECONDS) end)
+local LOGIC_TICK_LAST = 0
+local LOGIC_TICK_DELTA = 0
+---@param logicEvent Logic
+local function onLogic(logicEvent)
+    LOGIC_TICK_DELTA = logicEvent.logicTick - LOGIC_TICK_LAST
+    pcall(function() runtime:Update(LOGIC_TICK_DELTA) end)
+    pcall(function() runtime.toast:Update(LOGIC_TICK_DELTA) end)
 
     if state.infoboxMounted then
         pcall(function() runtime.infobox:Reposition() end)
@@ -856,6 +863,9 @@ local function onLogic()
         pcall(persistNow)
     end
     saveState.wasOpen = isOpen
+
+
+    LOGIC_TICK_LAST = logicEvent.logicTick
 end
 
 local function onDraw()

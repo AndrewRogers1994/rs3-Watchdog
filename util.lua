@@ -34,4 +34,19 @@ function Util.CopyWithField(tbl, key, value)
     return out
 end
 
+---@param color table|nil  -- expects { r = 0-255, g = 0-255, b = 0-255, a = 0-255 (optional, default=255) }
+---@return integer|nil
+function Util.ColorToInt(color)
+    if type(color) ~= "table" then return nil end
+    local r = tonumber(color.r) or 0
+    local g = tonumber(color.g) or 0
+    local b = tonumber(color.b) or 0
+    local a = tonumber(color.a) or 255
+    if r < 0 or r > 255 or g < 0 or g > 255 or b < 0 or b > 255 or a < 0 or a > 255 then
+        return nil
+    end
+    return (r << 24) | (g << 16) | (b << 8) | a
+end
+
+
 return Util
