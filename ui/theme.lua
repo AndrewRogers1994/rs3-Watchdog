@@ -160,8 +160,7 @@ Theme.DOUBLECLICK_DIST  = 6   -- max screen-px drift between the two clicks
 Theme.MANAGER_TAB_BASELINE   = 42
 Theme.MANAGER_ROW_H          = 32
 Theme.MANAGER_HEADER_H       = 26
--- Wider than the checkbox glyph so the "Enabled" header is not ellipsized.
--- The PrettyUI checkbox stays 14px inside a 28px click target.
+-- Wider than the 14px checkbox (28px hit target) so "Enabled" is not ellipsized.
 Theme.MANAGER_ENABLE_W       = 72
 Theme.MANAGER_SELECT_W       = 48
 Theme.MANAGER_ACT_W          = 28

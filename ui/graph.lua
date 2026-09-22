@@ -169,6 +169,10 @@ function Editor:interactiveParent()
     return self.overlayParent or self.contentParent
 end
 
+local function dialogOpen(self)
+    return Dialog.depth(self.overlayParent) > 0
+end
+
 -- PLUS is fronted last among toolbar buttons; visible tips must follow or Reset view sits under +.
 local function frontToolbarTooltip(btn)
     if btn == nil or btn.tooltip == nil or btn.tooltip.root == nil then return end
@@ -187,7 +191,7 @@ end
 
 -- Capture under palette under toolbar under transient editors (overlay above PrettyUI window).
 function Editor:frontOverlayInteractives()
-    if Dialog.depth(self.overlayParent) > 0 then return end
+    if dialogOpen(self) then return end
     pcall(function() if self.capture ~= nil then self.capture:MoveToFront() end end)
     InvViewer.Front(self)
     pcall(function() if self.paletteCanvas ~= nil then self.paletteCanvas:MoveToFront() end end)
@@ -350,14 +354,14 @@ local function titleStrip(win)
     return win.x - border, win.y - headerH, win.w + 2 * border, headerH
 end
 
--- Screen pos of the reserved title-strip slot before Maximize (+ used to sit here).
-local function plusScreenPos(win, plusW, plusH)
-    plusW = plusW or Theme.TOOLBAR_BTN
-    plusH = plusH or Theme.TOOLBAR_BTN
+-- Right-edge title-strip slot, left of close + Maximize.
+local function titleRightSlot(win, w, h)
+    w = w or Theme.TOOLBAR_BTN
+    h = h or Theme.TOOLBAR_BTN
     local titleX, titleY, titleW, headerH = titleStrip(win)
-    local plusX = titleX + titleW - Theme.WINDOW_CLOSE_RESERVE - Theme.WINDOW_MAX_BTN - 6 - plusW
-    local plusY = titleY + math.floor((headerH - plusH) / 2)
-    return plusX, plusY, plusH
+    local x = titleX + titleW - Theme.WINDOW_CLOSE_RESERVE - Theme.WINDOW_MAX_BTN - 6 - w
+    local y = titleY + math.floor((headerH - h) / 2)
+    return x, y
 end
 
 -- Palette-from-plus hangs off the bottom of this.
@@ -578,7 +582,7 @@ end
 -- started elsewhere is held over us, and that press's ONRELEASE never routes here - starting
 -- a gesture from it strands the drag stuck-to-cursor. pressed-guard still blocks duplicate ONCLICK.
 function Editor:beginPress()
-    if Dialog.depth(self.overlayParent) > 0 then return end
+    if dialogOpen(self) then return end
     if self.pressed or not self.visible then return end
     self:syncContentOrigin()
     local mx, my = mousePos()
@@ -714,7 +718,7 @@ function Editor:beginWire(hit)
 end
 
 function Editor:update()
-    if Dialog.depth(self.overlayParent) > 0 then
+    if dialogOpen(self) then
         self.pressed = false
         self.mode = "idle"
         self.wire = nil
@@ -755,7 +759,7 @@ function Editor:update()
 end
 
 function Editor:endPress()
-    if Dialog.depth(self.overlayParent) > 0 then return end
+    if dialogOpen(self) then return end
     if not self.pressed then return end
     self.pressed = false
 
@@ -1016,7 +1020,7 @@ function Editor:openNodeModeDropdown(nodeId)
 end
 
 function Editor:onScroll(delta)
-    if Dialog.depth(self.overlayParent) > 0 then return end
+    if dialogOpen(self) then return end
     if delta == nil or delta == 0 then return end
     -- Palette open: wheel scrolls the list instead of zooming.
     if self.palette.open then
@@ -1734,8 +1738,8 @@ function Editor:layoutToolbar()
     local bs = Theme.TOOLBAR_BTN
     local titleX, titleY, titleW, headerH = titleStrip(win)
     local btnY = titleY + math.floor((headerH - bs) / 2)
-    local plusSlotX, plusSlotY = plusScreenPos(win, bs, bs)
-    local resetX = plusSlotX - pad - bs
+    local slotX, slotY = titleRightSlot(win, bs, bs)
+    local resetX = slotX - pad - bs
     local sw, sh = Theme.ZOOM_SLIDER_W, Theme.ZOOM_SLIDER_H
     local sliderX = resetX - pad - sw
     local sliderY = titleY + math.floor((headerH - sh) / 2)
@@ -1752,7 +1756,7 @@ function Editor:layoutToolbar()
         self.plusButton.root:SetSize(bs, bs)
     end
     if self.resetViewButton ~= nil then
-        self.resetViewButton.root:SetPos(resetX, plusSlotY)
+        self.resetViewButton.root:SetPos(resetX, slotY)
         self.resetViewButton.root:SetSize(bs, bs)
     end
     if self.zoomSlider ~= nil then

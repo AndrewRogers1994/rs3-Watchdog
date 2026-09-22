@@ -14,7 +14,6 @@ function TestWire:testStrokeStaysInsideViewportAfterResizeAndZoom()
         view.zoom = zoom
         for _, height in ipairs({ 500, 120, 300 }) do
             canvas.lines = {}
-            -- A wire crossing both the toolbar and bottom edge.
             Wire.DrawCurve(canvas, view, 50, -100, 1, 150, 1000, -1,
                 Theme.COL_EXEC, 0, 0, 400, height)
             luaunit.assertTrue(#canvas.lines > 0)

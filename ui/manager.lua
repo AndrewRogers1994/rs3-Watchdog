@@ -136,7 +136,6 @@ function Manager:ActiveScopeKey()
     return scope and scope.key or nil
 end
 
--- Clear move mode and selection when switching scopes.
 ---@param key string
 function Manager:SetActiveScope(key)
     self.moveMode = false
@@ -926,7 +925,6 @@ local function mountRowSprite(parent, spriteName, onPress, size, disabled, toolt
     return btn
 end
 
--- Keep the 14px PrettyUI checkbox centered inside a 28px click target.
 ---@param parent ui.ComponentCollection
 ---@param cellW number
 ---@param checked boolean
@@ -945,6 +943,7 @@ local function mountCheckbox(parent, cellW, checked, onPress)
         y = math.floor((cellH - hitSize) / 2),
         onChange = onPress,
     })
+    check.kind = "checkbox"
     check.root:SetSize(hitSize, hitSize)
     local item = check.items[1]
     item.row:SetSize(hitSize, hitSize)
@@ -1359,7 +1358,6 @@ function Manager:_rebuild()
             active = self.selected[row.id] == true,
         })
 
-        -- Selection has its own column before the row actions.
         titleButton.content.alignHorizontal = ui.AlignMode.TOPLEFT
         titleButton.content:SetPos(10, 0)
         titleButton.content:SetSize(-20, 0, 1.0, 1.0)
