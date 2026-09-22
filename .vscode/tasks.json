@@ -19,6 +19,26 @@
         "panel": "shared",
         "clear": true
       }
+    },
+    {
+      "label": "Bundle: Watchdog mod.io zip",
+      "group": "build",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/bundle.ps1",
+        "-Modio"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
     }
   ]
 }

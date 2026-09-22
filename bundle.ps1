@@ -1,11 +1,10 @@
 <#
 .SYNOPSIS
-    Bundles Watchdog and its required plugin dependencies into a zip.
+    Bundles Watchdog (and, for dev zips, its required plugin dependencies) into a zip.
 
 .DESCRIPTION
-    Stages the same "core" file set as .vscode/deploy.ps1 for Watchdog and each
-    entry in plugin.json's requiredDependencies: plugin.json (if present), every
-    file under resources/, and every *.lua file outside
+    Stages the same "core" file set as .vscode/deploy.ps1: plugin.json (if present),
+    every file under resources/, and every *.lua file outside
     tests/docs/.git/.vscode/staging/scripts.
     Lua files are naively stripped: drop whole-line -- comments (including simple
     --[[ ... ]] blocks) and inline trailing -- comments; -- inside quoted/long
@@ -13,25 +12,36 @@
     plugins (Watchdog, LibNodeGraph, LibNodeGraphStd) and those Lua files are
     rewritten by scripts/minify.lua instead. prettyui is never minified.
 
-    The zip layout mirrors the live client: one top-level folder per plugin
-    (Watchdog/, LibNodeGraph/, …).
+    Default (dev) layout mirrors the live client: one top-level folder per plugin
+    (Watchdog/, LibNodeGraph/, …), using plugin.json and requiredDependencies.
+
+    With -Modio: Watchdog files only, no dependency folders, zip entries at the
+    archive root (main.lua, plugin.json, …). plugin.modio.json is staged as
+    plugin.json. Default filename is Watchdog-<version>-modio.zip so it does
+    not collide with the dev zip.
 
 .PARAMETER Output
-    Path for the output zip. Defaults to Watchdog-<version>.zip beside this script,
-    where <version> comes from plugin.json.
+    Path for the output zip. Defaults to Watchdog-<version>.zip (dev) or
+    Watchdog-<version>-modio.zip (-Modio) beside this script, where <version>
+    comes from the manifest in use.
 
 .PARAMETER Minify
     Minify staged Lua via scripts/minify.lua instead of naive comment stripping,
     but only for Watchdog, LibNodeGraph, and LibNodeGraphStd.
 
+.PARAMETER Modio
+    Produce a mod.io zip: Watchdog-only, flat layout, plugin.modio.json as plugin.json.
+
 .EXAMPLE
     powershell -NoProfile -ExecutionPolicy Bypass -File bundle.ps1
     powershell -NoProfile -ExecutionPolicy Bypass -File bundle.ps1 -Output dist/Watchdog-custom.zip
     powershell -NoProfile -ExecutionPolicy Bypass -File bundle.ps1 -Minify
+    powershell -NoProfile -ExecutionPolicy Bypass -File bundle.ps1 -Modio
 #>
 param(
     [string]$Output,
-    [switch]$Minify
+    [switch]$Minify,
+    [switch]$Modio
 )
 
 $ErrorActionPreference = 'Stop'
@@ -260,7 +270,8 @@ function Stage-Plugin {
     param(
         [string]$Name,
         [string]$StageRoot,
-        [switch]$Minify
+        [switch]$Minify,
+        [switch]$Flat
     )
 
     $srcDir = Join-Path $rs3Root $Name
@@ -274,21 +285,32 @@ function Stage-Plugin {
     }
 
     foreach ($rel in $files) {
-        $dst = Join-Path $StageRoot (Join-Path $Name $rel)
-        Copy-BundledFile -Src (Join-Path $srcDir $rel) -Dst $dst -RelativePath $rel -Minify:$Minify
+        $src = Join-Path $srcDir $rel
+        # mod.io zip uses plugin.modio.json as the on-disk plugin.json
+        if ($Flat -and ($rel -eq 'plugin.json')) {
+            $modioManifest = Join-Path $srcDir 'plugin.modio.json'
+            if (-not (Test-Path -LiteralPath $modioManifest -PathType Leaf)) {
+                throw "Missing plugin.modio.json at $modioManifest"
+            }
+            $src = $modioManifest
+        }
+        $dstRel = if ($Flat) { $rel } else { Join-Path $Name $rel }
+        $dst = Join-Path $StageRoot $dstRel
+        Copy-BundledFile -Src $src -Dst $dst -RelativePath $rel -Minify:$Minify
     }
 
     return $files.Count
 }
 
-$manifestPath = Join-Path $watchdogDir 'plugin.json'
+$manifestName = if ($Modio) { 'plugin.modio.json' } else { 'plugin.json' }
+$manifestPath = Join-Path $watchdogDir $manifestName
 if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
-    throw "Missing plugin.json at $manifestPath"
+    throw "Missing $manifestName at $manifestPath"
 }
 
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 $plugins = @()
-if ($null -ne $manifest.requiredDependencies) {
+if (-not $Modio -and $null -ne $manifest.requiredDependencies) {
     $plugins += @($manifest.requiredDependencies)
 }
 $plugins += $pluginName
@@ -301,14 +323,15 @@ try {
     $totalFiles = 0
     foreach ($name in $plugins) {
         $minifyThis = $Minify -and ($minifyPlugins -contains $name)
-        $count = Stage-Plugin -Name $name -StageRoot $stage -Minify:$minifyThis
+        $count = Stage-Plugin -Name $name -StageRoot $stage -Minify:$minifyThis -Flat:$Modio
         $totalFiles += $count
         Write-Host "  $name  ($count files)"
     }
 
     if (-not $Output) {
         $version = if ($manifest.version) { $manifest.version } else { 'unknown' }
-        $Output = Join-Path $watchdogDir "Watchdog-$version.zip"
+        $suffix = if ($Modio) { '-modio' } else { '' }
+        $Output = Join-Path $watchdogDir "Watchdog-$version$suffix.zip"
     }
     $Output = [System.IO.Path]::GetFullPath($Output)
     $outDir = Split-Path -Parent $Output
