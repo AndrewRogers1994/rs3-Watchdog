@@ -244,8 +244,9 @@ The two surfaces are mounted once, with at most one visible at a time (#76, #78,
 The Editor toolbar sits on the native title strip as icon buttons (Back, Rename, Add node,
 zoom, Reset view) with labels in tooltips. The window title shows the alert name.
 The Viewport is the full content rect. Native title-drag re-fronts the overlay each frame
-so header icons, Maximize, and the resize grip stay on the window. Dialogs parent to the mux
-root layer. The native title bar remains
+so header icons, Maximize, and the resize grip stay on the window. PrettyUI's fullscreen
+title capture stays in front for the gesture so leaving the header does not drop the window.
+Dialogs parent to the mux root layer. The native title bar remains
 draggable; a bottom-right grip resizes the window and Maximize/Restore (square title icon)
 preserves its prior bounds.
 The tree/scope/expand/mutation logic is headless-tested; mocked UI checks cover layout and input

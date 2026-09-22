@@ -172,6 +172,22 @@ function TestWindowChrome:testChromeFollowsWindowDuringTitleDragRestack()
     end
     luaunit.assertTrue(positions[self.window.root] < positions[self.overlay])
 end
+function TestWindowChrome:testSyncChromeDoesNotCollapseExpandedTitleDrag()
+    -- PrettyUI fullscreen title capture; SyncChrome must not shrink or bury it.
+    self.window.titleDrag:SetPos(0, 0)
+    self.window.titleDrag:SetSize(0, 0, 1.0, 1.0)
+    self.window.root:MoveToFront()
+    self.mux:SyncChrome()
+    luaunit.assertEquals(
+        { self.window.titleDrag.x, self.window.titleDrag.y, self.window.titleDrag.width, self.window.titleDrag.height },
+        { 0, 0, 1920, 1080 }
+    )
+    local positions = {}
+    for i, c in ipairs(self.parent.children) do
+        positions[c] = i
+    end
+    luaunit.assertTrue(positions[self.overlay] < positions[self.window.titleDrag])
+end
 function TestWindowChrome:testModalBlocksEditorInput()
     local capture = component(self.overlay)
     local valid = false

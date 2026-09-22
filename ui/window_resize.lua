@@ -112,10 +112,15 @@ function Resize:FitToParent()
     return true
 end
 
+-- PrettyUI SetSize(0,0,1,1) while the mouse is down. Resting size is TITLE_H.
+local function titleDragExpanded(title)
+    return title ~= nil and (title.height or 0) > TITLE_H
+end
+
 function Resize:layoutTitleDrag()
     local root = self.window.root
     local title = self.window.titleDrag
-    if title == nil then return end
+    if title == nil or titleDragExpanded(title) then return end
     title:SetPos(root.x, root.y)
     title:SetSize(root.width - CLOSE - MAX, TITLE_H)
 end
@@ -211,6 +216,9 @@ function Resize:Sync(visible)
         self.grip:SetSize(GRIP, GRIP)
     end
     self.grip:MoveToFront()
+    if titleDragExpanded(self.window.titleDrag) then
+        self.window.titleDrag:MoveToFront()
+    end
     local tooltip = self.maxButton.tooltip
     if tooltip ~= nil and tooltip.root ~= nil then
         tooltip.options.x = math.max(6, root.x + root.width - 40 - (tooltip.width or 0))
