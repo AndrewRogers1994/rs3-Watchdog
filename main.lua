@@ -263,7 +263,7 @@ local function navOpenAlert(scopeKey, entryId)
     local a = resolveAlert(scopeKey, entryId)
     if a == nil then return end
     local entry = Store.FindById(a.doc, entryId)
-    editor:BindEntry(entryId, a.graph, a.layout, entry.name)
+    editor:BindEntry(entryId, a.graph, a.layout, entry and entry.name)
     boundScope = { doc = a.doc, key = a.key }
     boundLastEncoded = Store.Encode(a.doc)
     if mux ~= nil and editorSurface ~= nil then
@@ -362,7 +362,7 @@ local function onRename(scopeKey, id, name)
     end
     if editor.boundId == id and boundScope ~= nil and boundScope.key == key then
         editor.alertName = name
-        if editor.alertNameLabel ~= nil then editor.alertNameLabel.content = name end
+        if editor.onAlertNameChanged ~= nil then editor.onAlertNameChanged(name) end
     end
     return true
 end
@@ -713,9 +713,10 @@ manager = Manager.new({
     onBulkMove = onBulkMove,
     onExportEntries = onExportEntries,
     onImportJson = onImportJson,
-    -- Share the editor's modal stack so every dialog blocks the window controls.
+    -- Same owned Layer the main shell Window uses - dialog dies with mux.rootLayer on
+    -- Stop / reload, instead of orphaning under the game area.
     windowParent = function()
-        return mux ~= nil and mux:Overlay() or nil
+        return mux ~= nil and mux.rootLayer or nil
     end,
 })
 
@@ -742,6 +743,9 @@ mux = Multiplexer.new({
         end
     end,
 })
+editor.onAlertNameChanged = function()
+    mux:SyncTitle()
+end
 
 -- Tuck the Watchdog shell while Select Object is armed so Loc MiniMenu isn't under the window.
 runtime.objectMarkerCapture.onArmedChange = function(armed)
@@ -763,7 +767,11 @@ managerSurface = {
 }
 editorSurface = {
     id = "editor",
-    title = "Watchdog - Editor",
+    title = function()
+        local name = editor.alertName
+        if name == nil or name == "" then return "Watchdog - Editor" end
+        return "Watchdog - " .. name
+    end,
     SetVisible = function(_, v) editor:SetVisible(v) end,
     -- Shell hide (F8/Close) must dismiss palette/gestures without Editor:SetVisible(false),
     -- so pan/zoom survive; mux calls this instead of flipping surface visibility.

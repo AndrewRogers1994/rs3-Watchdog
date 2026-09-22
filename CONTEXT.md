@@ -238,13 +238,16 @@ a **tab bar** of Scopes over a tree of Entries. “All characters” and the cha
 scope through tooltips. Clicking an alert name opens the Editor; clicking a group expands it.
 Rows have centered enable/select checkboxes, left-aligned names, and rename/export/delete actions.
 Move exposes sibling reorder (↑↓) and Lift controls; Move and bulk selection are mutually exclusive.
-Selected entries expose Clear selection, Add to new group, Move to the other scope, Export, and Delete.
+Selected entries swap Move/Import/Export on the same toolbar row: Clear (n), Group, Move to the other scope, Export, and Delete.
 The two surfaces are mounted once, with at most one visible at a time (#76, #78, #80).
 
-The Editor toolbar shows Back to alerts, the alert name, and Rename above Add alert node and
-zoom/reset controls. Its 84px height is excluded from the Viewport, including zoom and node-placement
-centering. Both surfaces share a modal stack above input capture. The native title bar remains
-draggable; a bottom-right grip resizes the window and Maximize/Restore preserves its prior bounds.
+The Editor toolbar sits on the native title strip as icon buttons (Back, Rename, zoom,
+Reset view, Add node) with labels in tooltips. The window title shows the alert name.
+The Viewport is the full content rect. Native title-drag re-fronts the overlay each frame
+so header icons, Maximize, and the resize grip stay on the window. Dialogs parent to the mux
+root layer. The native title bar remains
+draggable; a bottom-right grip resizes the window and Maximize/Restore (square title icon)
+preserves its prior bounds.
 The tree/scope/expand/mutation logic is headless-tested; mocked UI checks cover layout and input
 stacking, while actual appearance and client event delivery still require in-game verification.
 _Avoid_: Alert list, manager window, dashboard; the Editor (that is the Canvas graph surface)

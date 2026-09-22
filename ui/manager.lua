@@ -532,7 +532,7 @@ function Manager:_runExport(ids)
         })
     else
         Dialog.mount(parent, {
-            title = "Export",
+            title = "Export alerts",
             content = function(win)
                 win:AddText(tostring(result))
             end,
@@ -547,7 +547,7 @@ function Manager:OpenImport()
     local scopeKey = self:ActiveScopeKey()
     if scopeKey == nil or self.onImportJson == nil then return end
     ImportExport.mountImport(parent, {
-        message = "Paste the alert code you copied from Watchdog.",
+        message = "Paste the export JSON you copied from Watchdog.",
         maxLength = Export.MAX_BYTES,
         onImport = function(text)
             local okCall, ok, report = pcall(function()
@@ -792,7 +792,7 @@ function Manager:_ensureTabs()
             text = scope.label or scope.key,
             value = scope.key,
             tooltip = scope.key == "global" and "Alerts will run for all characters"
-                or "Alerts will only run for this account",
+                or "Alerts will only run for this character",
         }
     end
     local activeIndex = self:_activeScopeIndex()
@@ -1132,7 +1132,7 @@ function Manager:_mountToolbar()
     local y = Theme.MANAGER_TAB_BASELINE + 8
     local gap = Theme.MANAGER_TOOLBAR_GAP
     local function add(text, x, action, primary, width, spriteID)
-        local options = { x = x, y = y, width = width, height = 28,
+        local options = { x = x, y = y, width = width, height = Theme.MANAGER_TOOLBAR_H,
             variant = primary and "positive" or "neutral" }
         local button
         if primary then
@@ -1153,57 +1153,32 @@ function Manager:_mountToolbar()
         if type(id) == "number" then self.pendingRenameId = id end
         self:_rebuild()
     end, false, 112)
-    if not self:HasSelection() then
-        local right = self.window.w - Theme.MANAGER_PAGE_PAD
-        add("Export", right - 100, function() self:ExportScope() end, false, 100,
-            id.Sprite.RS3_ICON_EXTERNAL_LINK_24PX_2)
-        add("Import", right - 208, function() self:OpenImport() end, false, 100,
-            id.Sprite.RS3_ICON_RUNEMETRICS_NEW_2)
-        local move = add(self.moveMode and "Done moving" or "Move", right - 328, function()
-            self:ToggleMoveMode(); self:_rebuild()
-        end, false, 112)
-        move:SetActive(self.moveMode)
+    if self:HasSelection() then
+        self:_mountBulkActions(y)
+        return
     end
+    local right = self.window.w - Theme.MANAGER_PAGE_PAD
+    add("Export", right - 100, function() self:ExportScope() end, false, 100,
+        id.Sprite.RS3_ICON_EXTERNAL_LINK_24PX_2)
+    add("Import", right - 208, function() self:OpenImport() end, false, 100,
+        id.Sprite.RS3_ICON_RUNEMETRICS_NEW_2)
+    local move = add(self.moveMode and "Done moving" or "Move", right - 328, function()
+        self:ToggleMoveMode(); self:_rebuild()
+    end, false, 112)
+    move:SetActive(self.moveMode)
 end
 
-function Manager:_mountBulkBar(y)
-    if not self:HasSelection() then return end
+function Manager:_mountBulkActions(y)
     local ids = self:SelectedIds()
-    local startY = y
-    local x = 0
     local gap = Theme.MANAGER_TOOLBAR_GAP
-
-    local function addButton(label, onPress, spriteID)
-        local btn
-        local measuredW = select(1, prettyui.SimpleButton.getSize(label))
-        local w = math.max(70, measuredW + 16) + (spriteID and 24 or 0)
-        if x > 0 and x + w > self.window.w - 2 * Theme.MANAGER_PAGE_PAD then
-            x = 0
-            y = y + Theme.MANAGER_BULK_BAR_H + 4
-        end
-        pcall(function()
-            btn = self.layoutHost:AddSimpleButton(label, onPress, {
-                x = Theme.MANAGER_PAGE_PAD + x,
-                y = y,
-                width = w, height = 28,
-            })
-        end)
-        if btn ~= nil then
-            if spriteID then
-                addButtonIcon(btn, spriteID)
-            end
-            self.bulkBarButtons[#self.bulkBarButtons + 1] = btn
-            x = x + w + gap
-        end
-    end
-
-    addButton("Clear selection (" .. #ids .. ")", function() self:ClearSelection(); self:_rebuild() end)
-    addButton("Add to new group", function()
-        local newId = self:BulkNewGroup(ids)
-        if type(newId) == "number" then self.pendingRenameId = newId end
-        self:_rebuild()
-    end)
-
+    local specs = {
+        { "Clear (" .. #ids .. ")", function() self:ClearSelection(); self:_rebuild() end },
+        { "Group", function()
+            local newId = self:BulkNewGroup(ids)
+            if type(newId) == "number" then self.pendingRenameId = newId end
+            self:_rebuild()
+        end },
+    }
     local scopes = self:ScopeList()
     local activeKey = self:ActiveScopeKey()
     local other
@@ -1211,17 +1186,13 @@ function Manager:_mountBulkBar(y)
         if scope.key ~= activeKey then other = scope break end
     end
     if other ~= nil then
-        local moveLabel = "Move to " .. (other.label or other.key)
-        addButton(moveLabel, function()
+        specs[#specs + 1] = { "Move to " .. (other.label or other.key), function()
             self:BulkMove(other.key, ids)
             self:_rebuild()
-        end)
+        end }
     end
-
-    addButton("Export", function()
-        self:BulkExport(ids)
-    end, id.Sprite.RS3_ICON_EXTERNAL_LINK_24PX_2)
-    addButton("Delete", function()
+    specs[#specs + 1] = { "Export", function() self:BulkExport(ids) end, id.Sprite.RS3_ICON_EXTERNAL_LINK_24PX_2 }
+    specs[#specs + 1] = { "Delete", function()
         self:_openConfirm({
             title = DELETE_CONFIRM_TITLE,
             confirmLabel = DELETE_CONFIRM_LABEL,
@@ -1232,8 +1203,27 @@ function Manager:_mountBulkBar(y)
                 self:_rebuild()
             end,
         })
-    end, id.Sprite.HUD_COMBAT_BTN_BIN)
-    return y - startY + Theme.MANAGER_BULK_BAR_H
+    end, id.Sprite.HUD_COMBAT_BTN_BIN }
+
+    local right = self.window.w - Theme.MANAGER_PAGE_PAD
+    for i = #specs, 1, -1 do
+        local spec = specs[i]
+        local label, onPress, spriteID = spec[1], spec[2], spec[3]
+        local measuredW = select(1, prettyui.SimpleButton.getSize(label))
+        local w = math.max(70, measuredW + 16) + (spriteID and 24 or 0)
+        right = right - w
+        local btn
+        pcall(function()
+            btn = self.layoutHost:AddSimpleButton(label, onPress, {
+                x = right, y = y, width = w, height = Theme.MANAGER_TOOLBAR_H,
+            })
+        end)
+        if btn ~= nil then
+            if spriteID then addButtonIcon(btn, spriteID) end
+            self.bulkBarButtons[#self.bulkBarButtons + 1] = btn
+        end
+        right = right - gap
+    end
 end
 
 function Manager:_rebuild()
@@ -1251,16 +1241,10 @@ function Manager:_rebuild()
 
     self:_mountToolbar()
 
-    local hasSel = self:HasSelection()
-    local bulkY = Theme.MANAGER_TREE_TOP
-    local treeTop = Theme.MANAGER_TREE_TOP
-    if hasSel then
-        local bulkHeight = self:_mountBulkBar(bulkY)
-        treeTop = Theme.MANAGER_TREE_TOP + bulkHeight + 4
-    end
+    local treeTop = Theme.ManagerTreeTop()
     self.treeTop = treeTop
 
-    -- Tree: sibling of Tabs under contentParent, below the tab strip (and bulk bar when raised).
+    -- Tree: sibling of Tabs under contentParent, below the tab strip + toolbar.
     -- Do NOT assign scrollable - read-only on ComponentCollection; writing it aborts the pcall
     -- and leaves no tree.
     local rowW = math.max(40, w - 2 * Theme.MANAGER_PAGE_PAD)

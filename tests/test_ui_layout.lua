@@ -230,9 +230,15 @@ function TestUILayout:testManagerControlsAtMinimumWidth()
         end
     end
     local first = m.treePanel.children[2]
+    local treeY = m.treePanel.y
     local selectCell = first.children[#first.children - 3]
     selectCell.children[1].children[1][ui.Hook.ONBUTTONPRESSED]()
     assert(m.selected[1], "Checkbox did not select its alert")
+    m:_rebuild()
+    assert(m.treePanel.y == treeY, "Selection must not shift the alert tree")
+    assert(#activeButtons("Clear (1)") == 1, "Bulk actions missing from the toolbar row")
+    assert(#activeButtons("+ New alert") == 1)
+    assert(#activeButtons("Move") == 0)
     m:ClearSelection()
     m:_rebuild()
     local title = activeButtons("Low health")

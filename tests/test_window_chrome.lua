@@ -45,12 +45,14 @@ local function component(parent)
         self[hook] = callback
     end
     function c:AddLine() end
+    function c:Clear() end
     return c
 end
 
 TestWindowChrome = {}
 function TestWindowChrome:setUp()
-    self.saved = { ui = ui, prettyui = prettyui, Mouse = Mouse, game = game }
+    self.saved = { ui = ui, prettyui = prettyui, Mouse = Mouse, game = game, Vector4 = Vector4 }
+    Vector4 = { new = function(...) return { ... } end }
     ui = {
         Layer = { new = component },
         Canvas = { new = component },
@@ -108,7 +110,7 @@ function TestWindowChrome:setUp()
         self.root:SetSize(math.max(720, w), math.max(320, h))
     end
     self.overlay = component(self.parent)
-    self.resize = Resize.new(self.window, self.parent)
+    self.resize = Resize.new(self.window, self.parent, self.overlay)
     self.mux = Multiplexer.new({ window = self.window, overlay = self.overlay })
     self.mux._visible = true
     self.mux.resizeHandle = self.resize
@@ -117,7 +119,7 @@ end
 function TestWindowChrome:tearDown()
     Dialog.dismissAll(self.overlay)
     self.resize:Destroy()
-    ui, prettyui, Mouse, game = self.saved.ui, self.saved.prettyui, self.saved.Mouse, self.saved.game
+    ui, prettyui, Mouse, game, Vector4 = self.saved.ui, self.saved.prettyui, self.saved.Mouse, self.saved.game, self.saved.Vector4
 end
 function TestWindowChrome:testResizeUsesInterfaceScaleAndClampsMinimum()
     self.resize:Begin()
@@ -151,22 +153,25 @@ function TestWindowChrome:testMaximizeTracksViewportAndRestoresPreviousBounds()
     )
     luaunit.assertFalse(self.window.titleDrag.hidden)
 end
-function TestWindowChrome:testDraggingKeepsEditorAboveWindowAndCaptureAboveEditor()
-    for _ = 1, 3 do
-        self.window.root:MoveToFront()
-        self.mux:SyncChrome()
-        local positions = {}
-        for i, c in ipairs(self.parent.children) do
-            positions[c] = i
-        end
-        luaunit.assertTrue(positions[self.window.root] < positions[self.overlay])
-        luaunit.assertTrue(positions[self.overlay] < positions[self.window.titleDrag])
-    end
-    self.window.titleDrag:SetSize(1920, 1080)
+function TestWindowChrome:testChromeFollowsWindowDuringTitleDragRestack()
+    self.window.root:SetPos(120, 90)
+    self.window.root:MoveToFront()
     self.mux:SyncChrome()
-    luaunit.assertEquals(self.window.titleDrag.width, 1920)
+    luaunit.assertEquals(
+        { self.resize.maxHit.x, self.resize.maxHit.y },
+        { 120 + 900 - 34 - 24, 90 + 4 }
+    )
+    luaunit.assertEquals(
+        { self.resize.grip.x, self.resize.grip.y },
+        { 120 + 900 - 20, 90 + 560 - 20 }
+    )
+    local positions = {}
+    for i, c in ipairs(self.parent.children) do
+        positions[c] = i
+    end
+    luaunit.assertTrue(positions[self.window.root] < positions[self.overlay])
 end
-function TestWindowChrome:testModalStaysAboveCaptureAndBlocksCanvas()
+function TestWindowChrome:testModalBlocksEditorInput()
     local capture = component(self.overlay)
     local valid = false
     local win = Dialog.mount(
@@ -182,16 +187,7 @@ function TestWindowChrome:testModalStaysAboveCaptureAndBlocksCanvas()
         { overlayParent = self.overlay, capture = capture, pressed = true, wire = {}, palette = {} },
         Editor
     )
-    for _ = 1, 3 do
-        capture:MoveToFront()
-        self.mux:SyncChrome()
-        editor:frontOverlayInteractives()
-        local children = self.overlay.children
-        luaunit.assertEquals(children[#children], win.titleDrag)
-        luaunit.assertEquals(children[#children - 1], win.root)
-        luaunit.assertFalse(children[#children - 2].clickthrough)
-    end
-    luaunit.assertTrue(self.resize.maxButton.root.hidden)
+    editor:frontOverlayInteractives()
     editor:update()
     editor:beginPress()
     editor:onScroll(1)
@@ -201,11 +197,6 @@ function TestWindowChrome:testModalStaysAboveCaptureAndBlocksCanvas()
     luaunit.assertEquals(Dialog.depth(self.overlay), 1)
     valid = true
     win.actions.Save()
-    luaunit.assertEquals(Dialog.depth(self.overlay), 0)
-    self.mux:SyncChrome()
-    luaunit.assertFalse(self.resize.maxButton.root.hidden)
-    win = Dialog.mount(self.overlay, {})
-    editor:onEscape()
     luaunit.assertEquals(Dialog.depth(self.overlay), 0)
 end
 function TestWindowChrome:testTooltipStaysBelowMaximizeAndRestore()
@@ -226,7 +217,7 @@ function TestWindowChrome:testTooltipStaysBelowMaximizeAndRestore()
     luaunit.assertTrue(tip.root.hidden)
 end
 
-function TestWindowChrome:testGraphCanvasHasSeparateViewportBelowToolbar()
+function TestWindowChrome:testGraphCanvasFillsContentParent()
     local content = component(nil)
     content:SetSize(900, 550)
     local editor = setmetatable({}, Editor)
@@ -241,11 +232,7 @@ function TestWindowChrome:testGraphCanvasHasSeparateViewportBelowToolbar()
         editor[method] = function() end
     end
     editor:Mount(content, self.overlay)
-    local viewport = editor.canvasViewport
-    luaunit.assertEquals(viewport.parent, content)
-    luaunit.assertEquals(editor.canvas.parent, viewport)
-    luaunit.assertEquals({ viewport.x, viewport.y, viewport.width, viewport.height }, { 0, 84, 900, 466 })
-    -- Keep rendering and hit testing in the same content coordinate system.
-    luaunit.assertEquals(viewport.y + editor.canvas.y, 0)
-    luaunit.assertEquals(editor.canvas.height, content.height)
+    luaunit.assertEquals(editor.canvas.parent, content)
+    luaunit.assertEquals({ editor.canvas.x, editor.canvas.y }, { 0, 0 })
+    luaunit.assertNil(editor.canvasViewport)
 end

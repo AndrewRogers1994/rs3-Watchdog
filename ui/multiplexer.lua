@@ -3,7 +3,6 @@
 -- independent of stack depth (F8/ribbon/close hide without clearing the stack).
 
 local Resize = require("ui/window_resize")
-local Dialog = require("ui/dialog")
 
 ---@class Watchdog.MuxSurface
 ---@field id string                         # stable id for debugging / IsTop
@@ -135,7 +134,6 @@ function Multiplexer:Mount(parent)
         self._ownsRoot = false
     else
         rootLayer = ui.Layer.new(parent)
-        rootLayer.clickthrough = true
         rootLayer:SetPos(0, 0)
         rootLayer:SetSize(0, 0, 1.0, 1.0)
         self._ownsRoot = true
@@ -163,7 +161,7 @@ function Multiplexer:Mount(parent)
     overlay:SetSize(0, 0, 1.0, 1.0)
     overlay.clickthrough = true
     self._overlay = overlay
-    self.resizeHandle = Resize.new(self.window, rootLayer)
+    self.resizeHandle = Resize.new(self.window, rootLayer, overlay)
     self._ownsOverlay = true
 
     -- Register the overlay with PrettyUI's window overlay list so Show / title-drag end
@@ -445,24 +443,20 @@ function Multiplexer:RaiseToFront()
     elseif w.MoveToFront ~= nil then
         w:MoveToFront()
     end
+    self:SyncChrome()
+end
+
+-- Title-drag raises the window over overlay chrome; re-front overlay + resize each frame.
+function Multiplexer:SyncChrome()
+    if self.window == nil or not self._visible then return end
     if self._overlay ~= nil and self._overlay.MoveToFront ~= nil then
         self._overlay:MoveToFront()
     end
-    self:SyncChrome()
+    if self.resizeHandle ~= nil then self.resizeHandle:Sync(true) end
 end
--- Native dragging raises the window background; restore overlays before drag capture.
-function Multiplexer:SyncChrome()
-    if self.window == nil then return end
-    if self._visible and self._overlay ~= nil and self._overlay.MoveToFront ~= nil then
-        self._overlay:MoveToFront()
-    end
-    local interactive = self._visible and Dialog.depth(self._overlay) == 0
-    if self.window.titleDrag ~= nil then
-        self.window.titleDrag.hidden = not interactive
-        if interactive then self.window.titleDrag:MoveToFront() end
-    end
-    if self.resizeHandle ~= nil then self.resizeHandle:Sync(interactive) end
-    if self._visible then Dialog.raiseToFront(self._overlay) end
+
+function Multiplexer:SyncTitle()
+    applyTitle(self)
 end
 
 return Multiplexer

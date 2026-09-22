@@ -91,7 +91,7 @@ end
 function Export.Encode(entries)
     local c = codec()
     if c == nil then
-        return false, "Watchdog could not read or create alert codes. Check that LibNodeGraph is enabled."
+        return false, "Watchdog could not read or create export JSON. Check that LibNodeGraph is enabled."
     end
     local envelope = Export.BuildEnvelope(entries)
     local ok, text = pcall(function() return c.encode(envelope) end)
@@ -120,15 +120,15 @@ end
 ---@return Watchdog.ExportEnvelope|string envelopeOrErr
 function Export.Decode(text)
     if type(text) ~= "string" or text == "" then
-        return false, "Paste an alert code first."
+        return false, "Paste export JSON first."
     end
     local c = codec()
     if c == nil then
-        return false, "Watchdog could not read or create alert codes. Check that LibNodeGraph is enabled."
+        return false, "Watchdog could not read or create export JSON. Check that LibNodeGraph is enabled."
     end
     local ok, value = pcall(function() return c.decode(text) end)
     if not ok or not isEnvelope(value) then
-        return false, "This alert code is not valid. Copy the full code from Watchdog and try again."
+        return false, "This export JSON is not valid. Copy the full JSON from Watchdog and try again."
     end
     ---@cast value Watchdog.ExportEnvelope
     return true, value
@@ -235,7 +235,7 @@ function Export.Import(doc, text, opts)
     local envelope = envelopeOrErr
 
     if envelope.schemaVersion > Export.SCHEMA_VERSION then
-        return false, "This code needs a newer version of Watchdog. Update the plugin, then try again."
+        return false, "This export JSON needs a newer version of Watchdog. Update the plugin, then try again."
     end
 
     local used = {}
@@ -250,7 +250,7 @@ function Export.Import(doc, text, opts)
     local minted = {}
     for i, exportEntry in ipairs(envelope.entries or {}) do
         if type(exportEntry) ~= "table" or (exportEntry.kind ~= "alert" and exportEntry.kind ~= "group") then
-            return false, "Alert or group " .. tostring(i) .. " could not be read. Copy the code again and retry."
+            return false, "Alert or group " .. tostring(i) .. " could not be read. Copy the export JSON again and retry."
         end
         minted[i] = materializeEntry(doc, used, exportEntry)
     end

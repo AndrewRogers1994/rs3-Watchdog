@@ -132,6 +132,9 @@ Theme.WINDOW_W             = 900
 Theme.WINDOW_H             = 560
 Theme.WINDOW_HEADER_H      = 32   -- PrettyUI TITLE_HEIGHT
 Theme.WINDOW_BORDER        = 8    -- PrettyUI BORDER; content is inset this much
+Theme.WINDOW_CLOSE_RESERVE = 34   -- CLOSE_SIZE (20) + 14
+Theme.WINDOW_MAX_BTN       = 24   -- Maximize/Restore hit target on the title strip
+Theme.TOOLBAR_BTN          = 24   -- overlay SpriteButtons on the title strip
 Theme.WINDOW_TITLE         = "Watchdog - Editor"
 
 --- Palette (screen-space popup) + toolbar -----------------------------------------------
@@ -169,8 +172,8 @@ Theme.MANAGER_ROW_GAP        = 4
 Theme.MANAGER_ROW_INDENT     = 20
 Theme.MANAGER_PAGE_PAD       = 12
 Theme.MANAGER_TOOLBAR_GAP    = 8
+Theme.MANAGER_TOOLBAR_H      = 28
 Theme.MANAGER_BULK_BAR_H     = 30
-Theme.MANAGER_TREE_TOP       = 92
 Theme.MANAGER_IMPORT_EXPORT_W = 440
 Theme.MANAGER_IMPORT_EXPORT_H = 420
 
@@ -277,6 +280,10 @@ end
 -- Vector4 is a client global that may be absent under a bare Lua runtime.
 function Theme.Vec4(c)
     return Vector4.new(c[1], c[2], c[3], c[4])
+end
+
+function Theme.ManagerTreeTop()
+    return Theme.MANAGER_TAB_BASELINE + 8 + Theme.MANAGER_TOOLBAR_H + Theme.MANAGER_TOOLBAR_GAP
 end
 
 --- Fonts ---------------------------------------------------------------------------

@@ -145,7 +145,7 @@ function TestImportExport:testExportHasFrozenFieldAndDisabledSave()
         text = '{"schemaVersion":1}',
         message = "copy me",
     })
-    luaunit.assertEquals(win.title, "Export")
+    luaunit.assertEquals(win.title, "Export alerts")
     luaunit.assertEquals(win.texts[1], "copy me")
     luaunit.assertEquals(win.fields[1].text, '{"schemaVersion":1}')
     local save = button(win, "Save to file")

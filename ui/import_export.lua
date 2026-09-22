@@ -80,7 +80,7 @@ function ImportExport.mountImport(parent, opts)
         content = function(win)
             field = addBody(win, opts.message, {
                 text = opts.text or "",
-                placeholder = "Paste alert code here",
+                placeholder = "Paste export JSON here",
                 maxLength = maxLength,
                 height = 280,
             })
@@ -120,7 +120,7 @@ function ImportExport.mountExport(parent, opts)
     local frozen = opts.text or ""
     local maxLength = opts.maxLength or ImportExport.DEFAULT_MAX_LENGTH
     return Dialog.mount(parent, {
-        title = "Export",
+        title = "Export alerts",
         width = Theme.MANAGER_IMPORT_EXPORT_W,
         height = Theme.MANAGER_IMPORT_EXPORT_H,
         onDismiss = opts.onDismiss,

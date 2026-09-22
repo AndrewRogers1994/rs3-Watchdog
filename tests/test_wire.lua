@@ -16,15 +16,15 @@ function TestWire:testStrokeStaysInsideViewportAfterResizeAndZoom()
             canvas.lines = {}
             -- A wire crossing both the toolbar and bottom edge.
             Wire.DrawCurve(canvas, view, 50, -100, 1, 150, 1000, -1,
-                Theme.COL_EXEC, 0, 84, 400, height)
+                Theme.COL_EXEC, 0, 0, 400, height)
             luaunit.assertTrue(#canvas.lines > 0)
             for _, line in ipairs(canvas.lines) do
                 local thickness = line[5]
                 for i = 1, 3, 2 do
                     luaunit.assertTrue(line[i] - thickness >= 0)
                     luaunit.assertTrue(line[i] + thickness <= 400)
-                    luaunit.assertTrue(line[i + 1] - thickness >= 84)
-                    luaunit.assertTrue(line[i + 1] + thickness <= 84 + height)
+                    luaunit.assertTrue(line[i + 1] - thickness >= 0)
+                    luaunit.assertTrue(line[i + 1] + thickness <= height)
                 end
             end
         end
@@ -35,5 +35,5 @@ end
 function TestWire:testWireOutsideViewportIsNotDrawn()
     local canvas = { AddLine = function() error("Offscreen wire was drawn") end }
     Wire.DrawCurve(canvas, View.new(), 50, 600, 1, 150, 600, -1,
-        Theme.COL_EXEC, 0, 84, 400, 200)
+        Theme.COL_EXEC, 0, 0, 400, 200)
 end
