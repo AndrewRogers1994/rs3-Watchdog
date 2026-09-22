@@ -241,8 +241,8 @@ Move exposes sibling reorder (↑↓) and Lift controls; Move and bulk selection
 Selected entries swap Move/Import/Export on the same toolbar row: Clear (n), Group, Move to the other scope, Export, and Delete.
 The two surfaces are mounted once, with at most one visible at a time (#76, #78, #80).
 
-The Editor toolbar sits on the native title strip as icon buttons (Back, Rename, zoom,
-Reset view, Add node) with labels in tooltips. The window title shows the alert name.
+The Editor toolbar sits on the native title strip as icon buttons (Back, Rename, Add node,
+zoom, Reset view) with labels in tooltips. The window title shows the alert name.
 The Viewport is the full content rect. Native title-drag re-fronts the overlay each frame
 so header icons, Maximize, and the resize grip stay on the window. Dialogs parent to the mux
 root layer. The native title bar remains

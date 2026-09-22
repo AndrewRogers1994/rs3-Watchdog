@@ -350,7 +350,7 @@ local function titleStrip(win)
     return win.x - border, win.y - headerH, win.w + 2 * border, headerH
 end
 
--- Palette-from-plus hangs off the bottom of this.
+-- Screen pos of the reserved title-strip slot before Maximize (+ used to sit here).
 local function plusScreenPos(win, plusW, plusH)
     plusW = plusW or Theme.TOOLBAR_BTN
     plusH = plusH or Theme.TOOLBAR_BTN
@@ -358,6 +358,15 @@ local function plusScreenPos(win, plusW, plusH)
     local plusX = titleX + titleW - Theme.WINDOW_CLOSE_RESERVE - Theme.WINDOW_MAX_BTN - 6 - plusW
     local plusY = titleY + math.floor((headerH - plusH) / 2)
     return plusX, plusY, plusH
+end
+
+-- Palette-from-plus hangs off the bottom of this.
+local function addNodeScreenPos(win, bs)
+    bs = bs or Theme.TOOLBAR_BTN
+    local titleX, titleY, _, headerH = titleStrip(win)
+    local pad = 6
+    local btnY = titleY + math.floor((headerH - bs) / 2)
+    return titleX + pad + bs + pad + bs + pad, btnY, bs
 end
 
 -- Authoritative placeholder type key; no string fallback (would drift).
@@ -842,7 +851,7 @@ end
 
 function Editor:openPaletteFromPlus()
     local gx, gy = self:viewCenterGraph()
-    local plusX, plusY, bs = plusScreenPos(self.window)
+    local plusX, plusY, bs = addNodeScreenPos(self.window)
     local lx = plusX - self.window.x
     local ly = plusY + bs - self.window.y
     self:openPaletteUnfiltered(lx, ly, {
@@ -1725,8 +1734,8 @@ function Editor:layoutToolbar()
     local bs = Theme.TOOLBAR_BTN
     local titleX, titleY, titleW, headerH = titleStrip(win)
     local btnY = titleY + math.floor((headerH - bs) / 2)
-    local plusX, plusY = plusScreenPos(win, bs, bs)
-    local resetX = plusX - pad - bs
+    local plusSlotX, plusSlotY = plusScreenPos(win, bs, bs)
+    local resetX = plusSlotX - pad - bs
     local sw, sh = Theme.ZOOM_SLIDER_W, Theme.ZOOM_SLIDER_H
     local sliderX = resetX - pad - sw
     local sliderY = titleY + math.floor((headerH - sh) / 2)
@@ -1739,11 +1748,11 @@ function Editor:layoutToolbar()
         self.renameButton.root:SetSize(bs, bs)
     end
     if self.plusButton ~= nil then
-        self.plusButton.root:SetPos(plusX, plusY)
+        self.plusButton.root:SetPos(titleX + pad + bs + pad + bs + pad, btnY)
         self.plusButton.root:SetSize(bs, bs)
     end
     if self.resetViewButton ~= nil then
-        self.resetViewButton.root:SetPos(resetX, plusY)
+        self.resetViewButton.root:SetPos(resetX, plusSlotY)
         self.resetViewButton.root:SetSize(bs, bs)
     end
     if self.zoomSlider ~= nil then
