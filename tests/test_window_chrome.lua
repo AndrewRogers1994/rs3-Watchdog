@@ -57,7 +57,8 @@ function TestWindowChrome:setUp()
         Layer = { new = component },
         Canvas = { new = component },
         Rectangle = { new = component },
-        Hook = { ONCLICK = "click", ONHOLD = "hold", ONRELEASE = "release", ONDRAGCOMPLETE = "done" },
+        Hook = { ONCLICK = "click", ONHOLD = "hold", ONRELEASE = "release", ONDRAGCOMPLETE = "done",
+            ONMOUSEOVER = "over", ONMOUSELEAVE = "leave" },
     }
     prettyui = { SimpleButton = {}, FancyButton = {
         getSize = function()
@@ -158,8 +159,8 @@ function TestWindowChrome:testChromeFollowsWindowDuringTitleDragRestack()
     self.window.root:MoveToFront()
     self.mux:SyncChrome()
     luaunit.assertEquals(
-        { self.resize.maxHit.x, self.resize.maxHit.y },
-        { 120 + 900 - 34 - 24, 90 + 4 }
+        { self.resize.maxHit.x, self.resize.maxHit.y, self.resize.maxHit.width, self.resize.maxHit.height },
+        { 120 + 900 - 34 - 20, 90 + 7, 20, 20 }
     )
     luaunit.assertEquals(
         { self.resize.grip.x, self.resize.grip.y },
@@ -198,6 +199,23 @@ function TestWindowChrome:testModalBlocksEditorInput()
     valid = true
     win.actions.Save()
     luaunit.assertEquals(Dialog.depth(self.overlay), 0)
+end
+function TestWindowChrome:testSyncChromeRaisesOverlayTooltipAboveMaximize()
+    -- Visible overlay tips must outrank Maximize after SyncChrome restacks it.
+    local tipRoot = component(self.overlay)
+    tipRoot.hidden = false
+    self.mux:Push({
+        id = "editor",
+        FrontOverlayTooltips = function()
+            tipRoot:MoveToFront()
+        end,
+    })
+    self.mux:SyncChrome()
+    local positions = {}
+    for i, c in ipairs(self.overlay.children) do
+        positions[c] = i
+    end
+    luaunit.assertTrue(positions[self.resize.maxHit] < positions[tipRoot])
 end
 function TestWindowChrome:testTooltipStaysBelowMaximizeAndRestore()
     local tip = { root = component(self.parent), options = {}, width = 240 }

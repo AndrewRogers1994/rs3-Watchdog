@@ -133,7 +133,7 @@ Theme.WINDOW_H             = 560
 Theme.WINDOW_HEADER_H      = 32   -- PrettyUI TITLE_HEIGHT
 Theme.WINDOW_BORDER        = 8    -- PrettyUI BORDER; content is inset this much
 Theme.WINDOW_CLOSE_RESERVE = 34   -- CLOSE_SIZE (20) + 14
-Theme.WINDOW_MAX_BTN       = 24   -- Maximize/Restore hit target on the title strip
+Theme.WINDOW_MAX_BTN       = 20   -- PrettyUI CLOSE_SIZE; Maximize sits in the same title slot
 Theme.TOOLBAR_BTN          = 24   -- overlay SpriteButtons on the title strip
 Theme.WINDOW_TITLE         = "Watchdog - Editor"
 

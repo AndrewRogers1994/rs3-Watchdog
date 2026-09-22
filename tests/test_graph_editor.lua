@@ -279,7 +279,7 @@ function TestGraphEditor:testOpenPaletteFromPlusAnchorsAtViewCenter()
     luaunit.assertEquals(editor.palette.anchorGX, 80)
     luaunit.assertEquals(editor.palette.anchorGY, 85)
     luaunit.assertTrue(editor.palette.centerOnAnchor)
-    luaunit.assertEquals(editor.palette.screenX, 420)
+    luaunit.assertEquals(editor.palette.screenX, 424)
     luaunit.assertEquals(editor.palette.screenY, 196)
 end
 

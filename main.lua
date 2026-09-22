@@ -776,6 +776,7 @@ editorSurface = {
     -- Shell hide (F8/Close) must dismiss palette/gestures without Editor:SetVisible(false),
     -- so pan/zoom survive; mux calls this instead of flipping surface visibility.
     OnShellHide = function() editor:OnShellHide() end,
+    FrontOverlayTooltips = function() editor:FrontOverlayTooltips() end,
 }
 
 --- Event loops --------------------------------------------------------------------------

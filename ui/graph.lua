@@ -176,6 +176,15 @@ local function frontToolbarTooltip(btn)
     btn.tooltip.root:MoveToFront()
 end
 
+-- mux SyncChrome calls this after restacking Maximize.
+function Editor:FrontOverlayTooltips()
+    frontToolbarTooltip(self.renameButton)
+    frontToolbarTooltip(self.backButton)
+    frontToolbarTooltip(self.resetViewButton)
+    frontToolbarTooltip(self.plusButton)
+    InvViewer.FrontTooltips(self)
+end
+
 -- Capture under palette under toolbar under transient editors (overlay above PrettyUI window).
 function Editor:frontOverlayInteractives()
     if Dialog.depth(self.overlayParent) > 0 then return end
@@ -188,11 +197,7 @@ function Editor:frontOverlayInteractives()
     if self.zoomTickCanvas ~= nil then pcall(function() self.zoomTickCanvas:MoveToFront() end) end
     if self.resetViewButton ~= nil then self.resetViewButton.root:MoveToFront() end
     if self.plusButton ~= nil then self.plusButton.root:MoveToFront() end
-    frontToolbarTooltip(self.renameButton)
-    frontToolbarTooltip(self.backButton)
-    frontToolbarTooltip(self.resetViewButton)
-    frontToolbarTooltip(self.plusButton)
-    InvViewer.FrontTooltips(self)
+    self:FrontOverlayTooltips()
     if self.editing ~= nil and self.editing.field ~= nil then
         pcall(function() self.editing.field:MoveToFront() end)
     end

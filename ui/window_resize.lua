@@ -7,18 +7,30 @@ local GRIP = 20
 local MAX = Theme.WINDOW_MAX_BTN
 local CLOSE = Theme.WINDOW_CLOSE_RESERVE
 local TITLE_H = Theme.WINDOW_HEADER_H
+-- PrettyUI window.lua: close is CLOSE_SIZE at SetPos(..., 7).
+local TITLE_ICON_Y = 7
+local ICON_STROKE = 1
+local ICON = 10
 
-local function gold()
+---@return Vector4
+local function gold(hover)
+    if hover then
+        return Vector4.new(1.0, 0.92, 0.70, 1)
+    end
     return Vector4.new(0.86, 0.76, 0.53, 1)
 end
 
-local function drawSquare(canvas, x, y, size)
-    local c = gold()
+---@param canvas ui.Canvas
+---@param x number
+---@param y number
+---@param size number
+---@param colour Vector4
+local function drawSquare(canvas, x, y, size, colour)
     local x2, y2 = x + size, y + size
-    canvas:AddLine(x, y, x2, y, 1, c)
-    canvas:AddLine(x2, y, x2, y2, 1, c)
-    canvas:AddLine(x2, y2, x, y2, 1, c)
-    canvas:AddLine(x, y2, x, y, 1, c)
+    canvas:AddLine(x, y, x2, y, ICON_STROKE, colour)
+    canvas:AddLine(x2, y, x2, y2, ICON_STROKE, colour)
+    canvas:AddLine(x2, y2, x, y2, ICON_STROKE, colour)
+    canvas:AddLine(x, y2, x, y, ICON_STROKE, colour)
 end
 
 function Resize.new(window, viewport, chrome)
@@ -42,6 +54,15 @@ function Resize.new(window, viewport, chrome)
     function self.maxButton:SetTooltip(options)
         self.tooltipOptions = options
     end
+    self.maxHover = false
+    self.maxHit:Subscribe(ui.Hook.ONMOUSEOVER, function()
+        self.maxHover = true
+        self:paintMax()
+    end)
+    self.maxHit:Subscribe(ui.Hook.ONMOUSELEAVE, function()
+        self.maxHover = false
+        self:paintMax()
+    end)
     self.maxHit:Subscribe(ui.Hook.ONCLICK, function()
         self:ToggleMaximize()
         return true
@@ -69,11 +90,13 @@ end
 
 function Resize:paintMax()
     self.maxIcon:Clear()
+    local c = gold(self.maxHover)
+    local pad = (MAX - ICON) * 0.5
     if self.normalBounds ~= nil then
-        drawSquare(self.maxIcon, 5, 8, 10)
-        drawSquare(self.maxIcon, 9, 5, 10)
+        drawSquare(self.maxIcon, pad - 1, pad + 2, ICON - 2, c)
+        drawSquare(self.maxIcon, pad + 2, pad - 1, ICON - 2, c)
     else
-        drawSquare(self.maxIcon, 7, 7, 10)
+        drawSquare(self.maxIcon, pad, pad, ICON, c)
     end
 end
 
@@ -179,7 +202,7 @@ function Resize:Sync(visible)
     if self.window.titleDrag ~= nil then
         self.window.titleDrag.hidden = self.normalBounds ~= nil
     end
-    self.maxHit:SetPos(root.x + root.width - CLOSE - MAX, root.y + math.floor((TITLE_H - MAX) / 2))
+    self.maxHit:SetPos(root.x + root.width - CLOSE - MAX, root.y + TITLE_ICON_Y)
     self.maxHit:SetSize(MAX, MAX)
     self.maxHit:MoveToFront()
     self:layoutTitleDrag()
