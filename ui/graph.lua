@@ -9,6 +9,7 @@ local View     = require("ui/view")
 local Node     = require("ui/node")
 local Placeholder = require("ui/placeholder")
 local Wire     = require("ui/wire")
+local Clip     = require("ui/canvas_clip")
 local Palette  = require("ui/palette")
 local ColorPopup = require("ui/color_popup")
 local IfaceScale = require("ui/iface_scale")
@@ -1508,11 +1509,14 @@ function Editor:draw()
     self:drawBackground()
     self:drawConnections()
 
+    -- AddLine / AddTriangle are not scissored by the Canvas component.
+    local clipped = Clip.Wrap(self.canvas, vx, vy, vw, vh)
+
     for _, id in ipairs(self.nodeOrder) do
         local geom = self.geoms[id]
         if geom ~= nil and self:geomVisible(geom, vx, vy, vw, vh) then
             local editingHere = self.editing ~= nil and self.editing.nodeId == id
-            Node.Draw(self.canvas, self.view, geom, self:meta(id, geom.typeKey),
+            Node.Draw(clipped, self.view, geom, self:meta(id, geom.typeKey),
                 { selected = (id == self.selected),
                   mouseX = self.mouse.x, mouseY = self.mouse.y,
                   editingPin = editingHere and self.editing.pinName or nil,
@@ -1525,7 +1529,7 @@ function Editor:draw()
 
     -- Color popup last on the content Canvas, clamped to the Viewport.
     if self.colorPopup.open then
-        self.colorPopup:Draw(self.canvas, vx, vy, vw, vh, self.mouse.x, self.mouse.y,
+        self.colorPopup:Draw(clipped, vx, vy, vw, vh, self.mouse.x, self.mouse.y,
             { hexEditing = self.colorHexField ~= nil })
     end
 
