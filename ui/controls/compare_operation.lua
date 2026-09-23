@@ -15,7 +15,7 @@ local CompareOperation = Enum.new({
 -- Use the node's width so the English labels fit.
 CompareOperation.Inline = false
 function CompareOperation.ReservedHeight(_pin)
-    return Theme.CONTROL_H + Theme.CONTROL_PAD_X
+    return Theme.CONTROL_H
 end
 function CompareOperation.Layout(band)
     return { { kind = "field", x = band.x, y = band.y, w = band.w, h = Theme.CONTROL_H } }

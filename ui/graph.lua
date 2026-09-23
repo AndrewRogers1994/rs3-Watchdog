@@ -28,6 +28,8 @@ function Editor.new(registry, runtime)
         nodeOrder = {},            -- draw/z order, front-most last
         geoms = {},                -- per-frame cache, nodeId -> geom
         mouse = { x = 0, y = 0 },
+        screenScale = nil,         -- pixels per interface unit, including OS scale
+        screenScaleIface = nil,    -- InterfaceScale factor the sample was taken under
         pressed = false,
         mode = "idle",             -- idle | pan | dragnode | wire | colordrag | palettescroll
         editing = nil,             -- {nodeId,pinName,spec,widget,field}
@@ -229,14 +231,28 @@ function Editor:layoutTransientEditors()
     end
 end
 
-local function mousePos()
+-- Hook x/y are interface units, so raw mouse / that position includes OS scale.
+function Editor:noteScreenScale(component, x, y)
+    if Mouse == nil or Mouse.GetPosition == nil then return end
+    local ok, pos = pcall(function() return Mouse.GetPosition() end)
+    if not ok or pos == nil then return end
+    local originX = component.x or 0
+    local originY = component.y or 0
+    local measured = IfaceScale.Measure(pos.x, pos.y, originX + x, originY + y)
+    if measured == nil then return end
+    self.screenScale = measured
+    self.screenScaleIface = IfaceScale.Factor()
+end
+
+function Editor:mousePos()
     if Mouse == nil or Mouse.GetPosition == nil then return nil end
     local ok, pos = pcall(function() return Mouse.GetPosition() end)
-    if ok and pos ~= nil then
-        -- Mouse coordinates need interface scaling; native UI components already apply it.
-        return IfaceScale.ToInterface(pos.x, pos.y)
+    if not ok or pos == nil then return nil end
+    local scale = self.screenScale
+    if scale ~= nil and self.screenScaleIface == IfaceScale.Factor() then
+        return pos.x / scale, pos.y / scale
     end
-    return nil
+    return IfaceScale.ToInterface(pos.x, pos.y)
 end
 
 local function modeLabelOf(nt, key)
@@ -555,7 +571,7 @@ function Editor:beginPress()
     if dialogOpen(self) then return end
     if self.pressed or not self.visible then return end
     self:syncContentOrigin()
-    local mx, my = mousePos()
+    local mx, my = self:mousePos()
     if mx == nil then return end
     local lx, ly = self:toLocal(mx, my)
     self.mouse.x, self.mouse.y = lx, ly
@@ -696,7 +712,7 @@ function Editor:update()
     if self.visible and not self.pressed and not self.palette.open then
         self:positionCapture()
     end
-    local mx, my = mousePos()   -- absolute; converted to local per-branch below
+    local mx, my = self:mousePos()   -- absolute; converted to local per-branch below
     if mx == nil then return end
 
     if self.pressed then
@@ -977,7 +993,7 @@ function Editor:onScroll(delta)
     end
     -- Native fields and the color popup do not scale with the view.
     self:closeViewTransients()
-    local mx, my = mousePos()
+    local mx, my = self:mousePos()
     local lx, ly
     if mx ~= nil then lx, ly = self:toLocal(mx, my) else lx, ly = self.mouse.x, self.mouse.y end
     self.view:StepZoomAt(lx, ly, delta)
@@ -1719,7 +1735,16 @@ function Editor:Mount(contentParent, overlayParent)
     self:positionCapture()
 
     if self.capture ~= nil then
-        self.capture:Subscribe(ui.Hook.ONCLICK, function() self:beginPress() end)
+        local function noteScale(component, x, y)
+            self:noteScreenScale(component, x, y)
+        end
+        self.capture:Subscribe(ui.Hook.ONMOUSEOVER, noteScale)
+        self.capture:Subscribe(ui.Hook.ONMOUSEREPEAT, noteScale)
+        self.capture:Subscribe(ui.Hook.ONHOLD, noteScale)
+        self.capture:Subscribe(ui.Hook.ONCLICK, function(component, x, y)
+            self:noteScreenScale(component, x, y)
+            self:beginPress()
+        end)
         self.capture:Subscribe(ui.Hook.ONRELEASE, function() self:endPress() end)
         self.capture:Subscribe(ui.Hook.ONSCROLLWHEEL, function(_, delta) self:onScroll(delta) end)
     end
