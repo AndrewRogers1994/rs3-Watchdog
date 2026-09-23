@@ -173,7 +173,6 @@ function TestWindowChrome:testChromeFollowsWindowDuringTitleDragRestack()
     luaunit.assertTrue(positions[self.window.root] < positions[self.overlay])
 end
 function TestWindowChrome:testSyncChromeDoesNotCollapseExpandedTitleDrag()
-    -- PrettyUI fullscreen title capture; SyncChrome must not shrink or bury it.
     self.window.titleDrag:SetPos(0, 0)
     self.window.titleDrag:SetSize(0, 0, 1.0, 1.0)
     self.window.root:MoveToFront()
@@ -217,12 +216,11 @@ function TestWindowChrome:testModalBlocksEditorInput()
     luaunit.assertEquals(Dialog.depth(self.overlay), 0)
 end
 function TestWindowChrome:testSyncChromeRaisesOverlayTooltipAboveMaximize()
-    -- Visible overlay tips must outrank Maximize after SyncChrome restacks it.
     local tipRoot = component(self.overlay)
     tipRoot.hidden = false
     self.mux:Push({
         id = "editor",
-        FrontOverlayTooltips = function()
+        FrontOverlayPopups = function()
             tipRoot:MoveToFront()
         end,
     })
@@ -269,4 +267,28 @@ function TestWindowChrome:testGraphCanvasFillsContentParent()
     luaunit.assertEquals(editor.canvas.parent, content)
     luaunit.assertEquals({ editor.canvas.x, editor.canvas.y }, { 0, 0 })
     luaunit.assertNil(editor.canvasViewport)
+end
+
+function TestWindowChrome:testPaletteStaysAboveResizeGripUntilClosed()
+    local editor = Editor.new({}, nil)
+    editor.overlayParent = self.overlay
+    editor.capture = component(self.overlay)
+    editor.paletteCanvas = component(self.overlay)
+    self.mux:Push({
+        id = "editor",
+        FrontOverlayPopups = function() editor:FrontOverlayPopups() end,
+    })
+    editor.palette.open = true
+    for _ = 1, 2 do
+        self.mux:SyncChrome()
+        local positions = {}
+        for i, c in ipairs(self.overlay.children) do positions[c] = i end
+        luaunit.assertTrue(positions[self.resize.grip] < positions[editor.capture])
+        luaunit.assertTrue(positions[editor.capture] < positions[editor.paletteCanvas])
+    end
+    editor:closePalette()
+    self.mux:SyncChrome()
+    luaunit.assertEquals(self.overlay.children[#self.overlay.children], self.resize.grip)
+    self.resize:Begin()
+    luaunit.assertNotNil(self.resize.start)
 end
