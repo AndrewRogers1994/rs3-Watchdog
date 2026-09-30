@@ -13,7 +13,8 @@
     rewritten by scripts/minify.lua instead. prettyui is never minified.
 
     Default (dev) layout mirrors the live client: one top-level folder per plugin
-    (Watchdog/, LibNodeGraph/, …), using plugin.json and requiredDependencies.
+    (Watchdog/, LibNodeGraph/, …). Required dependencies are an identifier-to-folder
+    map; this script stages the folder names and does not invent numeric ids.
 
     With -Modio: Watchdog files only, no dependency folders, zip entries at the
     archive root (main.lua, plugin.json, …). plugin.modio.json is staged as
@@ -308,10 +309,23 @@ if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
     throw "Missing $manifestName at $manifestPath"
 }
 
+# Folder names from requiredDependencies (identifier -> folder). Numeric hub ids are skipped.
+function Get-RequiredFolderNames {
+    param($Deps)
+    $names = @()
+    if ($null -eq $Deps) { return $names }
+    foreach ($prop in $Deps.PSObject.Properties) {
+        if ($prop.Value -is [string] -and $prop.Value -ne '') {
+            $names += $prop.Value
+        }
+    }
+    return $names
+}
+
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 $plugins = @()
-if (-not $Modio -and $null -ne $manifest.requiredDependencies) {
-    $plugins += @($manifest.requiredDependencies)
+if (-not $Modio) {
+    $plugins += @(Get-RequiredFolderNames $manifest.requiredDependencies)
 }
 $plugins += $pluginName
 $plugins = $plugins | Select-Object -Unique

@@ -22,7 +22,7 @@ local Manager = {}
 Manager.__index = Manager
 
 ---@class Watchdog.ManagerScope
----@field key string                 # the Bucket key ("global" | "player_<normalized>")
+---@field key string                 # the Bucket key ("global" | "player_<tracking id>")
 ---@field label string               # tab text ("Global" | the character's display name)
 ---@field doc Watchdog.Bucket        # the Bucket document whose Entry tree renders under this tab
 

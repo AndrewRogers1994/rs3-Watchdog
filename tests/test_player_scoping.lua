@@ -23,24 +23,35 @@ local NOT_GAME = 20 -- LOBBY; any newState ~= GAME behaves the same
 
 TestPlayerScoping = {}
 
--- A fake identity source: `name` is the display name the runtime will read on the next resolve.
--- nil means "not logged in / not readable yet" (Player.IsAvailable() false), so Resolve returns
--- nil and the runtime keeps the pending-resolve flag raised.
-local function newFakeIdentity(name)
-    local id = { name = name }
-    function id:Resolve() return self.name end
+-- A fake identity source. Resolve returns the Tracking ID (nil or "" means logged out / empty
+-- id). DisplayName is the tab label and is never used as a bucket key.
+local function newFakeIdentity(trackingId, displayName)
+    local id = { trackingId = trackingId, displayName = displayName }
+    function id:Resolve()
+        if type(self.trackingId) ~= "string" or self.trackingId == "" then
+            return nil
+        end
+        return self.trackingId
+    end
+    function id:DisplayName()
+        if type(self.displayName) ~= "string" or self.displayName == "" then
+            return nil
+        end
+        return self.displayName
+    end
     return id
 end
 
--- A fake Bucket loader over an in-memory map of normalized name -> list of alert specs. Records
--- every call (the normalized names asked for) so a test can prove a world-hop does NOT reload while
--- a genuine switch does. Each returned alert is a fresh table so the runtime owns its own list.
+-- A fake Bucket loader over an in-memory map of Tracking ID -> list of alert specs. Records
+-- every id asked for, so a test can prove a display-name key is never requested, a world-hop
+-- does NOT reload, and a Tracking ID change does. Each returned alert is a fresh table so the
+-- runtime owns its own list.
 local function newFakeLoader()
     local loader = { calls = {}, buckets = {} }
-    loader.fn = function(normalized)
-        loader.calls[#loader.calls + 1] = normalized
+    loader.fn = function(trackingId)
+        loader.calls[#loader.calls + 1] = trackingId
         local out = {}
-        for _, spec in ipairs(loader.buckets[normalized] or {}) do
+        for _, spec in ipairs(loader.buckets[trackingId] or {}) do
             out[#out + 1] = { id = spec.id, name = spec.name, graph = spec.graph, enabled = spec.enabled }
         end
         return out
@@ -72,17 +83,20 @@ function TestPlayerScoping:setUp()
     self.runtime:BindTrigger("fixture.echo", { { event = "Custom" } })
 end
 
-function TestPlayerScoping:seedCharacterAlert(normalized, id, name, enabled)
+function TestPlayerScoping:seedCharacterAlert(trackingId, id, name, enabled)
     local graph = Graph.new(self.registry)
     local nodeId = graph:AddNode("fixture.echo")
-    local specs = self.loader.buckets[normalized] or {}
+    local specs = self.loader.buckets[trackingId] or {}
     specs[#specs + 1] = { id = id, name = name, graph = graph, enabled = enabled ~= false }
-    self.loader.buckets[normalized] = specs
+    self.loader.buckets[trackingId] = specs
     return graph, nodeId
 end
 
-function TestPlayerScoping:login(displayName)
-    self.identity.name = displayName
+function TestPlayerScoping:login(trackingId, displayName)
+    self.identity.trackingId = trackingId
+    if displayName ~= nil then
+        self.identity.displayName = displayName
+    end
     self.source:Push("GameStateChanged", { newState = GAME })
     self.runtime:Update(0.02)
 end
@@ -109,7 +123,7 @@ function TestPlayerScoping:testGlobalKeepsFiringWhileLoggedOut()
     self.runtime:AddAlert(1, "g", g, true)
     local nid = g:AddNode("fixture.echo")
 
-    self:login("Alice")
+    self:login("tid-1", "Alice")
     self:leaveGame()
     self.source:Push("Custom", "still-here")
     luaunit.assertEquals(g:GetLastValue(nid, "payload"), "still-here")
@@ -124,46 +138,61 @@ function TestPlayerScoping:testActiveCharacterNilBeforeAnyLogin()
 end
 
 function TestPlayerScoping:testActiveCharacterReportsLoggedInDisplayName()
-    self:seedCharacterAlert("alice", 1, "a", true)
-    self:login("Alice")
+    self:seedCharacterAlert("tid-1", 1, "a", true)
+    self:login("tid-1", "Alice")
     local name, key = self.runtime:GetActiveCharacter()
-    luaunit.assertEquals(name, "Alice")           -- the pretty display name, not the normalized key
-    luaunit.assertEquals(key, "player_alice")
+    luaunit.assertEquals(name, "Alice")
+    luaunit.assertEquals(key, "player_tid-1")
 end
 
 function TestPlayerScoping:testActiveCharacterSurvivesLeavingGame()
     -- Leaving GAME disarms but keeps the character resident, so the scope tab stays visible while
     -- logged out (editing continues off-world, #77).
-    self:seedCharacterAlert("alice", 1, "a", true)
-    self:login("Alice")
+    self:seedCharacterAlert("tid-1", 1, "a", true)
+    self:login("tid-1", "Alice")
     self:leaveGame()
     local name, key = self.runtime:GetActiveCharacter()
     luaunit.assertEquals(name, "Alice")
-    luaunit.assertEquals(key, "player_alice")
+    luaunit.assertEquals(key, "player_tid-1")
 end
 
---- Character Bucket: login arms + fires; keyed on normalized name -------------------------
+--- Character Bucket: login arms + fires; keyed on the Tracking ID --------------------------
 
 function TestPlayerScoping:testLoginArmsCharacterBucketAndItFires()
-    local g, nid = self:seedCharacterAlert("alice", 1, "a", true)
+    local g, nid = self:seedCharacterAlert("tid-1", 1, "a", true)
 
-    self:login("Alice")
+    self:login("tid-1", "Alice")
     self.source:Push("Custom", "hi-alice")
 
-    luaunit.assertEquals(self.loader.calls, { "alice" }) -- keyed on the *normalized* name
+    luaunit.assertEquals(self.loader.calls, { "tid-1" })
     luaunit.assertEquals(g:GetLastValue(nid, "payload"), "hi-alice")
-    luaunit.assertEquals(self.runtime._characterBucketKey, "player_alice")
+    luaunit.assertEquals(self.runtime._characterBucketKey, "player_tid-1")
 end
 
-function TestPlayerScoping:testCharacterBucketKeyNormalizesDisplayName()
-    self:seedCharacterAlert("ze zima", 1, "a", true)
-    self:login("Ze  ZIMA ") -- cosmetic case/whitespace variant of the saved bucket
-    luaunit.assertEquals(self.loader.calls, { "ze zima" })
-    luaunit.assertEquals(self.runtime._characterBucketKey, "player_ze zima")
+function TestPlayerScoping:testCharacterBucketKeyUsesTrackingIdCharacterForCharacter()
+    -- Display-name folding must not touch the id: case and spaces in the name are not the key.
+    self:seedCharacterAlert("AbC", 1, "a", true)
+    self:seedCharacterAlert("ze zima", 2, "display-name-bucket", true)
+    self:login("AbC", "Ze  ZIMA ")
+    luaunit.assertEquals(self.loader.calls, { "AbC" })
+    luaunit.assertEquals(self.runtime._characterBucketKey, "player_AbC")
+    luaunit.assertNil(self.runtime.buckets["player_ze zima"])
+    luaunit.assertNil(self.runtime.buckets["player_abc"])
+end
+
+function TestPlayerScoping:testEmptyTrackingIdLeavesOnlyTheGlobalScope()
+    self:seedCharacterAlert("tid-1", 1, "a", true)
+    self:login("", "Alice")
+    luaunit.assertEquals(self.loader.calls, {})
+    local name, key = self.runtime:GetActiveCharacter()
+    luaunit.assertNil(name)
+    luaunit.assertNil(key)
+    luaunit.assertNil(self.runtime.buckets["player_"])
+    luaunit.assertNil(self.runtime.buckets["player_Alice"])
 end
 
 function TestPlayerScoping:testCharacterAlertDoesNotFireBeforeLogin()
-    local g, nid = self:seedCharacterAlert("alice", 1, "a", true)
+    local g, nid = self:seedCharacterAlert("tid-1", 1, "a", true)
     self.source:Push("Custom", "too-early")
     luaunit.assertNil(g:GetLastValue(nid, "payload"))
     luaunit.assertEquals(#self.loader.calls, 0)
@@ -172,8 +201,9 @@ end
 --- Deferred resolution: pending flag drained on a Logic tick ------------------------------
 
 function TestPlayerScoping:testIdentityResolvesDeferredOnLogicTick()
-    local g, nid = self:seedCharacterAlert("alice", 1, "a", true)
-    self.identity.name = "Alice"
+    local g, nid = self:seedCharacterAlert("tid-1", 1, "a", true)
+    self.identity.trackingId = "tid-1"
+    self.identity.displayName = "Alice"
     self.source:Push("GameStateChanged", { newState = GAME })
 
     luaunit.assertEquals(#self.loader.calls, 0)
@@ -183,46 +213,49 @@ function TestPlayerScoping:testIdentityResolvesDeferredOnLogicTick()
     self.runtime:Update(0.02)
     self.source:Push("Custom", "after-tick")
     luaunit.assertEquals(g:GetLastValue(nid, "payload"), "after-tick")
+    luaunit.assertEquals(self.loader.calls, { "tid-1" })
 end
 
-function TestPlayerScoping:testPendingResolveRetriesUntilNameReadable()
-    local g, nid = self:seedCharacterAlert("alice", 1, "a", true)
-    -- GAME arrives but the name isn't readable yet (IsAvailable false → Resolve nil).
+function TestPlayerScoping:testPendingResolveRetriesUntilTrackingIdReadable()
+    local g, nid = self:seedCharacterAlert("tid-1", 1, "a", true)
+    -- GAME arrives but the Tracking ID isn't readable yet (logged out / empty id).
     self.source:Push("GameStateChanged", { newState = GAME })
     self.runtime:Update(0.02)
     luaunit.assertEquals(#self.loader.calls, 0)
 
-    self.identity.name = "Alice"
+    self.identity.trackingId = "tid-1"
+    self.identity.displayName = "Alice"
     self.runtime:Update(0.02)
     self.source:Push("Custom", "resolved")
     luaunit.assertEquals(g:GetLastValue(nid, "payload"), "resolved")
+    luaunit.assertEquals(self.loader.calls, { "tid-1" })
 end
 
 function TestPlayerScoping:testColdStartResolvesInWorldOnConstruction()
     -- A plugin reload mid-session gets no GameStateChanged: construction must poll once and, if
     -- in-world, raise the same pending flag - one code path, drained on the first Update tick.
     local source = newFakeEventSource()
-    local identity = newFakeIdentity("Alice") -- already in-world at construction
+    local identity = newFakeIdentity("tid-1", "Alice") -- already in-world at construction
     local runtime = Runtime.new(source.source, nil, identity)
     local loader = newFakeLoader()
     runtime:SetBucketLoader(loader.fn)
 
     local graph = Graph.new(self.registry)
     local nodeId = graph:AddNode("fixture.echo")
-    loader.buckets["alice"] = { { id = 1, name = "a", graph = graph, enabled = true } }
+    loader.buckets["tid-1"] = { { id = 1, name = "a", graph = graph, enabled = true } }
     runtime:BindTrigger("fixture.echo", { { event = "Custom" } })
 
     runtime:Update(0.02)
     source:Push("Custom", "cold-start")
     luaunit.assertEquals(graph:GetLastValue(nodeId, "payload"), "cold-start")
-    luaunit.assertEquals(loader.calls, { "alice" })
+    luaunit.assertEquals(loader.calls, { "tid-1" })
 end
 
 --- Leaving GAME disarms but keeps resident -----------------------------------------------
 
 function TestPlayerScoping:testLogoutDisarmsButKeepsResidentAndReArmsWithoutReload()
-    local g, nid = self:seedCharacterAlert("alice", 1, "a", true)
-    self:login("Alice")
+    local g, nid = self:seedCharacterAlert("tid-1", 1, "a", true)
+    self:login("tid-1", "Alice")
     self.source:Push("Custom", "one")
     luaunit.assertEquals(g:GetLastValue(nid, "payload"), "one")
 
@@ -230,8 +263,8 @@ function TestPlayerScoping:testLogoutDisarmsButKeepsResidentAndReArmsWithoutRelo
     self.source:Push("Custom", "while-out")
     luaunit.assertEquals(g:GetLastValue(nid, "payload"), "one") -- unchanged: disarmed
 
-    self:login("Alice")
-    luaunit.assertEquals(self.loader.calls, { "alice" })
+    self:login("tid-1", "Alice")
+    luaunit.assertEquals(self.loader.calls, { "tid-1" })
     self.source:Push("Custom", "back")
     luaunit.assertEquals(g:GetLastValue(nid, "payload"), "back")
 end
@@ -269,17 +302,17 @@ function TestPlayerScoping:testWorldHopReArmsInPlaceWithNoEnterReplay()
 
     local graph = Graph.new(self.registry)
     local pollNode = graph:AddNode("fixture.poll")
-    self.loader.buckets["alice"] = { { id = 1, name = "a", graph = graph, enabled = true } }
+    self.loader.buckets["tid-1"] = { { id = 1, name = "a", graph = graph, enabled = true } }
 
-    self:login("Alice")
+    self:login("tid-1", "Alice")
     self.source:Push("Logic", { sample = 1 })
     luaunit.assertEquals(edges, { "Enter" })
 
-    -- World hop: leave GAME (disarm), then GAME again (same name → re-arm in place). No Logic tick
-    -- fires while disarmed, so no Leave; the frozen edge state survives the re-arm.
+    -- World hop: leave GAME (disarm), then GAME again (same Tracking ID → re-arm in place).
+    -- No Logic tick fires while disarmed, so no Leave; the frozen edge state survives the re-arm.
     self:leaveGame()
-    self:login("Alice")
-    luaunit.assertEquals(self.loader.calls, { "alice" })
+    self:login("tid-1", "Alice")
+    luaunit.assertEquals(self.loader.calls, { "tid-1" })
 
     self.source:Push("Logic", { sample = 1 })
     luaunit.assertEquals(edges, { "Enter" })
@@ -288,64 +321,64 @@ end
 --- Genuine character switch: discard + load the new Bucket --------------------------------
 
 function TestPlayerScoping:testGenuineSwitchDiscardsOldAndLoadsNew()
-    local aliceG, aliceN = self:seedCharacterAlert("alice", 1, "a", true)
-    local bobG, bobN = self:seedCharacterAlert("bob", 2, "b", true)
+    local aliceG, aliceN = self:seedCharacterAlert("tid-alice", 1, "a", true)
+    local bobG, bobN = self:seedCharacterAlert("tid-bob", 2, "b", true)
 
-    self:login("Alice")
+    self:login("tid-alice", "Alice")
     self.source:Push("Custom", "for-alice")
     luaunit.assertEquals(aliceG:GetLastValue(aliceN, "payload"), "for-alice")
 
-    self.identity.name = nil
+    self.identity.trackingId = nil
     self:leaveGame()
-    self:login("Bob")
+    self:login("tid-bob", "Bob")
 
-    luaunit.assertEquals(self.loader.calls, { "alice", "bob" })
-    luaunit.assertEquals(self.runtime._characterBucketKey, "player_bob")
+    luaunit.assertEquals(self.loader.calls, { "tid-alice", "tid-bob" })
+    luaunit.assertEquals(self.runtime._characterBucketKey, "player_tid-bob")
     -- Alice's bucket is discarded: her graph is no longer resident, so it never fires again.
-    luaunit.assertNil(self.runtime.buckets["player_alice"])
+    luaunit.assertNil(self.runtime.buckets["player_tid-alice"])
     self.source:Push("Custom", "for-bob")
     luaunit.assertEquals(bobG:GetLastValue(bobN, "payload"), "for-bob")
     luaunit.assertEquals(aliceG:GetLastValue(aliceN, "payload"), "for-alice") -- unchanged, discarded
 end
 
-function TestPlayerScoping:testRenameOrphansOldBucketNoAdoption()
-    -- No stable account id: a rename is indistinguishable from a fresh alt. "Alicia" resolves to a
-    -- different normalized key, so the old "alice" bucket is discarded (orphaned on disk) and a
-    -- fresh bucket loads - no adoption of the old one (#77 §3).
-    self:seedCharacterAlert("alice", 1, "a", true)
-    self:seedCharacterAlert("alicia", 2, "b", true)
+function TestPlayerScoping:testRenameKeepsBucketAndUpdatesTheTabLabel()
+    -- Same Tracking ID, new display name: the bucket stays, and a display-name key is never
+    -- requested. The tab label follows the current display name.
+    self:seedCharacterAlert("tid-1", 1, "a", true)
+    self:seedCharacterAlert("Alicia", 2, "display-name-bucket", true)
 
-    self:login("Alice")
-    self.identity.name = nil
-    self:leaveGame()
-    self:login("Alicia")
-
+    self:login("tid-1", "Alice")
+    self.identity.displayName = "Alicia"
+    local name, key = self.runtime:GetActiveCharacter()
+    luaunit.assertEquals(name, "Alicia")
+    luaunit.assertEquals(key, "player_tid-1")
+    luaunit.assertEquals(self.loader.calls, { "tid-1" })
+    luaunit.assertNotNil(self.runtime.buckets["player_tid-1"])
+    luaunit.assertNil(self.runtime.buckets["player_Alicia"])
     luaunit.assertNil(self.runtime.buckets["player_alice"])
-    luaunit.assertNotNil(self.runtime.buckets["player_alicia"])
-    luaunit.assertEquals(self.loader.calls, { "alice", "alicia" })
 end
 
 --- Fire predicate: exactly *armed Bucket AND enabled* - nothing else ----------------------
 
 function TestPlayerScoping:testArmedButDisabledDoesNotFire()
-    local g, nid = self:seedCharacterAlert("alice", 1, "a", true)
-    self:login("Alice")
+    local g, nid = self:seedCharacterAlert("tid-1", 1, "a", true)
+    self:login("tid-1", "Alice")
     self.runtime:SetEnabled("a", false) -- armed bucket, but the alert itself is disabled
     self.source:Push("Custom", "nope")
     luaunit.assertNil(g:GetLastValue(nid, "payload"))
 end
 
 function TestPlayerScoping:testEnabledButDisarmedDoesNotFire()
-    local g, nid = self:seedCharacterAlert("alice", 1, "a", true)
-    self:login("Alice")
+    local g, nid = self:seedCharacterAlert("tid-1", 1, "a", true)
+    self:login("tid-1", "Alice")
     self:leaveGame() -- bucket disarmed; the alert is still enabled + resident
     self.source:Push("Custom", "nope")
     luaunit.assertNil(g:GetLastValue(nid, "payload"))
 end
 
 function TestPlayerScoping:testArmedAndEnabledFires()
-    local g, nid = self:seedCharacterAlert("alice", 1, "a", true)
-    self:login("Alice")
+    local g, nid = self:seedCharacterAlert("tid-1", 1, "a", true)
+    self:login("tid-1", "Alice")
     self.source:Push("Custom", "yes")
     luaunit.assertEquals(g:GetLastValue(nid, "payload"), "yes")
 end
@@ -357,8 +390,8 @@ function TestPlayerScoping:testCharacterToggleFlipsInMemoryButNotThroughGlobalHo
     local calls = {}
     self.runtime:SetPersistence({ SetEnabled = function(id, enabled) calls[#calls + 1] = { id = id, enabled = enabled } end })
 
-    local g, nid = self:seedCharacterAlert("alice", 1, "a", true)
-    self:login("Alice")
+    local g, nid = self:seedCharacterAlert("tid-1", 1, "a", true)
+    self:login("tid-1", "Alice")
     luaunit.assertTrue(self.runtime:SetEnabled("a", false))
 
     luaunit.assertEquals(#calls, 0)
@@ -369,7 +402,7 @@ end
 --- Stop tears down the lifecycle subscription --------------------------------------------
 
 function TestPlayerScoping:testStopUnsubscribesLifecycle()
-    self:seedCharacterAlert("alice", 1, "a", true)
+    self:seedCharacterAlert("tid-1", 1, "a", true)
     self.runtime:Stop()
     -- After Stop, a GAME transition is no longer observed, so no pending resolve is raised.
     self.source:Push("GameStateChanged", { newState = GAME })

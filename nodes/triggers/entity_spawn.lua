@@ -9,6 +9,7 @@ local EntitySpawn = {}
 ---@field name string|nil                     # display name (entity.displayName, or objType.name for objects)
 ---@field coordGrid CoordGrid|nil             # the entity's tile at the moment of the event
 ---@field count number|nil                    # stack count for object events; nil for npc/player
+---@field owned boolean                       # ObjStack isOwner; false for npc and player
 
 EntitySpawn.KINDS = {
     { value = "any",    label = "Any" },
@@ -21,7 +22,7 @@ function EntitySpawn.KindChoices()
     return EntitySpawn.KINDS
 end
 
-local function shape(kind, transition, entity, name, count)
+local function shape(kind, transition, entity, name, count, owned)
     local coordGrid = nil
     if entity ~= nil then
         coordGrid = entity.coordGrid
@@ -33,6 +34,7 @@ local function shape(kind, transition, entity, name, count)
         name = name,
         coordGrid = coordGrid,
         count = count,
+        owned = owned == true,
     }
 end
 
@@ -40,7 +42,7 @@ local function entityTransform(kind, transition, entityField)
     return function(raw)
         local entity = raw ~= nil and raw[entityField] or nil
         local name = entity ~= nil and entity.displayName or nil
-        return shape(kind, transition, entity, name, nil)
+        return shape(kind, transition, entity, name, nil, false)
     end
 end
 
@@ -55,7 +57,8 @@ local function objTransform(transition)
     return function(raw)
         local entity, name = objFields(raw)
         local count = raw ~= nil and raw.count or nil
-        return shape("object", transition, entity, name, count)
+        local owned = raw ~= nil and raw.isOwner == true
+        return shape("object", transition, entity, name, count, owned)
     end
 end
 
@@ -70,7 +73,8 @@ local function objChangedTransform(raw)
         transition = "Despawned"
     end
     local entity, name = objFields(raw)
-    return shape("object", transition, entity, name, newCount)
+    local owned = raw ~= nil and raw.isOwner == true
+    return shape("object", transition, entity, name, newCount, owned)
 end
 
 local function passesFilter(payload, node)
@@ -82,6 +86,10 @@ local function passesFilter(payload, node)
         return false
     end
     if not Matcher.Test(node.GetControl("nameMatch"), payload.name) then
+        return false
+    end
+    -- Nil and false both mean off, so a saved alert with no control still fires.
+    if node.GetControl("mineOnly") == true and payload.kind == "object" and payload.owned ~= true then
         return false
     end
     return true
@@ -103,12 +111,15 @@ function EntitySpawn.Register(registry, runtime)
             { name = "kind", kind = "data", direction = "in", dataType = "entity_spawn.kind", default = "any" },
             { name = "nameMatch", kind = "data", direction = "in", dataType = "matcher",
               default = { needle = "", mode = "substring" } },
+            { name = "mineOnly", kind = "data", direction = "in", dataType = "bool",
+              label = "Mine only", default = false },
             { name = "Spawned", kind = "exec", direction = "out" },
             { name = "Despawned", kind = "exec", direction = "out" },
             { name = "entityKind", kind = "data", direction = "out", dataType = "string" },
             { name = "name", kind = "data", direction = "out", dataType = "string" },
             { name = "coordGrid", kind = "data", direction = "out", dataType = "coordgrid" },
             { name = "count", kind = "data", direction = "out", dataType = "number" },
+            { name = "owned", kind = "data", direction = "out", dataType = "bool" },
             { name = "entity", kind = "data", direction = "out", dataType = "any" },
         },
         run = function(ctx)
@@ -117,6 +128,7 @@ function EntitySpawn.Register(registry, runtime)
             ctx:Out("name", payload.name)
             ctx:Out("coordGrid", payload.coordGrid)
             ctx:Out("count", payload.count)
+            ctx:Out("owned", payload.owned == true)
             ctx:Out("entity", payload.entity)
             ctx:Fire(payload.transition)
         end,

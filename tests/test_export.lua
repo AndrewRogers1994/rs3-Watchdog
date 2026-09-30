@@ -1,6 +1,7 @@
--- export.lua copy-paste envelope (#94 / #79 / #84): Encode strips Entry ids and refuses
--- over 2,500 bytes. Import rejects a forward schemaVersion, mints ids, appends at the doc
--- root (never merge-by-name). Graph node ids inside an alert are left untouched.
+-- export.lua copy-paste envelope (#94 / #79 / #84 / #115): Encode strips Entry ids and
+-- accepts 9,999 bytes. An envelope of 10,000 bytes exports nothing. Import rejects a
+-- forward schemaVersion, mints ids, appends at the doc root (never merge-by-name).
+-- Graph node ids inside an alert are left untouched.
 
 local luaunit = require("luaunit")
 
@@ -85,7 +86,7 @@ end
 
 function TestExport:testEncodeRefusesOverCapAndReturnsByteCount()
     local entries = {}
-    local fat = string.rep("x", 200)
+    local fat = string.rep("x", 600)
     for i = 1, 20 do
         entries[i] = {
             kind = "alert",
@@ -98,48 +99,53 @@ function TestExport:testEncodeRefusesOverCapAndReturnsByteCount()
     local ok, err = Export.Encode(entries)
     luaunit.assertFalse(ok)
     luaunit.assertStrContains(err, "Too large to export by copy-paste")
-    luaunit.assertStrContains(err, "of 2,500 characters")
+    luaunit.assertStrContains(err, "of 9,999 characters")
     luaunit.assertStrContains(err, "A file-based export is planned.")
     -- N in the message is the measured byte length, not the cap.
-    local n = tonumber(err:match("%((%d+) of 2,500"))
-    luaunit.assertTrue(n ~= nil and n > Export.MAX_BYTES)
+    local n = tonumber(err:match("%((%d+) of 9,999"))
+    luaunit.assertTrue(n ~= nil and n > 9999)
 end
 
-function TestExport:testEncodeAcceptsExactlyMaxBytes()
-    local base = {
+-- One ASCII name character is one UTF-8 byte, so pad length is target minus the empty envelope.
+local function alertNamed(name)
+    return {
         kind = "alert",
-        name = "",
+        name = name,
         enabled = true,
         graph = { version = 1, nodes = {}, connections = {} },
         layout = {},
     }
-    local probe = function(name)
-        base.name = name
-        local env = {
-            schemaVersion = Export.SCHEMA_VERSION,
-            pluginVersion = Export.PLUGIN_VERSION,
-            entries = { base },
-        }
-        return #LibNodeGraph.Json.Default.encode(env)
-    end
-    local pad = ""
-    while probe(pad) < Export.MAX_BYTES do
-        pad = pad .. "a"
-    end
-    while probe(pad) > Export.MAX_BYTES and #pad > 0 do
-        pad = pad:sub(1, -2)
-    end
-    luaunit.assertEquals(probe(pad), Export.MAX_BYTES)
+end
 
-    local ok, json = Export.Encode({
-        {
-            kind = "alert",
-            name = pad,
-            enabled = true,
-            graph = { version = 1, nodes = {}, connections = {} },
-            layout = {},
-        },
+local function envelopeBytes(name)
+    return #LibNodeGraph.Json.Default.encode({
+        schemaVersion = Export.SCHEMA_VERSION,
+        pluginVersion = Export.PLUGIN_VERSION,
+        entries = { alertNamed(name) },
     })
+end
+
+local function nameForEnvelopeBytes(target)
+    local pad = string.rep("a", target - envelopeBytes(""))
+    luaunit.assertEquals(envelopeBytes(pad), target)
+    return pad
+end
+
+function TestExport:testEncodeAccepts9999BytesAndExportsNothingAt10000()
+    luaunit.assertEquals(Export.MAX_BYTES, 9999)
+
+    local ok, json = Export.Encode({ alertNamed(nameForEnvelopeBytes(9999)) })
+    luaunit.assertTrue(ok)
+    luaunit.assertEquals(#json, 9999)
+
+    local refused, err = Export.Encode({ alertNamed(nameForEnvelopeBytes(10000)) })
+    luaunit.assertFalse(refused)
+    luaunit.assertTrue(type(err) == "string" and #err > 0)
+end
+
+function TestExport:testEncodeAcceptsExactlyMaxBytes()
+    local pad = nameForEnvelopeBytes(Export.MAX_BYTES)
+    local ok, json = Export.Encode({ alertNamed(pad) })
     luaunit.assertTrue(ok)
     luaunit.assertEquals(#json, Export.MAX_BYTES)
 end

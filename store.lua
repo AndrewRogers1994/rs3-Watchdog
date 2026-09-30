@@ -1,26 +1,23 @@
 -- store.lua - PersistentDB Buckets and the Entry tree (LibNodeGraph never touches persistentdb).
 --
 -- One Bucket per scope: `{ version, entries, infoboxAnchor }` under an un-prefixed key
--- (`global` or `player_<normalized>` - PersistentDB is already plugin-scoped).
+-- (`global` or `player_<tracking id>` - PersistentDB is already plugin-scoped).
 --
 -- `id` is identity: every op keys on `id`, never `name` (display text, not unique). Alerts
 -- carry Serialize `graph` + `layout`; groups carry `children`. Layout is an array of
 -- `{ id, x, y }` because JSON object keys must be strings; it round-trips to a nodeId-keyed
 -- map on load (valid because Deserialize preserves node ids).
 
-local Util = require("util")
-
 local Store = {}
 
 local DB_KEY = "global"
 local DOC_VERSION = 2
 
--- Character Bucket key. Normalize so case/whitespace cannot orphan a bucket; `player_`
--- distinguishes these from `global`.
----@param displayName string
+-- `player_<tracking id>`, not display-name folded. `player_` distinguishes these from `global`.
+---@param trackingId string
 ---@return string
-function Store.PlayerKey(displayName)
-    return "player_" .. Util.NormalizePlayerName(displayName)
+function Store.PlayerKey(trackingId)
+    return "player_" .. trackingId
 end
 
 --- Persisted schema -----------------------------------------------------------------------

@@ -10,6 +10,38 @@ The editor is drawn entirely on a single `ui.Canvas` in immediate mode (rebuilt 
 `Event.Draw` frame), because Canvas is the only client primitive whose coordinates the
 plugin fully controls — a prerequisite for pan and zoom.
 
+How a build is installed is named here too.
+
+## Distribution
+
+**Plugin Hub**:
+The in-client installer for Remote plugins.
+_Avoid_: mod.io (that is the website and the zip task), plugin browser
+
+**Remote plugin**:
+A moderated plugin installed from the Plugin Hub. It lives in the game cache's plugins folder, and another plugin references it by numeric id.
+_Avoid_: Hub plugin, mod.io plugin, downloaded plugin
+
+**Local plugin**:
+A development plugin loaded from the development plugin path. Another plugin references it by folder name.
+_Avoid_: Dev plugin, unpacked plugin, source plugin
+
+**Dependency identifier**:
+The name a plugin is declared under in a dependency map — the same string the client reports as that plugin's identifier. The map's value is a Local plugin's folder name or a Remote plugin's numeric id.
+_Avoid_: Folder, mod id, plugin name (those can differ from this)
+
+**Settings layer**:
+The Plugin Hub manage-tab page for this plugin. Watchdog's page says how to open the shell, and whether the chat and HTTP permissions are granted. It holds no per-alert settings.
+_Avoid_: Options menu, config screen, the Alert Manager
+
+**Content layer**:
+The shared ribbon panel plugins register into. Watchdog registers one button, labeled Toggle, that performs the shell toggle.
+_Avoid_: PrettyUI ribbon (that is a separate button with the same toggle), Plugin Hub
+
+**Shell toggle**:
+The gesture that shows or hides the Watchdog shell. F8, the PrettyUI ribbon, and the content-layer Toggle all perform it. While an Object Marker capture is armed, the gesture cancels the capture and leaves the shell where it is.
+_Avoid_: Open, launch
+
 ## Language
 
 **Editor**:
@@ -53,13 +85,14 @@ half. It bundles the engine's serialized structure with the UI-only Layout into 
 `current` pointer is gone — the Editor now constructs unbound and the Manager binds it to an alert
 on open (#80/#90), so a reload lands on the Manager. Every Store operation keys on the Entry `id`,
 never name. Bucket I/O is key-parametrized: `Store.Load`/`Store.Save` are the `global` shorthands
-over `Store.LoadKey(key)` / `Store.SaveTo(key, doc)`, and `Store.PlayerKey(displayName)` builds a
-character Bucket's `player_<normalized>` key (#89). Only `Store.Load` runs the one-shot legacy
+over `Store.LoadKey(key)` / `Store.SaveTo(key, doc)`, and `Store.PlayerKey` builds a
+character Bucket's `player_<tracking id>` key. Display-name keys are not read and are not
+migrated. Only `Store.Load` runs the one-shot legacy
 migration — a character Bucket has no legacy predecessor.
-_(Landed: per-character `player_<…>` Buckets (#89), the one-shot legacy `watchdog_graphs` migration
+_(Landed: per-character Buckets (#89), the one-shot legacy `watchdog_graphs` migration
 (#87), the read-only Alert Manager render + Editor↔Manager navigation (#90), Manager row
 editing ops — create / rename / delete / enable (#91), multi-select / bulk actions (#93),
-export/import copy-paste with the 2,500-byte guard (#94), and sibling ↑↓ + Lift buttons.
+export/import copy-paste with the 9,999-byte guard (#94), and sibling ↑↓ + Lift buttons.
 Not yet landed: drag nest / cross-scope (#92).)_
 _Avoid_: Database, save system, persistence layer (in prose), serializer (that's the engine's)
 
@@ -118,6 +151,10 @@ Viewport / the toolbar +). Double-click places the new Node's origin at the clic
 places the Node Body's center at the Viewport center (#96). Named after Unreal Blueprints'
 palette.
 _Avoid_: Catalog, menu, context menu, MiniMenu, node browser
+
+**Unavailable**:
+A Palette row that is shown and cannot be placed. It is dim, it does not highlight, and the reason is drawn after the name. Drag-to-Create does not list these rows. A gate can put a real node type into this state: Game Message while chat permission is off ("needs chat permission"), and Shortest Path while that plugin is absent ("needs Shortest Path"). The type stays registered, so a node already on a graph remains; a fire while the gate is closed does nothing. When the gate opens, the row can be placed again and the next fire runs. Rows whose API does not exist yet stay Unavailable permanently.
+_Avoid_: Disabled, hidden, greyed out
 
 **Drag-to-Create**:
 Creating a Node by dragging a Wire off a Pin and releasing it on empty Viewport: opens the
@@ -239,7 +276,7 @@ through a **Confirm dialog**, not a two-click armed label. This vocabulary was s
 the Alert Manager wayfinder map (#73); each term points at the ticket that fixed it.
 
 **Alert Manager**:
-The single management surface the F8 keybind and the LibPluginMenu button open (`ui/manager.lua`):
+The single management surface the shell toggle and the LibPluginMenu button open (`ui/manager.lua`):
 a **tab bar** of Scopes over a tree of Entries. “All characters” and the character tab explain
 scope through tooltips. Clicking an alert name opens the Editor; clicking a group expands it.
 Rows have centered enable/select checkboxes, left-aligned names, and rename/export/delete actions.
@@ -305,15 +342,20 @@ _Avoid_: Folder, category, section; "group" as a verb (that is bulk New-group, #
 
 **Bucket**:
 The per-Scope `PersistentDB` key holding one Scope's tree as `{ version, entries }`: one `global`
-bucket plus one `player_<normalized>` bucket per character. The `global` bucket also holds
+bucket plus one `player_<tracking id>` bucket per character. The `global` bucket also holds
 `infoboxAnchor` (the former `current` pointer is no longer persisted — see Level, #80). Keys carry
 **no `watchdog_` prefix** — `PersistentDB` is already plugin-scoped (#81). Scope is the Bucket, not
 a per-Entry field: changing an Entry's Scope moves its subtree across keys (#75, #77, #81).
+Buckets stored under a display name are not read.
 _Avoid_: Store slot, namespace, table; "partition" (that names the concept — see Scope)
 
+**Tracking ID**:
+The per-character id from `Player.GetTrackingID`. It is the character Bucket's key, used character for character. Watchdog requires the trackingAccess permission to read it. A rename does not change it. Logged out, or an empty id while in game, means there is no character Bucket.
+_Avoid_: Display name, account name, uid (`PlayerEntity.uid` is a different field)
+
 **Scope**:
-The partition a Bucket represents: `global`, or a single character keyed on `displayName`. Not a
-field on an Entry — an Entry's Scope is simply which Bucket holds it (#75, #77).
+The partition a Bucket represents: `global`, or a single character keyed on that character's Tracking ID. Not a
+field on an Entry — an Entry's Scope is simply which Bucket holds it (#75, #77). The character tab's label is the current display name.
 _Avoid_: Profile, player field, owner, context
 
 **Active scope**:
@@ -324,11 +366,10 @@ _Avoid_: Selected scope, focus; "current scope" (that word names the deleted Sto
 **Armed** / **Resident**:
 Two independent runtime states of a loaded Bucket (landed in `runtime.lua`, #89). **Resident** =
 loaded in memory. **Armed** = eligible to fire: `global` is armed at plugin start and never
-disarmed; a character Bucket arms on the `GAME` transition when its `displayName` is unchanged (a
+disarmed; a character Bucket arms on the `GAME` transition when its Tracking ID is unchanged (a
 world-hop/reconnect re-arms *in place* — no reload, so `pollEdgeState` and `pollSeedKey` survive and no `Enter` is
-replayed), disarms but stays resident on leaving `GAME`, and is discarded+reloaded only on a
-genuine character switch (a rename, having no stable account id, reads as a switch and orphans the
-old Bucket). Identity has no switch event, so it's resolved by a **pending-resolve flag drained on
+replayed), disarms but stays resident on leaving `GAME`, and is discarded+reloaded only when the
+Tracking ID changes. A rename keeps the same Bucket. Identity has no switch event, so it's resolved by a **pending-resolve flag drained on
 Logic ticks** (which also covers a plugin reload mid-session). **Fire predicate: armed Bucket AND
 enabled-chain true — nothing else** (editor state and the Manager's selected Scope never gate
 firing) (#77, #89).
@@ -355,9 +396,9 @@ dead footer action. Import is **append, never merge-by-name**. The wrapper does 
 the caller to apply the pasted text. A failed apply leaves Import mounted and stacks a message
 Dialog on top (closing the error reveals the paste field intact). A successful apply just dismisses
 Import — no success notice; the Manager tree is the feedback. Every export shape (whole scope,
-single row, multi-select) passes a uniform **2,500-byte pre-flight guard**: serialize the envelope,
+single row, multi-select) passes a uniform **9,999-byte pre-flight guard**: serialize the envelope,
 measure its UTF-8 byte length, and refuse the entire export — exporting nothing — if it exceeds
-2,500 (the `InputField` hard cap, #83); no chunking or compaction (#84). Export preflight failure
+9,999 (the `InputField` hard cap); no chunking or compaction (#84). Export preflight failure
 is a message Dialog and never opens Export.
 _Avoid_: Transfer; Backup; "sync" (import is append, not sync); clipboard (no API); "serialize"
 (engine's word); Export / Import (Import comes first); an Import-success Dialog
@@ -396,8 +437,13 @@ A Trigger Node that fires on the client's `ChatMessage` event. There are two, sp
 authored the line: the **Game Message** trigger (system/engine/broadcast/examine lines) and
 the **Player Chat** trigger (lines a player typed — public, private, friends/clan/group).
 Each strips formatting tags from the incoming line before matching, so a Matcher never sees
-`<col=…>` markup, and exposes only the Chat Type Groups relevant to it.
+`<col=…>` markup, and exposes only the Chat Type Groups relevant to it. Player Chat's sender
+pin is the simple sender name.
 _Avoid_: Chat node, message node, chat listener
+
+**Game Message** (action):
+An Action that inserts one chat line only the local client sees. It shares its display name with the Game Message trigger and is told apart by category. While chat permission is off it is Unavailable.
+_Avoid_: Send chat, public chat, chatbox broadcast
 
 **Chat Type Group**:
 A Watchdog-curated, named grouping of raw engine `ChatType` ids exposed as one choice in a
@@ -407,6 +453,14 @@ the client's `ChatType` enum — a simplified, useful vocabulary that hides nois
 folds quick-chat into its parent channel. A Chat Trigger exposes only its own Groups, and
 **Any** means the union of that Trigger's Groups, never the whole enum.
 _Avoid_: Chat category, chat kind, chat class; "chat type" (that is the raw engine `ChatType`)
+
+**Owned**:
+Whether the local player owns a ground-item stack, as reported on an ObjStack event. An Entity Spawn output. False on NPC and player events.
+_Avoid_: Owner (Scope avoids that word), isOwner (that is the event field's name)
+
+**Mine only**:
+An Entity Spawn control, default off. When on, ground-stack events the player does not own are dropped. NPC and player events still fire.
+_Avoid_: Owned-only filter on NPCs, isOwner control
 
 **Container**:
 Which client inventory an Inventory Trigger watches. v1 is two engine `InvType`s, labeled

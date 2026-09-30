@@ -855,13 +855,13 @@ end
 
 --- Per-character Buckets: keyed I/O (#89) --------------------------------------------------
 -- The `global` bucket lives under a fixed key; a character bucket lives under
--- `player_<normalized>`. Store.PlayerKey builds that key from a raw display name (normalizing),
+-- `player_<tracking id>`. Store.PlayerKey prefixes that id as-is (no display-name folding),
 -- and Store.LoadKey/SaveTo read/write any bucket key.
 
-function TestStore:testPlayerKeyNormalizesDisplayName()
-    luaunit.assertEquals(Store.PlayerKey("Zezima"), "player_zezima")
-    -- Cosmetic case/whitespace variants collapse to the same key so they can't orphan a bucket.
-    luaunit.assertEquals(Store.PlayerKey("Ze  ZIMA "), Store.PlayerKey("ze zima"))
+function TestStore:testPlayerKeyUsesTrackingIdCharacterForCharacter()
+    luaunit.assertEquals(Store.PlayerKey("AbC123"), "player_AbC123")
+    -- Case is part of the id. A display-name fold would have collapsed these.
+    luaunit.assertNotEquals(Store.PlayerKey("AbC123"), Store.PlayerKey("abc123"))
     -- No `watchdog_` prefix - PersistentDB is already plugin-scoped (#81).
     luaunit.assertStrContains(Store.PlayerKey("A"), "player_")
     luaunit.assertNil(string.find(Store.PlayerKey("A"), "watchdog"))

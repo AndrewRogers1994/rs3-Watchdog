@@ -1,7 +1,7 @@
 -- runtime.lua - trigger Event Subscribe/Unsubscribe dispatcher (BindTrigger, injectable sources).
 -- Live alerts: Entry `id` is persistence identity (unique within a Bucket); `name` is free-text
 -- and not unique. Name-targeted SetEnabled/Toggle act on every match; persistence writes by `id`.
--- Bucket keys: `global` (always armed) and `player_<normalized>` (arm/disarm with login).
+-- Bucket keys: `global` (always armed) and `player_<tracking id>` (arm/disarm with login).
 
 local Effects = require("effects")
 local InfoBoxArea = require("ui/infobox")
@@ -32,7 +32,8 @@ local Util = require("util")
 ---@field seedKey (fun(node: Watchdog.NodeHandle): any)|nil  # poll: changing key reseeds edge state (no Enter/Leave)
 
 ---@class Watchdog.IdentitySource
----@field Resolve fun(self: Watchdog.IdentitySource): string|nil
+---@field Resolve fun(self: Watchdog.IdentitySource): string|nil       # Tracking ID; nil when logged out or empty
+---@field DisplayName fun(self: Watchdog.IdentitySource): string|nil  # tab label; never a bucket key
 
 ---Persistence hook for name-targeted SetEnabled/Toggle (keyed by Entry id).
 ---@class Watchdog.RuntimePersistence
@@ -48,7 +49,7 @@ local Util = require("util")
 ---@field keyboardActivityTick integer
 ---@field mouseActivityTick integer
 ---@field new fun(eventSource: any|nil, mouseSource: any|nil, identitySource: Watchdog.IdentitySource|nil): Watchdog.Runtime
----@field SetBucketLoader fun(self: Watchdog.Runtime, loader: fun(normalizedName: string): Watchdog.RestoredAlert[])
+---@field SetBucketLoader fun(self: Watchdog.Runtime, loader: fun(trackingId: string): Watchdog.RestoredAlert[])
 ---@field GetActiveCharacter fun(self: Watchdog.Runtime): string|nil, string|nil
 ---@field Update fun(self: Watchdog.Runtime, dt: number)
 ---@field GetMousePos fun(self: Watchdog.Runtime): number|nil, number|nil
@@ -72,7 +73,7 @@ Runtime.__index = Runtime
 -- `GameState.GAME` (docs: 30). Fallback literal for the headless harness.
 local GAME_STATE = (GameState ~= nil and GameState.GAME) or 30
 
--- Always-armed Bucket key. Character buckets: `player_<normalized>` (Util.NormalizePlayerName).
+-- Always-armed Bucket key. Character buckets: `player_<tracking id>`, character for character.
 local GLOBAL_BUCKET = "global"
 
 local function callOrLog(context, fn, ...)
@@ -104,7 +105,7 @@ function Runtime.new(eventSource, mouseSource, identitySource)
         _persistence = nil,
         -- Bucket key -> { key, armed, resident, displayName }. `global` is always armed.
         -- Fire gates on `alert.enabled AND buckets[alert.bucketKey].armed`. Character buckets
-        -- disarm (stay resident) on leave-GAME; discard+reload only on a real name switch.
+        -- disarm (stay resident) on leave-GAME; discard+reload only when the Tracking ID changes.
         buckets = { [GLOBAL_BUCKET] = { key = GLOBAL_BUCKET, armed = true, resident = true } },
         _characterBucketKey = nil,
         -- GAME only sets this; Update drains it (name may not be readable yet; reload has no GameStateChanged).
@@ -127,8 +128,8 @@ function Runtime.new(eventSource, mouseSource, identitySource)
     }, Runtime)
     self:_bindActivityTracking()
     self:_bindLifecycle()
-    -- Reload mid-session gets no GameStateChanged: if already in-world, drain on first Update.
-    if self:_resolveDisplayName() ~= nil then
+    -- Reload mid-session gets no GameStateChanged: if a Tracking ID is already readable, drain on first Update.
+    if self.identitySource ~= nil and self.identitySource:Resolve() ~= nil then
         self._pendingResolve = true
     end
     return self
@@ -183,49 +184,40 @@ function Runtime:_onGameStateChanged(payload)
     end
 end
 
----@return string|nil
-function Runtime:_resolveDisplayName()
-    if self.identitySource == nil or self.identitySource.Resolve == nil then
-        return nil
-    end
-    local ok, name = pcall(function() return self.identitySource:Resolve() end)
-    if ok and type(name) == "string" and name ~= "" then
-        return name
-    end
-    return nil
-end
-
--- Same normalized name → re-arm in place (preserve pollEdgeState). Different → discard + load.
+-- Same Tracking ID → re-arm in place (preserve pollEdgeState). Different id → discard + load.
 function Runtime:_drainPendingResolve()
     if not self._pendingResolve then
         return
     end
-    local name = self:_resolveDisplayName()
-    if name == nil then
-        return -- not readable yet (or no source); keep the flag and retry next tick
+    local trackingId = self.identitySource:Resolve()
+    if trackingId == nil then
+        return -- not readable yet, logged out, or empty id; keep the flag and retry next tick
     end
     self._pendingResolve = false
-    local normalized = Util.NormalizePlayerName(name)
-    local key = "player_" .. normalized
+    local key = "player_" .. trackingId
+    local displayName = self.identitySource:DisplayName()
     if key == self._characterBucketKey then
         local bucket = self.buckets[key]
-        if bucket ~= nil then bucket.armed = true end
+        if bucket ~= nil then
+            bucket.armed = true
+            if displayName ~= nil then bucket.displayName = displayName end
+        end
         return
     end
     if self._characterBucketKey ~= nil then
         self:_discardBucket(self._characterBucketKey)
     end
-    self:_loadCharacterBucket(key, normalized, name)
+    self:_loadCharacterBucket(key, trackingId, displayName)
 end
 
-function Runtime:_loadCharacterBucket(key, normalized, displayName)
+function Runtime:_loadCharacterBucket(key, trackingId, displayName)
     self.buckets[key] = { key = key, armed = true, resident = true, displayName = displayName }
     self._characterBucketKey = key
     if self._bucketLoader == nil then
         return
     end
-    local ok, restored = callOrLog("bucket loader for '" .. tostring(normalized) .. "'",
-        self._bucketLoader, normalized)
+    local ok, restored = callOrLog("bucket loader for '" .. tostring(trackingId) .. "'",
+        self._bucketLoader, trackingId)
     if ok and type(restored) == "table" then
         for _, alert in ipairs(restored) do
             self:AddAlert(alert.id, alert.name, alert.graph, alert.enabled, key)
@@ -233,7 +225,7 @@ function Runtime:_loadCharacterBucket(key, normalized, displayName)
     end
 end
 
--- Character switch (or rename to a new normalized key): drop alerts + pollEdgeState. No disk adoption.
+-- Tracking ID change: drop alerts + pollEdgeState. A rename is not a switch. No disk adoption.
 function Runtime:_discardBucket(key)
     local kept = {}
     for _, alert in ipairs(self.alerts) do
@@ -277,12 +269,13 @@ function Runtime:_bucketArmed(bucketKey)
     return bucket ~= nil and bucket.armed == true
 end
 
----@param loader fun(normalizedName: string): Watchdog.RestoredAlert[]
+---@param loader fun(trackingId: string): Watchdog.RestoredAlert[]
 function Runtime:SetBucketLoader(loader)
     self._bucketLoader = loader
 end
 
 -- Resident character (stays loaded while logged out, though disarmed).
+-- The label is the live display name while one is readable, else the name stored at last resolve.
 ---@return string|nil displayName
 ---@return string|nil bucketKey
 function Runtime:GetActiveCharacter()
@@ -290,6 +283,11 @@ function Runtime:GetActiveCharacter()
     if key == nil then return nil, nil end
     local bucket = self.buckets[key]
     if bucket == nil then return nil, nil end
+    local live = self.identitySource:DisplayName()
+    if live ~= nil then
+        bucket.displayName = live
+        return live, key
+    end
     return bucket.displayName, key
 end
 

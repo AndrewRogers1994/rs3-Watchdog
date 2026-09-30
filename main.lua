@@ -23,12 +23,28 @@ else
     log("Watchdog: plugin does NOT have HTTP access")
 end
 
+if Plugin.HasPermission(PluginPermissions.trackingAccess) then
+    log("Watchdog: plugin has tracking access")
+else
+    log("Watchdog: plugin does NOT have tracking access")
+end
+
 local playerIdentity = {
     Resolve = function()
         if Player == nil or not Player.IsAvailable() then return nil end
+        -- Not in the stubs yet.
+        ---@diagnostic disable-next-line: undefined-field
+        local ok, id = pcall(function() return Player.GetTrackingID() end)
+        if not ok or type(id) ~= "number" then return nil end
+        return id
+    end,
+    DisplayName = function()
+        if Player == nil or not Player.IsAvailable() then return nil end
         local ok, entity = pcall(function() return Player.GetEntity() end)
         if not ok or entity == nil or not entity.isValid then return nil end
-        return entity.displayName
+        local name = entity.displayName
+        if type(name) ~= "string" or name == "" then return nil end
+        return name
     end,
 }
 
@@ -110,13 +126,13 @@ runtime:SetRegistry(registry)
 ---@type { key: string, displayName: string, doc: Watchdog.Bucket, alerts: Watchdog.RestoredAlert[] }|nil
 local charScope = nil
 
-runtime:SetBucketLoader(function(normalized)
-    local key = Store.PlayerKey(normalized)
+runtime:SetBucketLoader(function(trackingId)
+    local key = Store.PlayerKey(trackingId)
     local playerDoc = Store.LoadKey(key)
     local restoredChar = {}
     local ok, r = pcall(function() return Store.RestoreAll(playerDoc, registry) end)
     if ok and r ~= nil then restoredChar = r end
-    charScope = { key = key, displayName = normalized, doc = playerDoc, alerts = restoredChar }
+    charScope = { key = key, displayName = playerIdentity:DisplayName(), doc = playerDoc, alerts = restoredChar }
     return restoredChar
 end)
 
@@ -162,7 +178,7 @@ do
         local graph, layout = seedDemo()
         local id = Store.MintId(document)
         local name = "Tick Counter (Example alert)"
-        Store.InsertEntry(document, Store.NewAlertEntry(id, name, graph, layout, true))
+        Store.InsertEntry(document, Store.NewAlertEntry(id, name, graph, layout, false))
         Store.Save(document)
         restored = { { id = id, name = name, graph = graph, layout = layout, enabled = true } }
     end

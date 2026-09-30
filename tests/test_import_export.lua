@@ -82,6 +82,7 @@ end
 local luaunit = require("luaunit")
 local Dialog = require("ui/dialog")
 local ImportExport = require("ui/import_export")
+local Export = require("export")
 
 local function button(win, label)
     for _, btn in ipairs(win.buttons) do
@@ -138,6 +139,13 @@ function TestImportExport:testImportFailureStacksErrorAndKeepsPaste()
     button(err, "Close").action()
     luaunit.assertEquals(Dialog.depth(self.parent), 1)
     luaunit.assertFalse(win.destroyed)
+end
+
+function TestImportExport:testPasteFieldMaxLengthMatchesExportCap()
+    luaunit.assertEquals(ImportExport.DEFAULT_MAX_LENGTH, 9999)
+    luaunit.assertEquals(ImportExport.DEFAULT_MAX_LENGTH, Export.MAX_BYTES)
+    local win = ImportExport.mountImport(self.parent, {})
+    luaunit.assertEquals(win.fields[1].opts.maxLength, 9999)
 end
 
 function TestImportExport:testExportHasFrozenFieldAndDisabledSave()

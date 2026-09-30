@@ -51,8 +51,13 @@ end
 local function playerAdded(name, coord)
     return { playerEntity = { displayName = name, coordGrid = coord }, entityType = "player" }
 end
-local function objAdded(name, coord, count)
-    return { objStackEntity = { coordGrid = coord }, objType = { name = name }, count = count }
+local function objAdded(name, coord, count, isOwner)
+    return {
+        objStackEntity = { coordGrid = coord },
+        objType = { name = name },
+        count = count,
+        isOwner = isOwner,
+    }
 end
 local function objRemoved(name, coord, count)
     return { objStackEntity = { coordGrid = coord }, objType = { name = name }, count = count }
@@ -233,6 +238,56 @@ function TestEntitySpawn:testObjChangedCountReflectsNewCount()
 end
 
 --- Fan-in subscribes each distinct channel exactly once ---------------------------------
+
+--- Owned + Mine only (#115) -------------------------------------------------------------
+
+function TestEntitySpawn:testMineOnlyDefaultsOff()
+    local nt = self.registry:GetNodeType("trigger.entity_spawn")
+    luaunit.assertEquals(nt.pins.mineOnly.default, false)
+    luaunit.assertEquals(nt.pins.mineOnly.label, "Mine only")
+    luaunit.assertNotNil(nt.pins.owned)
+    -- No stored control: an already-saved alert keeps firing on stacks the player does not own.
+    self:addTrigger({})
+    self.source:Push("ObjStackEntityAdded", objAdded("Coins", { x = 1, z = 1, level = 0 }, 1, false))
+    luaunit.assertEquals(self.counts.spawned, 1)
+end
+
+function TestEntitySpawn:testOwnedIsObjStackIsOwnerAndFalseForNpcAndPlayer()
+    local id = self:addTrigger({})
+    self.source:Push("ObjStackEntityAdded", objAdded("Coins", { x = 1, z = 1, level = 0 }, 5, true))
+    luaunit.assertEquals(self.graph:GetLastValue(id, "owned"), true)
+
+    self.source:Push("ObjStackEntityChanged", {
+        objStackEntity = { coordGrid = { x = 1, z = 1, level = 0 } },
+        objType = { name = "Coins" },
+        oldCount = 1,
+        newCount = 4,
+        isOwner = true,
+    })
+    luaunit.assertEquals(self.graph:GetLastValue(id, "owned"), true)
+
+    self.source:Push("NPCEntityAdded", npcAdded("Goblin", { x = 0, z = 0, level = 0 }))
+    luaunit.assertEquals(self.graph:GetLastValue(id, "owned"), false)
+
+    self.source:Push("PlayerEntityAdded", playerAdded("Zezima", { x = 0, z = 0, level = 0 }))
+    luaunit.assertEquals(self.graph:GetLastValue(id, "owned"), false)
+end
+
+function TestEntitySpawn:testMineOnlyDropsUnownedStacksAndKeepsOwnedOnes()
+    self:addTrigger({ mineOnly = true })
+    self.source:Push("ObjStackEntityAdded", objAdded("Coins", { x = 1, z = 1, level = 0 }, 1, false))
+    luaunit.assertEquals(self.counts.spawned, 0)
+    self.source:Push("ObjStackEntityAdded", objAdded("Bones", { x = 1, z = 1, level = 0 }, 1, true))
+    luaunit.assertEquals(self.counts.spawned, 1)
+end
+
+function TestEntitySpawn:testMineOnlyDoesNotDropNpcOrPlayerEvents()
+    self:addTrigger({ kind = "any", mineOnly = true })
+    self.source:Push("NPCEntityAdded", npcAdded("Goblin", { x = 0, z = 0, level = 0 }))
+    self.source:Push("PlayerEntityAdded", playerAdded("Zezima", { x = 0, z = 0, level = 0 }))
+    self.source:Push("ObjStackEntityAdded", objAdded("Coins", { x = 1, z = 1, level = 0 }, 1, false))
+    luaunit.assertEquals(self.counts.spawned, 2)
+end
 
 function TestEntitySpawn:testEachChannelSubscribedExactlyOnce()
     self:addTrigger({})

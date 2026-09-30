@@ -1,9 +1,19 @@
 {
   "name": "Watchdog",
   "version": "0.3.1",
-  "requiredDependencies": ["LibNodeGraph", "LibNodeGraphStd", "prettyui"],
-  "optionalDependencies": ["LibPluginMenu", "shortestpath"],
-  "optionalPermissions": ["httpAccess"],
+  "hasSettingsIcon": true,
+  "hasRibbonIcon": true,
+  "requiredDependencies": {
+    "LibNodeGraph": "LibNodeGraph",
+    "LibNodeGraphStd": "LibNodeGraphStd",
+    "prettyui": "prettyui"
+  },
+  "optionalDependencies": {
+    "LibPluginMenu": "LibPluginMenu",
+    "shortestpath": "shortestpath"
+  },
+  "requiredPermissions": [],
+  "optionalPermissions": ["trackingAccess", "chatAccess", "httpAccess"],
   "urls": {
     "elevenlabs": "https://elevenlabs.io/",
     "github": "https://github.com/"

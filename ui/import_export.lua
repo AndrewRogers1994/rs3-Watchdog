@@ -8,7 +8,7 @@ local ImportExport = {}
 
 -- InputField hard cap (#83); Manager passes Export.MAX_BYTES. Kept here so the wrapper
 -- does not require export.lua.
-ImportExport.DEFAULT_MAX_LENGTH = 2500
+ImportExport.DEFAULT_MAX_LENGTH = 9999
 
 ---@class Watchdog.ImportExportOpts
 ---@field text string|nil

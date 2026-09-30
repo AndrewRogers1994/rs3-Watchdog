@@ -13,7 +13,7 @@ Export.SCHEMA_VERSION = 1
 Export.PLUGIN_VERSION = "0.3.1"
 
 -- ui.InputField hard cap. Guarded as UTF-8 bytes with no margin.
-Export.MAX_BYTES = 2500
+Export.MAX_BYTES = 9999
 
 ---@class Watchdog.ExportEntry
 ---@field kind "alert"|"group"
@@ -81,7 +81,7 @@ end
 ---@return string
 local function oversizeMessage(n)
     return string.format(
-        "Too large to export by copy-paste (%d of 2,500 characters). A file-based export is planned.",
+        "Too large to export by copy-paste (%d of 9,999 characters). A file-based export is planned.",
         n)
 end
 
