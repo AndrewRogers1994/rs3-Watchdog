@@ -60,7 +60,7 @@ function TestPalette:testUnfilteredOpenInterleavesUnavailableAlphabeticallyPerCa
 
     luaunit.assertEquals(names, {
         "Alarm", "Overhead Text", "Sound Fired", "Zebra Trigger",
-        "Alert Action", "Game Message", "Overhead", "Request Focus", "Text to Speech",
+        "Alert Action", "Overhead", "Request Focus", "Text to Speech",
     })
 end
 
@@ -178,7 +178,7 @@ end
 function TestPalette:testScrollbarOnlyWhenListOverflows()
     self.palette:Open(self.registry, nil, { screenX = 10, screenY = 10, anchorGX = 0, anchorGY = 0 })
 
-    -- Tall draw rect: all 11 rows (2 headers + 9 items) fit, so no scrollbar.
+    -- Tall draw rect: all 10 rows (2 headers + 8 items) fit, so no scrollbar.
     self.palette:Draw(mockCanvas(), 0, 0, 800, 600, -1, -1)
     luaunit.assertIsNil(self.palette.rect.scrollbar)
     luaunit.assertEquals(self.palette.maxScroll, 0)

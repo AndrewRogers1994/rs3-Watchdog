@@ -54,8 +54,8 @@ Target: mirror the trigger/notification list from https://github.com/adamk33n3r/
   - `audio.Play(resource, params?)` where `resource` = `Plugin.resources[name]`, picked via an interim dropdown Control (enumerated from `Plugin.resources` at Register time — a disk file-picker is API-blocked/out of scope). `volume` (1.0)/`loops` (0) pins, `bus` hardcoded `sfx`. Resources are never Unloaded, preload-on-reference via a new generalized `preload(node)` node-type hook (`runtime.lua`'s `PreloadNode`/`PreloadGraph`), called on graph-restore (`Runtime:AddAlert`) and control-commit (`ui/graph.lua`'s new `Editor:setControl`, the one path every Control edit now commits through) — plus an on-demand backstop in `run` itself. BUILD-VERIFY: `Plugin.resources` enumerable via `pairs`, `PluginResource:Load()`, `audio.SoundPlaybackParams` fields.
 - [ ] Text to Speech
   - VIA ELEVENLABS HTTP + BLOCKED ON FILE WRITE (as in the RuneLite version). No built-in synthesis; instead POST the text to the ElevenLabs API: `HTTPRequest.new(Plugin.urls[...], path)` → `:AddHeader("xi-api-key", ...)` / content-type → `:Post(body, onDone)`, needs the `httpAccess` permission + a manifest base URL. The returned MP3 arrives in `request.data`. Playback is the blocker: `audio.Play` only accepts a builtin id or a disk-backed `PluginAudioResource` (`Plugin.resources[file]`) — there's no in-memory bytes→audio path — so the response must be written to disk (also how the RuneLite version caches it) before it can be played. That needs file-write permission, which isn't available yet (reportedly being worked on). Unblocks once file write lands.
-- [ ] Game Message — chat message out (distinct from `action.log`, which is a debug logger, not a port of this)
-  - NO API. There is no way to inject a NEW chat line. `Event.ChatMessage`'s `chatMessage` is writeable but only mutates an INCOMING message; `ExecuteConsoleCommand` runs console commands, not chat (confirmed vs docs). `action.log` (→ Lua console via `log()`) stays our only text-out; a true in-game chatbox message is blocked.
+- [x] Game Message — `action.game_message` (#116)
+  - One client-side line via `Chat.AddMessage`. Exec-in plus a message string, no exec-out, same shape as Log. Unavailable with "needs chat permission" until `chatAccess` is granted (`OptionalPermissionChanged`); a fire while the gate is closed logs that reason and inserts nothing. Removed from the permanent Unavailable list so it is not also the old "no chat-injection API" row.
 - [ ] Overhead — display overhead text
   - NO API. No overhead-text field/method on `PlayerEntity`/`NPCEntity` and no set-overhead call (same gap as the Overhead Text trigger). Not achievable.
 - [x] Screen Flash — `action.screen_flash`
@@ -86,7 +86,7 @@ Target: mirror the trigger/notification list from https://github.com/adamk33n3r/
 - [ ] Notification Fired (trigger) — cross-plugin notification bus doesn't exist on RS3
 - [ ] Tray Notification (action) — no OS tray access
 - [ ] Dink (action) — RuneLite-specific 3rd-party webhook plugin integration
-- [ ] Shortest Path (action) — RuneLite-specific 3rd-party plugin integration
+- [x] Shortest Path (action) — `action.shortest_path`, gated on the optional plugin (#116). Unavailable with "needs Shortest Path" while that plugin is absent; `OptionalDependencyChanged` flips the gate without reloading Watchdog.
 - [ ] Plugin Message (action) — inter-plugin messaging; RS3 deps are declared/hard-only, no arbitrary message bus
 - [ ] Plugin Toggle (action) — no RS3 API to toggle another plugin
 - [ ] Notification Event (action) — same cross-plugin event problem as Notification Fired

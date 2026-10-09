@@ -95,9 +95,8 @@ require("nodes/actions/screen_marker").Register(registry, runtime)
 require("nodes/actions/object_marker").Register(registry, runtime)
 require("nodes/actions/toast").Register(registry, runtime)
 require("nodes/actions/alert_toggle").Register(registry, runtime)
-if shortestpath ~= nil then
-    require("nodes/actions/shortest_path").Register(registry, runtime)
-end
+require("nodes/actions/game_message").Register(registry)
+require("nodes/actions/shortest_path").Register(registry)
 
 local function RegisterToPluginMenu()
     LibPluginMenu.Unregister("watchdog")
@@ -114,11 +113,6 @@ Event.OptionalDependencyChanged.Subscribe('opdepchanged', function(dep)
     if dep.pluginIdentifier == "LibPluginMenu" and LibPluginMenu ~= nil then
         if dep.enabled then
             RegisterToPluginMenu()
-        end
-    elseif dep.pluginIdentifier == "shortestpath" and shortestpath ~= nil then
-        if dep.enabled then
-            print("shortestpath is now available, reloading")
-            ExecuteConsoleCommand("prl Watchdog")
         end
     end
 end)

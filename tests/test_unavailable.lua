@@ -3,8 +3,21 @@ local Unavailable = require("nodes/unavailable")
 
 TestUnavailable = {}
 
-function TestUnavailable:testShipsSixEntries()
-    luaunit.assertEquals(#Unavailable, 6)
+-- Overhead Text, Sound Fired, Overhead, Request Focus, and Text to Speech stay
+-- permanently Unavailable. Game Message is a gated action, not one of these rows.
+function TestUnavailable:testPermanentListIsTheFiveMissingApis()
+    local names = {}
+    for _, entry in ipairs(Unavailable) do
+        names[#names + 1] = entry.category .. ":" .. entry.displayName
+    end
+    table.sort(names)
+    luaunit.assertEquals(names, {
+        "action:Overhead",
+        "action:Request Focus",
+        "action:Text to Speech",
+        "trigger:Overhead Text",
+        "trigger:Sound Fired",
+    })
 end
 
 function TestUnavailable:testEveryEntryHasDisplayNameCategoryAndDescription()

@@ -1,5 +1,6 @@
 local Theme = require("ui/theme")
 local Unavailable = require("nodes/unavailable")
+local Gates = require("nodes/gates")
 
 local Palette = {}
 Palette.__index = Palette
@@ -77,6 +78,22 @@ function Palette:Open(registry, filterFn, opts)
     end
     for key, def in pairs(registry.nodeTypes) do
         if def.hidden then goto continue end
+        -- A closed gate is one Unavailable row on an unfiltered open, and it is
+        -- left out of Drag-to-Create. The type stays registered.
+        local gateReason = Gates.Reason(key)
+        if gateReason ~= nil then
+            if filterFn == nil then
+                local cat = def.category or "other"
+                ensureCat(cat)
+                byCat[cat][#byCat[cat] + 1] = {
+                    displayName = def.displayName or key,
+                    category = cat,
+                    description = gateReason,
+                    unavailable = true,
+                }
+            end
+            goto continue
+        end
         local targetPin, targetMode = true, nil
         if filterFn ~= nil then targetPin, targetMode = filterFn(def) end
         if targetPin then
@@ -97,9 +114,9 @@ function Palette:Open(registry, filterFn, opts)
         ::continue::
     end
 
-    -- Unavailable rows (nodes/unavailable.lua) are display-only and only make sense on an
-    -- unfiltered open: a filtered/typed open exists to find a Pin-compatible Node Type,
-    -- which nothing here has.
+    -- Permanent Unavailable rows are display-only and only make sense on an unfiltered
+    -- open: a filtered open exists to find a placeable Node Type. Gated types are
+    -- handled above, while their gate is closed.
     if filterFn == nil then
         for _, entry in ipairs(Unavailable) do
             local cat = entry.category or "other"
