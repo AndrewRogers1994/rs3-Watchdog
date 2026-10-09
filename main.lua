@@ -8,6 +8,7 @@ local Runtime = require("runtime")
 local ToastStack = require("toast")
 local Theme = require("ui/theme")
 local Dialog = require("ui/dialog")
+local HubLayers = require("ui/hub_layers")
 
 local Events = {
     Logic = "logic",
@@ -934,6 +935,7 @@ function api.Stop()
     if runtime.objectMarkerCapture ~= nil then
         runtime.objectMarkerCapture.onArmedChange = nil
     end
+    HubLayers.Stop()
     pcall(persistNow)
     pcall(function() Event.Logic.Unsubscribe(Events.Logic) end)
     pcall(function() Event.Draw.Unsubscribe(Events.Draw) end)
@@ -998,6 +1000,12 @@ Event.KeyDown.Subscribe(Events.KeyDown, function(keyEvent)
     end
 end)
 
+-- F8 and this button share api.Toggle. The PrettyUI ribbon stays registered
+-- below and syncRibbon follows shell visibility, including after this Toggle.
+HubLayers.Bind(function()
+    api.Toggle()
+end)
+
 ribbon = prettyui.RibbonBar.Register({
     id = "watchdog-ribbon",
     icon = id.Sprite.RS3_ICON_CALENDAR_NEW_CONTENT,
@@ -1013,6 +1021,8 @@ print("Watchdog editor loaded")
 -- ADR-0008: Save here, but let the client destroy the UI tree.
 function PluginShutdown()
     pcall(persistNow)
+    -- Unsubscribe only. Destroying the settings page here is the shutdown crash.
+    HubLayers.Unbind()
     ribbon:Destroy()
 end
 
