@@ -26,7 +26,7 @@ local function logSenderNames(raw)
 end
 
 local function transform(raw)
-    logSenderNames(raw)
+    -- logSenderNames(raw)
     local sender = raw and raw.senderNameSimple
     return {
         message = Text.StripTags(raw and raw.chatMessage),

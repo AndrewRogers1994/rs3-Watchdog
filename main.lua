@@ -29,6 +29,12 @@ else
     log("Watchdog: plugin does NOT have tracking access")
 end
 
+if Plugin.HasPermission(PluginPermissions.chatAccess) then
+    log("Watchdog: plugin has chat access")
+else
+    log("Watchdog: plugin does NOT have chat access")
+end
+
 local playerIdentity = {
     Resolve = function()
         if Player == nil or not Player.IsAvailable() then return nil end
