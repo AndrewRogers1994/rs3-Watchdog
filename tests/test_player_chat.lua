@@ -1,13 +1,13 @@
 -- Exercises the Player Chat trigger (`trigger.player_chat`, #56) against a REAL LibNodeGraph
 -- driven through the fake event source + runtime dispatcher - never a hand-built ctx (see
 -- CONTEXT.md *Testing node types*). Pushes ChatMessage payloads (chatMessage, chatType, and
--- senderNameSimple) and asserts external behavior: whether `out` fires, what the
--- `message`/`sender` outputs hold, and whether the three sender spellings were logged.
+-- senderNameSimple) and asserts external behavior: whether `out` fires, and what the
+-- `message`/`sender` outputs hold. Sender spellings are not logged per line.
 --
 -- Covers: Chat Type Group filtering incl. the private direction variants (Sent / Received /
 -- both), Any = the union of Player Chat's own Groups (and Game Message's types NOT leaking in),
--- the sender Matcher on the tag-stripped simple name, the nil-sender-passes-with-empty-output
--- case, and one log line of all three sender spellings when any of them is present.
+-- the sender Matcher on the tag-stripped simple name, and the nil-sender-passes-with-empty-output
+-- case.
 
 local luaunit = require("luaunit")
 local Registry = require("registry")
@@ -26,10 +26,6 @@ function TestPlayerChat:setUp()
     self.runtime = Runtime.new(self.source.source)
     self.graph = Graph.new(self.registry)
     self.runtime:SetGraph(self.graph)
-    self.logs = {}
-    self._savedLog = _G.log
-    local logs = self.logs
-    _G.log = function(line) logs[#logs + 1] = line end
 
     PlayerChat.Register(self.registry, self.runtime)
 
@@ -39,10 +35,6 @@ function TestPlayerChat:setUp()
         pins = { { name = "in", kind = "exec", direction = "in", terminates = true } },
         run = function() table.insert(self.log, #self.log + 1) end,
     })
-end
-
-function TestPlayerChat:tearDown()
-    _G.log = self._savedLog
 end
 
 function TestPlayerChat:addWired(controls)
@@ -185,40 +177,6 @@ function TestPlayerChat:testSenderMatcherIgnoresFilteredSpelling()
         senderNameFiltered = "Filtered",
     })
     luaunit.assertEquals(#self.log, 0)
-end
-
-function TestPlayerChat:testLogsAllThreeSenderNamesWhenAnyIsPresent()
-    self:addWired({ type = "any" })
-    self.source:Push("ChatMessage", {
-        chatMessage = "hi",
-        chatType = 2,
-        senderNameSimple = "Zezima",
-        senderNameFiltered = "Zez*",
-        senderNameUnfiltered = "<col=ffff00>Zezima</col>",
-    })
-    luaunit.assertEquals(#self.logs, 1)
-    luaunit.assertStrContains(self.logs[1], "simple=Zezima")
-    luaunit.assertStrContains(self.logs[1], "filtered=Zez*")
-    luaunit.assertStrContains(self.logs[1], "unfiltered=<col=ffff00>Zezima</col>")
-end
-
-function TestPlayerChat:testLogsAllThreeSlotsWhenOnlyOneSenderFieldIsSet()
-    self:addWired({ type = "any" })
-    self.source:Push("ChatMessage", {
-        chatMessage = "hi",
-        chatType = 2,
-        senderNameFiltered = "OnlyFiltered",
-    })
-    luaunit.assertEquals(#self.logs, 1)
-    luaunit.assertStrContains(self.logs[1], "simple=")
-    luaunit.assertStrContains(self.logs[1], "filtered=OnlyFiltered")
-    luaunit.assertStrContains(self.logs[1], "unfiltered=")
-end
-
-function TestPlayerChat:testChatLineWithNoSenderNamesIsNotLogged()
-    self:addWired({ type = "any" })
-    self:push("Welcome to RuneScape.", 0)
-    luaunit.assertEquals(self.logs, {})
 end
 
 return TestPlayerChat

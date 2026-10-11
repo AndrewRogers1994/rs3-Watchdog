@@ -1,5 +1,6 @@
 -- Entity Spawn trigger (`trigger.entity_spawn`, #32) through the real dispatcher and fake event
--- source. No client globals are stubbed: transform/filter/run don't touch them.
+-- source. RestrictedAreas is installed as not restricted; silence while restricted lives in
+-- test_restricted.
 
 local luaunit = require("luaunit")
 local Registry = require("registry")
@@ -11,6 +12,13 @@ local EntitySpawn = require("src/nodes/triggers/entity_spawn")
 TestEntitySpawn = {}
 
 function TestEntitySpawn:setUp()
+    self.savedRestrictedAreas = _G.RestrictedAreas
+    _G.RestrictedAreas = {
+        IsRestricted = function()
+            return false
+        end,
+    }
+
     self.registry = Registry.new()
     self.source = newFakeEventSource()
     self.runtime = Runtime.new(self.source.source)
@@ -31,6 +39,10 @@ function TestEntitySpawn:setUp()
         pins = { { name = "in", kind = "exec", direction = "in" } },
         run = function() counts.despawned = counts.despawned + 1 end,
     })
+end
+
+function TestEntitySpawn:tearDown()
+    _G.RestrictedAreas = self.savedRestrictedAreas
 end
 
 function TestEntitySpawn:addTrigger(controls)

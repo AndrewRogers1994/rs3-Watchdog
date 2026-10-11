@@ -1,6 +1,7 @@
 -- Game Message trigger (`trigger.game_message`, #56) against a real LibNodeGraph driven
 -- through the fake event source + runtime dispatcher - never a hand-built ctx
--- (see CONTEXT.md *Testing node types*).
+-- (see CONTEXT.md *Testing node types*). RestrictedAreas is installed as not restricted;
+-- silence while restricted lives in test_restricted.
 
 local luaunit = require("luaunit")
 local Registry = require("registry")
@@ -15,6 +16,13 @@ local function pat(needle) return { needle = needle, mode = "pattern" } end
 TestGameMessage = {}
 
 function TestGameMessage:setUp()
+    self.savedRestrictedAreas = _G.RestrictedAreas
+    _G.RestrictedAreas = {
+        IsRestricted = function()
+            return false
+        end,
+    }
+
     self.registry = Registry.new()
     self.source = newFakeEventSource()
     self.runtime = Runtime.new(self.source.source)
@@ -29,6 +37,10 @@ function TestGameMessage:setUp()
         pins = { { name = "in", kind = "exec", direction = "in", terminates = true } },
         run = function() table.insert(self.log, #self.log + 1) end,
     })
+end
+
+function TestGameMessage:tearDown()
+    _G.RestrictedAreas = self.savedRestrictedAreas
 end
 
 function TestGameMessage:addWired(controls)
