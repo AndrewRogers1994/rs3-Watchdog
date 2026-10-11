@@ -318,14 +318,14 @@ function TestRuntime:testMouseActivityTickIncrementsOnPositionChange()
     local mouse = newFakeMouse(10, 10)
     local runtime = Runtime.new(self.source.source, mouse)
 
-    runtime:Update(1) -- first poll just establishes the baseline position
+    runtime:Update() -- first poll just establishes the baseline position
     luaunit.assertEquals(runtime.mouseActivityTick, 0)
 
     mouse.pos = { x = 11, y = 10 }
-    runtime:Update(1)
+    runtime:Update()
     luaunit.assertEquals(runtime.mouseActivityTick, 1)
 
-    runtime:Update(1)
+    runtime:Update()
     luaunit.assertEquals(runtime.mouseActivityTick, 1)
 end
 
@@ -334,9 +334,9 @@ function TestRuntime:testMouseActivityTickIgnoredWhenMouseUnavailable()
     mouse.available = false
     local runtime = Runtime.new(self.source.source, mouse)
 
-    runtime:Update(1)
+    runtime:Update()
     mouse.pos = { x = 99, y = 99 }
-    runtime:Update(1)
+    runtime:Update()
 
     luaunit.assertEquals(runtime.mouseActivityTick, 0)
 end
@@ -348,7 +348,7 @@ function TestRuntime:testGetMousePosAppliesInterfaceScale()
     rawset(_G, "game", { options = { InterfaceScale = { setting = 200 } } })
     local mouse = newFakeMouse(400, 300)
     local runtime = Runtime.new(self.source.source, mouse)
-    runtime:Update(1)
+    runtime:Update()
     local mx, my = runtime:GetMousePos()
     rawset(_G, "game", prevGame)
     luaunit.assertEquals(mx, 200)
