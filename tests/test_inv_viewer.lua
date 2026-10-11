@@ -1,8 +1,8 @@
 local luaunit = require("luaunit")
-local Theme = require("ui/theme")
-local Node = require("ui/node")
-local View = require("ui/view")
-local InvViewer = require("ui/inv_viewer")
+local Theme = require("src/ui/theme")
+local Node = require("src/ui/node")
+local View = require("src/ui/view")
+local InvViewer = require("src/ui/inv_viewer")
 
 TestInvViewer = {}
 

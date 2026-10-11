@@ -5,8 +5,8 @@
 _G.Vector4 = _G.Vector4 or { new = function(r, g, b, a) return { r, g, b, a } end }
 
 local luaunit = require("luaunit")
-local InfoBox = require("ui/infobox")
-local Theme = require("ui/theme")
+local InfoBox = require("src/ui/infobox")
+local Theme = require("src/ui/theme")
 
 --- Ordered box set -------------------------------------------------------------------------
 

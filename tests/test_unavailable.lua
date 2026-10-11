@@ -1,5 +1,5 @@
 local luaunit = require("luaunit")
-local Unavailable = require("nodes/unavailable")
+local Unavailable = require("src/nodes/unavailable")
 
 TestUnavailable = {}
 

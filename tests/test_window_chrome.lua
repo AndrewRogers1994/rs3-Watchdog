@@ -1,8 +1,8 @@
 local luaunit = require("luaunit")
-local Resize = require("ui/window_resize")
-local Multiplexer = require("ui/multiplexer")
-local Dialog = require("ui/dialog")
-local Editor = require("ui/graph")
+local Resize = require("src/ui/window_resize")
+local Multiplexer = require("src/ui/multiplexer")
+local Dialog = require("src/ui/dialog")
+local Editor = require("src/ui/graph")
 
 local function component(parent)
     local c = { parent = parent, children = {}, x = 0, y = 0, width = 0, height = 0 }

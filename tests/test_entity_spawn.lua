@@ -4,9 +4,9 @@
 local luaunit = require("luaunit")
 local Registry = require("registry")
 local Graph = require("graph")
-local Runtime = require("runtime")
+local Runtime = require("src/runtime")
 local newFakeEventSource = require("fake_event_source")
-local EntitySpawn = require("nodes/triggers/entity_spawn")
+local EntitySpawn = require("src/nodes/triggers/entity_spawn")
 
 TestEntitySpawn = {}
 

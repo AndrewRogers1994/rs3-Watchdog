@@ -1,6 +1,6 @@
 -- CaptureArm.Decide (#71): same-control re-click cancels; anything else arms.
 local luaunit = require("luaunit")
-local CaptureArm = require("ui/capture_arm")
+local CaptureArm = require("src/ui/capture_arm")
 
 TestCaptureArmDecide = {}
 

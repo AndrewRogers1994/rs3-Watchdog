@@ -10,8 +10,8 @@
 -- this file runs standalone even where the engine isn't deployed.
 
 local luaunit = require("luaunit")
-local Popup = require("nodes/actions/popup")
-local EffectRegistry = require("effects")
+local Popup = require("src/nodes/actions/popup")
+local EffectRegistry = require("src/effects")
 
 -- Popup.Draw early-returns unless Vector4 exists (its primitive-frame path uses it); stub it
 -- so the draw path is actually exercised. AddSprite's own colour arg is a Uint, not a Vector4.

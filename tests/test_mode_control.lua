@@ -3,8 +3,8 @@
 
 local luaunit = require("luaunit")
 local FakeHost = require("fake_control_host")
-local Mode = require("ui/controls/mode")
-local Theme = require("ui/theme")
+local Mode = require("src/ui/controls/mode")
+local Theme = require("src/ui/theme")
 
 -- A stand-in modes list shaped like ObjectMarker.MODES: one enabled row, some disabled-with-reason.
 local MODES = {

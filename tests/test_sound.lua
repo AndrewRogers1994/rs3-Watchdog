@@ -6,7 +6,7 @@ _G.id = _G.id or {}
 _G.id.Sound = _G.id.Sound or { TOWN_CRIER_BELL_RING_1 = 2608 }
 
 local luaunit = require("luaunit")
-local Sound = require("nodes/actions/sound")
+local Sound = require("src/nodes/actions/sound")
 
 local function makeFakeRegistry()
     return {

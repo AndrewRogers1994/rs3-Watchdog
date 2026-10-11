@@ -7,7 +7,7 @@ config.Inv.INV = config.Inv.INV or { id = 93, size = 28 }
 config.Inv.BANK = config.Inv.BANK or { id = 95, size = 28 }
 
 local luaunit = require("luaunit")
-local Controls = require("ui/controls")
+local Controls = require("src/ui/controls")
 
 local INV, BANK = config.Inv.INV, config.Inv.BANK
 
@@ -82,7 +82,7 @@ end
 TestSkillControl = {}
 
 function TestSkillControl:setUp()
-    require("nodes/triggers/skill")
+    require("src/nodes/triggers/skill")
     self.pc = Controls.PinControlFor("skill")
 end
 
@@ -103,7 +103,7 @@ TestInvContainerControl = {}
 
 function TestInvContainerControl:setUp()
     config.Inv = { INV = INV, BANK = BANK }
-    require("nodes/triggers/inventory")
+    require("src/nodes/triggers/inventory")
     self.pc = Controls.PinControlFor("invContainer")
 end
 
@@ -120,7 +120,7 @@ end
 TestInvNoteFilterControl = {}
 
 function TestInvNoteFilterControl:setUp()
-    require("nodes/triggers/inventory")
+    require("src/nodes/triggers/inventory")
     self.pc = Controls.PinControlFor("invNoteFilter")
 end
 

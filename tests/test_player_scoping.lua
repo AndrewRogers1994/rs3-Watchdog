@@ -12,7 +12,7 @@
 local luaunit = require("luaunit")
 local Registry = require("registry")
 local Graph = require("graph")
-local Runtime = require("runtime")
+local Runtime = require("src/runtime")
 local newFakeEventSource = require("fake_event_source")
 
 -- GameState.GAME (30, docs core/events.html) and an arbitrary non-GAME state standing in for a

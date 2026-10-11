@@ -13,9 +13,9 @@
 local luaunit = require("luaunit")
 local Registry = require("registry")
 local Graph = require("graph")
-local Runtime = require("runtime")
+local Runtime = require("src/runtime")
 local newFakeEventSource = require("fake_event_source")
-local Skill = require("nodes/triggers/skill")
+local Skill = require("src/nodes/triggers/skill")
 
 -- A few SkillType ids by name, just so the assertions read as skills rather than magic numbers.
 local ATTACK, WOODCUTTING, FISHING = 0, 8, 10

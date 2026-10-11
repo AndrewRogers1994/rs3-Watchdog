@@ -10,14 +10,14 @@ _G.ui = _G.ui or {}
 _G.ui.TextDataConfig = _G.ui.TextDataConfig or { new = function() return {} end }
 
 local luaunit     = require("luaunit")
-local Theme       = require("ui/theme")
-local Swatch      = require("ui/widgets/swatch")
-local Checkbox    = require("ui/widgets/checkbox")
-local TextField   = require("ui/widgets/text_field")
-local NumberField = require("ui/widgets/number_field")
-local Dropdown    = require("ui/widgets/dropdown")
-local Button      = require("ui/widgets/button")
-local Toggle      = require("ui/widgets/toggle")
+local Theme       = require("src/ui/theme")
+local Swatch      = require("src/ui/widgets/swatch")
+local Checkbox    = require("src/ui/widgets/checkbox")
+local TextField   = require("src/ui/widgets/text_field")
+local NumberField = require("src/ui/widgets/number_field")
+local Dropdown    = require("src/ui/widgets/dropdown")
+local Button      = require("src/ui/widgets/button")
+local Toggle      = require("src/ui/widgets/toggle")
 
 -- A recording canvas: counts each primitive so a Draw's shape can be asserted headlessly. Methods
 -- are called as `canvas:Add…`, so the leading self is ignored along with the geometry args.

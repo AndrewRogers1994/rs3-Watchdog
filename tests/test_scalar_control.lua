@@ -6,9 +6,9 @@
 
 local luaunit = require("luaunit")
 local FakeHost = require("fake_control_host")
-local Scalar = require("ui/controls/scalar")
-local NumberField = require("ui/widgets/number_field")
-local TextField = require("ui/widgets/text_field")
+local Scalar = require("src/ui/controls/scalar")
+local NumberField = require("src/ui/widgets/number_field")
+local TextField = require("src/ui/widgets/text_field")
 
 local number = Scalar.new({ codec = NumberField, filter = "NUMERIC" })
 local text = Scalar.new({ codec = TextField, filter = "NONE" })

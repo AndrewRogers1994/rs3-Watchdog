@@ -3,7 +3,7 @@
 -- case/whitespace difference in what the client returns can't silently orphan a bucket.
 
 local luaunit = require("luaunit")
-local Util = require("util")
+local Util = require("src/util")
 
 TestUtil = {}
 

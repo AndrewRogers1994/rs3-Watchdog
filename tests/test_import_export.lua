@@ -80,9 +80,9 @@ local function installHost()
 end
 
 local luaunit = require("luaunit")
-local Dialog = require("ui/dialog")
-local ImportExport = require("ui/import_export")
-local Export = require("export")
+local Dialog = require("src/ui/dialog")
+local ImportExport = require("src/ui/import_export")
+local Export = require("src/export")
 
 local function button(win, label)
     for _, btn in ipairs(win.buttons) do

@@ -1,7 +1,7 @@
 local luaunit = require("luaunit")
-local Wire = require("ui/wire")
-local View = require("ui/view")
-local Theme = require("ui/theme")
+local Wire = require("src/ui/wire")
+local View = require("src/ui/view")
+local Theme = require("src/ui/theme")
 
 TestWire = {}
 function TestWire:testStrokeStaysInsideViewportAfterResizeAndZoom()

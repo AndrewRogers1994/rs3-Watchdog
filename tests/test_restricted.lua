@@ -5,12 +5,12 @@
 local luaunit = require("luaunit")
 local Registry = require("registry")
 local Graph = require("graph")
-local Runtime = require("runtime")
+local Runtime = require("src/runtime")
 local newFakeEventSource = require("fake_event_source")
-local EntitySpawn = require("nodes/triggers/entity_spawn")
-local GameMessageTrigger = require("nodes/triggers/game_message")
-local PlayerChat = require("nodes/triggers/player_chat")
-local GameMessageAction = require("nodes/actions/game_message")
+local EntitySpawn = require("src/nodes/triggers/entity_spawn")
+local GameMessageTrigger = require("src/nodes/triggers/game_message")
+local PlayerChat = require("src/nodes/triggers/player_chat")
+local GameMessageAction = require("src/nodes/actions/game_message")
 
 TestRestricted = {}
 

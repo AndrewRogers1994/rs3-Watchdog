@@ -167,7 +167,7 @@ function TestUILayout:testManagerControlsAtMinimumWidth()
     function host:AddTabs(entries, opts)
         return { root = component(content), SetActive = function() end, Destroy = function() end }
     end
-    local Manager = require("ui/manager")
+    local Manager = require("src/ui/manager")
     local opens = 0
     local entries = {
         { id = 1, kind = "alert", name = "Low health", enabled = true },

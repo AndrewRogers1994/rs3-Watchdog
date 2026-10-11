@@ -1,7 +1,7 @@
 -- Headless View zoom lattice. Expected rungs are literals / independent 1.1^k values.
 
 local luaunit = require("luaunit")
-local View = require("ui/view")
+local View = require("src/ui/view")
 
 TestView = {}
 

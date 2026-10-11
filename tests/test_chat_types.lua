@@ -1,7 +1,7 @@
 -- Chat type groups (#56): curated group→id maps; Any is the union of that trigger's groups.
 
 local luaunit = require("luaunit")
-local ChatTypes = require("chat_types")
+local ChatTypes = require("src/chat_types")
 
 TestChatTypesChoices = {}
 

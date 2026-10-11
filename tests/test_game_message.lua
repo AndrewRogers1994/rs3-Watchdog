@@ -5,9 +5,9 @@
 local luaunit = require("luaunit")
 local Registry = require("registry")
 local Graph = require("graph")
-local Runtime = require("runtime")
+local Runtime = require("src/runtime")
 local newFakeEventSource = require("fake_event_source")
-local GameMessage = require("nodes/triggers/game_message")
+local GameMessage = require("src/nodes/triggers/game_message")
 
 local function sub(needle) return { needle = needle, mode = "substring" } end
 local function pat(needle) return { needle = needle, mode = "pattern" } end

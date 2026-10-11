@@ -15,8 +15,8 @@ LibNodeGraph = {
     UNKNOWN_TYPE = require("registry").UNKNOWN_TYPE,
 }
 
-local Store = require("store")
-local Export = require("export")
+local Store = require("src/store")
+local Export = require("src/export")
 local Registry = require("registry")
 
 TestExport = {}

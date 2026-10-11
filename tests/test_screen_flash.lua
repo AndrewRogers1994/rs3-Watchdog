@@ -6,7 +6,7 @@
 -- Registry/Graph-backed test files, which hit the same gap).
 
 local luaunit = require("luaunit")
-local ScreenFlash = require("nodes/actions/screen_flash")
+local ScreenFlash = require("src/nodes/actions/screen_flash")
 
 TestScreenFlashAlphaAt = {}
 

@@ -10,7 +10,7 @@
 local luaunit = require("luaunit")
 local Serialize = require("serialize")
 local Registry = require("registry")
-local Placeholder = require("ui/placeholder")
+local Placeholder = require("src/ui/placeholder")
 
 local UNKNOWN = "u.mystery"  -- a type never registered below
 

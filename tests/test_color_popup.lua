@@ -8,9 +8,9 @@ _G.config = { Font = setmetatable({}, { __index = function()
 end }) }
 
 local luaunit = require("luaunit")
-local ColorPopup = require("ui/color_popup")
-local Swatch = require("ui/widgets/swatch")
-local Theme = require("ui/theme")
+local ColorPopup = require("src/ui/color_popup")
+local Swatch = require("src/ui/widgets/swatch")
+local Theme = require("src/ui/theme")
 
 -- The hex codec the swatch Pin Control hands the popup (its Widget's Color hex8 round-trip) - the
 -- popup's only knowledge of how a color turns into text and back, replacing the old Control Spec.

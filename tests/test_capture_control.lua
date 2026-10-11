@@ -2,7 +2,7 @@
 
 local luaunit = require("luaunit")
 local FakeHost = require("fake_control_host")
-local Capture = require("ui/controls/capture")
+local Capture = require("src/ui/controls/capture")
 
 -- Same format hook as screen_marker.rect.
 local screenCapture = Capture.new({

@@ -12,9 +12,9 @@
 local luaunit = require("luaunit")
 local Registry = require("registry")
 local Graph = require("graph")
-local Runtime = require("runtime")
+local Runtime = require("src/runtime")
 local newFakeEventSource = require("fake_event_source")
-local PlayerChat = require("nodes/triggers/player_chat")
+local PlayerChat = require("src/nodes/triggers/player_chat")
 
 local function sub(needle) return { needle = needle, mode = "substring" } end
 

@@ -1,7 +1,7 @@
 -- Screen marker capture (#39): Rect() and Arm/Cancel/BeginDrag/UpdateDrag/EndDrag. No client UI.
 
 local luaunit = require("luaunit")
-local ScreenMarkerCapture = require("ui/screen_marker_capture")
+local ScreenMarkerCapture = require("src/ui/screen_marker_capture")
 
 TestScreenMarkerCaptureRect = {}
 

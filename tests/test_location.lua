@@ -4,9 +4,9 @@
 local luaunit = require("luaunit")
 local Registry = require("registry")
 local Graph = require("graph")
-local Runtime = require("runtime")
+local Runtime = require("src/runtime")
 local newFakeEventSource = require("fake_event_source")
-local Location = require("nodes/triggers/location")
+local Location = require("src/nodes/triggers/location")
 
 -- GetEntity mirrors the client API (`.coordGrid`).
 Player = {

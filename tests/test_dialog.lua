@@ -108,8 +108,8 @@ local function installHost()
 end
 
 local luaunit = require("luaunit")
-local Dialog = require("ui/dialog")
-local Confirm = require("ui/confirm")
+local Dialog = require("src/ui/dialog")
+local Confirm = require("src/ui/confirm")
 
 local function button(win, label)
     for _, btn in ipairs(win.buttons) do

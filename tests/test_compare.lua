@@ -3,9 +3,9 @@ local Registry = require("registry")
 local Graph = require("graph")
 local Serialize = require("serialize")
 local StandardCompare = require("compare")
-local Controls = require("ui/controls")
+local Controls = require("src/ui/controls")
 local FakeHost = require("fake_control_host")
-local Palette = require("ui/palette")
+local Palette = require("src/ui/palette")
 
 TestCompare = {}
 
@@ -44,12 +44,12 @@ function TestCompare:testDropdownChangesExecutionAndRoundTrips()
 end
 
 function TestCompare:testOperationUsesFullWidthBand()
-    local Node = require("ui/node")
+    local Node = require("src/ui/node")
     local id = self.graph:AddNode("std.compare")
     local geom = Node.BuildGeometry(self.graph:GetPins(id), 0, 0)
     local operation = geom.controls[1]
     luaunit.assertEquals(operation.pinName, "operation")
-    luaunit.assertEquals(operation.w, geom.w - require("ui/theme").PIN_MARGIN_X * 2)
+    luaunit.assertEquals(operation.w, geom.w - require("src/ui/theme").PIN_MARGIN_X * 2)
     luaunit.assertTrue(operation.y > geom.byName.operation.cy)
     luaunit.assertTrue(operation.y + operation.h < geom.byName.a.cy)
 end

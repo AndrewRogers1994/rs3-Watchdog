@@ -2,7 +2,7 @@
 
 local luaunit = require("luaunit")
 local FakeHost = require("fake_control_host")
-local Matcher = require("ui/controls/matcher")
+local Matcher = require("src/ui/controls/matcher")
 
 local DEFAULT = { needle = "", mode = "substring" }
 
@@ -98,12 +98,12 @@ end
 TestMatcherLayout = {}
 
 function TestMatcherLayout:testReservedHeightIsTheBandConstant()
-    local Theme = require("ui/theme")
+    local Theme = require("src/ui/theme")
     luaunit.assertEquals(Matcher.ReservedHeight({}), Theme.MATCHER_BAND_H)
 end
 
 function TestMatcherLayout:testLayoutProducesANeedleAndAToggleWithinTheBand()
-    local Theme = require("ui/theme")
+    local Theme = require("src/ui/theme")
     local band = { x = 10, y = 100, w = 170, h = Theme.MATCHER_BAND_H }
     local rects = Matcher.Layout(band)
     luaunit.assertEquals(#rects, 2)

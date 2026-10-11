@@ -22,7 +22,7 @@ LibNodeGraph = {
     UNKNOWN_TYPE = require("registry").UNKNOWN_TYPE,
 }
 
-local Store = require("store")
+local Store = require("src/store")
 local Registry = require("registry")
 
 -- A minimal in-memory stand-in for the client PersistentDB (string key/value store).

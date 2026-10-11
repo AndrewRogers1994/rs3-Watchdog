@@ -1,7 +1,7 @@
 -- ui/multiplexer.lua stack + visibility via a fake window (no prettyui / ui.*).
 
 local luaunit = require("luaunit")
-local Multiplexer = require("ui/multiplexer")
+local Multiplexer = require("src/ui/multiplexer")
 
 --- Fakes ----------------------------------------------------------------------------------
 

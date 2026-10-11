@@ -1,10 +1,10 @@
 _G.Vector4 = _G.Vector4 or { new = function(r, g, b, a) return { r, g, b, a } end }
 
 local luaunit = require("luaunit")
-local Clip    = require("ui/canvas_clip")
-local Node    = require("ui/node")
-local View    = require("ui/view")
-local Theme   = require("ui/theme")
+local Clip    = require("src/ui/canvas_clip")
+local Node    = require("src/ui/node")
+local View    = require("src/ui/view")
+local Theme   = require("src/ui/theme")
 
 local function recordingCanvas()
     local c = { triangles = {}, lines = {}, rects = 0 }

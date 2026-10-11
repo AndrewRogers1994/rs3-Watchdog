@@ -2,7 +2,7 @@
 -- No LibNodeGraph: run/preload only touch ctx:In / ctx:GetControl.
 
 local luaunit = require("luaunit")
-local CustomSound = require("nodes/actions/custom_sound")
+local CustomSound = require("src/nodes/actions/custom_sound")
 
 local function makeFakeRegistry()
     return {

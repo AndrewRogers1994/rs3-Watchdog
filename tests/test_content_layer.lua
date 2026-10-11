@@ -2,7 +2,7 @@
 -- callback. Asserts the words on the panel, not how the line was laid out.
 
 local luaunit = require("luaunit")
-local HubLayers = require("ui/hub_layers")
+local HubLayers = require("src/ui/hub_layers")
 
 TestContentLayer = {}
 

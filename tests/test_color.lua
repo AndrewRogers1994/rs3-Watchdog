@@ -1,7 +1,7 @@
 _G.Vector4 = { new = function(r, g, b, a) return { r, g, b, a } end }
 
 local luaunit = require("luaunit")
-local Color = require("ui/color")
+local Color = require("src/ui/color")
 
 TestRGBHSVRoundTrip = {}
 

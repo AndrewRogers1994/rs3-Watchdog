@@ -1,7 +1,7 @@
 -- action.alert_toggle (#35) through a real LibNodeGraph Graph plus a fake runtime for the alert store.
 
 local luaunit = require("luaunit")
-local AlertToggle = require("nodes/actions/alert_toggle")
+local AlertToggle = require("src/nodes/actions/alert_toggle")
 -- Real engine (LibNodeGraph, on package.path - see tests/run.lua), so run() is exercised
 -- through a genuine ctx rather than a fabricated one (mirrors test_infobox_node).
 local Registry = require("registry")

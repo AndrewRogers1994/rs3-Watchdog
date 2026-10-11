@@ -5,8 +5,8 @@
 
 local luaunit = require("luaunit")
 local FakeHost = require("fake_control_host")
-local Swatch = require("ui/controls/swatch")
-local Theme = require("ui/theme")
+local Swatch = require("src/ui/controls/swatch")
+local Theme = require("src/ui/theme")
 
 local swatch = Swatch.new()
 

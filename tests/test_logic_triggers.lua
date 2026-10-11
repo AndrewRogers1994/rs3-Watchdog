@@ -4,9 +4,9 @@
 local luaunit = require("luaunit")
 local Registry = require("registry")
 local Graph = require("graph")
-local Runtime = require("runtime")
+local Runtime = require("src/runtime")
 local newFakeEventSource = require("fake_event_source")
-local Logic = require("nodes/triggers/logic")
+local Logic = require("src/nodes/triggers/logic")
 
 TestLogicTriggers = {}
 

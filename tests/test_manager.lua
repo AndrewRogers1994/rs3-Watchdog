@@ -6,8 +6,8 @@
 _G.Vector4 = _G.Vector4 or { new = function(r, g, b, a) return { r, g, b, a } end }
 
 local luaunit = require("luaunit")
-local Manager = require("ui/manager")
-local Confirm = require("ui/confirm")
+local Manager = require("src/ui/manager")
+local Confirm = require("src/ui/confirm")
 
 -- Bucket/Entry builders mirroring store.lua's shapes (the Manager only reads them).
 local function alert(id, name, enabled)

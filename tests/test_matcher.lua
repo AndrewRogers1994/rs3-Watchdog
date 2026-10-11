@@ -1,7 +1,7 @@
 -- Matcher.Test (#55): empty/nil needle matches all; substring is literal and case-insensitive.
 
 local luaunit = require("luaunit")
-local Matcher = require("matcher")
+local Matcher = require("src/matcher")
 
 local function sub(needle) return { needle = needle, mode = "substring" } end
 local function pat(needle) return { needle = needle, mode = "pattern" } end

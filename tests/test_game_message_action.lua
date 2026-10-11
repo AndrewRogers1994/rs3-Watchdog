@@ -5,7 +5,7 @@
 local luaunit = require("luaunit")
 local Registry = require("registry")
 local Graph = require("graph")
-local GameMessage = require("nodes/actions/game_message")
+local GameMessage = require("src/nodes/actions/game_message")
 
 local CHAT = "chatAccess"
 local LINE = "The ground shakes."

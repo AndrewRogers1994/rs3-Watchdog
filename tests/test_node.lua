@@ -1,7 +1,7 @@
 local luaunit = require("luaunit")
-local Theme = require("ui/theme")
-local Node = require("ui/node")
-local View = require("ui/view")
+local Theme = require("src/ui/theme")
+local Node = require("src/ui/node")
+local View = require("src/ui/view")
 
 TestCumulativeRowLayout = {}
 
@@ -227,7 +227,7 @@ end
 
 TestMigratedControlRouting = {}
 
-local Controls = require("ui/controls")
+local Controls = require("src/ui/controls")
 
 local function inPin(name, dataType)
     return { name = name, kind = "data", direction = "in", dataType = dataType, label = name }

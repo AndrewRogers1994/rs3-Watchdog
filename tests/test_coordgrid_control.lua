@@ -2,7 +2,7 @@
 -- the COMMITTED value, never Widgets.
 
 local luaunit = require("luaunit")
-local CoordGrid = require("ui/controls/coordgrid")
+local CoordGrid = require("src/ui/controls/coordgrid")
 local FakeHost = require("fake_control_host")
 
 --- Editing an axis through press -> mount -> commit ---------------------------------------
@@ -128,7 +128,7 @@ end
 TestCoordgridGeometryDelegation = {}
 
 function TestCoordgridGeometryDelegation:testReservedHeightIsTheBandConstant()
-    local Theme = require("ui/theme")
+    local Theme = require("src/ui/theme")
     luaunit.assertEquals(CoordGrid.ReservedHeight({}), Theme.COORDGRID_BAND_H)
 end
 

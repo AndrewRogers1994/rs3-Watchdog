@@ -5,12 +5,12 @@
 -- so a stray require of a forbidden module surfaces here rather than at a future extraction.
 
 local luaunit = require("luaunit")
-local NumberField = require("ui/widgets/number_field")
-local Button = require("ui/widgets/button")
-local TextField = require("ui/widgets/text_field")
-local Dropdown = require("ui/widgets/dropdown")
-local Toggle = require("ui/widgets/toggle")
-local Swatch = require("ui/widgets/swatch")
+local NumberField = require("src/ui/widgets/number_field")
+local Button = require("src/ui/widgets/button")
+local TextField = require("src/ui/widgets/text_field")
+local Dropdown = require("src/ui/widgets/dropdown")
+local Toggle = require("src/ui/widgets/toggle")
+local Swatch = require("src/ui/widgets/swatch")
 
 --- number_field Widget: the numeric codec ------------------------------------------------
 
@@ -232,8 +232,8 @@ end
 TestWidgetDependencyRule = {}
 
 local function widgetSource(name)
-    -- Tests run with cwd at the plugin root (see tests/run.lua), so widgets resolve directly.
-    local f = assert(io.open("ui/widgets/" .. name .. ".lua", "r"))
+    -- Tests run with cwd at the plugin root (see tests/run.lua).
+    local f = assert(io.open("src/ui/widgets/" .. name .. ".lua", "r"))
     local src = f:read("*a")
     f:close()
     return src

@@ -9,10 +9,10 @@ _G.config = _G.config or { Font = setmetatable({}, { __index = function()
 end }) }
 
 local luaunit = require("luaunit")
-local Palette = require("ui/palette")
+local Palette = require("src/ui/palette")
 local Registry = require("registry")
-local GameMessage = require("nodes/actions/game_message")
-local ShortestPath = require("nodes/actions/shortest_path")
+local GameMessage = require("src/nodes/actions/game_message")
+local ShortestPath = require("src/nodes/actions/shortest_path")
 
 local CHAT = "chatAccess"
 local OPTS = { screenX = 10, screenY = 10, anchorGX = 0, anchorGY = 0 }

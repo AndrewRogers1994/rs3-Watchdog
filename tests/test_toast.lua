@@ -4,9 +4,9 @@
 -- mount are intentionally not asserted here, same convention as effects.lua's own Mount/Draw.
 
 local luaunit = require("luaunit")
-local EffectRegistry = require("effects")
-local Toast = require("toast")
-local ToastNode = require("nodes/actions/toast")
+local EffectRegistry = require("src/effects")
+local Toast = require("src/toast")
+local ToastNode = require("src/nodes/actions/toast")
 local Registry = require("registry")
 local Graph = require("graph")
 local Serialize = require("serialize")

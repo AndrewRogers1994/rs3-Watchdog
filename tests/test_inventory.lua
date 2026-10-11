@@ -8,9 +8,9 @@ local Registry = require("registry")
 local Graph = require("graph")
 local Serialize = require("serialize")
 local Json = require("json")
-local Runtime = require("runtime")
+local Runtime = require("src/runtime")
 local newFakeEventSource = require("fake_event_source")
-local InventoryTrigger = require("nodes/triggers/inventory")
+local InventoryTrigger = require("src/nodes/triggers/inventory")
 
 local INV, BANK = config.Inv.INV, config.Inv.BANK
 

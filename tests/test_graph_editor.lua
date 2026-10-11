@@ -13,8 +13,8 @@ end }) }
 local luaunit = require("luaunit")
 local Registry = require("registry")
 local Graph = require("graph")
-local Editor = require("ui/graph")
-local View = require("ui/view")
+local Editor = require("src/ui/graph")
+local View = require("src/ui/view")
 
 TestGraphEditor = {}
 
@@ -433,8 +433,8 @@ function TestGraphEditor:testOnResetViewSyncsSliderToDefaultRung()
 end
 
 function TestGraphEditor:testPlaceFromPlusCentersNodeBodyOnViewCenter()
-    local Theme = require("ui/theme")
-    local Node = require("ui/node")
+    local Theme = require("src/ui/theme")
+    local Node = require("src/ui/node")
     local editor = Editor.new(self.registry, nil)
     editor:BindEntry(1, self.graph, {})
     editor.window.w, editor.window.h = 400, 300
@@ -585,8 +585,8 @@ function TestGraphEditor:testFilteredPaletteFindsNonDefaultModeAndAddsInIt()
 end
 
 function TestGraphEditor:testApplyNodeModeGeometryMatchesGetPins()
-    local Theme = require("ui/theme")
-    local Node = require("ui/node")
+    local Theme = require("src/ui/theme")
+    local Node = require("src/ui/node")
     registerModeFixture(self.registry)
     local editor = Editor.new(self.registry, nil)
     editor:BindEntry(1, self.graph, {})

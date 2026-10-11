@@ -1,7 +1,7 @@
 -- Text.StripTags (#55).
 
 local luaunit = require("luaunit")
-local Text = require("text")
+local Text = require("src/text")
 
 TestStripTags = {}
 

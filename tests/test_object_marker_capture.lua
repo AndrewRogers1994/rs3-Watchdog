@@ -2,7 +2,7 @@
 
 local luaunit = require("luaunit")
 local newFakeEventSource = require("fake_event_source")
-local ObjectMarkerCapture = require("ui/object_marker_capture")
+local ObjectMarkerCapture = require("src/ui/object_marker_capture")
 
 local function locEntry(overrides)
     local e = {

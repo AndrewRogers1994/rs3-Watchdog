@@ -8,8 +8,8 @@
 _G.Vector4 = _G.Vector4 or { new = function(r, g, b, a) return { r, g, b, a } end }
 
 local luaunit = require("luaunit")
-local ScreenMarker = require("nodes/actions/screen_marker")
-local EffectRegistry = require("effects")
+local ScreenMarker = require("src/nodes/actions/screen_marker")
+local EffectRegistry = require("src/effects")
 -- Real engine (LibNodeGraph, on package.path - see tests/run.lua), so run() is exercised
 -- through a genuine ctx rather than a fabricated one.
 local Registry = require("registry")

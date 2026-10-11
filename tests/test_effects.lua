@@ -2,7 +2,7 @@
 -- Canvas drawing is a client primitive and is not asserted here - draw is only recorded as called (#29 AC).
 
 local luaunit = require("luaunit")
-local EffectRegistry = require("effects")
+local EffectRegistry = require("src/effects")
 
 TestEffects = {}
 

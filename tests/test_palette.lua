@@ -10,8 +10,8 @@ _G.config = { Font = setmetatable({}, { __index = function()
 end }) }
 
 local luaunit = require("luaunit")
-local Palette = require("ui/palette")
-local Theme = require("ui/theme")
+local Palette = require("src/ui/palette")
+local Theme = require("src/ui/theme")
 
 TestPalette = {}
 

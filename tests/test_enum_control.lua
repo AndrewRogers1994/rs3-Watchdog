@@ -3,7 +3,7 @@
 
 local luaunit = require("luaunit")
 local FakeHost = require("fake_control_host")
-local Enum = require("ui/controls/enum")
+local Enum = require("src/ui/controls/enum")
 
 local boolEnum = Enum.new({ { value = true, label = "true" }, { value = false, label = "false" } })
 -- Mirrors the toast icon spec: a nil-valued "None" plus real sprite ids.

@@ -5,7 +5,7 @@
 local luaunit = require("luaunit")
 local Registry = require("registry")
 local Graph = require("graph")
-local ShortestPath = require("nodes/actions/shortest_path")
+local ShortestPath = require("src/nodes/actions/shortest_path")
 
 local END_COORD = { x = 10, y = 20, z = 0 }
 
