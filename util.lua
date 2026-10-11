@@ -48,5 +48,11 @@ function Util.ColorToInt(color)
     return (r << 24) | (g << 16) | (b << 8) | a
 end
 
+-- RestrictedAreas owns the area predicate.
+---@return boolean
+function Util.PlayerIsRestricted()
+    return RestrictedAreas.IsRestricted() == true
+end
+
 
 return Util

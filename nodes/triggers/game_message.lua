@@ -1,6 +1,7 @@
 local ChatTypes = require("chat_types")
 local Matcher = require("matcher")
 local Text = require("text")
+local Util = require("util")
 
 local GameMessage = {}
 
@@ -18,6 +19,9 @@ local function transform(raw)
 end
 
 local function passesFilter(payload, node)
+    if Util.PlayerIsRestricted() then
+        return false
+    end
     if payload == nil or type(payload.message) ~= "string" then
         return false
     end

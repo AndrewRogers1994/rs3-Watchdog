@@ -1,11 +1,12 @@
 {
   "name": "Watchdog",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "hasSettingsIcon": true,
   "hasRibbonIcon": true,
   "requiredDependencies": {
     "LibNodeGraph": 6398478,
     "LibNodeGraphStd": 6398482,
+    "RestrictedAreas": 6442936,
     "prettyui": 6398181
   },
   "requiredPermissions": ["trackingAccess"],

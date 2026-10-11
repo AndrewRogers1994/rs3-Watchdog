@@ -1,15 +1,15 @@
 {
   "name": "Watchdog",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "hasSettingsIcon": true,
   "hasRibbonIcon": true,
   "requiredDependencies": {
     "LibNodeGraph": "LibNodeGraph",
     "LibNodeGraphStd": "LibNodeGraphStd",
+    "RestrictedAreas": "RestrictedAreas",
     "prettyui": "prettyui"
   },
   "optionalDependencies": {
-    "LibPluginMenu": "LibPluginMenu",
     "shortestpath": "shortestpath"
   },
   "requiredPermissions": [],

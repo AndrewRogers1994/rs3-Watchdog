@@ -1,4 +1,5 @@
 local Matcher = require("matcher")
+local Util = require("util")
 
 local EntitySpawn = {}
 
@@ -78,6 +79,9 @@ local function objChangedTransform(raw)
 end
 
 local function passesFilter(payload, node)
+    if Util.PlayerIsRestricted() then
+        return false
+    end
     if payload == nil or payload.transition == nil then
         return false
     end

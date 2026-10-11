@@ -35,8 +35,8 @@ The Plugin Hub manage-tab page for this plugin. Watchdog's page says how to open
 _Avoid_: Options menu, config screen, the Alert Manager
 
 **Content layer**:
-The shared ribbon panel plugins register into. Watchdog registers one button, labeled Toggle, that performs the shell toggle.
-_Avoid_: PrettyUI ribbon (that is a separate button with the same toggle), Plugin Hub
+The in-game panel for this plugin. The player places it, including beside the inventory, and it stays on screen while playing. Watchdog's panel has one button, labeled Toggle, that performs the shell toggle. While the player is Restricted, a line under that button reads In Restricted Area, in red, and a description under it says spawn and game-message alerts stay quiet while other alerts still run. Otherwise the panel is only the button. The panel reads the current answer when it is shown, and then follows Restricted changes.
+_Avoid_: PrettyUI ribbon (that is a separate button with the same toggle), Settings layer (the manage-tab page)
 
 **Shell toggle**:
 The gesture that shows or hides the Watchdog shell. F8, the PrettyUI ribbon, and the content-layer Toggle all perform it. While an Object Marker capture is armed, the gesture cancels the capture and leaves the shell where it is.
@@ -372,7 +372,8 @@ replayed), disarms but stays resident on leaving `GAME`, and is discarded+reload
 Tracking ID changes. A rename keeps the same Bucket. Identity has no switch event, so it's resolved by a **pending-resolve flag drained on
 Logic ticks** (which also covers a plugin reload mid-session). **Fire predicate: armed Bucket AND
 enabled-chain true — nothing else** (editor state and the Manager's selected Scope never gate
-firing) (#77, #89).
+firing) (#77, #89). Entity Spawn and the Game Message trigger also stay silent while the player
+is Restricted; that silence is those triggers' own rule, not this predicate.
 _Avoid_: Active / loaded (ambiguous between the two states), enabled (that is the per-Entry switch)
 
 **Level** / **bound entry**:
@@ -461,6 +462,10 @@ _Avoid_: Owner (Scope avoids that word), isOwner (that is the event field's name
 **Mine only**:
 An Entity Spawn control, default off. When on, ground-stack events the player does not own are dropped. NPC and player events still fire.
 _Avoid_: Owned-only filter on NPCs, isOwner control
+
+**Restricted**:
+The local player is somewhere RestrictedAreas reports as Restricted. While Restricted, the Entity Spawn trigger and the Game Message trigger do not Fire. Player Chat, Location, Inventory, Skill, and Logic still Fire. The Game Message action still inserts a line. Effects already showing keep showing. Both triggers stay placeable. If the player's tile cannot be read, RestrictedAreas reports Restricted.
+_Avoid_: lite, restricted mode
 
 **Container**:
 Which client inventory an Inventory Trigger watches. v1 is two engine `InvType`s, labeled
