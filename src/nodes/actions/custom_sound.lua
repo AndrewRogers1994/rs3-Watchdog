@@ -19,6 +19,32 @@ local function preloadResource(resource)
     loaded[resource] = true
 end
 
+-- Keys match `audio.AudioBus` field names. Stored as strings so the dropdown does not
+-- depend on the client enum existing at load; `run` resolves them to the live values.
+-- Curated subset: the mixer has many sub-buses that are not useful as a user choice.
+local DEFAULT_BUS = "SFX"
+local BUS_CHOICES = {
+    { value = "MASTER",    label = "Master" },
+    { value = "SFX",       label = "SFX" },
+    { value = "MUSIC",     label = "Music" },
+    { value = "AMBIENT",   label = "Ambient" },
+    { value = "VOICEOVER", label = "Voiceover" },
+}
+
+function CustomSound.BusChoices()
+    return BUS_CHOICES
+end
+
+---@param name any
+---@return any
+local function resolveBus(name)
+    local buses = audio.AudioBus
+    if type(name) == "string" and buses[name] ~= nil then
+        return buses[name]
+    end
+    return buses[DEFAULT_BUS]
+end
+
 function CustomSound.ResourceChoices()
     local names = {}
     if Plugin ~= nil and Plugin.resources ~= nil and Plugin.resources.audio ~= nil then
@@ -43,6 +69,10 @@ function CustomSound.Register(registry)
         widget = "enum",
         choices = CustomSound.ResourceChoices(),
     })
+    Controls.Register("customSoundBus", {
+        widget = "enum",
+        choices = CustomSound.BusChoices(),
+    })
 
     registry:RegisterNodeType("action.custom_sound", {
         category = "action",
@@ -51,6 +81,8 @@ function CustomSound.Register(registry)
             { name = "in", kind = "exec", direction = "in" },
             { name = "resource", kind = "data", direction = "in", dataType = "customSoundResource",
               default = nil },
+            { name = "bus", kind = "data", direction = "in", dataType = "customSoundBus",
+              default = DEFAULT_BUS, label = "Bus" },
             { name = "volume", kind = "data", direction = "in", dataType = "number", default = 100 },
             { name = "loops", kind = "data", direction = "in", dataType = "number", default = 0 },
         },
@@ -71,7 +103,7 @@ function CustomSound.Register(registry)
             local params = audio.SoundPlaybackParams.new()
             params.volume = volume / 100
             params.numLoops = loops
-            params.audioBus = audio.AudioBus.SFX
+            params.audioBus = resolveBus(ctx:In("bus"))
             audio.Play(resource, params)
         end,
     })

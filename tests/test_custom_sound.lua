@@ -26,10 +26,17 @@ local function stubResource(loaded)
     }
 end
 
--- Fake of the client `audio` global: SoundPlaybackParams.new(), AudioBus.SFX, Play records the call.
+-- Fake of the client `audio` global: SoundPlaybackParams.new(), AudioBus.*, Play records the call.
+-- Values are sentinels, not the client's integer enum, so a test can see which key was resolved.
 local function makeFakeAudio(calls)
     return {
-        AudioBus = { SFX = "sfx" },
+        AudioBus = {
+            MASTER = "master",
+            SFX = "sfx",
+            MUSIC = "music",
+            AMBIENT = "ambient",
+            VOICEOVER = "voiceover",
+        },
         SoundPlaybackParams = { new = function() return {} end },
         Play = function(res, params) calls[#calls + 1] = { res = res, params = params } end,
     }
@@ -55,6 +62,9 @@ function TestCustomSoundRegistration:testRegistersActionCustomSoundPins()
     for _, pin in ipairs(self.desc.pins) do byName[pin.name] = pin end
     luaunit.assertEquals(byName["in"].kind, "exec")
     luaunit.assertEquals(byName.resource.dataType, "customSoundResource")
+    luaunit.assertEquals(byName.bus.dataType, "customSoundBus")
+    luaunit.assertEquals(byName.bus.default, "SFX")
+    luaunit.assertEquals(byName.bus.label, "Bus")
     luaunit.assertEquals(byName.volume.dataType, "number")
     luaunit.assertEquals(byName.volume.default, 100)
     luaunit.assertEquals(byName.loops.dataType, "number")
@@ -68,6 +78,18 @@ function TestCustomSoundRegistration:testResourceChoicesEnumeratesPluginResource
     luaunit.assertEquals(byLabel["None"], nil)
     luaunit.assertEquals(byLabel["beep"], "beep")
     luaunit.assertEquals(byLabel["boop"], "boop")
+end
+
+function TestCustomSoundRegistration:testBusChoicesAreTheCuratedSetDefaultingToSfx()
+    local choices = CustomSound.BusChoices()
+    local byLabel = {}
+    for _, c in ipairs(choices) do byLabel[c.label] = c.value end
+    luaunit.assertEquals(byLabel["Master"], "MASTER")
+    luaunit.assertEquals(byLabel["SFX"], "SFX")
+    luaunit.assertEquals(byLabel["Music"], "MUSIC")
+    luaunit.assertEquals(byLabel["Ambient"], "AMBIENT")
+    luaunit.assertEquals(byLabel["Voiceover"], "VOICEOVER")
+    luaunit.assertEquals(#choices, 5)
 end
 
 function TestCustomSoundRegistration:testResourceChoicesIsJustNoneWithoutPlugin()
@@ -94,12 +116,33 @@ function TestCustomSoundRun:tearDown()
     _G.audio = nil
 end
 
-function TestCustomSoundRun:testPlaysChosenResourceWithDefaultsAndBusHardcodedToSfx()
+function TestCustomSoundRun:testPlaysChosenResourceWithDefaultsOnSfxBus()
     self.desc.run(makeCtx({ resource = "beep" }))
     luaunit.assertEquals(#self.calls, 1)
     luaunit.assertEquals(self.calls[1].res, self.resources.beep)
     luaunit.assertEquals(self.calls[1].params.volume, 1.0)
     luaunit.assertEquals(self.calls[1].params.numLoops, 0)
+    luaunit.assertEquals(self.calls[1].params.audioBus, "sfx")
+end
+
+function TestCustomSoundRun:testHonorsBusPin()
+    local expected = {
+        MASTER = "master",
+        SFX = "sfx",
+        MUSIC = "music",
+        AMBIENT = "ambient",
+        VOICEOVER = "voiceover",
+    }
+    for key, bus in pairs(expected) do
+        for i = #self.calls, 1, -1 do self.calls[i] = nil end
+        self.desc.run(makeCtx({ resource = "beep", bus = key }))
+        luaunit.assertEquals(#self.calls, 1)
+        luaunit.assertEquals(self.calls[1].params.audioBus, bus)
+    end
+end
+
+function TestCustomSoundRun:testUnknownBusFallsBackToSfx()
+    self.desc.run(makeCtx({ resource = "beep", bus = "DIALOG_SUB" }))
     luaunit.assertEquals(self.calls[1].params.audioBus, "sfx")
 end
 
