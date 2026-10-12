@@ -51,7 +51,7 @@ local Util = require("src/util")
 ---@field new fun(eventSource: any|nil, mouseSource: any|nil, identitySource: Watchdog.IdentitySource|nil): Watchdog.Runtime
 ---@field SetBucketLoader fun(self: Watchdog.Runtime, loader: fun(trackingId: string): Watchdog.RestoredAlert[])
 ---@field GetActiveCharacter fun(self: Watchdog.Runtime): string|nil, string|nil
----@field Update fun(self: Watchdog.Runtime, dt: number)
+---@field Update fun(self: Watchdog.Runtime)
 ---@field GetMousePos fun(self: Watchdog.Runtime): number|nil, number|nil
 ---@field AddAlert fun(self: Watchdog.Runtime, id: integer|nil, name: string|nil, graph: LibNodeGraph.Graph|nil, enabled: boolean|nil, bucketKey: string|nil): Watchdog.RuntimeAlert
 ---@field RemoveAlert fun(self: Watchdog.Runtime, id: integer): boolean
@@ -291,11 +291,9 @@ function Runtime:GetActiveCharacter()
     return bucket.displayName, key
 end
 
----@param dt number
-function Runtime:Update(dt)
+function Runtime:Update()
     self:_drainPendingResolve()
     self:_pollMouseActivity()
-    self.effects:Update(dt)
 end
 
 -- Interface units - use this, not raw Mouse.GetPosition (ui/iface_scale.lua).

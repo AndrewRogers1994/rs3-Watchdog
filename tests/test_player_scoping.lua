@@ -98,7 +98,7 @@ function TestPlayerScoping:login(trackingId, displayName)
         self.identity.displayName = displayName
     end
     self.source:Push("GameStateChanged", { newState = GAME })
-    self.runtime:Update(0.02)
+    self.runtime:Update()
 end
 
 -- Leaves GAME (logout / world-hop / reconnect). Does not clear the identity name - a world-hop
@@ -210,7 +210,7 @@ function TestPlayerScoping:testIdentityResolvesDeferredOnLogicTick()
     self.source:Push("Custom", "before-tick")
     luaunit.assertNil(g:GetLastValue(nid, "payload"))
 
-    self.runtime:Update(0.02)
+    self.runtime:Update()
     self.source:Push("Custom", "after-tick")
     luaunit.assertEquals(g:GetLastValue(nid, "payload"), "after-tick")
     luaunit.assertEquals(self.loader.calls, { "tid-1" })
@@ -220,12 +220,12 @@ function TestPlayerScoping:testPendingResolveRetriesUntilTrackingIdReadable()
     local g, nid = self:seedCharacterAlert("tid-1", 1, "a", true)
     -- GAME arrives but the Tracking ID isn't readable yet (logged out / empty id).
     self.source:Push("GameStateChanged", { newState = GAME })
-    self.runtime:Update(0.02)
+    self.runtime:Update()
     luaunit.assertEquals(#self.loader.calls, 0)
 
     self.identity.trackingId = "tid-1"
     self.identity.displayName = "Alice"
-    self.runtime:Update(0.02)
+    self.runtime:Update()
     self.source:Push("Custom", "resolved")
     luaunit.assertEquals(g:GetLastValue(nid, "payload"), "resolved")
     luaunit.assertEquals(self.loader.calls, { "tid-1" })
@@ -245,7 +245,7 @@ function TestPlayerScoping:testColdStartResolvesInWorldOnConstruction()
     loader.buckets["tid-1"] = { { id = 1, name = "a", graph = graph, enabled = true } }
     runtime:BindTrigger("fixture.echo", { { event = "Custom" } })
 
-    runtime:Update(0.02)
+    runtime:Update()
     source:Push("Custom", "cold-start")
     luaunit.assertEquals(graph:GetLastValue(nodeId, "payload"), "cold-start")
     luaunit.assertEquals(loader.calls, { "tid-1" })
@@ -406,7 +406,7 @@ function TestPlayerScoping:testStopUnsubscribesLifecycle()
     self.runtime:Stop()
     -- After Stop, a GAME transition is no longer observed, so no pending resolve is raised.
     self.source:Push("GameStateChanged", { newState = GAME })
-    self.runtime:Update(0.02)
+    self.runtime:Update()
     luaunit.assertEquals(#self.loader.calls, 0)
 end
 

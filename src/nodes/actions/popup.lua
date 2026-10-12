@@ -232,7 +232,7 @@ function Popup.Register(registry, runtime)
             { name = "icon", kind = "data", direction = "in", dataType = "popup.icon", default = nil },
             { name = "theme", kind = "data", direction = "in", dataType = "popup.theme",
               default = Popup.DEFAULT_THEME },
-            { name = "hold", kind = "data", direction = "in", dataType = "number",
+            { name = "hold", label = "Hold (seconds)", kind = "data", direction = "in", dataType = "number",
               default = Popup.DEFAULT_HOLD_SECONDS },
         },
         run = function(ctx)
