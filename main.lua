@@ -807,13 +807,9 @@ persistNow = function()
     end
 end
 
-local LOGIC_TICK_LAST = 0
-local LOGIC_TICK_DELTA = 0
----@param logicEvent Logic
-local function onLogic(logicEvent)
-    LOGIC_TICK_DELTA = logicEvent.logicTick - LOGIC_TICK_LAST
-    pcall(function() runtime:Update(LOGIC_TICK_DELTA) end)
-    pcall(function() runtime.toast:Update(LOGIC_TICK_DELTA) end)
+local function onLogic()
+    pcall(function() runtime:Update() end)
+    pcall(function() runtime.toast:Update() end)
 
     if state.infoboxMounted then
         pcall(function() runtime.infobox:Reposition() end)
@@ -907,11 +903,10 @@ local function onLogic(logicEvent)
         pcall(persistNow)
     end
     saveState.wasOpen = isOpen
-
-    LOGIC_TICK_LAST = logicEvent.logicTick
 end
 
-local function onDraw()
+local function onDraw(drawEvent)
+    pcall(function() runtime.effects:Update(drawEvent.timeDeltaSecs) end)
     if state.mounted then
         pcall(function() editor:draw() end)
     end

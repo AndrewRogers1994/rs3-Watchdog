@@ -276,7 +276,7 @@ function Toast:Unmount()
 end
 
 -- Reposition capture over the live stack so it only intercepts toast clicks.
-function Toast:Update(dt)
+function Toast:Update()
     if self._pressed and Mouse ~= nil and Mouse.GetPosition ~= nil then
         local ok, pos = pcall(Mouse.GetPosition)
         if ok and pos ~= nil then
