@@ -2,7 +2,7 @@ local Controls = require("src/ui/controls")
 
 local ScreenFlash = {}
 
-local SEGMENT_TICKS = 25
+local SEGMENT_TICKS = 50
 local CYCLE_TICKS = SEGMENT_TICKS * 2
 
 Controls.Register("shape", {
