@@ -287,7 +287,26 @@ end
 
 --- Fonts ---------------------------------------------------------------------------
 
-local fontCache = {}
+-- Museo Sans ships as discrete faces, not a style flag on one font. Regular and bold
+-- are different enum names (MUSEO_SANS_nPT_REGULAR / MUSEO_SANS_nPT_BOLD), and the
+-- bold buckets are a different set (no 11pt bold; 27pt is bold-only). Search stays
+-- inside the requested weight so a missing bold size snaps to another bold face
+-- instead of silently drawing regular.
+
+local fontCache = { regular = {}, bold = {} }
+local fontObjCache = { regular = {}, bold = {} }
+
+local function clampPt(pt)
+    return math.max(8, math.min(40, math.floor(pt + 0.5)))
+end
+
+local function weightBucket(cache, bold)
+    return bold and cache.bold or cache.regular
+end
+
+local function fontNameAt(sz, bold)
+    return "MUSEO_SANS_" .. sz .. "PT_" .. (bold and "BOLD" or "REGULAR")
+end
 
 local function fontByName(name)
     if id == nil or id.Font == nil then
@@ -304,38 +323,6 @@ local function fontByName(name)
     return nil
 end
 
--- Resolves a MUSEO_SANS font ID at (or near) the requested point size, searching
--- outward for the nearest available bucket. Cached per size. Returns nil if fonts
--- are unavailable (caller then skips text).
-function Theme.Font(pt)
-    pt = math.max(8, math.min(40, math.floor(pt + 0.5)))
-    if fontCache[pt] ~= nil then
-        return fontCache[pt] or nil
-    end
-
-    local function fontAt(sz)
-        return fontByName("MUSEO_SANS_" .. sz .. "PT_REGULAR")
-            or fontByName("MUSEO_SANS_" .. sz .. "PT")
-    end
-
-    local font = fontAt(pt)
-    if font == nil then
-        for offset = 1, 32 do
-            local lo, hi = pt - offset, pt + offset
-            if lo >= 8 then font = fontAt(lo) end
-            if font == nil and hi <= 40 then font = fontAt(hi) end
-            if font ~= nil then break end
-        end
-    end
-
-    fontCache[pt] = font or false  -- cache the miss too, so we don't re-scan every frame
-    return font or nil
-end
-
--- The measurable font OBJECT (a `config.Font` / FontType with :GetStringWidth), as opposed
--- to Theme.Font's integer id used by canvas:AddText. Same nearest-size search + caching.
-local fontObjCache = {}
-
 local function fontObjByName(name)
     if config == nil or config.Font == nil then return nil end
     local ok, f = pcall(function() return config.Font[name] end)
@@ -343,39 +330,59 @@ local function fontObjByName(name)
     return nil
 end
 
-local function fontObjAt(sz)
-    return fontObjByName("MUSEO_SANS_" .. sz .. "PT_REGULAR")
-        or fontObjByName("MUSEO_SANS_" .. sz .. "PT")
-end
+-- Nearest available face in one weight. `lookup(name)` returns a usable font or nil.
+-- Cached per (weight, size), including misses, so a frame doesn't re-scan the enum.
+local function resolveFace(pt, bold, cache, lookup)
+    pt = clampPt(pt)
+    local bucket = weightBucket(cache, bold)
+    if bucket[pt] ~= nil then
+        return bucket[pt] or nil
+    end
 
-function Theme.FontObject(pt)
-    pt = math.max(8, math.min(40, math.floor(pt + 0.5)))
-    if fontObjCache[pt] ~= nil then return fontObjCache[pt] or nil end
-    local f = fontObjAt(pt)
-    if f == nil then
+    local function faceAt(sz)
+        return lookup(fontNameAt(sz, bold))
+    end
+
+    local face = faceAt(pt)
+    if face == nil then
         for offset = 1, 32 do
             local lo, hi = pt - offset, pt + offset
-            if lo >= 8 then f = fontObjAt(lo) end
-            if f == nil and hi <= 40 then f = fontObjAt(hi) end
-            if f ~= nil then break end
+            if lo >= 8 then face = faceAt(lo) end
+            if face == nil and hi <= 40 then face = faceAt(hi) end
+            if face ~= nil then break end
         end
     end
-    fontObjCache[pt] = f or false
-    return f or nil
+
+    bucket[pt] = face or false
+    return face or nil
+end
+
+-- Resolves a MUSEO_SANS font ID at (or near) the requested point size. Pass bold=true
+-- for the bold face. Cached per size and weight. Returns nil if that weight is
+-- unavailable (caller then skips text).
+function Theme.Font(pt, bold)
+    return resolveFace(pt, bold, fontCache, fontByName)
+end
+
+-- The measurable font OBJECT (a `config.Font` / FontType with :GetStringWidth), as opposed
+-- to Theme.Font's integer id used by canvas:AddText. Same weight + nearest-size search.
+function Theme.FontObject(pt, bold)
+    return resolveFace(pt, bold, fontObjCache, fontObjByName)
 end
 
 -- Pixel width of `text` drawn at ~`pt`, tags ignored, via the real font metrics - or nil if
 -- fonts/metrics are unavailable (a bare Lua runtime), so callers fall back to an estimate.
--- Cached per (pt,text) because node geometry is rebuilt every frame.
+-- `bold` selects the same face Theme.Font(pt, bold) draws. Cached per (weight, pt, text)
+-- because node geometry is rebuilt every frame.
 local widthCache = {}
 
-function Theme.TextWidth(pt, text)
+function Theme.TextWidth(pt, text, bold)
     if text == nil or text == "" then return 0 end
-    pt = math.max(8, math.min(40, math.floor(pt + 0.5)))
-    local key = pt .. "\0" .. text
+    pt = clampPt(pt)
+    local key = (bold and "b\0" or "r\0") .. pt .. "\0" .. text
     local cached = widthCache[key]
     if cached ~= nil then return cached or nil end
-    local f = Theme.FontObject(pt)
+    local f = Theme.FontObject(pt, bold)
     if f == nil then widthCache[key] = false; return nil end
     local ok, w = pcall(function() return f:GetStringWidth(text, true) end)
     if ok and type(w) == "number" then widthCache[key] = w; return w end

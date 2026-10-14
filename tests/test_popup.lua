@@ -1,7 +1,7 @@
 -- Exercises the Popup action node (nodes/actions/popup.lua, #38) through its pure seams:
--- the in->hold->out auto-expiry animation, the theme registry (Parchment default + Leagues,
--- plus the RegisterTheme extension seam), the curated icon dropdown, and the node's `run`
--- pushing a Queue-only effect handle onto a real EffectRegistry.
+-- the in->hold->out auto-expiry animation, the theme registry (Parchment default + the three
+-- Leagues image themes, plus the RegisterTheme extension seam), the curated icon dropdown,
+-- and the node's `run` pushing a Queue-only effect handle onto a real EffectRegistry.
 --
 -- The Canvas draw is a client primitive (ui.Canvas / id.Sprite) and is intentionally not
 -- asserted here - the handle's draw is only exercised for not-erroring against a fake canvas,
@@ -100,21 +100,16 @@ end
 
 function TestPopup:testAddSpriteColoursAreUintNotVector4()
     -- Regression (#47): ui.Canvas:AddSprite's colour arg is a Uint RGBA - there is no Vector4
-    -- overload - so a Vector4 there renders nothing. Drive both sprite paths (the 3-part frame
-    -- ribbon and the left icon) and assert every colour handed to AddSprite is a number.
-    _G.id = _G.id or {}
-    Popup.RegisterTheme("sprite_regression", {
-        kind = "sprites", label = "Sprite Regression", edgeW = 24,
-        sprites = { left = 1, mid = 2, right = 3 },
-    })
+    -- overload - so a Vector4 there renders nothing. The parchment icon is the remaining
+    -- AddSprite path (Leagues frames are plugin images on ui.Sprite, not cache ids).
     local canvas, calls = makeFakeCanvas()
     Popup.Draw(canvas, {
-        theme = Popup.ThemeFor("sprite_regression"),
+        theme = Popup.ThemeFor("parchment"),
         icon = 4,
         title = "T", body = "b",
         anim = { alpha = 1 },
     })
-    luaunit.assertEquals(calls.sprites, 4)
+    luaunit.assertEquals(calls.sprites, 1)
     for _, colour in ipairs(calls.spriteColours) do
         luaunit.assertEquals(type(colour), "number")
     end
@@ -127,8 +122,202 @@ function TestPopup:testDefaultThemeIsParchment()
     luaunit.assertNotNil(Popup.ThemeFor("parchment"))
 end
 
-function TestPopup:testLeaguesThemeIsRegistered()
-    luaunit.assertNotNil(Popup.ThemeFor("leagues"))
+function TestPopup:testLeaguesThemesAreRegisteredInOrder()
+    local choices = Popup.ThemeChoices()
+    luaunit.assertEquals(choices[1].value, "parchment")
+    luaunit.assertEquals(choices[2].value, "leagues_gold")
+    luaunit.assertEquals(choices[2].label, "Leagues Gold")
+    luaunit.assertEquals(choices[3].value, "leagues_red")
+    luaunit.assertEquals(choices[3].label, "Leagues Red")
+    luaunit.assertEquals(choices[4].value, "leagues_red_gold")
+    luaunit.assertEquals(choices[4].label, "Leagues Red/Gold")
+end
+
+-- ui.Sprite / ui.Text stand-ins. One shared image table so Popup's load cache and later
+-- tests agree on the same resource objects.
+local leaguesImages
+
+local function installFakeUi()
+    local created = { layers = {}, sprites = {}, texts = {} }
+    local function component()
+        local c = { hidden = false, alpha = 1 }
+        function c:SetPos(x, y) self.x, self.y = x, y end
+        function c:SetSize(w, h, pw, ph) self.w, self.h, self.pw, self.ph = w, h, pw, ph end
+        function c:AlignTo(mode) self.align = mode end
+        function c:MoveToFront() self.front = (self.front or 0) + 1 end
+        function c:Destroy() self.destroyed = true end
+        return c
+    end
+    local previousUi = _G.ui
+    _G.ui = {
+        AlignMode = { CENTRE = "CENTRE" },
+        Layer = { new = function()
+            local layer = component()
+            created.layers[#created.layers + 1] = layer
+            return layer
+        end },
+        Sprite = { new = function()
+            local sprite = component()
+            created.sprites[#created.sprites + 1] = sprite
+            return sprite
+        end },
+        Text = { new = function()
+            local text = component()
+            created.texts[#created.texts + 1] = text
+            return text
+        end },
+    }
+    return created, previousUi
+end
+
+local function installImages()
+    if leaguesImages == nil then
+        leaguesImages = {}
+        local names = {
+            "leagues_default_background",
+            "popup_leagues_trim_header",
+            "popup_leagues_trim_footer",
+            "popup_leagues_trim_side",
+            "ribbon_leagues_gold_0", "ribbon_leagues_gold_1", "ribbon_leagues_gold_2",
+            "ribbon_leagues_red_0", "ribbon_leagues_red_1", "ribbon_leagues_red_2",
+            "ribbon_leagues_red_gold_0", "ribbon_leagues_red_gold_1", "ribbon_leagues_red_gold_2",
+        }
+        for _, name in ipairs(names) do
+            leaguesImages[name] = {
+                name = name,
+                loaded = false,
+                Load = function(self)
+                    self.loaded = true
+                    self.loads = (self.loads or 0) + 1
+                    return "success"
+                end,
+            }
+        end
+    end
+    local previousPlugin = _G.Plugin
+    _G.Plugin = { resources = { images = leaguesImages } }
+    return leaguesImages, previousPlugin
+end
+
+function TestPopup:testLeaguesImageThemesAssignRibbonFiles()
+    local created, previousUi = installFakeUi()
+    local images, previousPlugin = installImages()
+    local canvas = makeFakeCanvas()
+    canvas.parent = { id = "leagues-assign" }
+
+    local function draw(themeName, alpha)
+        Popup.Draw(canvas, {
+            theme = Popup.ThemeFor(themeName),
+            title = "Relic Activated!",
+            body = "Excavator",
+            icon = 17127,
+            anim = { alpha = alpha or 1 },
+        })
+    end
+
+    draw("leagues_gold", 0.5)
+    local sprites = created.sprites
+    luaunit.assertEquals(#sprites, 9)
+    luaunit.assertEquals(sprites[1].sprite, images.leagues_default_background)
+    luaunit.assertTrue(sprites[1].isTiling)
+    luaunit.assertEquals(sprites[1].alpha, 0.5)
+    luaunit.assertEquals(sprites[1].x, 834)
+    luaunit.assertFalse(sprites[2].isFlippedHorizontally)
+    luaunit.assertTrue(sprites[3].isFlippedHorizontally)
+    luaunit.assertEquals(sprites[2].sprite, images.popup_leagues_trim_side)
+    luaunit.assertEquals(sprites[3].sprite, images.popup_leagues_trim_side)
+    luaunit.assertEquals(sprites[4].sprite, images.popup_leagues_trim_header)
+    luaunit.assertEquals(sprites[4].w, 173)
+    luaunit.assertEquals(sprites[4].h, 33)
+    luaunit.assertEquals(sprites[5].sprite, images.popup_leagues_trim_footer)
+    luaunit.assertEquals(sprites[5].w, 141)
+    luaunit.assertEquals(sprites[5].h, 34)
+    luaunit.assertEquals(sprites[6].sprite.name, "ribbon_leagues_gold_0")
+    luaunit.assertEquals(sprites[6].h, 75)
+    luaunit.assertEquals(sprites[7].sprite.name, "ribbon_leagues_gold_1")
+    luaunit.assertEquals(sprites[7].h, sprites[6].h)
+    luaunit.assertTrue(sprites[7].w > 1)
+    luaunit.assertEquals(sprites[8].sprite.name, "ribbon_leagues_gold_2")
+    luaunit.assertEquals(sprites[9].spriteID, 17127)
+    luaunit.assertFalse(sprites[9].hidden)
+    luaunit.assertFalse(created.layers[1].hidden)
+    luaunit.assertEquals(created.texts[1].content, "Relic Activated!")
+    luaunit.assertEquals(created.texts[1].align, "CENTRE")
+    luaunit.assertEquals(created.texts[2].content, "Excavator")
+    luaunit.assertTrue(images.ribbon_leagues_gold_0.loaded)
+    luaunit.assertEquals(images.leagues_default_background.loads, 1)
+
+    draw("leagues_red")
+    luaunit.assertEquals(sprites[6].sprite.name, "ribbon_leagues_red_0")
+    luaunit.assertEquals(sprites[7].sprite.name, "ribbon_leagues_red_1")
+    luaunit.assertEquals(sprites[8].sprite.name, "ribbon_leagues_red_2")
+    -- Already loaded on the first gold draw; a second theme must not Load the background again.
+    luaunit.assertEquals(images.leagues_default_background.loads, 1)
+
+    draw("leagues_red_gold")
+    luaunit.assertEquals(sprites[6].sprite.name, "ribbon_leagues_red_gold_0")
+    luaunit.assertEquals(sprites[7].sprite.name, "ribbon_leagues_red_gold_1")
+    luaunit.assertEquals(sprites[8].sprite.name, "ribbon_leagues_red_gold_2")
+
+    Popup.Draw(canvas, {
+        theme = Popup.ThemeFor("leagues_gold"),
+        anim = { alpha = 0 },
+    })
+    luaunit.assertTrue(created.layers[1].hidden)
+
+    Popup.Draw(canvas, {
+        theme = Popup.ThemeFor("parchment"),
+        title = "T", body = "b",
+        anim = { alpha = 1 },
+    })
+    luaunit.assertTrue(created.layers[1].hidden)
+
+    _G.ui = previousUi
+    _G.Plugin = previousPlugin
+end
+
+function TestPopup:testLeaguesDrawWithoutUiDoesNotThrow()
+    local previousUi = _G.ui
+    _G.ui = nil
+    local canvas, calls = makeFakeCanvas()
+    canvas.parent = { id = "leagues-headless" }
+    local ok = pcall(function()
+        Popup.Draw(canvas, {
+            theme = Popup.ThemeFor("leagues_red"),
+            title = "League task complete!",
+            body = "Mine 10 tin ore.",
+            anim = { alpha = 1 },
+        })
+    end)
+    _G.ui = previousUi
+    luaunit.assertTrue(ok)
+    luaunit.assertEquals(calls.rects, 0)
+end
+
+function TestPopup:testLeaguesLayerHidesWhenTheHandleExpires()
+    local created, previousUi = installFakeUi()
+    local _, previousPlugin = installImages()
+    local canvas = makeFakeCanvas()
+    canvas.parent = { id = "leagues-expiry" }
+    local effects = EffectRegistry.new()
+    local handle = Popup.BuildHandle({
+        theme = "leagues_gold",
+        title = "Relic Activated!",
+        body = "Excavator",
+        hold = 1,
+    })
+    effects:PushQueue(Popup.OWNER, handle)
+    -- Elapsed 0 is alpha 0, which hides before the layer is built. Step into the fade first.
+    effects:Update(0.05)
+    effects:Draw(canvas)
+    local layer = created.layers[#created.layers]
+    luaunit.assertNotNil(layer)
+    luaunit.assertFalse(layer.hidden)
+    local total = Popup.IN_SECONDS + 1 + Popup.OUT_SECONDS
+    effects:Update(total)
+    luaunit.assertTrue(layer.hidden)
+    _G.ui = previousUi
+    _G.Plugin = previousPlugin
 end
 
 function TestPopup:testUnknownThemeFallsBackToDefault()

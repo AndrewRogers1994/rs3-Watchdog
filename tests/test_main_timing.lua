@@ -1,7 +1,7 @@
 local luaunit = require("luaunit")
 local newFakeEventSource = require("fake_event_source")
-local Popup = require("nodes/actions/popup")
-local Toast = require("toast")
+local Popup = require("src/nodes/actions/popup")
+local Toast = require("src/toast")
 
 local globals = { "LibNodeGraph", "LibNodeGraphStd", "Event", "Plugin", "PluginPermissions",
     "prettyui", "id", "config", "PersistentDB", "Player", "Mouse", "LibPluginMenu",
