@@ -89,20 +89,17 @@ local LEAGUES_FRAME = {
     side = "popup_leagues_trim_side",
 }
 
-local function leaguesTheme(name, label, prefix)
+local function leaguesTheme(name, label, prefix, frame, layout)
     return Popup.RegisterTheme(name, {
         kind = "images",
         label = label,
-        frame = LEAGUES_FRAME,
+        frame = frame or LEAGUES_FRAME,
+        layout = layout,
         ribbon = { prefix .. "_0", prefix .. "_1", prefix .. "_2" },
         title = LEAGUES_TITLE,
         body = LEAGUES_BODY,
     })
 end
-
-leaguesTheme("leagues_gold", "Leagues Gold", "ribbon_leagues_gold")
-leaguesTheme("leagues_red", "Leagues Red", "ribbon_leagues_red")
-leaguesTheme("leagues_red_gold", "Leagues Red/Gold", "ribbon_leagues_red_gold")
 
 --- Curated notification-icon dropdown ----------------------------------------------------
 -- Subset of #20 research icon ids (high-confidence). nil = no icon.
@@ -134,25 +131,100 @@ local PNG_RIBBON_W, PNG_RIBBON_H = 133, 75
 local PNG_RIBBON_BAND = 36
 local PNG_SIDE_TOP, PNG_SIDE_BOTTOM = 28, 10
 
-local PANEL_W = 252
+local RIBBON_OVERHANG = 32
+local RIBBON_CAP_W = PNG_RIBBON_W
+local RIBBON_MID_W = PNG_RIBBON_W
+local RIBBON_W = RIBBON_CAP_W + RIBBON_MID_W + RIBBON_CAP_W
+-- The panel sits inside the ribbon. Each side loses one overhang.
+local PANEL_W = RIBBON_W - RIBBON_OVERHANG * 2
 local HEADER_H = PNG_HEADER_H
 local HEADER_W = PNG_HEADER_W
 local FOOTER_W = PNG_FOOTER_W
 local FOOTER_H = PNG_FOOTER_H
 local SIDE_W = math.max(1, PNG_SIDE_W)
 local SIDE_H = PNG_SIDE_H
-
-local RIBBON_OVERHANG = 32
-local RIBBON_MID_W = 120
-local RIBBON_W = PANEL_W + RIBBON_OVERHANG * 2
-local RIBBON_CAP_W = math.floor((RIBBON_W - RIBBON_MID_W) / 2)
 local RIBBON_H = PNG_RIBBON_H
 local RIBBON_BAND_H = math.max(1, math.floor(RIBBON_H * PNG_RIBBON_BAND / PNG_RIBBON_H + 0.5))
 local BAND_OVERLAP = math.max(2, math.floor(RIBBON_BAND_H * 0.25 + 0.5))
 
-local ICON_SIZE = 32
+local ICON_SIZE = 48
 local BODY_LINE = 18
 local CONTENT_PAD = 8
+
+-- Shared draw path. panelH nil means the panel grows with the text stack.
+local LEAGUES1_LAYOUT = {
+    panelW = PANEL_W,
+    headerW = HEADER_W,
+    headerH = HEADER_H,
+    footerW = FOOTER_W,
+    footerH = FOOTER_H,
+    footerNudge = 8,
+    ribbonH = RIBBON_H,
+    ribbonBand = RIBBON_BAND_H,
+    ribbonCapW = RIBBON_CAP_W,
+    ribbonMidW = RIBBON_MID_W,
+    ribbonDrop = HEADER_H,
+    panelDrop = HEADER_H + RIBBON_BAND_H - BAND_OVERLAP,
+    contentInset = SIDE_W + CONTENT_PAD,
+    contentTopPanel = HEADER_H,
+    contentBottomTrim = FOOTER_H,
+    sideW = SIDE_W,
+    sideH = SIDE_H,
+    sideDrop = 16,
+    sideMarginTop = PNG_SIDE_TOP,
+    sideMarginBottom = PNG_SIDE_BOTTOM,
+}
+
+-- Header and footer stay at PNG size. The three ribbon pieces share the Leagues 1
+-- ribbon width and keep the PNG aspect, so none of them is stretched.
+local PNG2_HEADER_W, PNG2_HEADER_H = 304, 120
+local PNG2_FOOTER_W, PNG2_FOOTER_H = 80, 80
+local PNG2_RIBBON_W, PNG2_RIBBON_H = 266, 150
+local PNG2_RIBBON_BAND = 78
+local LEAGUES2_CAP_W = RIBBON_W / 3
+local LEAGUES2_MID_W = RIBBON_W / 3
+local LEAGUES2_RIBBON_H = LEAGUES2_CAP_W * PNG2_RIBBON_H / PNG2_RIBBON_W
+local LEAGUES2_BAND_H = LEAGUES2_RIBBON_H * PNG2_RIBBON_BAND / PNG2_RIBBON_H
+local LEAGUES2_FRAME = {
+    header = "leagues2_popup_header",
+    footer = "leagues2_popup_footer",
+}
+local scaleFactor = 192 / 304
+local LEAGUES2_LAYOUT = {
+    panelW = RIBBON_W - RIBBON_OVERHANG * 2,
+    panelH = 120,
+    headerW = 192,
+    headerH = PNG2_HEADER_H * scaleFactor,
+    footerW = PNG2_FOOTER_W * scaleFactor,
+    footerH = PNG2_FOOTER_H * scaleFactor,
+    footerNudge = PNG2_FOOTER_H * scaleFactor * 0.25,
+    ribbonH = LEAGUES2_RIBBON_H,
+    ribbonBand = LEAGUES2_BAND_H,
+    ribbonCapW = LEAGUES2_CAP_W,
+    ribbonMidW = LEAGUES2_MID_W,
+    ribbonDrop = 40,
+    panelDrop = 75,
+    contentInset = CONTENT_PAD,
+    contentTopPanel = -40,
+    contentBottomTrim = 0,
+    headerRelic = { x = 120, y = 8, size = 64 },
+    footerRelic = { x = 5, y = 4, size = 72 },
+    border = {
+        background = "RS3_PARENT_CONTENT_TILE",
+        side = "RS3_CHILD_FRAME_SIDE",
+        bottom = "RS3_CHILD_FRAME_BOTTOM_TILE",
+        corner = "RS3_CHILD_FRAME_BOTTOM_CORNER",
+        thickness = 4,
+        cornerSize = 22,
+    },
+}
+
+leaguesTheme("leagues_gold", "Leagues Gold", "ribbon_leagues_gold", LEAGUES_FRAME, LEAGUES1_LAYOUT)
+leaguesTheme("leagues_red", "Leagues Red", "ribbon_leagues_red", LEAGUES_FRAME, LEAGUES1_LAYOUT)
+leaguesTheme("leagues_red_gold", "Leagues Red/Gold", "ribbon_leagues_red_gold", LEAGUES_FRAME, LEAGUES1_LAYOUT)
+leaguesTheme("leagues2_gold", "Leagues 2 Gold", "ribbon_leagues2_gold", LEAGUES2_FRAME, LEAGUES2_LAYOUT)
+leaguesTheme("leagues2_green", "Leagues 2 Green", "ribbon_leagues2_green", LEAGUES2_FRAME, LEAGUES2_LAYOUT)
+leaguesTheme("leagues2_green_gold", "Leagues 2 Green/Gold", "ribbon_leagues2_green_gold", LEAGUES2_FRAME, LEAGUES2_LAYOUT)
 
 local function vec4(c, alpha)
     return Vector4.new(c[1], c[2], c[3], (c[4] or 1) * alpha)
@@ -248,20 +320,102 @@ local function ensureChrome(parent)
         sideRight = sprite(),
         header = sprite(),
         footer = sprite(),
+        headerRelic = sprite(),
+        footerRelic = sprite(),
         ribbonLeft = sprite(),
         ribbonMid = sprite(),
         ribbonRight = sprite(),
         icon = sprite(),
+        fill = sprite(),
+        borderLeft = sprite(),
+        borderRight = sprite(),
+        borderBottom = sprite(),
+        cornerLeft = sprite(),
+        cornerRight = sprite(),
         title = text(),
         body = text(),
     }
     return chrome
 end
 
-local function protectSideEnds(sprite)
+local function setMargins(sprite, left, top, right, bottom)
     if ui == nil or ui.Margin == nil then return end
-    -- Offsets are source pixels. The centre stem is what grows with the panel.
-    sprite.visualMargins = ui.Margin.new(0, PNG_SIDE_TOP, 0, PNG_SIDE_BOTTOM)
+    -- Offsets are source pixels. The centre is what grows when the sprite is larger.
+    sprite.visualMargins = ui.Margin.new(left, top, right, bottom)
+end
+
+local function hideSprite(sprite)
+    sprite.hidden = true
+end
+
+local function cacheSprite(name)
+    if name == nil or id == nil or id.Sprite == nil then return nil end
+    return id.Sprite[name]
+end
+
+local function placeCacheSprite(sprite, x, y, w, h, spriteID, alpha, tiling, flipX)
+    sprite.hidden = false
+    sprite:SetPos(px(x), px(y))
+    sprite:SetSize(math.max(1, px(w)), math.max(1, px(h)))
+    sprite.alpha = alpha
+    sprite.isTiling = tiling == true
+    sprite.isFlippedHorizontally = flipX == true
+    if spriteID ~= nil then
+        sprite.spriteID = spriteID
+    end
+end
+
+local BORDER_KEYS = { "fill", "borderLeft", "borderRight", "borderBottom", "cornerLeft", "cornerRight" }
+
+local function hideBorder(frame)
+    for _, key in ipairs(BORDER_KEYS) do
+        hideSprite(frame[key])
+    end
+end
+
+-- Fill, then the bottom and side tiles, then the corners so they cover the tile ends.
+local function drawBorder(frame, border, x, y, w, h, alpha)
+    local thickness = border.thickness
+    local corner = border.cornerSize
+    placeCacheSprite(frame.fill, x, y, w, h, cacheSprite(border.background), alpha, true, false)
+    placeCacheSprite(frame.borderBottom, x, y + h - thickness, w, thickness,
+        cacheSprite(border.bottom), alpha, true, false)
+    placeCacheSprite(frame.borderLeft, x, y, thickness, h, cacheSprite(border.side), alpha, true, false)
+    placeCacheSprite(frame.borderRight, x + w - thickness, y, thickness, h,
+        cacheSprite(border.side), alpha, true, false)
+    placeCacheSprite(frame.cornerLeft, x, y + h - corner, corner, corner,
+        cacheSprite(border.corner), alpha, false, false)
+    placeCacheSprite(frame.cornerRight, x + w - corner, y + h - corner, corner, corner,
+        cacheSprite(border.corner), alpha, false, true)
+    -- Created after the header and ribbon, so they paint above them until sent back.
+    -- Last call lands furthest back: fill, then edge tiles, then corners.
+    local function sink(sprite)
+        if sprite.MoveToBack ~= nil then
+            sprite:MoveToBack()
+        end
+    end
+    sink(frame.cornerRight)
+    sink(frame.cornerLeft)
+    sink(frame.borderRight)
+    sink(frame.borderLeft)
+    sink(frame.borderBottom)
+    sink(frame.fill)
+end
+
+-- well is a square in the PNG's pixels. It scales with the piece so the icon stays in the circle.
+local LEAGUES2_RELIC_SPRITE = "RS3_ICON_LEAGUES_2_UNLOCK_RELIC"
+
+local function placeRelic(sprite, pieceX, pieceY, pieceW, pieceH, pngW, pngH, well, alpha)
+    if well == nil then
+        hideSprite(sprite)
+        return
+    end
+    local sx = pieceW / pngW
+    local sy = pieceH / pngH
+    placeCacheSprite(sprite,
+        pieceX + well.x * sx, pieceY + well.y * sy,
+        well.size * sx, well.size * sy,
+        cacheSprite(LEAGUES2_RELIC_SPRITE), alpha, false, false)
 end
 
 local function placeSprite(sprite, x, y, w, h, resource, alpha)
@@ -330,12 +484,7 @@ local function drawLeagues(canvas, opts, theme, alpha)
     end
 
     local sw = screenWidth(canvas)
-    local panelX = (sw - PANEL_W) * 0.5
-    local ribbonW = PANEL_W + RIBBON_OVERHANG * 2
-    local ribbonX = panelX - RIBBON_OVERHANG
-    local headerY = TOP_MARGIN
-    local ribbonY = headerY + HEADER_H
-    local panelY = ribbonY + RIBBON_BAND_H - BAND_OVERLAP
+    local layout = theme.layout or LEAGUES1_LAYOUT
 
     local hasIcon = opts.icon ~= nil
     local hasBody = opts.body ~= nil and opts.body ~= ""
@@ -346,7 +495,31 @@ local function drawLeagues(canvas, opts, theme, alpha)
         stack = stack + BODY_LINE
     end
     stack = stack + CONTENT_PAD
-    local panelH = RIBBON_H * 0.5 + stack + FOOTER_H
+
+    local panelW = layout.panelW
+    local panelX = (sw - panelW) * 0.5
+    local headerW = layout.headerW
+    local headerH = layout.headerH
+    local headerY = TOP_MARGIN
+    local headerX = panelX + (panelW - headerW) * 0.5
+    local ribbonH = layout.ribbonH
+    local bandH = layout.ribbonBand
+    local capW = layout.ribbonCapW
+    local midW = layout.ribbonMidW
+    local ribbonW = capW * 2 + midW
+    local ribbonX = panelX + (panelW - ribbonW) * 0.5
+    local ribbonY = headerY + layout.ribbonDrop
+    local panelY = headerY + layout.panelDrop
+    local footerW = layout.footerW
+    local footerH = layout.footerH
+    local panelH = layout.panelH or (ribbonH * 0.5 + stack + footerH)
+    local footerX = panelX + (panelW - footerW) * 0.5
+    local footerY = panelY + panelH - footerH + layout.footerNudge
+    local inset = layout.contentInset
+    local contentX = panelX + inset
+    local contentW = panelW - inset * 2
+    local contentTop = panelY + layout.contentTopPanel + CONTENT_PAD
+    local contentBottom = panelY + panelH - layout.contentBottomTrim - CONTENT_PAD
 
     local images = theme.frame or LEAGUES_FRAME
     local ribbon = theme.ribbon or {}
@@ -357,45 +530,63 @@ local function drawLeagues(canvas, opts, theme, alpha)
         frame.layer:MoveToFront()
     end
 
-    placeSprite(frame.background, panelX, panelY, PANEL_W, panelH,
-        pluginImage(images.background), alpha)
-    frame.background.isTiling = true
+    if images.background ~= nil then
+        placeSprite(frame.background, panelX, panelY, panelW, panelH,
+            pluginImage(images.background), alpha)
+        frame.background.isTiling = true
+    else
+        hideSprite(frame.background)
+    end
 
-    placeSprite(frame.sideLeft, panelX - SIDE_W, panelY + 16, SIDE_W, SIDE_H,
-        pluginImage(images.side), alpha)
-    frame.sideLeft.isFlippedHorizontally = false
-    frame.sideLeft.isTiling = false
-    protectSideEnds(frame.sideLeft)
+    if layout.border ~= nil then
+        drawBorder(frame, layout.border, panelX, panelY, panelW, panelH, alpha)
+    else
+        hideBorder(frame)
+    end
 
-    placeSprite(frame.sideRight, panelX + PANEL_W, panelY + 16, SIDE_W, SIDE_H,
-        pluginImage(images.side), alpha)
-    frame.sideRight.isFlippedHorizontally = true
-    frame.sideRight.isTiling = false
-    protectSideEnds(frame.sideRight)
+    if images.side ~= nil then
+        local sideW = layout.sideW
+        local sideY = panelY + layout.sideDrop
+        placeSprite(frame.sideLeft, panelX - sideW, sideY, sideW, layout.sideH,
+            pluginImage(images.side), alpha)
+        frame.sideLeft.isFlippedHorizontally = false
+        frame.sideLeft.isTiling = false
+        setMargins(frame.sideLeft, 0, layout.sideMarginTop, 0, layout.sideMarginBottom)
 
-    placeSprite(frame.header, panelX + (PANEL_W - HEADER_W) * 0.5, headerY, HEADER_W, HEADER_H,
+        placeSprite(frame.sideRight, panelX + panelW, sideY, sideW, layout.sideH,
+            pluginImage(images.side), alpha)
+        frame.sideRight.isFlippedHorizontally = true
+        frame.sideRight.isTiling = false
+        setMargins(frame.sideRight, 0, layout.sideMarginTop, 0, layout.sideMarginBottom)
+    else
+        hideSprite(frame.sideLeft)
+        hideSprite(frame.sideRight)
+    end
+
+    placeSprite(frame.header, headerX, headerY, headerW, headerH,
         pluginImage(images.header), alpha)
     frame.header.isTiling = false
+    setMargins(frame.header, 0, 0, 0, 0)
 
-    placeSprite(frame.footer, panelX + (PANEL_W - FOOTER_W) * 0.5, panelY + panelH - FOOTER_H + 8,
-        FOOTER_W, FOOTER_H, pluginImage(images.footer), alpha)
+    placeSprite(frame.footer, footerX, footerY, footerW, footerH,
+        pluginImage(images.footer), alpha)
     frame.footer.isTiling = false
 
-    local midW = ribbonW - RIBBON_CAP_W * 2
-    placeSprite(frame.ribbonLeft, ribbonX, ribbonY, RIBBON_CAP_W, RIBBON_H,
+    placeRelic(frame.headerRelic, headerX, headerY, headerW, headerH,
+        PNG2_HEADER_W, PNG2_HEADER_H, layout.headerRelic, alpha)
+    placeRelic(frame.footerRelic, footerX, footerY, footerW, footerH,
+        PNG2_FOOTER_W, PNG2_FOOTER_H, layout.footerRelic, alpha)
+
+    placeSprite(frame.ribbonLeft, ribbonX, ribbonY, capW, ribbonH,
         pluginImage(ribbon[1]), alpha)
     frame.ribbonLeft.isTiling = false
-    placeSprite(frame.ribbonMid, ribbonX + RIBBON_CAP_W, ribbonY, midW, RIBBON_H,
+    placeSprite(frame.ribbonMid, ribbonX + capW, ribbonY, midW, ribbonH,
         pluginImage(ribbon[2]), alpha)
-    frame.ribbonMid.isTiling = true
-    placeSprite(frame.ribbonRight, ribbonX + ribbonW - RIBBON_CAP_W, ribbonY, RIBBON_CAP_W, RIBBON_H,
+    frame.ribbonMid.isTiling = false
+    placeSprite(frame.ribbonRight, ribbonX + ribbonW - capW, ribbonY, capW, ribbonH,
         pluginImage(ribbon[3]), alpha)
     frame.ribbonRight.isTiling = false
 
-    local contentX = panelX + SIDE_W + CONTENT_PAD
-    local contentW = PANEL_W - (SIDE_W + CONTENT_PAD) * 2
-    local contentTop = panelY + HEADER_H + CONTENT_PAD
-    local contentBottom = panelY + panelH - FOOTER_H - CONTENT_PAD
     local contentH = math.max(1, contentBottom - contentTop)
     local stackH = 0
     if hasIcon then stackH = stackH + ICON_SIZE end
@@ -417,7 +608,7 @@ local function drawLeagues(canvas, opts, theme, alpha)
     local titleColour = theme.title or LEAGUES_TITLE
     local bodyColour = theme.body or LEAGUES_BODY
     placeText(frame.title, opts.title, Theme.Font(14, true), titleColour, alpha,
-        ribbonX + RIBBON_CAP_W, ribbonY, midW, RIBBON_BAND_H)
+        ribbonX + capW, ribbonY, midW, bandH)
     if hasBody then
         placeText(frame.body, opts.body, Theme.Font(14), bodyColour, alpha,
             contentX, cursor, contentW, BODY_LINE)

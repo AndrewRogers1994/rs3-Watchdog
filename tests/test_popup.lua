@@ -131,6 +131,12 @@ function TestPopup:testLeaguesThemesAreRegisteredInOrder()
     luaunit.assertEquals(choices[3].label, "Leagues Red")
     luaunit.assertEquals(choices[4].value, "leagues_red_gold")
     luaunit.assertEquals(choices[4].label, "Leagues Red/Gold")
+    luaunit.assertEquals(choices[5].value, "leagues2_gold")
+    luaunit.assertEquals(choices[5].label, "Leagues 2 Gold")
+    luaunit.assertEquals(choices[6].value, "leagues2_green")
+    luaunit.assertEquals(choices[6].label, "Leagues 2 Green")
+    luaunit.assertEquals(choices[7].value, "leagues2_green_gold")
+    luaunit.assertEquals(choices[7].label, "Leagues 2 Green/Gold")
 end
 
 -- ui.Sprite / ui.Text stand-ins. One shared image table so Popup's load cache and later
@@ -145,6 +151,10 @@ local function installFakeUi()
         function c:SetSize(w, h, pw, ph) self.w, self.h, self.pw, self.ph = w, h, pw, ph end
         function c:AlignTo(mode) self.align = mode end
         function c:MoveToFront() self.front = (self.front or 0) + 1 end
+        function c:MoveToBack()
+            created.back = created.back or {}
+            created.back[#created.back + 1] = self
+        end
         function c:Destroy() self.destroyed = true end
         return c
     end
@@ -181,6 +191,11 @@ local function installImages()
             "ribbon_leagues_gold_0", "ribbon_leagues_gold_1", "ribbon_leagues_gold_2",
             "ribbon_leagues_red_0", "ribbon_leagues_red_1", "ribbon_leagues_red_2",
             "ribbon_leagues_red_gold_0", "ribbon_leagues_red_gold_1", "ribbon_leagues_red_gold_2",
+            "leagues2_popup_header",
+            "leagues2_popup_footer",
+            "ribbon_leagues2_gold_0", "ribbon_leagues2_gold_1", "ribbon_leagues2_gold_2",
+            "ribbon_leagues2_green_0", "ribbon_leagues2_green_1", "ribbon_leagues2_green_2",
+            "ribbon_leagues2_green_gold_0", "ribbon_leagues2_green_gold_1", "ribbon_leagues2_green_gold_2",
         }
         for _, name in ipairs(names) do
             leaguesImages[name] = {
@@ -217,11 +232,15 @@ function TestPopup:testLeaguesImageThemesAssignRibbonFiles()
 
     draw("leagues_gold", 0.5)
     local sprites = created.sprites
-    luaunit.assertEquals(#sprites, 9)
+    luaunit.assertEquals(#sprites, 17)
+    luaunit.assertTrue(sprites[6].hidden)
+    luaunit.assertTrue(sprites[7].hidden)
+    luaunit.assertTrue(sprites[12].hidden)
+    luaunit.assertTrue(sprites[17].hidden)
     luaunit.assertEquals(sprites[1].sprite, images.leagues_default_background)
     luaunit.assertTrue(sprites[1].isTiling)
     luaunit.assertEquals(sprites[1].alpha, 0.5)
-    luaunit.assertEquals(sprites[1].x, 834)
+    luaunit.assertEquals(sprites[1].x, 793)
     luaunit.assertFalse(sprites[2].isFlippedHorizontally)
     luaunit.assertTrue(sprites[3].isFlippedHorizontally)
     luaunit.assertEquals(sprites[2].sprite, images.popup_leagues_trim_side)
@@ -232,14 +251,18 @@ function TestPopup:testLeaguesImageThemesAssignRibbonFiles()
     luaunit.assertEquals(sprites[5].sprite, images.popup_leagues_trim_footer)
     luaunit.assertEquals(sprites[5].w, 141)
     luaunit.assertEquals(sprites[5].h, 34)
-    luaunit.assertEquals(sprites[6].sprite.name, "ribbon_leagues_gold_0")
-    luaunit.assertEquals(sprites[6].h, 75)
-    luaunit.assertEquals(sprites[7].sprite.name, "ribbon_leagues_gold_1")
-    luaunit.assertEquals(sprites[7].h, sprites[6].h)
-    luaunit.assertTrue(sprites[7].w > 1)
-    luaunit.assertEquals(sprites[8].sprite.name, "ribbon_leagues_gold_2")
-    luaunit.assertEquals(sprites[9].spriteID, 17127)
-    luaunit.assertFalse(sprites[9].hidden)
+    luaunit.assertEquals(sprites[8].sprite.name, "ribbon_leagues_gold_0")
+    luaunit.assertEquals(sprites[8].w, 133)
+    luaunit.assertEquals(sprites[8].h, 75)
+    luaunit.assertEquals(sprites[9].sprite.name, "ribbon_leagues_gold_1")
+    luaunit.assertEquals(sprites[9].h, sprites[8].h)
+    luaunit.assertEquals(sprites[9].w, 133)
+    luaunit.assertFalse(sprites[9].isTiling)
+    luaunit.assertTrue(sprites[9].w > 1)
+    luaunit.assertEquals(sprites[10].sprite.name, "ribbon_leagues_gold_2")
+    luaunit.assertEquals(sprites[10].w, 133)
+    luaunit.assertEquals(sprites[11].spriteID, 17127)
+    luaunit.assertFalse(sprites[11].hidden)
     luaunit.assertFalse(created.layers[1].hidden)
     luaunit.assertEquals(created.texts[1].content, "Relic Activated!")
     luaunit.assertEquals(created.texts[1].align, "CENTRE")
@@ -248,16 +271,16 @@ function TestPopup:testLeaguesImageThemesAssignRibbonFiles()
     luaunit.assertEquals(images.leagues_default_background.loads, 1)
 
     draw("leagues_red")
-    luaunit.assertEquals(sprites[6].sprite.name, "ribbon_leagues_red_0")
-    luaunit.assertEquals(sprites[7].sprite.name, "ribbon_leagues_red_1")
-    luaunit.assertEquals(sprites[8].sprite.name, "ribbon_leagues_red_2")
+    luaunit.assertEquals(sprites[8].sprite.name, "ribbon_leagues_red_0")
+    luaunit.assertEquals(sprites[9].sprite.name, "ribbon_leagues_red_1")
+    luaunit.assertEquals(sprites[10].sprite.name, "ribbon_leagues_red_2")
     -- Already loaded on the first gold draw; a second theme must not Load the background again.
     luaunit.assertEquals(images.leagues_default_background.loads, 1)
 
     draw("leagues_red_gold")
-    luaunit.assertEquals(sprites[6].sprite.name, "ribbon_leagues_red_gold_0")
-    luaunit.assertEquals(sprites[7].sprite.name, "ribbon_leagues_red_gold_1")
-    luaunit.assertEquals(sprites[8].sprite.name, "ribbon_leagues_red_gold_2")
+    luaunit.assertEquals(sprites[8].sprite.name, "ribbon_leagues_red_gold_0")
+    luaunit.assertEquals(sprites[9].sprite.name, "ribbon_leagues_red_gold_1")
+    luaunit.assertEquals(sprites[10].sprite.name, "ribbon_leagues_red_gold_2")
 
     Popup.Draw(canvas, {
         theme = Popup.ThemeFor("leagues_gold"),
@@ -274,6 +297,112 @@ function TestPopup:testLeaguesImageThemesAssignRibbonFiles()
 
     _G.ui = previousUi
     _G.Plugin = previousPlugin
+end
+
+function TestPopup:testLeagues2ThemesUsePanelFrameAndNativeRibbon()
+    local created, previousUi = installFakeUi()
+    local images, previousPlugin = installImages()
+    local canvas = makeFakeCanvas()
+    canvas.parent = { id = "leagues2-assign" }
+
+    local function draw(themeName)
+        Popup.Draw(canvas, {
+            theme = Popup.ThemeFor(themeName),
+            title = "Relic Activated!",
+            body = "Excavator",
+            icon = 17127,
+            anim = { alpha = 1 },
+        })
+    end
+
+    local previousId = _G.id
+    _G.id = {
+        Font = previousId and previousId.Font or nil,
+        Sprite = {
+            RS3_PARENT_CONTENT_TILE = 11,
+            RS3_CHILD_FRAME_BOTTOM_TILE = 12,
+            RS3_CHILD_FRAME_SIDE = 13,
+            RS3_CHILD_FRAME_BOTTOM_CORNER = 14,
+            RS3_ICON_LEAGUES_2_UNLOCK_RELIC = 15,
+        },
+    }
+
+    draw("leagues2_gold")
+    local sprites = created.sprites
+    luaunit.assertTrue(sprites[1].hidden)
+    luaunit.assertEquals(sprites[12].spriteID, 11)
+    luaunit.assertTrue(sprites[12].isTiling)
+    luaunit.assertEquals(sprites[12].x, 793)
+    luaunit.assertEquals(sprites[12].y, 99)
+    luaunit.assertEquals(sprites[12].w, 335)
+    luaunit.assertEquals(sprites[12].h, 120)
+    luaunit.assertEquals(sprites[13].spriteID, 13)
+    luaunit.assertEquals(sprites[13].w, 4)
+    luaunit.assertEquals(sprites[13].h, 120)
+    luaunit.assertEquals(sprites[14].x, 1124)
+    luaunit.assertEquals(sprites[14].w, 4)
+    luaunit.assertEquals(sprites[15].spriteID, 12)
+    luaunit.assertEquals(sprites[15].y, 215)
+    luaunit.assertEquals(sprites[15].h, 4)
+    luaunit.assertEquals(sprites[16].spriteID, 14)
+    luaunit.assertEquals(sprites[16].w, 22)
+    luaunit.assertEquals(sprites[16].y, 197)
+    luaunit.assertFalse(sprites[16].isFlippedHorizontally)
+    luaunit.assertTrue(sprites[17].isFlippedHorizontally)
+    luaunit.assertEquals(sprites[17].x, 1106)
+    luaunit.assertEquals(created.back[#created.back], sprites[12])
+    luaunit.assertTrue(sprites[2].hidden)
+    luaunit.assertTrue(sprites[3].hidden)
+    luaunit.assertEquals(sprites[4].sprite, images.leagues2_popup_header)
+    luaunit.assertEquals(sprites[4].x, 864)
+    luaunit.assertEquals(sprites[4].w, 192)
+    luaunit.assertEquals(sprites[4].h, 76)
+    luaunit.assertFalse(sprites[4].isTiling)
+    luaunit.assertEquals(sprites[5].sprite, images.leagues2_popup_footer)
+    luaunit.assertEquals(sprites[5].w, 51)
+    luaunit.assertEquals(sprites[5].h, 51)
+    luaunit.assertEquals(sprites[5].x, 935)
+    luaunit.assertEquals(sprites[5].y, 181)
+    luaunit.assertEquals(sprites[6].spriteID, 15)
+    luaunit.assertFalse(sprites[6].hidden)
+    luaunit.assertFalse(sprites[6].isTiling)
+    luaunit.assertEquals(sprites[6].x, 940)
+    luaunit.assertEquals(sprites[6].y, 29)
+    luaunit.assertEquals(sprites[6].w, 40)
+    luaunit.assertEquals(sprites[6].h, 40)
+    luaunit.assertEquals(sprites[7].spriteID, 15)
+    luaunit.assertFalse(sprites[7].hidden)
+    luaunit.assertEquals(sprites[7].x, 938)
+    luaunit.assertEquals(sprites[7].y, 184)
+    luaunit.assertEquals(sprites[7].w, 45)
+    luaunit.assertEquals(sprites[7].h, 45)
+    luaunit.assertEquals(sprites[8].sprite.name, "ribbon_leagues2_gold_0")
+    luaunit.assertEquals(sprites[8].w, 133)
+    luaunit.assertEquals(sprites[8].h, 75)
+    luaunit.assertEquals(sprites[8].x, 761)
+    luaunit.assertEquals(sprites[8].y, 64)
+    luaunit.assertEquals(sprites[9].sprite.name, "ribbon_leagues2_gold_1")
+    luaunit.assertFalse(sprites[9].isTiling)
+    luaunit.assertEquals(sprites[9].w, 133)
+    luaunit.assertEquals(sprites[9].h, 75)
+    luaunit.assertEquals(sprites[10].sprite.name, "ribbon_leagues2_gold_2")
+    luaunit.assertEquals(sprites[10].w, 133)
+    luaunit.assertEquals(sprites[10].h, 75)
+    luaunit.assertTrue(images.leagues2_popup_header.loaded)
+
+    draw("leagues2_green")
+    luaunit.assertEquals(sprites[8].sprite.name, "ribbon_leagues2_green_0")
+    luaunit.assertEquals(sprites[9].sprite.name, "ribbon_leagues2_green_1")
+    luaunit.assertEquals(sprites[10].sprite.name, "ribbon_leagues2_green_2")
+
+    draw("leagues2_green_gold")
+    luaunit.assertEquals(sprites[8].sprite.name, "ribbon_leagues2_green_gold_0")
+    luaunit.assertEquals(sprites[9].sprite.name, "ribbon_leagues2_green_gold_1")
+    luaunit.assertEquals(sprites[10].sprite.name, "ribbon_leagues2_green_gold_2")
+
+    _G.ui = previousUi
+    _G.Plugin = previousPlugin
+    _G.id = previousId
 end
 
 function TestPopup:testLeaguesDrawWithoutUiDoesNotThrow()
