@@ -1,5 +1,21 @@
 local luaunit = require("luaunit")
 local newFakeEventSource = require("fake_event_source")
+
+-- Popup.ICONS reads id.Sprite at load. Same cache ids as tests/test_popup.lua.
+id = id or {}
+id.Sprite = id.Sprite or {}
+id.Sprite.RS3_ICON_CHECK_MARK_24PX_0 = 17127
+id.Sprite.ICON_STAR_FILL = 12764
+id.Sprite.COINS = 431
+id.Sprite.EXCLAMATION_MARK = 937
+id.Sprite.RS3_ICON_BOSS_COLLECTION_LOG_0 = 15064
+id.Sprite.ICON_RIBBON_QUESTS_INACTIVE = 6953
+id.Sprite.RS3_ICON_LEAGUES_TASK_LEVEL_1_ACTIVE = 35246
+id.Sprite.RS3_ICON_LEAGUES_TASK_LEVEL_2_ACTIVE = 35247
+id.Sprite.RS3_ICON_LEAGUES_TASK_LEVEL_3_ACTIVE = 35248
+id.Sprite.RS3_ICON_LEAGUES_TASK_LEVEL_4_ACTIVE = 35249
+id.Sprite.RS3_ICON_LEAGUES_TASK_LEVEL_5_ACTIVE = 35250
+
 local Popup = require("src/nodes/actions/popup")
 local Toast = require("src/toast")
 

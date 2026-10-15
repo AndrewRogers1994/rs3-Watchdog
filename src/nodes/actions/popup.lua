@@ -102,16 +102,22 @@ local function leaguesTheme(name, label, prefix, frame, layout)
 end
 
 --- Curated notification-icon dropdown ----------------------------------------------------
--- Subset of #20 research icon ids (high-confidence). nil = no icon.
+-- nil = no icon. Values are cache sprite ids from the client `id` global.
 Popup.ICONS = {
-    { value = nil,   label = "None" },
-    { value = 17127, label = "Checkmark" },      -- id.Sprite.RS3_ICON_CHECK_MARK_24PX_0
-    { value = 12764, label = "Star" },           -- id.Sprite.ICON_STAR_FILL
-    { value = 431,   label = "Coins" },          -- id.Sprite.COINS
-    { value = 937,   label = "Exclamation" },    -- id.Sprite.EXCLAMATION_MARK
-    { value = 15064, label = "Collection Log" }, -- id.Sprite.RS3_ICON_BOSS_COLLECTION_LOG_0
-    { value = 6953,  label = "Quest" },          -- id.Sprite.ICON_RIBBON_QUESTS_INACTIVE
+    { value = nil, label = "None" },
+    { value = id.Sprite.RS3_ICON_CHECK_MARK_24PX_0, label = "Checkmark" },
+    { value = id.Sprite.ICON_STAR_FILL, label = "Star" },
+    { value = id.Sprite.COINS, label = "Coins" },
+    { value = id.Sprite.EXCLAMATION_MARK, label = "Exclamation" },
+    { value = id.Sprite.RS3_ICON_BOSS_COLLECTION_LOG_0, label = "Collection Log" },
+    { value = id.Sprite.ICON_RIBBON_QUESTS_INACTIVE, label = "Quest" },
+    { value = id.Sprite.RS3_ICON_LEAGUES_TASK_LEVEL_1_ACTIVE, label = "Easy Task" },
+    { value = id.Sprite.RS3_ICON_LEAGUES_TASK_LEVEL_2_ACTIVE, label = "Medium Task" },
+    { value = id.Sprite.RS3_ICON_LEAGUES_TASK_LEVEL_3_ACTIVE, label = "Hard Task" },
+    { value = id.Sprite.RS3_ICON_LEAGUES_TASK_LEVEL_4_ACTIVE, label = "Elite Task" },
+    { value = id.Sprite.RS3_ICON_LEAGUES_TASK_LEVEL_5_ACTIVE, label = "Master Task" },
 }
+
 
 function Popup.IconChoices()
     return Popup.ICONS
