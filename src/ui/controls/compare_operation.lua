@@ -3,14 +3,17 @@ local Theme = require("src/ui/theme")
 
 -- <lt> and <gt> display angle brackets without starting a client formatting tag.
 -- Each label maps to its stored operator.
-local CompareOperation = Enum.new({
+local CHOICES = {
     { value = "==", label = "Equals (==)" },
     { value = "!=", label = "Not Equals (!=)" },
     { value = ">",  label = "Greater Than (<gt>)" },
     { value = "<",  label = "Less Than (<lt>)" },
     { value = ">=", label = "Greater or Equal (<gt>=)" },
     { value = "<=", label = "Less or Equal (<lt>=)" },
-})
+}
+local CompareOperation = Enum.new(CHOICES)
+-- compareOperation is an enum. The kind table records these choices at registration.
+CompareOperation.choices = CHOICES
 
 -- Use the node's width so the English labels fit.
 CompareOperation.Inline = false

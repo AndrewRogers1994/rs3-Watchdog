@@ -9,6 +9,7 @@ local Runtime = require("src/runtime")
 local ToastStack = require("src/toast")
 local Theme = require("src/ui/theme")
 local Dialog = require("src/ui/dialog")
+local PresetDialogs = require("src/ui/preset_dialogs")
 local HubLayers = require("src/ui/hub_layers")
 
 local Events = {
@@ -443,61 +444,19 @@ editor.onRenameNode = function(nodeId)
     })
 end
 
----@param name string|nil
----@return string
-local function trimName(name)
-    if type(name) ~= "string" then return "" end
-    return (name:match("^%s*(.-)%s*$"))
-end
-
 editor.onSavePreset = function()
     if boundScope == nil or editor.boundId == nil or editor.graph == nil then return end
     if mux == nil or mux:Overlay() == nil then return end
-    local field, feedback
-    local initial = editor.alertName or ""
-    local saveAction = {
-        label = "Save",
-        variant = "positive",
-        disabled = trimName(initial) == "",
-        onClick = function()
-            local name = ""
-            pcall(function() name = trimName(field:GetText()) end)
-            if name == "" then return false end
-            -- Snapshot only. The open Alert is not renamed and gains no Variable marks.
-            local preset, err = Presets.Add(name, editor.graph, editor:GetLayout())
-            if preset == nil then
-                if feedback ~= nil then
-                    feedback.content = err or "Could not save the preset."
-                end
-                return false
+    -- Snapshot only. The open Alert is not renamed and gains no Variable marks.
+    PresetDialogs.mountSave(mux:Overlay(), {
+        graph = editor.graph,
+        initialName = editor.alertName or "",
+        onSave = function(name, marks)
+            if marks == nil or #marks == 0 then
+                return Presets.Add(name, editor.graph, editor:GetLayout())
             end
-            return true
+            return Presets.Add(name, editor.graph, editor:GetLayout(), marks)
         end,
-    }
-    Dialog.mount(mux:Overlay(), {
-        title = "Save as preset",
-        width = 380,
-        height = 200,
-        content = function(win)
-            win:AddText("Preset name")
-            field = win:AddTextField({
-                text = initial,
-                maxLength = 80,
-                height = 30,
-                onChange = function(f)
-                    local text = ""
-                    pcall(function() text = f:GetText() or "" end)
-                    if saveAction.setDisabled ~= nil then
-                        saveAction.setDisabled(trimName(text) == "")
-                    end
-                end,
-            })
-            feedback = win:AddText("")
-        end,
-        actions = {
-            { label = "Cancel" },
-            saveAction,
-        },
     })
 end
 
@@ -583,15 +542,16 @@ local function presetHasVariables(preset)
     return type(preset.variables) == "table" and #preset.variables > 0
 end
 
--- No-variable Presets only. A Preset with marks does not create an Alert and does not open a dialog.
+-- Bakes answers when the Preset has Variables. Opening the Editor dismisses mux-root dialogs.
 ---@param scopeKey string
 ---@param presetId integer
+---@param answers any[]|nil
 ---@return integer|nil id
 ---@return string|nil err
-local function createFromPreset(scopeKey, presetId)
+local function createFromPreset(scopeKey, presetId, answers)
     local doc, key, list = scopeBucket(scopeKey)
     if doc == nil then return nil, "No scope to create the alert in." end
-    local entry, graph, layout, err = Presets.Instantiate(doc, presetId, registry)
+    local entry, graph, layout, err = Presets.Instantiate(doc, presetId, registry, answers)
     if entry == nil or graph == nil or layout == nil then
         return nil, err
     end
@@ -623,7 +583,16 @@ local function onCreateAlert(scopeKey)
                 for _, preset in ipairs(listed) do
                     local captured = preset
                     win:AddSimpleButton(captured.name, function()
-                        if presetHasVariables(captured) then return end
+                        if presetHasVariables(captured) then
+                            PresetDialogs.mountVariables(parent, {
+                                preset = captured,
+                                registry = registry,
+                                onCreate = function(answers)
+                                    return createFromPreset(scopeKey, captured.id, answers)
+                                end,
+                            })
+                            return
+                        end
                         local id, err = createFromPreset(scopeKey, captured.id)
                         if id == nil and err ~= "variables" and feedback ~= nil then
                             feedback.content = err or "Could not create the alert."

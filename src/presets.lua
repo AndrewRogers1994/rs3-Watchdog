@@ -3,8 +3,20 @@
 -- Instantiate inserts an Alert into a caller-supplied Bucket; it does not save that Bucket.
 
 local Store = require("src/store")
+local ControlKinds = require("src/ui/control_kinds")
+local NumberField = require("src/ui/widgets/number_field")
+local Node = require("src/ui/node")
 
 local Presets = {}
+
+-- A Variable is one text, number, enum, or Matcher needle. Widget kind is the source of
+-- truth, looked up from the tag recorded at Controls.Register.
+local MARKABLE_WIDGET = {
+    text = true,
+    number = true,
+    enum = true,
+    matcher = true,
+}
 
 local DB_KEY = "presets"
 local DOC_VERSION = 1
@@ -127,20 +139,81 @@ local function write(doc)
     return pcall(function() PersistentDB:SetString(DB_KEY, text) end)
 end
 
--- Always adds. Never replaces. Duplicate names are kept. variables is empty until marking exists.
+---@param nodeId integer
+---@param pinName string
+---@return string
+local function markKey(nodeId, pinName)
+    return tostring(nodeId) .. "\0" .. tostring(pinName)
+end
+
+-- Nil keeps the 3-arg save: variables = {}. A list is stored as { nodeId, pinName } only,
+-- ordered by node id then pin order. Duplicates collapse. An ineligible mark writes nothing.
+---@param graph LibNodeGraph.Graph
+---@param variables Watchdog.PresetVariable[]|nil
+---@return Watchdog.PresetVariable[]|nil marks
+---@return string|nil err
+local function storedMarks(graph, variables)
+    if variables == nil then return {} end
+    if type(variables) ~= "table" then
+        return nil, "That control cannot be marked."
+    end
+    local allowed = {}
+    for _, mark in ipairs(Presets.Eligible(graph)) do
+        allowed[markKey(mark.nodeId, mark.pinName)] = true
+    end
+    local pinOrder = {}
+    for id, node in pairs(graph.nodes or {}) do
+        if node ~= nil then
+            local order = {}
+            for index, pin in ipairs(graph:GetPins(id) or {}) do
+                order[pin.name] = index
+            end
+            pinOrder[id] = order
+        end
+    end
+    local seen = {}
+    local out = {}
+    for _, mark in ipairs(variables) do
+        if type(mark) ~= "table" or type(mark.nodeId) ~= "number" or type(mark.pinName) ~= "string" then
+            return nil, "That control cannot be marked."
+        end
+        local key = markKey(mark.nodeId, mark.pinName)
+        if not allowed[key] then
+            return nil, "That control cannot be marked."
+        end
+        if not seen[key] then
+            seen[key] = true
+            out[#out + 1] = { nodeId = mark.nodeId, pinName = mark.pinName }
+        end
+    end
+    table.sort(out, function(a, b)
+        if a.nodeId ~= b.nodeId then return a.nodeId < b.nodeId end
+        local aOrder = pinOrder[a.nodeId] and pinOrder[a.nodeId][a.pinName] or 0
+        local bOrder = pinOrder[b.nodeId] and pinOrder[b.nodeId][b.pinName] or 0
+        return aOrder < bOrder
+    end)
+    return out
+end
+
+-- Always adds. Never replaces. Duplicate names are kept.
 -- Refuses to write until a version-1 document can be read, and refuses a blank name.
 ---@param name string
 ---@param graph LibNodeGraph.Graph
 ---@param layout Watchdog.Layout|nil
+---@param variables Watchdog.PresetVariable[]|nil
 ---@return Watchdog.Preset|nil preset
 ---@return string|nil err
-function Presets.Add(name, graph, layout)
+function Presets.Add(name, graph, layout, variables)
     local trimmed = trim(name)
     if trimmed == "" or #trimmed > NAME_MAX then
         return nil, "Enter a preset name."
     end
     if graph == nil or LibNodeGraph == nil or LibNodeGraph.Serialize == nil then
         return nil, "Could not copy the graph."
+    end
+    local marks, markErr = storedMarks(graph, variables)
+    if marks == nil then
+        return nil, markErr
     end
     local doc, err = Presets.Load()
     if doc == nil then
@@ -156,7 +229,7 @@ function Presets.Add(name, graph, layout)
         name = trimmed,
         graph = serialized,
         layout = layoutToArray(layout),
-        variables = {},
+        variables = marks,
     }
     doc.presets[#doc.presets + 1] = preset
     if not write(doc) then
@@ -324,17 +397,173 @@ local function layoutFromArray(arr)
     return layout
 end
 
--- Empty variables only. A Preset with marks is left for the Variable dialog; this does not
--- create an Alert and does not write the Bucket or the library. The new Alert is enabled
--- because a snapshot has no enabled flag to copy. Node ids stay the snapshot's ids.
+---@param node table|nil
+---@return boolean
+local function isPlaceholder(node)
+    if node == nil then return false end
+    if node.unknown ~= nil then return true end
+    local unknown = (LibNodeGraph ~= nil) and LibNodeGraph.UNKNOWN_TYPE or nil
+    if unknown ~= nil and node.typeKey == unknown then return true end
+    return node.typeKey == "__unknown__"
+end
+
+---@param graph LibNodeGraph.Graph
+---@param nodeId integer
+---@param pinName string
+---@return boolean
+local function pinConnected(graph, nodeId, pinName)
+    for _, conn in pairs(graph.connections or {}) do
+        if conn.toNode == nodeId and conn.toPin == pinName then
+            return true
+        end
+    end
+    return false
+end
+
+-- Pins a player can mark: unconnected data-in text, number, enum, or Matcher needle
+-- on a real node. Ordered by node id, then that node's pin order.
+---@param graph LibNodeGraph.Graph
+---@return Watchdog.PresetVariable[]
+function Presets.Eligible(graph)
+    if type(graph) ~= "table" or type(graph.nodes) ~= "table" or type(graph.GetPins) ~= "function" then
+        return {}
+    end
+    local ids = {}
+    for id in pairs(graph.nodes) do
+        ids[#ids + 1] = id
+    end
+    table.sort(ids)
+    local out = {}
+    for _, id in ipairs(ids) do
+        local node = graph.nodes[id]
+        if not isPlaceholder(node) then
+            for _, pin in ipairs(graph:GetPins(id) or {}) do
+                local widget = ControlKinds.Widget(pin.dataType)
+                if pin.kind == "data" and pin.direction == "in"
+                    and widget ~= nil and MARKABLE_WIDGET[widget] == true
+                    and not pinConnected(graph, id, pin.name) then
+                    out[#out + 1] = { nodeId = id, pinName = pin.name }
+                end
+            end
+        end
+    end
+    return out
+end
+
+-- Eligible pins still unmarked, grouped by node in eligible order. A node with no pins
+-- left is omitted. One pin in the group means choosing that node marks it.
+---@param eligible Watchdog.PresetVariable[]|nil
+---@param marked Watchdog.PresetVariable[]|nil
+---@return { nodeId: integer, pinNames: string[] }[]
+function Presets.UnmarkedNodes(eligible, marked)
+    local taken = {}
+    for _, mark in ipairs(marked or {}) do
+        if type(mark) == "table" then
+            taken[markKey(mark.nodeId, mark.pinName)] = true
+        end
+    end
+    local groups = {}
+    local order = {}
+    for _, mark in ipairs(eligible or {}) do
+        local key = markKey(mark.nodeId, mark.pinName)
+        if not taken[key] then
+            local group = groups[mark.nodeId]
+            if group == nil then
+                group = { nodeId = mark.nodeId, pinNames = {} }
+                groups[mark.nodeId] = group
+                order[#order + 1] = mark.nodeId
+            end
+            group.pinNames[#group.pinNames + 1] = mark.pinName
+        end
+    end
+    local out = {}
+    for _, id in ipairs(order) do
+        out[#out + 1] = groups[id]
+    end
+    return out
+end
+
+---@param graph LibNodeGraph.Graph
+---@param nodeId integer
+---@param pinName string
+---@return table|nil
+local function dataInPin(graph, nodeId, pinName)
+    for _, pin in ipairs(graph:GetPins(nodeId) or {}) do
+        if pin.name == pinName and pin.kind == "data" and pin.direction == "in" then
+            return pin
+        end
+    end
+    return nil
+end
+
+-- Answers follow stored Variable order. A number is parsed; a blank is not stored as 0.
+-- A Matcher answer is the needle. The mode already on that Control is kept.
+---@param graph LibNodeGraph.Graph
+---@param variables Watchdog.PresetVariable[]
+---@param answers any[]
+---@return string|nil err
+local function bake(graph, variables, answers)
+    if type(answers) ~= "table" or #answers ~= #variables then
+        return "A marked control is missing."
+    end
+    for i, mark in ipairs(variables) do
+        local node = graph.nodes[mark.nodeId]
+        if node == nil or isPlaceholder(node) then
+            return "A marked control is missing."
+        end
+        local pin = dataInPin(graph, mark.nodeId, mark.pinName)
+        if pin == nil then
+            return "A marked control is missing."
+        end
+        local widget = ControlKinds.Widget(pin.dataType)
+        local answer = answers[i]
+        if widget == "number" then
+            local raw, quantity = answer, nil
+            if type(answer) == "table" then
+                raw = answer.raw
+                quantity = answer.quantity
+            end
+            local parsed = NumberField.Parse(raw, quantity)
+            if parsed == nil then
+                return "Enter a number."
+            end
+            graph:SetControl(mark.nodeId, mark.pinName, parsed)
+        elseif widget == "text" then
+            if type(answer) ~= "string" then
+                return "A marked control is missing."
+            end
+            graph:SetControl(mark.nodeId, mark.pinName, answer)
+        elseif widget == "enum" then
+            graph:SetControl(mark.nodeId, mark.pinName, answer)
+        elseif widget == "matcher" then
+            if type(answer) ~= "string" then
+                return "A marked control is missing."
+            end
+            local existing = graph:GetControl(mark.nodeId, mark.pinName)
+            local mode = "substring"
+            if type(existing) == "table" and (existing.mode == "pattern" or existing.mode == "substring") then
+                mode = existing.mode
+            end
+            graph:SetControl(mark.nodeId, mark.pinName, { needle = answer, mode = mode })
+        else
+            return "A marked control is missing."
+        end
+    end
+    return nil
+end
+
+-- Answers bake a Preset that has Variables. Nil answers on a marked Preset still returns
+-- "variables" and writes nothing. Empty variables keep the previous result: an enabled Alert,
+-- a new Entry id, the Preset name, and the snapshot's node ids. The snapshot has no enabled flag.
 ---@param bucket Watchdog.Bucket
 ---@param presetId integer
 ---@param registry LibNodeGraph.Registry
+---@param answers any[]|nil
 ---@return Watchdog.Entry|nil entry
 ---@return LibNodeGraph.Graph|nil graph
 ---@return Watchdog.Layout|nil layout
 ---@return string|nil err
-function Presets.Instantiate(bucket, presetId, registry)
+function Presets.Instantiate(bucket, presetId, registry, answers)
     if type(bucket) ~= "table" or registry == nil then
         return nil, nil, nil, "No scope to create the alert in."
     end
@@ -352,7 +581,8 @@ function Presets.Instantiate(bucket, presetId, registry)
     if preset == nil then
         return nil, nil, nil, "Preset not found."
     end
-    if type(preset.variables) == "table" and #preset.variables > 0 then
+    local hasVariables = type(preset.variables) == "table" and #preset.variables > 0
+    if hasVariables and answers == nil then
         return nil, nil, nil, "variables"
     end
     if LibNodeGraph == nil or LibNodeGraph.Deserialize == nil then
@@ -365,12 +595,109 @@ function Presets.Instantiate(bucket, presetId, registry)
         report("could not instantiate preset " .. tostring(presetId) .. " - " .. tostring(graph))
         return nil, nil, nil, "Could not copy the preset graph."
     end
+    if hasVariables then
+        local bakeErr = bake(graph, preset.variables, answers)
+        if bakeErr ~= nil then
+            return nil, nil, nil, bakeErr
+        end
+    end
     local layout = layoutFromArray(preset.layout)
     local entry = Store.NewAlertEntry(Store.MintId(bucket), preset.name, graph, layout, true)
     if not Store.InsertEntry(bucket, entry) then
         return nil, nil, nil, "Could not create the alert."
     end
     return entry, graph, layout, nil
+end
+
+---@param graph LibNodeGraph.Graph
+---@param node table
+---@return string
+local function typeLabelOf(graph, node)
+    if isPlaceholder(node) then
+        local original = "?"
+        if node.unknown ~= nil and type(node.unknown.type) == "string" and node.unknown.type ~= "" then
+            original = node.unknown.type
+        end
+        return "Unknown: " .. original
+    end
+    local nodeType = nil
+    if graph.registry ~= nil and graph.registry.GetNodeType ~= nil then
+        nodeType = graph.registry:GetNodeType(node.typeKey)
+    end
+    if nodeType == nil then return node.typeKey end
+    return nodeType.displayName or node.typeKey
+end
+
+---@param node table
+---@return string|nil
+local function storedNameOf(node)
+    if isPlaceholder(node) then
+        if node.unknown == nil then return nil end
+        return node.unknown.name
+    end
+    return node.name
+end
+
+---@param graph LibNodeGraph.Graph
+---@param nodeId integer
+---@return string|nil
+function Presets.NodeTitle(graph, nodeId)
+    local node = graph.nodes[nodeId]
+    if node == nil then return nil end
+    return Node.HeaderTitle(typeLabelOf(graph, node), storedNameOf(node))
+end
+
+-- Declared pin label, or the pin name when the type did not set one.
+---@param graph LibNodeGraph.Graph
+---@param nodeId integer
+---@param pinName string
+---@return string
+function Presets.PinLabel(graph, nodeId, pinName)
+    for _, pin in ipairs(graph:GetPins(nodeId) or {}) do
+        if pin.name == pinName then
+            if type(pin.label) == "string" and pin.label ~= "" then
+                return pin.label
+            end
+            return pin.name
+        end
+    end
+    return pinName
+end
+
+--- `{Type} - {Name}: {pin label}`. Name is `New {Type}` when the node has no stored name.
+---@param typeLabel string
+---@param storedName string|nil
+---@param pinLabel string
+---@return string
+function Presets.VariableLabel(typeLabel, storedName, pinLabel)
+    return Node.HeaderTitle(typeLabel, storedName) .. ": " .. pinLabel
+end
+
+---@param graph LibNodeGraph.Graph
+---@param nodeId integer
+---@param pinName string
+---@return string|nil
+function Presets.MarkLabel(graph, nodeId, pinName)
+    local node = graph.nodes[nodeId]
+    if node == nil then return nil end
+    return Presets.VariableLabel(
+        typeLabelOf(graph, node),
+        storedNameOf(node),
+        Presets.PinLabel(graph, nodeId, pinName))
+end
+
+-- Snapshotted choice when that choice is still offered; otherwise the type's default.
+---@param snapshot any
+---@param choices { value: any, label: string }[]|nil
+---@param defaultValue any
+---@return any
+function Presets.EnumInitial(snapshot, choices, defaultValue)
+    for _, choice in ipairs(choices or {}) do
+        if type(choice) == "table" and choice.value == snapshot then
+            return snapshot
+        end
+    end
+    return defaultValue
 end
 
 return Presets
