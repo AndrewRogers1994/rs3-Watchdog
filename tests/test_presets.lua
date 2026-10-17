@@ -269,6 +269,8 @@ function TestPresets:testListUsesCaseInsensitiveNaturalOrder()
             preset(7, "img1"),
             preset(6, "img01"),
             preset(5, "img.2"),
+            preset(20, "01"),
+            preset(21, "1"),
         },
     }
     PersistentDB:SetString("presets", LibNodeGraph.Json.Default.encode(seeded))
@@ -277,8 +279,9 @@ function TestPresets:testListUsesCaseInsensitiveNaturalOrder()
     local ids = {}
     for i, presetRow in ipairs(listed) do ids[i] = presetRow.id end
     -- "a" before "B" (case fold). "Alert 2", "Alert2", and "alert 2" compare equal, so lower id first.
-    -- "Alert 2" before "Alert 10". "img.2" before "img01" before "img1" before "img2" (dots and padding).
-    luaunit.assertEquals(ids, { 11, 1, 2, 4, 3, 10, 5, 6, 7, 8 })
+    -- "Alert 2" before "Alert 10". "01" before "1" (left-to-right on a zero-padded run).
+    -- "img.2" before "img01" before "img1" before "img2" (dots and padding).
+    luaunit.assertEquals(ids, { 20, 21, 11, 1, 2, 4, 3, 10, 5, 6, 7, 8 })
     local stored = Presets.Load()
     luaunit.assertEquals(stored.presets[1].id, 3)
     local storedKeys = {}

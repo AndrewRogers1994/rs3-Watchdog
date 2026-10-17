@@ -461,7 +461,6 @@ function PresetDialogs.mountVariables(parent, opts)
                             height = 30,
                             maxLength = 128,
                             filter = slot.widget == "number" and numericFilter() or nil,
-                            placeholder = slot.widget == "matcher" and "matches anything" or nil,
                             onChange = function(f)
                                 slot.raw, slot.quantity = readField(f)
                                 if createAction.setDisabled ~= nil then

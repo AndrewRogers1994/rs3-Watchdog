@@ -239,8 +239,9 @@ function Presets.Add(name, graph, layout, variables)
 end
 
 -- Martin Pool's natural order, the case-insensitive form PHP calls strnatcasecmp.
--- Spaces are skipped the way that algorithm skips them. A leading zero run uses
--- left-to-right digit comparison; other numbers use the longer-run comparison.
+-- Spaces are skipped the way that algorithm skips them. A zero-padded run is
+-- compared left to right, so "01" comes before "1". A run with no leading zero
+-- uses the longer-run comparison, so "2" comes before "10".
 
 local function isDigit(ch)
     return ch ~= nil and ch >= "0" and ch <= "9"
@@ -278,15 +279,6 @@ local function natcasecmp(a, b)
     end
     local ca = charAt(a, aLen, ap)
     local cb = charAt(b, bLen, bp)
-
-    while ca == "0" and ap < aLen and isDigit(a:sub(ap + 1, ap + 1)) do
-        ap = ap + 1
-        ca = charAt(a, aLen, ap)
-    end
-    while cb == "0" and bp < bLen and isDigit(b:sub(bp + 1, bp + 1)) do
-        bp = bp + 1
-        cb = charAt(b, bLen, bp)
-    end
 
     local function compareRight()
         local bias = 0

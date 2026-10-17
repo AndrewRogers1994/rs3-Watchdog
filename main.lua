@@ -563,6 +563,13 @@ local function createFromPreset(scopeKey, presetId, answers)
     return entry.id
 end
 
+---@param name string|nil
+---@return string
+local function trimName(name)
+    if type(name) ~= "string" then return "" end
+    return (name:match("^%s*(.-)%s*$"))
+end
+
 -- Opens the library. Does not create an Alert by itself.
 -- Rename and Delete stack on this same parent. The list is rebuilt from the
 -- window's flow children; the footer actions stay mounted.
@@ -728,19 +735,23 @@ local function onCreateAlert(scopeKey)
                     width = width,
                     height = Theme.MANAGER_ROW_H,
                 }))
-                remember(host:AddSpriteButton("PENCIL", function()
+                -- AddSimpleButton is layout-managed. SpriteButton is not: the client
+                -- crashes if one is still in the tree when it tears the plugin down.
+                remember(host:AddSimpleButton(id.Sprite.RS3_ICON_EDIT_23PX_0, function()
                     beginRename(captured)
                 end, {
                     inline = true,
-                    size = Theme.MANAGER_ACT_W,
+                    width = Theme.MANAGER_ACT_W,
+                    height = Theme.MANAGER_ACT_W,
                     offsetY = iconOffset,
                     tooltip = "Rename",
                 }))
-                remember(host:AddSpriteButton("TRASH", function()
+                remember(host:AddSimpleButton(id.Sprite.HUD_COMBAT_BTN_BIN, function()
                     beginDelete(captured)
                 end, {
                     inline = true,
-                    size = Theme.MANAGER_ACT_W,
+                    width = Theme.MANAGER_ACT_W,
+                    height = Theme.MANAGER_ACT_W,
                     offsetY = iconOffset,
                     tooltip = "Delete",
                 }))
