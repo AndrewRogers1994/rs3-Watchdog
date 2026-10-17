@@ -735,23 +735,19 @@ local function onCreateAlert(scopeKey)
                     width = width,
                     height = Theme.MANAGER_ROW_H,
                 }))
-                -- AddSimpleButton is layout-managed. SpriteButton is not: the client
-                -- crashes if one is still in the tree when it tears the plugin down.
-                remember(host:AddSimpleButton(id.Sprite.RS3_ICON_EDIT_23PX_0, function()
+                remember(host:AddSpriteButton("PENCIL", function()
                     beginRename(captured)
                 end, {
                     inline = true,
-                    width = Theme.MANAGER_ACT_W,
-                    height = Theme.MANAGER_ACT_W,
+                    size = Theme.MANAGER_ACT_W,
                     offsetY = iconOffset,
                     tooltip = "Rename",
                 }))
-                remember(host:AddSimpleButton(id.Sprite.HUD_COMBAT_BTN_BIN, function()
+                remember(host:AddSpriteButton("TRASH", function()
                     beginDelete(captured)
                 end, {
                     inline = true,
-                    width = Theme.MANAGER_ACT_W,
-                    height = Theme.MANAGER_ACT_W,
+                    size = Theme.MANAGER_ACT_W,
                     offsetY = iconOffset,
                     tooltip = "Delete",
                 }))

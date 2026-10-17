@@ -1875,26 +1875,9 @@ function Editor:mountToolbar(overlayParent)
     self.renameButton = prettyui.SpriteButton.new(overlayParent, "PENCIL", function()
         if self.onRename ~= nil then self.onRename() end
     end, { size = bs, tooltip = "Rename" })
-    -- Native button. prettyui.SpriteButton crashes the client if it is still in
-    -- the tree when the client tears the plugin down on reload.
-    local saveRoot = ui.Button.new(overlayParent)
-    saveRoot:SetSize(bs, bs)
-    local saveIcon = ui.Sprite.new(saveRoot)
-    saveIcon.spriteID = id.Sprite.RAND_SPEEDRUN_STAR_BRONZE_0
-    saveIcon:SetSize(bs - 6, bs - 6)
-    saveIcon:SetPos(3, 3)
-    saveIcon.clickthrough = true
-    saveRoot:Subscribe(ui.Hook.ONCLICK, function()
+    self.savePresetButton = prettyui.SpriteButton.new(overlayParent, "STAR", function()
         if self.onSavePreset ~= nil then self.onSavePreset() end
-        return true
-    end)
-    self.savePresetButton = { root = saveRoot }
-    function self.savePresetButton:Destroy()
-        pcall(function() saveRoot:Destroy() end)
-    end
-    if prettyui.Tooltip ~= nil and prettyui.Tooltip.bind ~= nil then
-        prettyui.Tooltip.bind(self.savePresetButton, saveRoot, overlayParent, "Save as preset")
-    end
+    end, { size = bs, tooltip = "Save as preset" })
     self:layoutToolbar()
 end
 
