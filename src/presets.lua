@@ -312,6 +312,65 @@ function Presets.List()
     return copy, nil
 end
 
+-- Keeps the id. Only the trimmed name changes; graph, layout, and variables stay as saved.
+-- Refuses a blank name and refuses to write until a version-1 document can be read.
+---@param id integer
+---@param name string
+---@return Watchdog.Preset|nil preset
+---@return string|nil err
+function Presets.Rename(id, name)
+    local trimmed = trim(name)
+    if trimmed == "" or #trimmed > NAME_MAX then
+        return nil, "Enter a preset name."
+    end
+    local doc, err = Presets.Load()
+    if doc == nil then
+        return nil, err
+    end
+    local preset
+    for _, candidate in ipairs(doc.presets) do
+        if candidate.id == id then
+            preset = candidate
+            break
+        end
+    end
+    if preset == nil then
+        return nil, "Preset not found."
+    end
+    preset.name = trimmed
+    if not write(doc) then
+        return nil, "Could not rename the preset."
+    end
+    return preset, nil
+end
+
+-- Removes one id. Another Preset with the same name stays. Does not write Scope buckets.
+-- A missing id does not wipe the library. An unreadable document is left on disk.
+---@param id integer
+---@return boolean|nil ok
+---@return string|nil err
+function Presets.Delete(id)
+    local doc, err = Presets.Load()
+    if doc == nil then
+        return nil, err
+    end
+    local index
+    for i, candidate in ipairs(doc.presets) do
+        if candidate.id == id then
+            index = i
+            break
+        end
+    end
+    if index == nil then
+        return nil, "Preset not found."
+    end
+    table.remove(doc.presets, index)
+    if not write(doc) then
+        return nil, "Could not delete the preset."
+    end
+    return true, nil
+end
+
 ---@param arr Watchdog.LayoutArray|nil
 ---@return Watchdog.Layout
 local function layoutFromArray(arr)
