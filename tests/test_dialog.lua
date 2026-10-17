@@ -65,7 +65,16 @@ local function installHost()
                     self.texts[#self.texts + 1] = text
                 end
                 function w:AddFancyButton(label, action, opts)
-                    local btn = { label = label, action = action, opts = opts or {} }
+                    local btn = {
+                        label = label,
+                        action = action,
+                        opts = opts or {},
+                        disabled = opts ~= nil and opts.disabled == true,
+                    }
+                    function btn:SetDisabled(disabled)
+                        self.disabled = disabled == true
+                        self.opts.disabled = self.disabled
+                    end
                     self.buttons[#self.buttons + 1] = btn
                     return btn
                 end
@@ -179,6 +188,30 @@ function TestDialog:testOnClickFalseStaysTruePops()
     button(win, "Go").action()
     luaunit.assertEquals(Dialog.depth(self.parent), 1)
     button(win, "Go").action()
+    luaunit.assertEquals(Dialog.depth(self.parent), 0)
+end
+
+function TestDialog:testActionDisabledCanChangeAfterMount()
+    local clicked = 0
+    local action = {
+        label = "Save",
+        disabled = true,
+        onClick = function()
+            clicked = clicked + 1
+            return true
+        end,
+    }
+    local win = Dialog.mount(self.parent, {
+        actions = { { label = "Cancel" }, action },
+    })
+    local save = button(win, "Save")
+    save.action()
+    luaunit.assertEquals(clicked, 0)
+    luaunit.assertEquals(Dialog.depth(self.parent), 1)
+    action.setDisabled(false)
+    luaunit.assertEquals(save.disabled, false)
+    save.action()
+    luaunit.assertEquals(clicked, 1)
     luaunit.assertEquals(Dialog.depth(self.parent), 0)
 end
 

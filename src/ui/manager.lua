@@ -46,7 +46,7 @@ Manager.__index = Manager
 ---@field onDelete fun(scopeKey: string, id: integer)|nil
 ---@field onReorderSibling fun(scopeKey: string, id: integer, delta: integer)|nil  # -1 up / +1 down
 ---@field onLift fun(scopeKey: string, id: integer)|nil
----@field onCreateAlert fun(scopeKey: string): integer|nil   # returns the minted alert id
+---@field onCreateAlert fun(scopeKey: string): integer|nil   # opens New alert; does not create by itself
 ---@field onCreateGroup fun(scopeKey: string): integer|nil   # returns the minted group id
 ---@field onBulkDelete fun(scopeKey: string, ids: integer[])|nil
 ---@field onBulkNewGroup fun(scopeKey: string, ids: integer[]): integer|nil  # returns new group id

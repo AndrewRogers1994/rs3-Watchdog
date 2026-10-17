@@ -2,6 +2,7 @@ local Editor = require("src/ui/graph")
 local Manager = require("src/ui/manager")
 local Multiplexer = require("src/ui/multiplexer")
 local Store  = require("src/store")
+local Presets = require("src/presets")
 local Export = require("src/export")
 ---@type Watchdog.Runtime
 local Runtime = require("src/runtime")
@@ -402,6 +403,64 @@ editor.onRename = function()
     })
 end
 
+---@param name string|nil
+---@return string
+local function trimName(name)
+    if type(name) ~= "string" then return "" end
+    return (name:match("^%s*(.-)%s*$"))
+end
+
+editor.onSavePreset = function()
+    if boundScope == nil or editor.boundId == nil or editor.graph == nil then return end
+    if mux == nil or mux:Overlay() == nil then return end
+    local field, feedback
+    local initial = editor.alertName or ""
+    local saveAction = {
+        label = "Save",
+        variant = "positive",
+        disabled = trimName(initial) == "",
+        onClick = function()
+            local name = ""
+            pcall(function() name = trimName(field:GetText()) end)
+            if name == "" then return false end
+            -- Snapshot only. The open Alert is not renamed and gains no Variable marks.
+            local preset, err = Presets.Add(name, editor.graph, editor:GetLayout())
+            if preset == nil then
+                if feedback ~= nil then
+                    feedback.content = err or "Could not save the preset."
+                end
+                return false
+            end
+            return true
+        end,
+    }
+    Dialog.mount(mux:Overlay(), {
+        title = "Save as preset",
+        width = 380,
+        height = 200,
+        content = function(win)
+            win:AddText("Preset name")
+            field = win:AddTextField({
+                text = initial,
+                maxLength = 80,
+                height = 30,
+                onChange = function(f)
+                    local text = ""
+                    pcall(function() text = f:GetText() or "" end)
+                    if saveAction.setDisabled ~= nil then
+                        saveAction.setDisabled(trimName(text) == "")
+                    end
+                end,
+            })
+            feedback = win:AddText("")
+        end,
+        actions = {
+            { label = "Cancel" },
+            saveAction,
+        },
+    })
+end
+
 ---@param scopeKey string
 ---@param id integer
 local function onDelete(scopeKey, id)
@@ -450,9 +509,20 @@ local function onLift(scopeKey, id)
     Store.SaveTo(key, doc)
 end
 
+---@param list Watchdog.RestoredAlert[]|nil
+---@param id integer
+---@param name string
+---@param graph LibNodeGraph.Graph
+---@param layout Watchdog.Layout
+local function rememberAlert(list, id, name, graph, layout)
+    if list == nil then return end
+    list[#list + 1] = { id = id, name = name, graph = graph, layout = layout, enabled = true }
+end
+
+-- Today's From scratch result. Does not read the Preset library.
 ---@param scopeKey string
 ---@return integer|nil
-local function onCreateAlert(scopeKey)
+local function createFromScratch(scopeKey)
     local doc, key, list = scopeBucket(scopeKey)
     if doc == nil then return nil end
     local graph = LibNodeGraph.NewGraph(registry)
@@ -461,12 +531,86 @@ local function onCreateAlert(scopeKey)
     local name = "New Alert"
     Store.InsertEntry(doc, Store.NewAlertEntry(id, name, graph, layout, true))
     Store.SaveTo(key, doc)
-    if list ~= nil then
-        list[#list + 1] = { id = id, name = name, graph = graph, layout = layout, enabled = true }
-    end
+    rememberAlert(list, id, name, graph, layout)
     runtime:AddAlert(id, name, graph, true, key)
     navOpenAlert(scopeKey, id)
     return id
+end
+
+---@param preset Watchdog.Preset
+---@return boolean
+local function presetHasVariables(preset)
+    return type(preset.variables) == "table" and #preset.variables > 0
+end
+
+-- No-variable Presets only. A Preset with marks does not create an Alert and does not open a dialog.
+---@param scopeKey string
+---@param presetId integer
+---@return integer|nil id
+---@return string|nil err
+local function createFromPreset(scopeKey, presetId)
+    local doc, key, list = scopeBucket(scopeKey)
+    if doc == nil then return nil, "No scope to create the alert in." end
+    local entry, graph, layout, err = Presets.Instantiate(doc, presetId, registry)
+    if entry == nil or graph == nil or layout == nil then
+        return nil, err
+    end
+    Store.SaveTo(key, doc)
+    rememberAlert(list, entry.id, entry.name, graph, layout)
+    runtime:AddAlert(entry.id, entry.name, graph, true, key)
+    navOpenAlert(scopeKey, entry.id)
+    return entry.id
+end
+
+-- Opens the library. Does not create an Alert by itself.
+---@param scopeKey string
+---@return integer|nil
+local function onCreateAlert(scopeKey)
+    local parent = mux ~= nil and mux.rootLayer or nil
+    if parent == nil then return nil end
+    local listed, listErr = Presets.List()
+    local feedback
+    Dialog.mount(parent, {
+        title = "New alert",
+        width = 380,
+        height = 420,
+        content = function(win)
+            if listed == nil then
+                win:AddText(listErr or "Presets could not be read.")
+            elseif #listed == 0 then
+                win:AddText("There are no presets.")
+            else
+                for _, preset in ipairs(listed) do
+                    local captured = preset
+                    win:AddSimpleButton(captured.name, function()
+                        if presetHasVariables(captured) then return end
+                        local id, err = createFromPreset(scopeKey, captured.id)
+                        if id == nil and err ~= "variables" and feedback ~= nil then
+                            feedback.content = err or "Could not create the alert."
+                        end
+                    end)
+                end
+            end
+            feedback = win:AddText("")
+        end,
+        actions = {
+            { label = "Cancel" },
+            {
+                label = "From scratch",
+                variant = "positive",
+                onClick = function()
+                    if createFromScratch(scopeKey) == nil then
+                        if feedback ~= nil then
+                            feedback.content = "Could not create the alert."
+                        end
+                        return false
+                    end
+                    return true
+                end,
+            },
+        },
+    })
+    return nil
 end
 
 ---@param scopeKey string
