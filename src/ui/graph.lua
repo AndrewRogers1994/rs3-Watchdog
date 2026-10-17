@@ -391,14 +391,69 @@ function Editor:unknownTypeOf(nodeId)
     return node.unknown.type
 end
 
-function Editor:meta(nodeId, typeKey)
+function Editor:typeLabel(nodeId, typeKey)
     if typeKey == self:unknownTypeKey() then
-        return { title = "Unknown: " .. (self:unknownTypeOf(nodeId) or "?"),
-            category = nil, placeholder = true }
+        return "Unknown: " .. (self:unknownTypeOf(nodeId) or "?")
     end
     local nt = self.registry:GetNodeType(typeKey)
-    if nt == nil then return { title = typeKey, category = nil } end
-    return { title = nt.displayName or typeKey, category = nt.category }
+    if nt == nil then return typeKey end
+    return nt.displayName or typeKey
+end
+
+function Editor:storedNodeName(nodeId)
+    if self.graph == nil then return nil end
+    local node = self.graph.nodes[nodeId]
+    if node == nil then return nil end
+    if node.typeKey == self:unknownTypeKey() then
+        if node.unknown == nil then return nil end
+        return node.unknown.name
+    end
+    return node.name
+end
+
+function Editor:meta(nodeId, typeKey)
+    local title = Node.HeaderTitle(self:typeLabel(nodeId, typeKey), self:storedNodeName(nodeId))
+    if typeKey == self:unknownTypeKey() then
+        return { title = title, category = nil, placeholder = true }
+    end
+    local nt = self.registry:GetNodeType(typeKey)
+    if nt == nil then return { title = title, category = nil } end
+    return { title = title, category = nt.category }
+end
+
+--- What the Rename node dialog shows. The type is fixed; the field starts as the name
+--- already on the header (`New {Type}` or the stored name).
+---@param nodeId integer
+---@return { typeLabel: string, fieldText: string }|nil
+function Editor:nodeRenameDraft(nodeId)
+    if self.graph == nil then return nil end
+    local node = self.graph.nodes[nodeId]
+    if node == nil then return nil end
+    local typeLabel = self:typeLabel(nodeId, node.typeKey)
+    return {
+        typeLabel = typeLabel,
+        fieldText = Node.DisplayName(typeLabel, self:storedNodeName(nodeId)),
+    }
+end
+
+--- Trim and store. Blank or whitespace leaves the node unchanged. Persistence is the
+--- same live-graph mutation delete and control edits already use; the host autosave
+--- serializes it through Store.UpdateAlertGraph.
+---@param nodeId integer
+---@param raw string|nil
+---@return boolean
+function Editor:commitNodeRename(nodeId, raw)
+    if self.graph == nil then return false end
+    local node = self.graph.nodes[nodeId]
+    if node == nil then return false end
+    return Node.CommitRename(node, raw)
+end
+
+--- True while Rename must stay disabled: blank or whitespace only.
+---@param raw string|nil
+---@return boolean
+function Editor:nodeRenameBlank(raw)
+    return Node.TrimName(raw) == nil
 end
 
 function Editor:posOf(nodeId)
@@ -539,6 +594,13 @@ function Editor:closeAt(sx, sy)
     end)
 end
 
+function Editor:renameAt(sx, sy)
+    return hitFrontToBack(self, sx, sy, function(id, geom)
+        if Node.HitPencil(geom, self.view, sx, sy) then return id end
+        return nil
+    end)
+end
+
 function Editor:modeStripAt(sx, sy)
     return hitFrontToBack(self, sx, sy, function(id, geom)
         if Node.HitModeStrip(geom, self.view, sx, sy) then return id end
@@ -608,6 +670,16 @@ function Editor:beginPress()
 
     self.pressed = true
     self:expandCapture()
+
+    -- Pencil before the X: their hit pads can overlap when zoomed out, and a pencil
+    -- click must rename rather than delete or start a node drag.
+    local hitRename = self:renameAt(lx, ly)
+    if hitRename ~= nil then
+        self.pressed = false
+        self:positionCapture()
+        if self.onRenameNode ~= nil then self.onRenameNode(hitRename) end
+        return
+    end
 
     local hitClose = self:closeAt(lx, ly)
     if hitClose ~= nil then

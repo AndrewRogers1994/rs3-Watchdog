@@ -22,6 +22,7 @@ local chrome = {}
 ---@field disabled boolean|nil
 ---@field tooltip string|nil
 ---@field onClick (fun(): boolean|nil)|nil  # true = pop; false/nil = stay; omitted = pop (unless disabled)
+---@field button any|nil  # mounted footer button; set so disabled can change with the field
 
 ---@class Watchdog.DialogOpts
 ---@field title string|nil
@@ -234,6 +235,19 @@ local function bindAction(frame, action)
     end
 end
 
+--- A mounted action's `disabled` is live: bindAction reads it on click, and the button
+--- widget is updated so a field change can disable Rename without remounting.
+---@param action Watchdog.DialogAction|nil
+---@param disabled boolean
+function Dialog.setActionDisabled(action, disabled)
+    if action == nil then return end
+    action.disabled = disabled == true
+    local button = action.button
+    if button ~= nil and button.SetDisabled ~= nil then
+        pcall(function() button:SetDisabled(action.disabled) end)
+    end
+end
+
 ---@param win any
 ---@param frame Watchdog.DialogFrame
 ---@param actions Watchdog.DialogAction[]
@@ -246,7 +260,7 @@ local function mountActions(win, frame, actions)
         local width = actionWidth(label, action)
         x = x - width
         pcall(function()
-            win:AddFancyButton(label, bindAction(frame, action), {
+            action.button = win:AddFancyButton(label, bindAction(frame, action), {
                 variant = action.variant or "neutral",
                 disabled = action.disabled,
                 tooltip = action.tooltip,

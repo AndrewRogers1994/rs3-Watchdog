@@ -5,6 +5,54 @@ local Dropdown = require("src/ui/widgets/dropdown")
 
 local Node = {}
 
+--- Name shown in the header and the rename field. Nil means the node was never renamed,
+--- so the label is display-only (`New {Type}`) and is not written onto the node.
+---@param typeLabel string
+---@param storedName string|nil
+---@return string
+function Node.DisplayName(typeLabel, storedName)
+    if storedName == nil then
+        return "New " .. typeLabel
+    end
+    return storedName
+end
+
+--- `{Type} - {Name}`. #140 builds Variable labels from this same string.
+---@param typeLabel string
+---@param storedName string|nil
+---@return string
+function Node.HeaderTitle(typeLabel, storedName)
+    return typeLabel .. " - " .. Node.DisplayName(typeLabel, storedName)
+end
+
+--- Trim a rename field. Blank or whitespace is not a name, so Rename stays disabled
+--- and a stored name cannot be cleared back to omitted.
+---@param raw string|nil
+---@return string|nil
+function Node.TrimName(raw)
+    if type(raw) ~= "string" then return nil end
+    local trimmed = raw:match("^%s*(.-)%s*$")
+    if trimmed == nil or trimmed == "" then return nil end
+    return trimmed
+end
+
+--- Store a trimmed name. A placeholder's on-disk name lives on `unknown.name`; writing
+--- only `node.name` is dropped the next time Serialize re-emits the original node.
+--- Does not look at other nodes, so two nodes may share a name.
+---@param node table
+---@param raw string|nil
+---@return boolean
+function Node.CommitRename(node, raw)
+    local trimmed = Node.TrimName(raw)
+    if trimmed == nil then return false end
+    if node.unknown ~= nil then
+        node.unknown.name = trimmed
+    else
+        node.name = trimmed
+    end
+    return true
+end
+
 ---@param pin table
 ---@param connected table<string, boolean>
 ---@return table|nil
@@ -117,6 +165,9 @@ function Node.BuildGeometry(pins, x, y, width, opts)
     -- Delete button center, in the header, Graph-space relative to the node origin. Shared
     -- by Draw and HitClose so the glyph and its hit-target can't disagree.
     geom.close = { cx = width - Theme.CLOSE_MARGIN, cy = Theme.HEADER_HEIGHT * 0.5 }
+    -- Pencil sits one glyph-width left of the X. Same size and the same title-zoom gate, so
+    -- it is present exactly when the delete target is, including on a placeholder.
+    geom.pencil = { cx = geom.close.cx - Theme.CLOSE_SIZE, cy = geom.close.cy }
     if modeLabel ~= nil then
         geom.modeStrip = {
             x = Theme.PIN_MARGIN_X,
@@ -253,6 +304,21 @@ function Node.Draw(canvas, view, geom, meta, opts)
                 sy + headerH * 0.5 - view:Scale(8),
                 tw, 0, meta.title, textData)
         end
+    end
+
+    -- Header pencil, one glyph left of the delete X. Same zoom gate as the X so an
+    -- undrawn pencil is never clickable (HitPencil).
+    if showTitle and geom.pencil ~= nil then
+        local pcx, pcy = view:ToScreen(geom.x + geom.pencil.cx, geom.y + geom.pencil.cy)
+        local half = view:Scale(Theme.CLOSE_SIZE) * 0.5
+        local arm  = half * 0.55
+        local hot  = opts.mouseX ~= nil and Node.HitPencil(geom, view, opts.mouseX, opts.mouseY)
+        local col = Theme.Vec4(hot and Theme.COL_TITLE or Theme.COL_CLOSE)
+        local t = math.max(1, view:Scale(2))
+        -- Shaft, tip, and a short eraser nub. Canvas lines only, same path as the X.
+        canvas:AddLine(pcx - arm, pcy + arm, pcx + arm * 0.35, pcy - arm * 0.35, t, col)
+        canvas:AddLine(pcx + arm * 0.35, pcy - arm * 0.35, pcx + arm, pcy - arm, t, col)
+        canvas:AddLine(pcx - arm, pcy + arm * 0.15, pcx - arm * 0.45, pcy + arm * 0.7, t, col)
     end
 
     -- Header delete button (an X). Only shown when the header is legible (title zoom),
@@ -411,6 +477,14 @@ function Node.HitClose(geom, view, sx, sy)
     local half = view:Scale(Theme.CLOSE_SIZE) * 0.5 + Theme.PIN_HIT_PAD
     return sx >= ccx - half and sx <= ccx + half
         and sy >= ccy - half and sy <= ccy + half
+end
+
+function Node.HitPencil(geom, view, sx, sy)
+    if geom.pencil == nil or view.zoom < Theme.TITLE_MIN_ZOOM then return false end
+    local pcx, pcy = view:ToScreen(geom.x + geom.pencil.cx, geom.y + geom.pencil.cy)
+    local half = view:Scale(Theme.CLOSE_SIZE) * 0.5 + Theme.PIN_HIT_PAD
+    return sx >= pcx - half and sx <= pcx + half
+        and sy >= pcy - half and sy <= pcy + half
 end
 
 function Node.HitModeStrip(geom, view, sx, sy)

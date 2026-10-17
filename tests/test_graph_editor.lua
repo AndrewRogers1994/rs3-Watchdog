@@ -13,6 +13,7 @@ end }) }
 local luaunit = require("luaunit")
 local Registry = require("registry")
 local Graph = require("graph")
+local Serialize = require("serialize")
 local Editor = require("src/ui/graph")
 local View = require("src/ui/view")
 
@@ -731,4 +732,116 @@ function TestGraphEditor:testControlAtDoesNotSeeThroughFrontNodeBody()
     local sx, sy = editor.view:ToScreen(geom.x + ctrl.x + ctrl.w * 0.5, geom.y + ctrl.y + ctrl.h * 0.5)
     luaunit.assertEquals(editor:nodeAt(sx, sy), front)
     luaunit.assertNil(editor:controlAt(sx, sy))
+end
+
+function TestGraphEditor:testOpenPopupHeaderReadsTypeDashNewType()
+    self.registry:RegisterNodeType("action.popup", {
+        category = "action",
+        displayName = "Popup",
+        pins = { { name = "in", kind = "exec", direction = "in", terminates = true } },
+        run = function() end,
+    })
+    local editor = Editor.new(self.registry, nil)
+    local id = self.graph:AddNode("action.popup")
+    editor:BindEntry(1, self.graph, {})
+    luaunit.assertEquals(editor:meta(id, "action.popup").title, "Popup - New Popup")
+end
+
+function TestGraphEditor:testOpenPopupHeaderShowsTheStoredName()
+    self.registry:RegisterNodeType("action.popup", {
+        category = "action",
+        displayName = "Popup",
+        pins = { { name = "in", kind = "exec", direction = "in", terminates = true } },
+        run = function() end,
+    })
+    local editor = Editor.new(self.registry, nil)
+    local id = self.graph:AddNode("action.popup")
+    self.graph.nodes[id].name = "Enrage callout"
+    editor:BindEntry(1, self.graph, {})
+    luaunit.assertEquals(editor:meta(id, "action.popup").title, "Popup - Enrage callout")
+end
+
+function TestGraphEditor:testRenameCommitUpdatesTheHeaderImmediately()
+    self.registry:RegisterNodeType("action.popup", {
+        category = "action",
+        displayName = "Popup",
+        pins = { { name = "in", kind = "exec", direction = "in", terminates = true } },
+        run = function() end,
+    })
+    local editor = Editor.new(self.registry, nil)
+    local id = self.graph:AddNode("action.popup")
+    local other = self.graph:AddNode("action.popup")
+    editor:BindEntry(1, self.graph, {})
+
+    local draft = editor:nodeRenameDraft(id)
+    luaunit.assertEquals(draft.typeLabel, "Popup")
+    luaunit.assertEquals(draft.fieldText, "New Popup")
+    luaunit.assertEquals(editor:meta(id, "action.popup").title, "Popup - New Popup")
+
+    luaunit.assertTrue(editor:commitNodeRename(id, "  Enrage callout  "))
+    luaunit.assertEquals(editor:meta(id, "action.popup").title, "Popup - Enrage callout")
+    luaunit.assertEquals(self.graph.nodes[id].name, "Enrage callout")
+
+    luaunit.assertFalse(editor:commitNodeRename(id, "   "))
+    luaunit.assertEquals(self.graph.nodes[id].name, "Enrage callout")
+
+    luaunit.assertTrue(editor:commitNodeRename(other, "Enrage callout"))
+    luaunit.assertEquals(self.graph.nodes[other].name, "Enrage callout")
+    luaunit.assertEquals(editor:meta(other, "action.popup").title, "Popup - Enrage callout")
+
+    luaunit.assertTrue(editor:nodeRenameBlank(""))
+    luaunit.assertTrue(editor:nodeRenameBlank("   "))
+    luaunit.assertTrue(editor:nodeRenameBlank(" \t "))
+    luaunit.assertFalse(editor:nodeRenameBlank("Enrage callout"))
+    luaunit.assertFalse(editor:nodeRenameBlank("  Enrage callout  "))
+end
+
+function TestGraphEditor:testPencilClickOpensRenameAndDoesNotDeleteOrDrag()
+    self.registry:RegisterNodeType("action.popup", {
+        category = "action",
+        displayName = "Popup",
+        pins = { { name = "in", kind = "exec", direction = "in", terminates = true } },
+        run = function() end,
+    })
+    local editor = Editor.new(self.registry, nil)
+    local id = self.graph:AddNode("action.popup")
+    editor:BindEntry(1, self.graph, { [id] = { x = 40, y = 50 } })
+    editor.visible = true
+    editor:buildGeoms()
+    local geom = editor.geoms[id]
+    local pcx, pcy = editor.view:ToScreen(geom.x + geom.pencil.cx, geom.y + geom.pencil.cy)
+    local renamed
+    editor.onRenameNode = function(nodeId) renamed = nodeId end
+    local savedMouse = _G.Mouse
+    _G.Mouse = {
+        GetPosition = function()
+            return { x = editor.window.x + pcx, y = editor.window.y + pcy }
+        end,
+    }
+    editor:beginPress()
+    _G.Mouse = savedMouse
+    luaunit.assertEquals(renamed, id)
+    luaunit.assertNotNil(self.graph.nodes[id])
+    luaunit.assertNotEquals(editor.mode, "dragnode")
+end
+
+function TestGraphEditor:testPlaceholderHeaderKeepsTheOriginalTypeKey()
+    local graph = Serialize.Deserialize({
+        version = 1,
+        nodes = { { id = 1, type = "action.popup", controls = { body = "hi" } } },
+        connections = {},
+    }, self.registry, { onUnknown = "placeholder" })
+    local editor = Editor.new(self.registry, nil)
+    editor:BindEntry(1, graph, {})
+    local typeKey = graph.nodes[1].typeKey
+    luaunit.assertEquals(editor:meta(1, typeKey).title, "Unknown: action.popup - New Unknown: action.popup")
+    luaunit.assertTrue(editor:meta(1, typeKey).placeholder)
+    luaunit.assertEquals(editor:nodeRenameDraft(1).fieldText, "New Unknown: action.popup")
+    luaunit.assertEquals(editor:nodeRenameDraft(1).typeLabel, "Unknown: action.popup")
+    luaunit.assertTrue(editor:commitNodeRename(1, "  Enrage callout  "))
+    luaunit.assertEquals(graph.nodes[1].unknown.name, "Enrage callout")
+    luaunit.assertNil(graph.nodes[1].name)
+    luaunit.assertEquals(editor:meta(1, typeKey).title, "Unknown: action.popup - Enrage callout")
+    luaunit.assertEquals(graph.nodes[1].unknown.type, "action.popup")
+    luaunit.assertEquals(graph.nodes[1].unknown.controls.body, "hi")
 end

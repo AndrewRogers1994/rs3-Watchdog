@@ -401,6 +401,46 @@ editor.onRename = function()
         },
     })
 end
+editor.onRenameNode = function(nodeId)
+    local draft = editor:nodeRenameDraft(nodeId)
+    if draft == nil then return end
+    local field
+    local renameAction = {
+        label = "Rename",
+        variant = "positive",
+        disabled = editor:nodeRenameBlank(draft.fieldText),
+        onClick = function()
+            local text = field:GetText()
+            if editor:nodeRenameBlank(text) then return false end
+            if not editor:commitNodeRename(nodeId, text) then return false end
+            return true
+        end,
+    }
+    Dialog.mount(mux:Overlay(), {
+        title = "Rename node",
+        width = 380,
+        height = 200,
+        content = function(win)
+            win:AddText(draft.typeLabel)
+            field = win:AddTextField({
+                text = draft.fieldText,
+                maxLength = 80,
+                height = 30,
+                onChange = function(tf, _, content)
+                    local text = content
+                    if type(text) ~= "string" and tf ~= nil and tf.GetText ~= nil then
+                        text = tf:GetText()
+                    end
+                    Dialog.setActionDisabled(renameAction, editor:nodeRenameBlank(text))
+                end,
+            })
+        end,
+        actions = {
+            { label = "Cancel" },
+            renameAction,
+        },
+    })
+end
 
 ---@param scopeKey string
 ---@param id integer
