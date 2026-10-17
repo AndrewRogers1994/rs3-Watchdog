@@ -718,3 +718,345 @@ function TestPresets:testNodesWithNothingLeftToMarkAreAbsent()
         { nodeId = 2, pinNames = { "hold", "title" } },
     })
 end
+
+function TestPresets:testRenameTrimsAndKeepsTheId()
+    local seeded = {
+        version = 1,
+        presets = {
+            {
+                id = 4,
+                name = "Zebra",
+                graph = {
+                    version = 1,
+                    nodes = { { id = 1, type = "fixture.note", controls = { text = "keep" } } },
+                    connections = {},
+                },
+                layout = { { id = 1, x = 12, y = 18 } },
+                variables = { { nodeId = 1, pinName = "text" } },
+            },
+        },
+    }
+    PersistentDB:SetString("presets", LibNodeGraph.Json.Default.encode(seeded))
+    local preset, err = Presets.Rename(4, "  Alpha  ")
+    luaunit.assertNil(err)
+    luaunit.assertEquals(preset.id, 4)
+    luaunit.assertEquals(preset.name, "Alpha")
+    local doc = Presets.Load()
+    luaunit.assertEquals(doc.presets[1].id, 4)
+    luaunit.assertEquals(doc.presets[1].name, "Alpha")
+    luaunit.assertEquals(doc.presets[1].graph.nodes[1].id, 1)
+    luaunit.assertEquals(doc.presets[1].graph.nodes[1].type, "fixture.note")
+    luaunit.assertEquals(doc.presets[1].graph.nodes[1].controls.text, "keep")
+    luaunit.assertEquals(doc.presets[1].layout, { { id = 1, x = 12, y = 18 } })
+    luaunit.assertEquals(doc.presets[1].variables, { { nodeId = 1, pinName = "text" } })
+end
+
+function TestPresets:testRenameRefusesABlankName()
+    local raw = LibNodeGraph.Json.Default.encode({
+        version = 1,
+        presets = {
+            {
+                id = 4,
+                name = "Zebra",
+                graph = { version = 1, nodes = {}, connections = {} },
+                layout = {},
+                variables = {},
+            },
+        },
+    })
+    PersistentDB:SetString("presets", raw)
+    local blank, blankErr = Presets.Rename(4, "   ")
+    luaunit.assertNil(blank)
+    luaunit.assertNotNil(blankErr)
+    luaunit.assertEquals(PersistentDB:GetString("presets"), raw)
+    local empty = Presets.Rename(4, "")
+    luaunit.assertNil(empty)
+    luaunit.assertEquals(PersistentDB:GetString("presets"), raw)
+    local doc = Presets.Load()
+    luaunit.assertEquals(doc.presets[1].name, "Zebra")
+end
+
+function TestPresets:testRenameRefusesANameLongerThan80()
+    local raw = LibNodeGraph.Json.Default.encode({
+        version = 1,
+        presets = {
+            {
+                id = 4,
+                name = "Zebra",
+                graph = { version = 1, nodes = {}, connections = {} },
+                layout = {},
+                variables = {},
+            },
+        },
+    })
+    PersistentDB:SetString("presets", raw)
+    local preset = Presets.Rename(4, string.rep("a", 81))
+    luaunit.assertNil(preset)
+    luaunit.assertEquals(PersistentDB:GetString("presets"), raw)
+    local capped = Presets.Rename(4, "  " .. string.rep("b", 80) .. "  ")
+    luaunit.assertEquals(capped.name, string.rep("b", 80))
+    luaunit.assertEquals(capped.id, 4)
+end
+
+function TestPresets:testRenameDoesNotWriteWhenTheIdIsMissing()
+    local raw = LibNodeGraph.Json.Default.encode({
+        version = 1,
+        presets = {
+            {
+                id = 4,
+                name = "Zebra",
+                graph = { version = 1, nodes = {}, connections = {} },
+                layout = { { id = 1, x = 2, y = 3 } },
+                variables = {},
+            },
+        },
+    })
+    PersistentDB:SetString("presets", raw)
+    local preset, err = Presets.Rename(9, "Alpha")
+    luaunit.assertNil(preset)
+    luaunit.assertNotNil(err)
+    luaunit.assertEquals(PersistentDB:GetString("presets"), raw)
+    local doc = Presets.Load()
+    luaunit.assertEquals(#doc.presets, 1)
+    luaunit.assertEquals(doc.presets[1].id, 4)
+    luaunit.assertEquals(doc.presets[1].name, "Zebra")
+end
+
+function TestPresets:testRenameDoesNotWriteAnUnreadableDocument()
+    PersistentDB:SetString("presets", "{not json")
+    local raw = PersistentDB:GetString("presets")
+    local preset, err = Presets.Rename(1, "Alpha")
+    luaunit.assertNil(preset)
+    luaunit.assertNotNil(err)
+    luaunit.assertEquals(PersistentDB:GetString("presets"), raw)
+
+    local versioned = '{"version":2,"presets":[{"id":1,"name":"Zebra"}]}'
+    PersistentDB:SetString("presets", versioned)
+    preset = Presets.Rename(1, "Alpha")
+    luaunit.assertNil(preset)
+    luaunit.assertEquals(PersistentDB:GetString("presets"), versioned)
+end
+
+function TestPresets:testTwoPresetsMayShareAName()
+    local seeded = {
+        version = 1,
+        presets = {
+            {
+                id = 1,
+                name = "Alpha",
+                graph = {
+                    version = 1,
+                    nodes = { { id = 1, type = "fixture.note", controls = { text = "first" } } },
+                    connections = {},
+                },
+                layout = { { id = 1, x = 1, y = 2 } },
+                variables = { { nodeId = 1, pinName = "text" } },
+            },
+            {
+                id = 2,
+                name = "Beta",
+                graph = {
+                    version = 1,
+                    nodes = { { id = 3, type = "fixture.trigger", controls = {} } },
+                    connections = {},
+                },
+                layout = { { id = 3, x = 8, y = 9 } },
+                variables = {},
+            },
+        },
+    }
+    PersistentDB:SetString("presets", LibNodeGraph.Json.Default.encode(seeded))
+    local preset, err = Presets.Rename(2, "Alpha")
+    luaunit.assertNil(err)
+    luaunit.assertEquals(preset.id, 2)
+    luaunit.assertEquals(preset.name, "Alpha")
+    local doc = Presets.Load()
+    luaunit.assertEquals(#doc.presets, 2)
+    luaunit.assertEquals(doc.presets[1].id, 1)
+    luaunit.assertEquals(doc.presets[1].name, "Alpha")
+    luaunit.assertEquals(doc.presets[1].graph.nodes[1].controls.text, "first")
+    luaunit.assertEquals(doc.presets[1].layout, { { id = 1, x = 1, y = 2 } })
+    luaunit.assertEquals(doc.presets[1].variables, { { nodeId = 1, pinName = "text" } })
+    luaunit.assertEquals(doc.presets[2].id, 2)
+    luaunit.assertEquals(doc.presets[2].name, "Alpha")
+    luaunit.assertEquals(doc.presets[2].graph.nodes[1].id, 3)
+    luaunit.assertEquals(doc.presets[2].graph.nodes[1].type, "fixture.trigger")
+    luaunit.assertEquals(doc.presets[2].layout, { { id = 3, x = 8, y = 9 } })
+    luaunit.assertEquals(doc.presets[2].variables, {})
+end
+
+function TestPresets:testListOrderAfterRenameFollowsNaturalOrder()
+    local seeded = {
+        version = 1,
+        presets = {
+            {
+                id = 1,
+                name = "Alert 10",
+                graph = { version = 1, nodes = {}, connections = {} },
+                layout = {},
+                variables = {},
+            },
+            {
+                id = 2,
+                name = "Alert 2",
+                graph = { version = 1, nodes = {}, connections = {} },
+                layout = {},
+                variables = {},
+            },
+            {
+                id = 5,
+                name = "alert 2",
+                graph = { version = 1, nodes = {}, connections = {} },
+                layout = {},
+                variables = {},
+            },
+        },
+    }
+    PersistentDB:SetString("presets", LibNodeGraph.Json.Default.encode(seeded))
+    local before = Presets.List()
+    local beforeIds = {}
+    for i, row in ipairs(before) do beforeIds[i] = row.id end
+    luaunit.assertEquals(beforeIds, { 2, 5, 1 })
+
+    local preset = Presets.Rename(1, "  Alert 1  ")
+    luaunit.assertEquals(preset.id, 1)
+    luaunit.assertEquals(preset.name, "Alert 1")
+    local listed = Presets.List()
+    local ids = {}
+    local names = {}
+    for i, row in ipairs(listed) do
+        ids[i] = row.id
+        names[i] = row.name
+    end
+    luaunit.assertEquals(ids, { 1, 2, 5 })
+    luaunit.assertEquals(names, { "Alert 1", "Alert 2", "alert 2" })
+    local stored = Presets.Load()
+    luaunit.assertEquals(stored.presets[1].id, 1)
+    luaunit.assertEquals(stored.presets[2].id, 2)
+    luaunit.assertEquals(stored.presets[3].id, 5)
+end
+
+function TestPresets:testDeleteRemovesOnlyTheAddressedIdWhenNamesMatch()
+    local seeded = {
+        version = 1,
+        presets = {
+            {
+                id = 1,
+                name = "Alpha",
+                graph = {
+                    version = 1,
+                    nodes = { { id = 1, type = "fixture.note", controls = { text = "first" } } },
+                    connections = {},
+                },
+                layout = { { id = 1, x = 1, y = 2 } },
+                variables = { { nodeId = 1, pinName = "text" } },
+            },
+            {
+                id = 2,
+                name = "Alpha",
+                graph = {
+                    version = 1,
+                    nodes = { { id = 3, type = "fixture.trigger", controls = {} } },
+                    connections = { { fromNode = 3, fromPin = "out", toNode = 3, toPin = "out" } },
+                },
+                layout = { { id = 3, x = 8, y = 9 } },
+                variables = { { nodeId = 3, pinName = "out" } },
+            },
+        },
+    }
+    PersistentDB:SetString("presets", LibNodeGraph.Json.Default.encode(seeded))
+    local ok, err = Presets.Delete(1)
+    luaunit.assertNil(err)
+    luaunit.assertEquals(ok, true)
+    local doc = Presets.Load()
+    luaunit.assertEquals(#doc.presets, 1)
+    luaunit.assertEquals(doc.presets[1].id, 2)
+    luaunit.assertEquals(doc.presets[1].name, "Alpha")
+    luaunit.assertEquals(doc.presets[1].graph.nodes[1].id, 3)
+    luaunit.assertEquals(doc.presets[1].graph.nodes[1].type, "fixture.trigger")
+    luaunit.assertEquals(doc.presets[1].graph.connections[1].fromPin, "out")
+    luaunit.assertEquals(doc.presets[1].layout, { { id = 3, x = 8, y = 9 } })
+    luaunit.assertEquals(doc.presets[1].variables, { { nodeId = 3, pinName = "out" } })
+    local listed = Presets.List()
+    luaunit.assertEquals(#listed, 1)
+    luaunit.assertEquals(listed[1].id, 2)
+end
+
+function TestPresets:testDeleteOfAMissingIdDoesNotWipeTheLibrary()
+    local raw = LibNodeGraph.Json.Default.encode({
+        version = 1,
+        presets = {
+            {
+                id = 4,
+                name = "Zebra",
+                graph = { version = 1, nodes = {}, connections = {} },
+                layout = { { id = 1, x = 2, y = 3 } },
+                variables = { { nodeId = 1, pinName = "text" } },
+            },
+        },
+    })
+    PersistentDB:SetString("presets", raw)
+    local ok, err = Presets.Delete(9)
+    luaunit.assertNil(ok)
+    luaunit.assertNotNil(err)
+    luaunit.assertEquals(PersistentDB:GetString("presets"), raw)
+    local doc = Presets.Load()
+    luaunit.assertEquals(#doc.presets, 1)
+    luaunit.assertEquals(doc.presets[1].id, 4)
+    luaunit.assertEquals(doc.presets[1].name, "Zebra")
+    luaunit.assertEquals(doc.presets[1].layout, { { id = 1, x = 2, y = 3 } })
+end
+
+function TestPresets:testDeleteDoesNotWriteAnUnreadableDocument()
+    PersistentDB:SetString("presets", "{not json")
+    local raw = PersistentDB:GetString("presets")
+    local ok, err = Presets.Delete(1)
+    luaunit.assertNil(ok)
+    luaunit.assertNotNil(err)
+    luaunit.assertEquals(PersistentDB:GetString("presets"), raw)
+
+    local versioned = '{"version":2,"presets":[{"id":1,"name":"Zebra"}]}'
+    PersistentDB:SetString("presets", versioned)
+    ok = Presets.Delete(1)
+    luaunit.assertNil(ok)
+    luaunit.assertEquals(PersistentDB:GetString("presets"), versioned)
+end
+
+function TestPresets:testDeleteLeavesAlertsAlreadyCreatedFromIt()
+    local graph = LibNodeGraph.NewGraph(self.registry)
+    graph:AddNode("fixture.trigger")
+    local preset = Presets.Add("Enrage callout", graph, { [1] = { x = 4, y = 5 } })
+    local bucket = Store.Empty()
+    Store.InsertEntry(bucket, Store.NewAlertEntry(8, "Enrage callout", graph, { [1] = { x = 4, y = 5 } }, true))
+    luaunit.assertTrue(Store.SaveTo("global", bucket))
+    luaunit.assertTrue(Store.SaveTo(Store.PlayerKey("99"), bucket))
+    local globalBefore = PersistentDB:GetString("global")
+    local playerBefore = PersistentDB:GetString(Store.PlayerKey("99"))
+
+    local ok, err = Presets.Delete(preset.id)
+    luaunit.assertNil(err)
+    luaunit.assertEquals(ok, true)
+    luaunit.assertEquals(PersistentDB:GetString("global"), globalBefore)
+    luaunit.assertEquals(PersistentDB:GetString(Store.PlayerKey("99")), playerBefore)
+    local loaded = Store.LoadKey("global")
+    luaunit.assertEquals(#loaded.entries, 1)
+    luaunit.assertEquals(loaded.entries[1].id, 8)
+    luaunit.assertEquals(loaded.entries[1].name, "Enrage callout")
+    luaunit.assertEquals(loaded.entries[1].enabled, true)
+    local listed = Presets.List()
+    luaunit.assertEquals(listed, {})
+end
+
+function TestPresets:testDeleteOfTheLastPresetLeavesAnEmptyLibrary()
+    local graph = LibNodeGraph.NewGraph(self.registry)
+    graph:AddNode("fixture.trigger")
+    local preset = Presets.Add("Only", graph, {})
+    local ok = Presets.Delete(preset.id)
+    luaunit.assertEquals(ok, true)
+    local doc = Presets.Load()
+    luaunit.assertEquals(doc.version, 1)
+    luaunit.assertEquals(doc.presets, {})
+    local listed, err = Presets.List()
+    luaunit.assertNil(err)
+    luaunit.assertEquals(listed, {})
+end

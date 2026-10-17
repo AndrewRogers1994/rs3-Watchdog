@@ -10,6 +10,7 @@ local ToastStack = require("src/toast")
 local Theme = require("src/ui/theme")
 local Dialog = require("src/ui/dialog")
 local PresetDialogs = require("src/ui/preset_dialogs")
+local Confirm = require("src/ui/confirm")
 local HubLayers = require("src/ui/hub_layers")
 
 local Events = {
@@ -563,44 +564,198 @@ local function createFromPreset(scopeKey, presetId, answers)
 end
 
 -- Opens the library. Does not create an Alert by itself.
+-- Rename and Delete stack on this same parent. The list is rebuilt from the
+-- window's flow children; the footer actions stay mounted.
 ---@param scopeKey string
 ---@return integer|nil
 local function onCreateAlert(scopeKey)
     local parent = mux ~= nil and mux.rootLayer or nil
     if parent == nil then return nil end
-    local listed, listErr = Presets.List()
     local feedback
+    local body = {}
+    local alertWin
+    local fillList, beginRename, beginDelete
+
+    -- PrettyUI flow padding (14) and column gap (8). The name fills the row;
+    -- the pencil and trash sit inline after it, the same sprites as the Manager.
+    local FLOW_PAD = 14
+    local FLOW_GAP = 8
+
+    local function forget(host, widget)
+        local entries = host._managedFlowEntries
+        if type(entries) == "table" then
+            for i = #entries, 1, -1 do
+                if entries[i].component == widget then
+                    table.remove(entries, i)
+                end
+            end
+        end
+        pcall(function() widget:Destroy() end)
+    end
+
+    local function clearBody(host)
+        for i = #body, 1, -1 do
+            local widget = body[i]
+            body[i] = nil
+            forget(host, widget)
+        end
+        local layout = host._flowLayout
+        if layout ~= nil then
+            layout.nextY = layout.startY
+            layout.row = nil
+            layout.hasItems = false
+            -- Flow only grows the scroll height. Drop it back so a shorter list,
+            -- including the empty library, does not leave the footer below a hole.
+            if host.SetContentHeight ~= nil then
+                pcall(function() host:SetContentHeight(layout.startY) end)
+            end
+        end
+        feedback = nil
+    end
+
+    local function remember(widget)
+        if widget ~= nil then body[#body + 1] = widget end
+        return widget
+    end
+
+    ---@param host any
+    ---@return integer
+    local function nameWidth(host)
+        local contentW = host.contentWidth
+        if type(contentW) ~= "number" then contentW = 352 end
+        local width = contentW - FLOW_PAD * 2 - Theme.MANAGER_ACT_W * 2 - FLOW_GAP * 2
+        if width < 80 then width = 80 end
+        return width
+    end
+
+    beginRename = function(preset)
+        local field, renameFeedback
+        local initial = preset.name or ""
+        local renameAction = {
+            label = "Rename",
+            variant = "positive",
+            disabled = trimName(initial) == "",
+            onClick = function()
+                local name = ""
+                pcall(function() name = field:GetText() or "" end)
+                if trimName(name) == "" then return false end
+                local renamed, err = Presets.Rename(preset.id, name)
+                if renamed == nil then
+                    if renameFeedback ~= nil then
+                        renameFeedback.content = err or "Could not rename the preset."
+                    end
+                    return false
+                end
+                if alertWin ~= nil then fillList(alertWin) end
+                return true
+            end,
+        }
+        Dialog.mount(parent, {
+            title = "Rename preset",
+            width = 380,
+            height = 200,
+            content = function(win)
+                win:AddText("Preset name")
+                field = win:AddTextField({
+                    text = initial,
+                    maxLength = 80,
+                    height = 30,
+                    onChange = function(f)
+                        local text = ""
+                        pcall(function() text = f:GetText() or "" end)
+                        if renameAction.setDisabled ~= nil then
+                            renameAction.setDisabled(trimName(text) == "")
+                        end
+                    end,
+                })
+                renameFeedback = win:AddText("")
+            end,
+            actions = {
+                { label = "Cancel" },
+                renameAction,
+            },
+        })
+    end
+
+    beginDelete = function(preset)
+        Confirm.mount(parent, {
+            title = "CONFIRM DELETE",
+            body = string.format('Delete "%s"? This cannot be undone.', preset.name or ""),
+            confirmLabel = "DELETE",
+            confirmVariant = "negative",
+            onConfirm = function()
+                local deleted, err = Presets.Delete(preset.id)
+                if deleted ~= true then
+                    if feedback ~= nil then
+                        feedback.content = err or "Could not delete the preset."
+                    end
+                    return false
+                end
+                if alertWin ~= nil then fillList(alertWin) end
+                return true
+            end,
+        })
+    end
+
+    fillList = function(host)
+        clearBody(host)
+        local listed, listErr = Presets.List()
+        if listed == nil then
+            remember(host:AddText(listErr or "Presets could not be read."))
+        elseif #listed == 0 then
+            remember(host:AddText("There are no presets."))
+        else
+            local width = nameWidth(host)
+            local iconOffset = math.floor((Theme.MANAGER_ROW_H - Theme.MANAGER_ACT_W) / 2)
+            for _, preset in ipairs(listed) do
+                local captured = preset
+                remember(host:AddSimpleButton(captured.name, function()
+                    if presetHasVariables(captured) then
+                        PresetDialogs.mountVariables(parent, {
+                            preset = captured,
+                            registry = registry,
+                            onCreate = function(answers)
+                                return createFromPreset(scopeKey, captured.id, answers)
+                            end,
+                        })
+                        return
+                    end
+                    local id, err = createFromPreset(scopeKey, captured.id)
+                    if id == nil and err ~= "variables" and feedback ~= nil then
+                        feedback.content = err or "Could not create the alert."
+                    end
+                end, {
+                    width = width,
+                    height = Theme.MANAGER_ROW_H,
+                }))
+                remember(host:AddSpriteButton("PENCIL", function()
+                    beginRename(captured)
+                end, {
+                    inline = true,
+                    size = Theme.MANAGER_ACT_W,
+                    offsetY = iconOffset,
+                    tooltip = "Rename",
+                }))
+                remember(host:AddSpriteButton("TRASH", function()
+                    beginDelete(captured)
+                end, {
+                    inline = true,
+                    size = Theme.MANAGER_ACT_W,
+                    offsetY = iconOffset,
+                    tooltip = "Delete",
+                }))
+            end
+        end
+        feedback = remember(host:AddText(""))
+    end
+
     Dialog.mount(parent, {
         title = "New alert",
         width = 380,
         height = 420,
         content = function(win)
-            if listed == nil then
-                win:AddText(listErr or "Presets could not be read.")
-            elseif #listed == 0 then
-                win:AddText("There are no presets.")
-            else
-                for _, preset in ipairs(listed) do
-                    local captured = preset
-                    win:AddSimpleButton(captured.name, function()
-                        if presetHasVariables(captured) then
-                            PresetDialogs.mountVariables(parent, {
-                                preset = captured,
-                                registry = registry,
-                                onCreate = function(answers)
-                                    return createFromPreset(scopeKey, captured.id, answers)
-                                end,
-                            })
-                            return
-                        end
-                        local id, err = createFromPreset(scopeKey, captured.id)
-                        if id == nil and err ~= "variables" and feedback ~= nil then
-                            feedback.content = err or "Could not create the alert."
-                        end
-                    end)
-                end
-            end
-            feedback = win:AddText("")
+            alertWin = win
+            fillList(win)
         end,
         actions = {
             { label = "Cancel" },
