@@ -42,6 +42,24 @@ _Avoid_: PrettyUI ribbon (that is a separate button with the same toggle), Setti
 The gesture that shows or hides the Watchdog shell. F8, the PrettyUI ribbon, and the content-layer Toggle all perform it. While an Object Marker capture is armed, the gesture cancels the capture and leaves the shell where it is.
 _Avoid_: Open, launch
 
+## Packs
+
+**Pack**:
+A plugin that depends on Watchdog and contributes Listings, Clips, and Alert Presets. Watchdog does not depend on a Pack, and running with none installed is normal.
+_Avoid_: Addon
+
+**Listing**:
+A name, offered by a Pack, for a builtin sound id. Choosing one stores that id on the alert. Sound Effect plays the id whether or not the Pack is still loaded.
+_Avoid_: Sound effect, catalog entry
+
+**Clip**:
+A named audio file shipped inside a Pack and offered on Custom Sound. The alert stores a key for it, and playback needs that Pack loaded.
+_Avoid_: Custom sound, resource
+
+**Alert Preset**:
+A named alert template a player adds as a copy, which is then an ordinary alert. A Pack may contribute these. How presets themselves work is decided on another map.
+_Avoid_: Import (that is the paste-an-export dialog)
+
 ## Language
 
 **Editor**:
@@ -109,9 +127,14 @@ The filled rectangle drawn for a Node, carrying its Header and Pin rows. Square-
 _Avoid_: Box, card, frame, panel
 
 **Header**:
-The category-colored band at the top of a Node Body showing its title. Its color is keyed
-off the Node Type's Category.
+The category-colored band at the top of a Node Body. It shows the node type and the Node name
+as `{Type} - {Name}`. Its color is keyed off the Node Type's Category.
 _Avoid_: Title bar, caption, banner
+
+**Node name**:
+The player-chosen name of one node, separate from the node type's display name. A node has no
+name until the player renames it, and the header shows `New {Type}` until then.
+_Avoid_: Title (that is the Header text), display name (that is the type), label
 
 **Mode**:
 A named pin-set on a Node Type (LibNodeGraph ADR-0011). A live Node stores `mode` as instance
@@ -332,6 +355,32 @@ _Avoid_: Promote, outdent, move out, unnest, demote
 A leaf Entry (`kind = "alert"`) bundling one saved graph with its Layout and an `enabled` flag —
 the unit the Editor opens and the runtime fires (#75).
 _Avoid_: Graph (that is the engine model an Alert wraps), rule, trigger
+
+**Preset**:
+A player-saved snapshot of one Alert that can be instantiated into a new Alert. Not an Entry,
+and not tied to the Alerts created from it.
+_Avoid_: Template (that is a Webhook body), pack, starter, rule
+
+**Preset id**:
+The integer that identifies one Preset in the Preset library. It is kept across rename, the player
+does not see it, and a new one is one past the highest Preset id still in the library. Among
+Presets that share a name, the lower Preset id was saved earlier.
+_Avoid_: Entry id, node id, index, UUID
+
+**Preset library**:
+The plugin-wide collection of Presets, shown in case-insensitive natural name order. The player
+does not arrange that order. Presets that share a name are listed by Preset id, lower first. A Preset saved on any tab is offered in every Scope, including
+while logged out. Not a Scope, and not a Bucket: Scope still only partitions Entries.
+The instantiated Alert lands in the active Scope. The whole library is one PersistentDB key,
+`presets` (no `watchdog_` prefix), beside the Scope Buckets. It is not a field of `global` and
+not stored under any `player_<tracking id>` key, so saving a Scope or switching character does
+not rewrite it.
+_Avoid_: Catalog (that is a shipped set of starter Presets, which this effort does not include); per-Scope library; Bucket
+
+**Variable**:
+A text, number, or enum Control, or the needle of a Matcher, marked on a Preset so that
+instantiating it asks the player for that value and bakes the answer into the new Alert.
+_Avoid_: Prompt, placeholder, parameter; Injection Token (that is a fire-time `{{N}}` on a Webhook)
 
 **Group**:
 A branch Entry (`kind = "group"`) with a `children` array of Entries (alerts and/or nested groups).
@@ -555,7 +604,7 @@ at send time by the value wired into the node's positional data-input pin `N`. B
 body is JSON-first, injected values are **JSON-escaped** before substitution, so arbitrary text
 (a chat line with quotes or newlines) can't break the payload. The token set is fixed at three
 because the engine has no dynamic pins.
-_Avoid_: variable, placeholder, `$1`/`%1%` (the syntax is `{{N}}`); "merge field"
+_Avoid_: placeholder, `$1`/`%1%` (the syntax is `{{N}}`); "merge field"; Variable (a Preset's author-time fill-in, not this token)
 
 **Async Node**:
 A node whose downstream exec pins do **not** fire during the synchronous trigger→…→node sweep,
