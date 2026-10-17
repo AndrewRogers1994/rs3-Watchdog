@@ -21,6 +21,7 @@ local chrome = {}
 ---@field variant string|nil
 ---@field disabled boolean|nil
 ---@field tooltip string|nil
+---@field setDisabled fun(disabled: boolean)|nil  # assigned at mount; tracks a field as it changes
 ---@field onClick (fun(): boolean|nil)|nil  # true = pop; false/nil = stay; omitted = pop (unless disabled)
 ---@field button any|nil  # mounted footer button; set so disabled can change with the field
 
@@ -259,8 +260,9 @@ local function mountActions(win, frame, actions)
         local label = action.label or ""
         local width = actionWidth(label, action)
         x = x - width
+        local btn
         pcall(function()
-            action.button = win:AddFancyButton(label, bindAction(frame, action), {
+            btn = win:AddFancyButton(label, bindAction(frame, action), {
                 variant = action.variant or "neutral",
                 disabled = action.disabled,
                 tooltip = action.tooltip,
@@ -270,6 +272,12 @@ local function mountActions(win, frame, actions)
                 y = Dialog.ACTION_Y,
             })
         end)
+        action.button = btn
+        -- The flag is fixed at mount unless the caller updates it as a field changes.
+        -- Rename calls Dialog.setActionDisabled; Save as preset calls action.setDisabled.
+        action.setDisabled = function(disabled)
+            Dialog.setActionDisabled(action, disabled)
+        end
         x = x - Dialog.ACTION_GAP
     end
 end
