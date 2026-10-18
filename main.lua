@@ -758,7 +758,7 @@ local function onCreateAlert(scopeKey)
 
     Dialog.mount(parent, {
         title = "New alert",
-        width = 380,
+        width = 400,
         height = 420,
         content = function(win)
             alertWin = win

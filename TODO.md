@@ -19,6 +19,8 @@
 - [x] 14. Hide watchdog window during object select _(Mux `HideForCapture` while `objectMarkerCapture` is armed; restore on commit/Esc/F8. No-op if the shell was already down.)_
 - [ ] 15. Area select + copy/paste in editor view
 - [ ] 16. Disabling an alert that has an infobox in it should clear that infobox (and probably any other visuals spawned by that alert)
+- [ ] 17. Add scrolling to main manager view and also preset modal
+- [ ] 18. Look into rounding the node layout positions to whole numbers
 
 ## Node port backlog (mirroring runelite-watchdog)
 
