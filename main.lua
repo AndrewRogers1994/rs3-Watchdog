@@ -348,6 +348,14 @@ local function onToggleEnabled(scopeKey, id)
                 if a.id == id then a.enabled = nextEnabled end
             end
         end
+    elseif not nextEnabled then
+        -- A disabled group does not flip child alert.enabled; firing stops via the ancestor
+        -- check, so the visuals those children already spawned have to be released here.
+        local alertIds = {}
+        collectAlertIds(entry, alertIds)
+        for _, aid in ipairs(alertIds) do
+            runtime:ReleaseAlertVisuals(aid)
+        end
     end
 end
 
@@ -485,6 +493,7 @@ local function onDelete(scopeKey, id)
     Store.DeleteById(doc, id)
     Store.SaveTo(key, doc)
     for _, aid in ipairs(alertIds) do
+        runtime:ReleaseAlertVisuals(aid)
         runtime:RemoveAlert(aid)
     end
     if list ~= nil then purgeAlertList(list, alertIds) end
@@ -839,6 +848,7 @@ local function onBulkDelete(scopeKey, ids)
             end
             Store.DeleteById(doc, id)
             for _, aid in ipairs(alertIds) do
+                runtime:ReleaseAlertVisuals(aid)
                 runtime:RemoveAlert(aid)
             end
             if list ~= nil then purgeAlertList(list, alertIds) end

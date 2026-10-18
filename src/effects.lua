@@ -116,6 +116,32 @@ function EffectRegistry:_promote(q)
     end
 end
 
+-- Snapshot first: Dismiss mutates the stack and queue lists this walk reads.
+function EffectRegistry:DismissIf(pred)
+    local matches = {}
+    local function consider(handle)
+        if pred(handle) then
+            matches[#matches + 1] = handle
+        end
+    end
+    for _, list in pairs(self.stacks) do
+        for _, handle in ipairs(list) do
+            consider(handle)
+        end
+    end
+    for _, q in pairs(self.queues) do
+        if q.active ~= nil then
+            consider(q.active)
+        end
+        for _, handle in ipairs(q.pending) do
+            consider(handle)
+        end
+    end
+    for _, handle in ipairs(matches) do
+        self:Dismiss(handle)
+    end
+end
+
 function EffectRegistry:Dismiss(handle)
     for _, list in pairs(self.stacks) do
         for i, h in ipairs(list) do

@@ -715,6 +715,9 @@ function Popup.Register(registry, runtime)
                 theme = ctx:In("theme"),
                 hold = ctx:In("hold"),
             })
+            -- The popup queue is shared by every alert. Stamp the node state so disabling
+            -- or deleting this alert can dismiss its banners and leave the others queued.
+            handle.source = ctx.state
             -- Queue-only: one banner on screen at a time (AC).
             if runtime ~= nil and runtime.effects ~= nil then
                 runtime.effects:PushQueue(Popup.OWNER, handle)

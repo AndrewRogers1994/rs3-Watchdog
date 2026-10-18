@@ -18,7 +18,7 @@
 - [x] 13. Location trigger node needs to not fire upon 1. load and 2. setting position ([#72](https://github.com/adamk33n3r/rs3-Watchdog/issues/72))
 - [x] 14. Hide watchdog window during object select _(Mux `HideForCapture` while `objectMarkerCapture` is armed; restore on commit/Esc/F8. No-op if the shell was already down.)_
 - [ ] 15. Area select + copy/paste in editor view
-- [ ] 16. Disabling an alert that has an infobox in it should clear that infobox (and probably any other visuals spawned by that alert)
+- [x] 16. Disabling an alert that has an infobox in it should clear that infobox (and probably any other visuals spawned by that alert) _(Disable, name toggle, group disable, and delete release that alert's InfoBox, toasts, marker/flash handles, and popups stamped with the node's state. Re-enable does not restore them. RemoveAlert alone keeps visuals so a bucket move does not blank an enabled alert.)_
 - [ ] 17. Add scrolling to main manager view and also preset modal
 - [ ] 18. Look into rounding the node layout positions to whole numbers
 

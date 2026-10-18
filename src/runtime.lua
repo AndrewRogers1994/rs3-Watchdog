@@ -56,6 +56,7 @@ local Util = require("src/util")
 ---@field AddAlert fun(self: Watchdog.Runtime, id: integer|nil, name: string|nil, graph: LibNodeGraph.Graph|nil, enabled: boolean|nil, bucketKey: string|nil): Watchdog.RuntimeAlert
 ---@field RemoveAlert fun(self: Watchdog.Runtime, id: integer): boolean
 ---@field SetAlertEnabled fun(self: Watchdog.Runtime, id: integer, enabled: boolean): boolean
+---@field ReleaseAlertVisuals fun(self: Watchdog.Runtime, id: integer): boolean
 ---@field RenameAlert fun(self: Watchdog.Runtime, id: integer, name: string): boolean
 ---@field SetRegistry fun(self: Watchdog.Runtime, registry: LibNodeGraph.Registry)
 ---@field PreloadGraph fun(self: Watchdog.Runtime, graph: LibNodeGraph.Graph|nil)
@@ -359,7 +360,51 @@ function Runtime:RemoveAlert(id)
     return true
 end
 
+-- Drop overlay visuals keyed by this graph's node state tables: infobox tiles, toasts,
+-- per-node effect handles (screen marker, object marker, screen flash), and popups stamped
+-- with `handle.source == state`. Other alerts' nodes keep their own state tables.
+---@param graph LibNodeGraph.Graph|nil
+function Runtime:_releaseGraphVisuals(graph)
+    if graph == nil then return end
+    local states = {}
+    for _, node in ipairs(graph:GetNodes()) do
+        local state = graph:GetState(node.id)
+        if state ~= nil then
+            states[state] = true
+            if self.infobox ~= nil then
+                self.infobox:Remove(state)
+            end
+            if self.toast ~= nil then
+                self.toast:Dismiss(state)
+            end
+            if state.handle ~= nil and self.effects ~= nil then
+                self.effects:Dismiss(state.handle)
+                state.handle = nil
+            end
+        end
+    end
+    if self.effects ~= nil then
+        self.effects:DismissIf(function(handle)
+            return handle.source ~= nil and states[handle.source] == true
+        end)
+    end
+end
+
+-- Public seam for delete and group-disable. Does not change `enabled` or remove the alert.
+---@param id integer
+---@return boolean
+function Runtime:ReleaseAlertVisuals(id)
+    for _, alert in ipairs(self.alerts) do
+        if alert.id == id then
+            self:_releaseGraphVisuals(alert.graph)
+            return true
+        end
+    end
+    return false
+end
+
 -- Memory-only; does not re-enter the persistence hook. Groups are not live alerts.
+-- Turning an alert off drops the visuals it already spawned. Turning it on does not restore them.
 ---@param id integer
 ---@param enabled boolean
 ---@return boolean
@@ -367,6 +412,9 @@ function Runtime:SetAlertEnabled(id, enabled)
     for _, alert in ipairs(self.alerts) do
         if alert.id == id then
             alert.enabled = enabled and true or false
+            if not alert.enabled then
+                self:_releaseGraphVisuals(alert.graph)
+            end
             return true
         end
     end
@@ -481,6 +529,9 @@ function Runtime:SetEnabled(name, enabled)
     for _, alert in ipairs(matches) do
         alert.enabled = enabled
         self:_persistEnabled(alert, enabled)
+        if not alert.enabled then
+            self:_releaseGraphVisuals(alert.graph)
+        end
     end
     return true
 end
@@ -496,6 +547,9 @@ function Runtime:Toggle(name)
     for _, alert in ipairs(matches) do
         alert.enabled = not alert.enabled
         self:_persistEnabled(alert, alert.enabled)
+        if not alert.enabled then
+            self:_releaseGraphVisuals(alert.graph)
+        end
     end
     return #matches
 end
