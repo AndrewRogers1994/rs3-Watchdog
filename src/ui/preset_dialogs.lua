@@ -1,6 +1,8 @@
 -- Save as preset and the Variable dialog. Both use Dialog; this file does not add a dialog harness.
 -- Save as preset is parented to the Editor overlay. The Variable dialog stacks on the same
 -- parent as New alert so that dialog stays mounted and inert underneath.
+-- The form scrolls inside a SimpleView. Dialog itself is unchanged; the window's own
+-- scrollbar is turned off so Cancel and Save stay on screen.
 
 local Dialog = require("src/ui/dialog")
 local Presets = require("src/presets")
@@ -10,29 +12,67 @@ local NumberField = require("src/ui/widgets/number_field")
 local PresetDialogs = {}
 
 local DIALOG_WIDTH = 460
+local MIN_DIALOG_H = 220
+-- PrettyUI window content starts under the 32px title and above the 8px border.
+local CHROME_H = 40
+-- Footer buttons sit on the window, 35px up from the bottom (Dialog.ACTION_Y).
+local FOOTER_H = 48
+
+---@param parent any
+---@param estimate number
+---@return number
+local function dialogHeight(parent, estimate)
+    local maxH = 640
+    local parentH = parent and parent.height
+    if type(parentH) == "number" and parentH > 80 then
+        maxH = math.max(MIN_DIALOG_H, parentH - 80)
+    end
+    local height = estimate
+    if type(height) ~= "number" or height < MIN_DIALOG_H then height = MIN_DIALOG_H end
+    if height > maxH then height = maxH end
+    return height
+end
+
+-- The window stays a fixed size so the footer does not scroll away. The form
+-- lives in a SimpleView that scrolls only when the marks or variables overflow.
+---@param win any
+---@param height number
+---@return any|nil
+local function scrollBody(win, height)
+    if win ~= nil and win.SetScrollable ~= nil then
+        win:SetScrollable(false)
+    end
+    if prettyui == nil or prettyui.SimpleView == nil or win == nil or win.content == nil then
+        if log ~= nil then log("Watchdog: prettyui.SimpleView unavailable, preset dialog body aborted") end
+        return nil
+    end
+    local width = DIALOG_WIDTH - 16
+    local contentW = win.content.width
+    if type(contentW) == "number" and contentW > 0 then width = contentW end
+    local bodyH = math.max(80, height - CHROME_H - FOOTER_H)
+    local view
+    local ok, err = pcall(function()
+        view = prettyui.SimpleView.new(win.content, {
+            x = 0,
+            y = 0,
+            width = width,
+            height = bodyH,
+        })
+    end)
+    if not ok or view == nil then
+        if log ~= nil then
+            log("Watchdog: preset dialog scroll body failed - " .. tostring(err))
+        end
+        return nil
+    end
+    return view
+end
 
 ---@param name string|nil
 ---@return string
 local function trimName(name)
     if type(name) ~= "string" then return "" end
     return (name:match("^%s*(.-)%s*$"))
-end
-
----@param win any
----@param width integer
----@param estimate integer
-local function fit(win, width, estimate)
-    if win == nil or win.SetSize == nil then return end
-    local height = estimate
-    local content = win.contentHeight
-    if type(content) == "number" and content + 100 > height then
-        height = content + 100
-    end
-    if height < 220 then height = 220 end
-    if height > 1100 then height = 1100 end
-    win.maxHeight = height
-    win.maxWidth = width
-    win:SetSize(width, height)
 end
 
 ---@param field any
@@ -210,13 +250,16 @@ function PresetDialogs.mountSave(parent, opts)
             if ok then open(nextMarks, name, nextPick) end
         end
 
+        local height = dialogHeight(parent, estimate)
         Dialog.mount(parent, {
             title = "Save as preset",
             width = DIALOG_WIDTH,
-            height = estimate,
+            height = height,
             content = function(mounted)
-                mounted:AddText("Preset name")
-                field = mounted:AddTextField({
+                local body = scrollBody(mounted, height)
+                if body == nil then return end
+                body:AddText("Preset name")
+                field = body:AddTextField({
                     text = nameText or "",
                     maxLength = 80,
                     height = 30,
@@ -229,22 +272,22 @@ function PresetDialogs.mountSave(parent, opts)
                     end,
                 })
                 if #eligible == 0 then
-                    mounted:AddText("Nothing on this Alert can be marked.")
+                    body:AddText("Nothing on this Alert can be marked.")
                 else
                     for _, mark in ipairs(marks) do
                         local captured = mark
-                        mounted:AddText(Presets.MarkLabel(graph, captured.nodeId, captured.pinName) or "")
-                        mounted:AddText(valueText(graph, captured.nodeId, captured.pinName))
-                        mounted:AddSimpleButton("Remove", function()
+                        body:AddText(Presets.MarkLabel(graph, captured.nodeId, captured.pinName) or "")
+                        body:AddText(valueText(graph, captured.nodeId, captured.pinName))
+                        body:AddSimpleButton("Remove", function()
                             reopen(mounted, withoutMark(marks, captured.nodeId, captured.pinName), nil)
                         end)
                     end
                     if pick ~= nil and pick.kind == "node" then
-                        mounted:AddText("Choose a node")
+                        body:AddText("Choose a node")
                         for _, group in ipairs(choices) do
                             local captured = group
                             local title = Presets.NodeTitle(graph, captured.nodeId) or tostring(captured.nodeId)
-                            mounted:AddSimpleButton(title, function()
+                            body:AddSimpleButton(title, function()
                                 if #captured.pinNames == 1 then
                                     reopen(mounted, withMark(marks, captured.nodeId, captured.pinNames[1]), nil)
                                 else
@@ -260,27 +303,26 @@ function PresetDialogs.mountSave(parent, opts)
                                 break
                             end
                         end
-                        mounted:AddText("Choose a pin")
-                        mounted:AddSimpleButton("Back", function()
+                        body:AddText("Choose a pin")
+                        body:AddSimpleButton("Back", function()
                             reopen(mounted, marks, { kind = "node" })
                         end)
                         if group ~= nil then
                             for _, pinName in ipairs(group.pinNames) do
                                 local capturedPin = pinName
                                 local nodeId = group.nodeId
-                                mounted:AddSimpleButton(Presets.PinLabel(graph, nodeId, capturedPin), function()
+                                body:AddSimpleButton(Presets.PinLabel(graph, nodeId, capturedPin), function()
                                     reopen(mounted, withMark(marks, nodeId, capturedPin), nil)
                                 end)
                             end
                         end
                     elseif #choices > 0 then
-                        mounted:AddSimpleButton("Add", function()
+                        body:AddSimpleButton("Add", function()
                             reopen(mounted, marks, { kind = "node" })
                         end)
                     end
                 end
-                feedback = mounted:AddText("")
-                fit(mounted, DIALOG_WIDTH, estimate)
+                feedback = body:AddText("")
             end,
             actions = {
                 { label = "Cancel" },
@@ -413,18 +455,21 @@ function PresetDialogs.mountVariables(parent, opts)
     }
 
     local estimate = 200 + math.max(#variables, 1) * 80
+    local height = dialogHeight(parent, estimate)
     Dialog.mount(parent, {
         title = preset.name or "",
         width = DIALOG_WIDTH,
-        height = estimate,
+        height = height,
         content = function(mounted)
+            local body = scrollBody(mounted, height)
+            if body == nil then return end
             if graph == nil then
-                mounted:AddText("Could not copy the preset graph.")
+                body:AddText("Could not copy the preset graph.")
             else
                 for index, mark in ipairs(variables) do
                     local slot = slots[index]
                     local label = Presets.MarkLabel(graph, mark.nodeId, mark.pinName) or mark.pinName
-                    mounted:AddText(label)
+                    body:AddText(label)
                     if slot.widget == "enum" then
                         local choices = slot.choices or {}
                         local selected = 1
@@ -438,7 +483,7 @@ function PresetDialogs.mountVariables(parent, opts)
                         for i, choice in ipairs(choices) do
                             entries[i] = { label = choice.label, id = i, order = i }
                         end
-                        mounted:AddComboBox({
+                        body:AddComboBox({
                             entries = entries,
                             selectedID = selected,
                             onChange = function(_, entryID, labelText)
@@ -456,7 +501,7 @@ function PresetDialogs.mountVariables(parent, opts)
                             end,
                         })
                     else
-                        mounted:AddTextField({
+                        body:AddTextField({
                             text = slot.raw,
                             height = 30,
                             maxLength = 128,
@@ -471,8 +516,7 @@ function PresetDialogs.mountVariables(parent, opts)
                     end
                 end
             end
-            feedback = mounted:AddText("")
-            fit(mounted, DIALOG_WIDTH, estimate)
+            feedback = body:AddText("")
         end,
         actions = {
             { label = "Cancel" },
