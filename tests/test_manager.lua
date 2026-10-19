@@ -387,6 +387,19 @@ function TestManager:testCreateGroupReturnsMintedIdFromHost()
     luaunit.assertEquals(mgr:CreateGroup(), 42)
 end
 
+function TestManager:testBulkNewGroupClearsSelection()
+    local doc = bucket({ alert(1, "a"), alert(2, "b") })
+    local mgr = self:makeManager(
+        { { key = "global", label = "Global", doc = doc } },
+        { onBulkNewGroup = function() return 99 end }
+    )
+    mgr:ToggleSelection(1, false)
+    mgr:ToggleSelection(2, false)
+    luaunit.assertEquals(mgr:BulkNewGroup(), 99)
+    luaunit.assertFalse(mgr:HasSelection())
+    luaunit.assertNil(mgr.lastSelectId)
+end
+
 function TestManager:testConfirmDefaultsTitleAndConfirmLabel()
     local opts = Confirm.resolve({})
     luaunit.assertEquals(opts.title, "CONFIRM")

@@ -259,7 +259,7 @@ function TestUILayout:testManagerControlsAtMinimumWidth()
             and primary.right.height == 28
             and primary.label.height == 28
     )
-    assert(primary.root.height == activeButtons("+ New group")[1].root.height)
+    assert(#activeButtons("+ New group") == 0, "+ New group is hidden until rows can join an existing group")
     assert(#activeButtons("ARROW_UP") == 0, "Move arrows visible by default")
     assert(#activeButtons("PENCIL") == 3, "Rename buttons missing after title construction")
     assert(#activeButtons("EXPORT") == 3, "Export buttons missing after title construction")

@@ -476,13 +476,8 @@ function Manager:BulkNewGroup(ids)
     if #ids == 0 then return nil end
     local ok, newId = pcall(self.onBulkNewGroup, scopeKey, ids)
     bumpMutate(self)
-    if ok and type(newId) == "number" then
-        self.selected = { [newId] = true }
-        self.lastSelectId = newId
-        bumpSelect(self)
-        return newId
-    end
     self:ClearSelection()
+    if ok and type(newId) == "number" then return newId end
     return nil
 end
 
@@ -1218,7 +1213,6 @@ end
 -- Tabs has no trailing-actions API (only TabPage is a ContentMethods host) - AddFancyButton + abs coords.
 function Manager:_mountToolbar()
     local y = Theme.MANAGER_TAB_BASELINE + 8
-    local gap = Theme.MANAGER_TOOLBAR_GAP
     local function add(text, x, action, primary, width, spriteID)
         local options = { x = x, y = y, width = width, height = Theme.MANAGER_TOOLBAR_H,
             variant = primary and "positive" or "neutral" }
@@ -1235,12 +1229,14 @@ function Manager:_mountToolbar()
     end
     local x = Theme.MANAGER_PAGE_PAD
     local create = add("+ New alert", x, function() self:CreateAlert(); self:_rebuild() end, true)
-    local createW = create.root.width
-    add("+ New group", x + createW + gap, function()
-        local id = self:CreateGroup()
-        if type(id) == "number" then self.pendingRenameId = id end
-        self:_rebuild()
-    end, false, 112)
+    -- Hidden until rows can be moved into an existing group. Uncomment to restore.
+    -- local gap = Theme.MANAGER_TOOLBAR_GAP
+    -- local createW = create.root.width
+    -- add("+ New group", x + createW + gap, function()
+    --     local id = self:CreateGroup()
+    --     if type(id) == "number" then self.pendingRenameId = id end
+    --     self:_rebuild()
+    -- end, false, 112)
     if self:HasSelection() then
         self:_mountBulkActions(y)
         return
