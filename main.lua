@@ -2,12 +2,15 @@ local Editor = require("src/ui/graph")
 local Manager = require("src/ui/manager")
 local Multiplexer = require("src/ui/multiplexer")
 local Store  = require("src/store")
+local Presets = require("src/presets")
 local Export = require("src/export")
 ---@type Watchdog.Runtime
 local Runtime = require("src/runtime")
 local ToastStack = require("src/toast")
 local Theme = require("src/ui/theme")
 local Dialog = require("src/ui/dialog")
+local PresetDialogs = require("src/ui/preset_dialogs")
+local Confirm = require("src/ui/confirm")
 local HubLayers = require("src/ui/hub_layers")
 
 local Events = {
@@ -345,6 +348,14 @@ local function onToggleEnabled(scopeKey, id)
                 if a.id == id then a.enabled = nextEnabled end
             end
         end
+    elseif not nextEnabled then
+        -- A disabled group does not flip child alert.enabled; firing stops via the ancestor
+        -- check, so the visuals those children already spawned have to be released here.
+        local alertIds = {}
+        collectAlertIds(entry, alertIds)
+        for _, aid in ipairs(alertIds) do
+            runtime:ReleaseAlertVisuals(aid)
+        end
     end
 end
 
@@ -401,6 +412,62 @@ editor.onRename = function()
         },
     })
 end
+editor.onRenameNode = function(nodeId)
+    local draft = editor:nodeRenameDraft(nodeId)
+    if draft == nil then return end
+    local field
+    local renameAction = {
+        label = "Rename",
+        variant = "positive",
+        disabled = editor:nodeRenameBlank(draft.fieldText),
+        onClick = function()
+            local text = field:GetText()
+            if editor:nodeRenameBlank(text) then return false end
+            if not editor:commitNodeRename(nodeId, text) then return false end
+            return true
+        end,
+    }
+    Dialog.mount(mux:Overlay(), {
+        title = "Rename node",
+        width = 380,
+        height = 200,
+        content = function(win)
+            win:AddText(draft.typeLabel)
+            field = win:AddTextField({
+                text = draft.fieldText,
+                maxLength = 80,
+                height = 30,
+                onChange = function(tf, _, content)
+                    local text = content
+                    if type(text) ~= "string" and tf ~= nil and tf.GetText ~= nil then
+                        text = tf:GetText()
+                    end
+                    Dialog.setActionDisabled(renameAction, editor:nodeRenameBlank(text))
+                end,
+            })
+        end,
+        actions = {
+            { label = "Cancel" },
+            renameAction,
+        },
+    })
+end
+
+editor.onSavePreset = function()
+    if boundScope == nil or editor.boundId == nil or editor.graph == nil then return end
+    if mux == nil or mux:Overlay() == nil then return end
+    -- Snapshot only. The open Alert is not renamed and gains no Variable marks.
+    PresetDialogs.mountSave(mux:Overlay(), {
+        graph = editor.graph,
+        initialName = editor.alertName or "",
+        onSave = function(name, marks)
+            if marks == nil or #marks == 0 then
+                return Presets.Add(name, editor.graph, editor:GetLayout())
+            end
+            return Presets.Add(name, editor.graph, editor:GetLayout(), marks)
+        end,
+    })
+end
 
 ---@param scopeKey string
 ---@param id integer
@@ -426,6 +493,7 @@ local function onDelete(scopeKey, id)
     Store.DeleteById(doc, id)
     Store.SaveTo(key, doc)
     for _, aid in ipairs(alertIds) do
+        runtime:ReleaseAlertVisuals(aid)
         runtime:RemoveAlert(aid)
     end
     if list ~= nil then purgeAlertList(list, alertIds) end
@@ -450,9 +518,20 @@ local function onLift(scopeKey, id)
     Store.SaveTo(key, doc)
 end
 
+---@param list Watchdog.RestoredAlert[]|nil
+---@param id integer
+---@param name string
+---@param graph LibNodeGraph.Graph
+---@param layout Watchdog.Layout
+local function rememberAlert(list, id, name, graph, layout)
+    if list == nil then return end
+    list[#list + 1] = { id = id, name = name, graph = graph, layout = layout, enabled = true }
+end
+
+-- Today's From scratch result. Does not read the Preset library.
 ---@param scopeKey string
 ---@return integer|nil
-local function onCreateAlert(scopeKey)
+local function createFromScratch(scopeKey)
     local doc, key, list = scopeBucket(scopeKey)
     if doc == nil then return nil end
     local graph = LibNodeGraph.NewGraph(registry)
@@ -461,12 +540,279 @@ local function onCreateAlert(scopeKey)
     local name = "New Alert"
     Store.InsertEntry(doc, Store.NewAlertEntry(id, name, graph, layout, true))
     Store.SaveTo(key, doc)
-    if list ~= nil then
-        list[#list + 1] = { id = id, name = name, graph = graph, layout = layout, enabled = true }
-    end
+    rememberAlert(list, id, name, graph, layout)
     runtime:AddAlert(id, name, graph, true, key)
     navOpenAlert(scopeKey, id)
     return id
+end
+
+---@param preset Watchdog.Preset
+---@return boolean
+local function presetHasVariables(preset)
+    return type(preset.variables) == "table" and #preset.variables > 0
+end
+
+-- Bakes answers when the Preset has Variables. Opening the Editor dismisses mux-root dialogs.
+---@param scopeKey string
+---@param presetId integer
+---@param answers any[]|nil
+---@return integer|nil id
+---@return string|nil err
+local function createFromPreset(scopeKey, presetId, answers)
+    local doc, key, list = scopeBucket(scopeKey)
+    if doc == nil then return nil, "No scope to create the alert in." end
+    local entry, graph, layout, err = Presets.Instantiate(doc, presetId, registry, answers)
+    if entry == nil or graph == nil or layout == nil then
+        return nil, err
+    end
+    Store.SaveTo(key, doc)
+    rememberAlert(list, entry.id, entry.name, graph, layout)
+    runtime:AddAlert(entry.id, entry.name, graph, true, key)
+    navOpenAlert(scopeKey, entry.id)
+    return entry.id
+end
+
+---@param name string|nil
+---@return string
+local function trimName(name)
+    if type(name) ~= "string" then return "" end
+    return (name:match("^%s*(.-)%s*$"))
+end
+
+-- Opens the library. Does not create an Alert by itself.
+-- Rename and Delete stack on this same parent. The preset list is rebuilt inside a
+-- SimpleView; the footer actions stay on the window and do not scroll.
+---@param scopeKey string
+---@return integer|nil
+local function onCreateAlert(scopeKey)
+    local parent = mux ~= nil and mux.rootLayer or nil
+    if parent == nil then return nil end
+    local feedback
+    local body = {}
+    local alertWin
+    local fillList, beginRename, beginDelete
+
+    -- PrettyUI flow padding (14) and column gap (8). The name fills the row;
+    -- the pencil and trash sit inline after it, the same sprites as the Manager.
+    local FLOW_PAD = 14
+    local FLOW_GAP = 8
+
+    local function forget(host, widget)
+        local entries = host._managedFlowEntries
+        if type(entries) == "table" then
+            for i = #entries, 1, -1 do
+                if entries[i].component == widget then
+                    table.remove(entries, i)
+                end
+            end
+        end
+        pcall(function() widget:Destroy() end)
+    end
+
+    local function clearBody(host)
+        for i = #body, 1, -1 do
+            local widget = body[i]
+            body[i] = nil
+            forget(host, widget)
+        end
+        local layout = host._flowLayout
+        if layout ~= nil then
+            layout.nextY = layout.startY
+            layout.row = nil
+            layout.hasItems = false
+            -- Flow only grows the scroll height. Drop it back so a shorter list,
+            -- including the empty library, does not leave the footer below a hole.
+            if host.SetContentHeight ~= nil then
+                pcall(function() host:SetContentHeight(layout.startY) end)
+            end
+        end
+        feedback = nil
+    end
+
+    local function remember(widget)
+        if widget ~= nil then body[#body + 1] = widget end
+        return widget
+    end
+
+    ---@param host any
+    ---@return integer
+    local function nameWidth(host)
+        local contentW = host.contentWidth
+        if type(contentW) ~= "number" then contentW = 352 end
+        local width = contentW - FLOW_PAD * 2 - Theme.MANAGER_ACT_W * 2 - FLOW_GAP * 2
+        if width < 80 then width = 80 end
+        return width
+    end
+
+    beginRename = function(preset)
+        local field, renameFeedback
+        local initial = preset.name or ""
+        local renameAction = {
+            label = "Rename",
+            variant = "positive",
+            disabled = trimName(initial) == "",
+            onClick = function()
+                local name = ""
+                pcall(function() name = field:GetText() or "" end)
+                if trimName(name) == "" then return false end
+                local renamed, err = Presets.Rename(preset.id, name)
+                if renamed == nil then
+                    if renameFeedback ~= nil then
+                        renameFeedback.content = err or "Could not rename the preset."
+                    end
+                    return false
+                end
+                if alertWin ~= nil then fillList(alertWin) end
+                return true
+            end,
+        }
+        Dialog.mount(parent, {
+            title = "Rename preset",
+            width = 380,
+            height = 200,
+            content = function(win)
+                win:AddText("Preset name")
+                field = win:AddTextField({
+                    text = initial,
+                    maxLength = 80,
+                    height = 30,
+                    onChange = function(f)
+                        local text = ""
+                        pcall(function() text = f:GetText() or "" end)
+                        if renameAction.setDisabled ~= nil then
+                            renameAction.setDisabled(trimName(text) == "")
+                        end
+                    end,
+                })
+                renameFeedback = win:AddText("")
+            end,
+            actions = {
+                { label = "Cancel" },
+                renameAction,
+            },
+        })
+    end
+
+    beginDelete = function(preset)
+        Confirm.mount(parent, {
+            title = "CONFIRM DELETE",
+            body = string.format('Delete "%s"? This cannot be undone.', preset.name or ""),
+            confirmLabel = "DELETE",
+            confirmVariant = "negative",
+            onConfirm = function()
+                local deleted, err = Presets.Delete(preset.id)
+                if deleted ~= true then
+                    if feedback ~= nil then
+                        feedback.content = err or "Could not delete the preset."
+                    end
+                    return false
+                end
+                if alertWin ~= nil then fillList(alertWin) end
+                return true
+            end,
+        })
+    end
+
+    fillList = function(host)
+        clearBody(host)
+        local listed, listErr = Presets.List()
+        if listed == nil then
+            remember(host:AddText(listErr or "Presets could not be read."))
+        elseif #listed == 0 then
+            remember(host:AddText("There are no presets."))
+        else
+            local width = nameWidth(host)
+            local iconOffset = math.floor((Theme.MANAGER_ROW_H - Theme.MANAGER_ACT_W) / 2)
+            for _, preset in ipairs(listed) do
+                local captured = preset
+                remember(host:AddSimpleButton(captured.name, function()
+                    if presetHasVariables(captured) then
+                        PresetDialogs.mountVariables(parent, {
+                            preset = captured,
+                            registry = registry,
+                            onCreate = function(answers)
+                                return createFromPreset(scopeKey, captured.id, answers)
+                            end,
+                        })
+                        return
+                    end
+                    local id, err = createFromPreset(scopeKey, captured.id)
+                    if id == nil and err ~= "variables" and feedback ~= nil then
+                        feedback.content = err or "Could not create the alert."
+                    end
+                end, {
+                    width = width,
+                    height = Theme.MANAGER_ROW_H,
+                }))
+                remember(host:AddSpriteButton("PENCIL", function()
+                    beginRename(captured)
+                end, {
+                    inline = true,
+                    size = Theme.MANAGER_ACT_W,
+                    offsetY = iconOffset,
+                    tooltip = "Rename",
+                }))
+                remember(host:AddSpriteButton("TRASH", function()
+                    beginDelete(captured)
+                end, {
+                    inline = true,
+                    size = Theme.MANAGER_ACT_W,
+                    offsetY = iconOffset,
+                    tooltip = "Delete",
+                }))
+            end
+        end
+        feedback = remember(host:AddText(""))
+    end
+
+    Dialog.mount(parent, {
+        title = "New alert",
+        width = 400,
+        height = 420,
+        content = function(win)
+            if win.SetScrollable ~= nil then win:SetScrollable(false) end
+            if prettyui == nil or prettyui.SimpleView == nil or win.content == nil then
+                if log ~= nil then log("Watchdog: prettyui.SimpleView unavailable, New alert list aborted") end
+                return
+            end
+            -- Same chrome as the preset dialogs: title 32 + border 8, footer band 48.
+            local width = 400 - 16
+            local contentW = win.content.width
+            if type(contentW) == "number" and contentW > 0 then width = contentW end
+            local view
+            local ok, err = pcall(function()
+                view = prettyui.SimpleView.new(win.content, {
+                    x = 0,
+                    y = 0,
+                    width = width,
+                    height = 420 - 40 - 48,
+                })
+            end)
+            if not ok or view == nil then
+                if log ~= nil then log("Watchdog: New alert list failed - " .. tostring(err)) end
+                return
+            end
+            alertWin = view
+            fillList(view)
+        end,
+        actions = {
+            { label = "Cancel" },
+            {
+                label = "From scratch",
+                variant = "positive",
+                onClick = function()
+                    if createFromScratch(scopeKey) == nil then
+                        if feedback ~= nil then
+                            feedback.content = "Could not create the alert."
+                        end
+                        return false
+                    end
+                    return true
+                end,
+            },
+        },
+    })
+    return nil
 end
 
 ---@param scopeKey string
@@ -524,6 +870,7 @@ local function onBulkDelete(scopeKey, ids)
             end
             Store.DeleteById(doc, id)
             for _, aid in ipairs(alertIds) do
+                runtime:ReleaseAlertVisuals(aid)
                 runtime:RemoveAlert(aid)
             end
             if list ~= nil then purgeAlertList(list, alertIds) end

@@ -1,12 +1,13 @@
 -- manager.lua - Alert Manager: scope tabs + Entry tree (PrettyUI chrome, native tree Panel).
 --
--- Native tree mounts under `mux:Content()`; PrettyUI chrome uses `mux:Window():Add*` so
--- Layout.manage owns teardown. Row name/actions/reorder use unmanaged `*.new` on the
--- native row panel so they scroll with the tree. Tabs are strip-height only - a
+-- The row stack mounts inside a prettyui.SimpleView on mux:Content() so the list scrolls
+-- while the tabs and toolbar stay put. PrettyUI chrome uses mux:Window():Add*. Row
+-- name/actions/reorder use unmanaged *.new on the native row panel and forward the view's
+-- wheel handler (Add* is what normally binds that). Tabs are strip-height only - a
 -- full-height Tabs paints empty page content over the tree. Mid-session rebuild Destroys
 -- managed widgets while the window stays alive (Layout.remove); Stop/Unmount only clears
--- Lua refs (mux window Destroy owns native teardown - Destroying Tabs then the window
--- double-frees after Show).
+-- Lua refs (mux window Destroy owns native teardown - Destroying Tabs or the SimpleView
+-- then the window double-frees after Show).
 
 local Theme = require("src/ui/theme")
 local Export = require("src/export")
@@ -46,7 +47,7 @@ Manager.__index = Manager
 ---@field onDelete fun(scopeKey: string, id: integer)|nil
 ---@field onReorderSibling fun(scopeKey: string, id: integer, delta: integer)|nil  # -1 up / +1 down
 ---@field onLift fun(scopeKey: string, id: integer)|nil
----@field onCreateAlert fun(scopeKey: string): integer|nil   # returns the minted alert id
+---@field onCreateAlert fun(scopeKey: string): integer|nil   # opens New alert; does not create by itself
 ---@field onCreateGroup fun(scopeKey: string): integer|nil   # returns the minted group id
 ---@field onBulkDelete fun(scopeKey: string, ids: integer[])|nil
 ---@field onBulkNewGroup fun(scopeKey: string, ids: integer[]): integer|nil  # returns new group id
@@ -91,7 +92,9 @@ function Manager.new(opts)
         tabs = nil,
         tabsScopeSig = nil,
         treePanel = nil,
-        treeTop = 0,                -- content-local Y (rename AddTextField coords)
+        headerPanel = nil,          -- column titles; sibling above the scroll view
+        treeView = nil,             -- prettyui.SimpleView wrapping the row stack
+        treeTop = 0,                -- content-local Y of the scroll view
         bulkBarButtons = {},
         toolbarButtons = {},
         rowSpriteButtons = {},      -- PrettyUI row controls (tooltips parent to overlay)
@@ -627,6 +630,28 @@ local function setChildVisible(comp, visible)
     end)
 end
 
+-- Hiding the root does not hide the scrollbar thumb. Refresh asks Scroll.isVisible,
+-- which _ensureTreeView points at this manager, so a window overlay sync cannot
+-- put the thumb back while the manager surface is hidden.
+---@param view any|nil
+---@param visible boolean
+local function syncTreeViewVisibility(view, visible)
+    if view == nil then return end
+    setChildVisible(view.root, visible)
+    if view.Refresh ~= nil then
+        pcall(function() view:Refresh() end)
+    end
+end
+
+---@param comp any|nil
+---@param handler (fun(component: any, delta: number): boolean)|nil
+local function bindWheel(comp, handler)
+    if comp == nil or handler == nil or ui == nil or ui.Hook == nil or ui.Hook.ONSCROLLWHEEL == nil then
+        return
+    end
+    pcall(function() comp:Subscribe(ui.Hook.ONSCROLLWHEEL, handler) end)
+end
+
 ---@param comp any
 ---@return any
 local function componentRoot(comp)
@@ -728,15 +753,23 @@ function Manager:_bindRowTooltipContext(rowPanel)
     local parentCtx = Tooltip.getContext(content)
     local tooltipParent = (parentCtx and parentCtx.parent) or content
     local tree = self.treePanel
+    local view = self.treeView
     local ok = pcall(function()
         Tooltip.registerContext(rowPanel, tooltipParent, function(target)
             local rx, ry = rowPanel.x or 0, rowPanel.y or 0
-            if parentCtx ~= nil and type(parentCtx.position) == "function" and tree ~= nil then
-                local ox, oy = parentCtx.position(tree)
-                return (ox or 0) + rx + (target.x or 0), (oy or 0) + ry + (target.y or 0)
+            local ox, oy = 0, 0
+            -- The row panel sits in the scrolled content. Map through the view so a
+            -- scrolled row's tip tracks the button, not its unscrolled layout y.
+            if view ~= nil and view._AbsolutePosition ~= nil then
+                ox, oy = view:_AbsolutePosition()
+            elseif parentCtx ~= nil and type(parentCtx.position) == "function" and tree ~= nil then
+                ox, oy = parentCtx.position(tree)
+            else
+                ox = tree and tree.x or 0
+                oy = tree and tree.y or 0
             end
-            return (tree and tree.x or 0) + rx + (target.x or 0),
-                (tree and tree.y or 0) + ry + (target.y or 0)
+            local scrollY = view and view.scrollY or 0
+            return (ox or 0) + rx + (target.x or 0), (oy or 0) + ry + (target.y or 0) - scrollY
         end, parentCtx)
     end)
     if ok then
@@ -751,6 +784,10 @@ function Manager:_destroyTree()
     if self.treePanel ~= nil then
         pcall(function() self.treePanel:Destroy() end)
         self.treePanel = nil
+    end
+    if self.headerPanel ~= nil then
+        pcall(function() self.headerPanel:Destroy() end)
+        self.headerPanel = nil
     end
 end
 
@@ -821,6 +858,50 @@ function Manager:_ensureTabs()
     self.tabs = tabs
     self.tabsScopeSig = sig
     return true
+end
+
+-- One view for the life of the mount. Rebuilding rows must not jump the scrollbar
+-- back to the top, and Unmount must not Destroy it (the window Destroy owns that).
+---@param x number
+---@param y number
+---@param w number
+---@param h number
+---@return any|nil
+function Manager:_ensureTreeView(x, y, w, h)
+    if prettyui == nil or prettyui.SimpleView == nil then
+        if log ~= nil then log("Watchdog: prettyui.SimpleView unavailable, Manager tree aborted") end
+        return nil
+    end
+    if self.treeView ~= nil then
+        pcall(function()
+            self.treeView.root:SetPos(x, y)
+            self.treeView:SetSize(w, h)
+        end)
+        return self.treeView
+    end
+    local view
+    local ok = pcall(function()
+        view = prettyui.SimpleView.new(self.contentParent, {
+            x = x,
+            y = y,
+            width = w,
+            height = h,
+        })
+    end)
+    if not ok or view == nil then
+        if log ~= nil then log("Watchdog: prettyui.SimpleView Mount failed") end
+        return nil
+    end
+    -- Window overlay sync asks the scroll core whether the thumb should show.
+    -- Tie that to the manager surface so the thumb does not sit on the editor.
+    view.isVisible = function()
+        return self.visible
+    end
+    if view.Refresh ~= nil then
+        pcall(function() view:Refresh() end)
+    end
+    self.treeView = view
+    return view
 end
 
 ---@param contentParent ui.ComponentCollection
@@ -916,10 +997,12 @@ end
 ---@param size integer
 ---@param disabled boolean|nil
 ---@param tooltip string|nil
-local function mountRowSprite(parent, spriteName, onPress, size, disabled, tooltip)
+---@param onScrollWheel (fun(component: any, delta: number): boolean)|nil
+local function mountRowSprite(parent, spriteName, onPress, size, disabled, tooltip, onScrollWheel)
     local btn = prettyui.SpriteButton.new(parent, spriteName, onPress, {
         size = size,
         tooltip = tooltip,
+        _onScrollWheel = onScrollWheel,
     })
     if disabled then btn:SetDisabled(true) end
     return btn
@@ -929,7 +1012,8 @@ end
 ---@param cellW number
 ---@param checked boolean
 ---@param onPress fun()
-local function mountCheckbox(parent, cellW, checked, onPress)
+---@param onScrollWheel (fun(component: any, delta: number): boolean)|nil
+local function mountCheckbox(parent, cellW, checked, onPress, onScrollWheel)
     local cellH = Theme.MANAGER_ROW_H
     local cell = ui.Layer.new(parent)
     cell:SetSize(cellW, cellH)
@@ -942,6 +1026,7 @@ local function mountCheckbox(parent, cellW, checked, onPress)
         x = math.floor((cellW - hitSize) / 2),
         y = math.floor((cellH - hitSize) / 2),
         onChange = onPress,
+        _onScrollWheel = onScrollWheel,
     })
     check.kind = "checkbox"
     check.root:SetSize(hitSize, hitSize)
@@ -988,7 +1073,8 @@ function Manager:_endRename(commit)
     pcall(function() field:Destroy() end)
 end
 
--- Content-local coords on layoutHost (treePanel is native - not a Layout host).
+-- Coords are inside the scroll view. TextField.new, not AddTextField: removing a
+-- flow-managed field reflows the view and clamps the scrollbar to the top.
 ---@param id integer
 ---@param name string
 ---@param x number
@@ -997,16 +1083,19 @@ end
 ---@param h number
 function Manager:_beginRename(id, name, x, y, w, h)
     self:_endRename(false)
-    if self.layoutHost == nil or self.layoutHost.AddTextField == nil then return end
+    local host = self.treeView
+    if host == nil or host.content == nil or prettyui == nil or prettyui.TextField == nil then return end
     local field
     local ok = pcall(function()
-        field = self.layoutHost:AddTextField({
+        field = prettyui.TextField.new(host.content, {
             text = name or "",
             x = x,
             y = y,
             width = w,
             height = h,
             maxLength = 64,
+            _scrollController = host,
+            _onScrollWheel = host._onScrollWheel,
             onChange = function(_f, reason, _text)
                 if isSubmitCause(reason) then
                     self:_endRename(true)
@@ -1243,40 +1332,61 @@ function Manager:_rebuild()
     local treeTop = Theme.ManagerTreeTop()
     self.treeTop = treeTop
 
-    -- Tree: sibling of Tabs under contentParent, below the tab strip + toolbar.
-    -- Do NOT assign scrollable - read-only on ComponentCollection; writing it aborts the pcall
-    -- and leaves no tree.
-    local rowW = math.max(40, w - 2 * Theme.MANAGER_PAGE_PAD)
+    -- SimpleView owns scrolling. Native ComponentCollection.scrollable is read-only;
+    -- writing it aborts the pcall and leaves no tree. The column header sits above
+    -- the view so it stays put while the rows scroll.
+    local outerW = math.max(40, w - 2 * Theme.MANAGER_PAGE_PAD)
     local treeH = math.max(40, h - treeTop - Theme.MANAGER_PAGE_PAD)
+    local listTop = treeTop + Theme.MANAGER_HEADER_H
+    local listH = math.max(40, treeH - Theme.MANAGER_HEADER_H)
+    local view = self:_ensureTreeView(Theme.MANAGER_PAGE_PAD, listTop, outerW, listH)
+    if view == nil then
+        return
+    end
+
+    local rows = self:VisibleRows()
+    local contentH = #rows == 0 and 40 or #rows * Theme.MANAGER_ROW_H
+    pcall(function() view:SetContentHeight(contentH) end)
+    -- contentWidth shrinks by the scrollbar gutter only while the list overflows.
+    local rowW = outerW
+    if type(view.contentWidth) == "number" and view.contentWidth > 0 then
+        rowW = math.max(40, view.contentWidth)
+    end
+    local onWheel = view._onScrollWheel
+
     local treeOk = pcall(function()
-        self.treePanel = ui.Panel.new(self.contentParent)
+        self.treePanel = ui.Panel.new(view.content)
         self.treePanel.isVertical = true
         self.treePanel.spacing = 0
         self.treePanel.clickthrough = false
-        self.treePanel:SetPos(Theme.MANAGER_PAGE_PAD, treeTop)
-        self.treePanel:SetSize(rowW, treeH)
+        self.treePanel:SetPos(0, 0)
+        self.treePanel:SetSize(rowW, contentH)
         self.treePanel:MoveToFront()
     end)
     if not treeOk or self.treePanel == nil then
         self.treePanel = nil
         return
     end
+    bindWheel(self.treePanel, onWheel)
 
-    local rows = self:VisibleRows()
     local treeParent = self.treePanel
     -- All row controls are PrettyUI components on the native scrolling row.
     local baseNameW, headerNameW, headerMoveW, headerActionsW = managerColumnWidths(rowW, 0, self.moveMode)
     pcall(function()
-        local header = ui.Panel.new(treeParent)
+        local header = ui.Panel.new(self.contentParent)
         header.isVertical = false
         header.spacing = Theme.MANAGER_ROW_GAP
         header.clickthrough = true
+        header:SetPos(Theme.MANAGER_PAGE_PAD, treeTop)
         header:SetSize(rowW, Theme.MANAGER_HEADER_H)
+        header:MoveToFront()
         mountHeaderCell(header, Theme.MANAGER_ENABLE_W, Theme.MANAGER_HEADER_H, "Enabled", true)
         if self.moveMode then mountHeaderCell(header, headerMoveW, Theme.MANAGER_HEADER_H, "Move", true) end
         mountHeaderCell(header, headerNameW, Theme.MANAGER_HEADER_H, "Alert", false)
         mountHeaderCell(header, Theme.MANAGER_SELECT_W, Theme.MANAGER_HEADER_H, "Select", true)
         mountHeaderCell(header, headerActionsW, Theme.MANAGER_HEADER_H, "Actions", true)
+        bindWheel(header, onWheel)
+        self.headerPanel = header
     end)
     if #rows == 0 then
         mountHeaderCell(treeParent, rowW, 40, "No alerts yet. Select + New alert to create one.", false)
@@ -1295,6 +1405,7 @@ function Manager:_rebuild()
             rowPanel = treeParent
         else
             self:_bindRowTooltipContext(rowPanel)
+            bindWheel(rowPanel, onWheel)
         end
 
         -- Horizontal ui.Panel auto-layouts children (ADR-0007) - SetPos X is ignored. Indent by
@@ -1311,7 +1422,7 @@ function Manager:_rebuild()
         self.rowSpriteButtons[#self.rowSpriteButtons + 1] = mountCheckbox(rowPanel, Theme.MANAGER_ENABLE_W, row.enabled, function()
             self:ToggleEnabled(capturedRow.id)
             self:_rebuild()
-        end)
+        end, onWheel)
 
         -- Illegal moves stay mounted, disabled.
         if self.moveMode then
@@ -1319,17 +1430,17 @@ function Manager:_rebuild()
                 rowPanel, "ARROW_UP", function()
                     self:ReorderSibling(capturedRow.id, -1)
                     self:_rebuild()
-                end, Theme.MANAGER_REORDER_W, not canUp, "Move up")
+                end, Theme.MANAGER_REORDER_W, not canUp, "Move up", onWheel)
             self.rowSpriteButtons[#self.rowSpriteButtons + 1] = mountRowSprite(
                 rowPanel, "ARROW_DOWN", function()
                     self:ReorderSibling(capturedRow.id, 1)
                     self:_rebuild()
-                end, Theme.MANAGER_REORDER_W, not canDown, "Move down")
+                end, Theme.MANAGER_REORDER_W, not canDown, "Move down", onWheel)
             self.rowSpriteButtons[#self.rowSpriteButtons + 1] = mountRowSprite(
                 rowPanel, "ARROW_LEFT", function()
                     self:Lift(capturedRow.id)
                     self:_rebuild()
-                end, Theme.MANAGER_REORDER_W, not canLift, "Move out of group")
+                end, Theme.MANAGER_REORDER_W, not canLift, "Move out of group", onWheel)
         end
 
         -- Nesting indent: empty Panel so horizontal auto-layout shifts the name button right.
@@ -1356,6 +1467,7 @@ function Manager:_rebuild()
             tooltip = row.kind == "group" and "Expand or collapse group" or "Open alert editor",
             hoverCursor = config.Cursor.CURSOR_OPEN,
             active = self.selected[row.id] == true,
+            _onScrollWheel = onWheel,
         })
 
         titleButton.content.alignHorizontal = ui.AlignMode.TOPLEFT
@@ -1365,32 +1477,31 @@ function Manager:_rebuild()
         self.rowSpriteButtons[#self.rowSpriteButtons + 1] = mountCheckbox(rowPanel, Theme.MANAGER_SELECT_W, self.selected[row.id], function()
             self:ToggleSelection(capturedRow.id, isShiftDown())
             self:_rebuild()
-        end)
+        end, onWheel)
 
         self.rowSpriteButtons[#self.rowSpriteButtons + 1] = mountRowSprite(
             rowPanel, "PENCIL", function()
             local fieldY = 0
             pcall(function() fieldY = rowPanel.y or 0 end)
-            -- content-local for layoutHost:AddTextField (not treePanel-local)
             self:_beginRename(
                 capturedRow.id,
                 capturedRow.name,
-                Theme.MANAGER_PAGE_PAD + nameX,
-                (self.treeTop or 0) + fieldY,
+                nameX,
+                fieldY,
                 nameW,
                 Theme.MANAGER_ROW_H
             )
-        end, Theme.MANAGER_ACT_W, false, "Rename")
+        end, Theme.MANAGER_ACT_W, false, "Rename", onWheel)
 
         self.rowSpriteButtons[#self.rowSpriteButtons + 1] = mountRowSprite(
             rowPanel, "EXPORT", function()
             self:ExportRow(capturedRow.id)
-        end, Theme.MANAGER_ACT_W, false, "Export")
+        end, Theme.MANAGER_ACT_W, false, "Export", onWheel)
 
         self.rowSpriteButtons[#self.rowSpriteButtons + 1] = mountRowSprite(
             rowPanel, "TRASH", function()
             self:_onDeletePress(capturedRow.id)
-        end, Theme.MANAGER_ACT_W, false, "Delete")
+        end, Theme.MANAGER_ACT_W, false, "Delete", onWheel)
 
         if self.pendingRenameId == row.id then
             self.pendingRenameId = nil
@@ -1399,18 +1510,12 @@ function Manager:_rebuild()
             self:_beginRename(
                 row.id,
                 row.name,
-                Theme.MANAGER_PAGE_PAD + nameX,
-                (self.treeTop or 0) + fieldY,
+                nameX,
+                fieldY,
                 nameW,
                 Theme.MANAGER_ROW_H
             )
         end
-    end
-
-    if self.treePanel ~= nil then
-        pcall(function()
-            self.treePanel:SetScrollSize(rowW, Theme.MANAGER_HEADER_H + #rows * Theme.MANAGER_ROW_H)
-        end)
     end
 
     if not self.visible then
@@ -1422,6 +1527,8 @@ function Manager:_rebuild()
             setChildVisible(componentRoot(b), false)
         end
         setChildVisible(self.treePanel, false)
+        setChildVisible(self.headerPanel, false)
+        syncTreeViewVisibility(self.treeView, false)
         setChildVisible(componentRoot(self.renameField), false)
     end
 end
@@ -1460,6 +1567,8 @@ function Manager:SetVisible(v)
         setChildVisible(componentRoot(b), self.visible)
     end
     setChildVisible(self.treePanel, self.visible)
+    setChildVisible(self.headerPanel, self.visible)
+    syncTreeViewVisibility(self.treeView, self.visible)
     setChildVisible(componentRoot(self.renameField), self.visible)
     -- Dialogs live under the mux root - dismiss the stack when Manager tucks away.
     if not self.visible then
@@ -1495,6 +1604,8 @@ function Manager:Unmount()
     self.toolbarButtons = {}
     self.bulkBarButtons = {}
     self.treePanel = nil
+    self.headerPanel = nil
+    self.treeView = nil
     self.treeTop = 0
     self.tabs = nil
     self.tabsScopeSig = nil

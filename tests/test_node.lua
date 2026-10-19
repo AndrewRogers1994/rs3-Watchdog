@@ -327,6 +327,110 @@ function TestNodeModes:testModeLabelReservesStripAndPushesPins()
     luaunit.assertIsNil(plain.modeStrip)
 end
 
+-- Header text is `{Type} - {Name}`. An unnamed node displays `New {Type}` and does not
+-- invent a stored name (LibNodeGraph omits `name` while it is nil).
+TestNodeHeader = {}
+
+function TestNodeHeader:testUnnamedPopupReadsTypeDashNewType()
+    luaunit.assertEquals(Node.HeaderTitle("Popup", nil), "Popup - New Popup")
+end
+
+function TestNodeHeader:testStoredNameReplacesTheNewLabel()
+    luaunit.assertEquals(Node.HeaderTitle("Popup", "Enrage callout"), "Popup - Enrage callout")
+end
+
+-- The pencil is a header hit target one glyph-width left of the delete X, and only while
+-- that X is hittable (title zoom). Placeholder geometry uses the same header.
+TestHeaderPencil = {}
+
+local function closeScreenCenter(geom, view)
+    return view:ToScreen(geom.x + geom.close.cx, geom.y + geom.close.cy)
+end
+
+function TestHeaderPencil:testPencilSitsJustLeftOfCloseAtTitleZoom()
+    local geom = Node.BuildGeometry({}, 40, 50, Theme.NODE_WIDTH)
+    local view = View.new()
+    local ccx, ccy = closeScreenCenter(geom, view)
+    luaunit.assertTrue(Node.HitClose(geom, view, ccx, ccy))
+    local px = ccx - view:Scale(Theme.CLOSE_SIZE)
+    luaunit.assertTrue(Node.HitPencil(geom, view, px, ccy))
+    luaunit.assertFalse(Node.HitClose(geom, view, px, ccy))
+end
+
+function TestHeaderPencil:testPencilAbsentWhenCloseIsAbsent()
+    local geom = Node.BuildGeometry({}, 0, 0, Theme.NODE_WIDTH)
+    local view = View.new()
+    view.zoom = Theme.TITLE_MIN_ZOOM * 0.5
+    local ccx, ccy = closeScreenCenter(geom, view)
+    luaunit.assertFalse(Node.HitClose(geom, view, ccx, ccy))
+    local px = ccx - view:Scale(Theme.CLOSE_SIZE)
+    luaunit.assertFalse(Node.HitPencil(geom, view, px, ccy))
+end
+
+-- Rename stores the trimmed field. Blank or whitespace is rejected, so a stored name
+-- cannot be cleared. Nothing appends a number when another node already has that name.
+TestNodeRename = {}
+
+function TestNodeRename:testCommitTrimsAndStoresTheName()
+    local node = { name = nil }
+    luaunit.assertTrue(Node.CommitRename(node, "  Enrage callout  "))
+    luaunit.assertEquals(node.name, "Enrage callout")
+end
+
+function TestNodeRename:testBlankAndWhitespaceLeaveTheStoredName()
+    local node = { name = "Enrage callout" }
+    luaunit.assertFalse(Node.CommitRename(node, ""))
+    luaunit.assertEquals(node.name, "Enrage callout")
+    luaunit.assertFalse(Node.CommitRename(node, "   "))
+    luaunit.assertEquals(node.name, "Enrage callout")
+    luaunit.assertFalse(Node.CommitRename(node, " \t "))
+    luaunit.assertEquals(node.name, "Enrage callout")
+end
+
+function TestNodeRename:testTwoNodesMayShareAName()
+    local a = { name = nil }
+    local b = { name = nil }
+    luaunit.assertTrue(Node.CommitRename(a, "Enrage callout"))
+    luaunit.assertTrue(Node.CommitRename(b, "Enrage callout"))
+    luaunit.assertEquals(a.name, "Enrage callout")
+    luaunit.assertEquals(b.name, "Enrage callout")
+end
+
+function TestNodeRename:testPlaceholderWritesUnknownNameNotLiveName()
+    local node = {
+        name = nil,
+        unknown = { type = "action.popup", controls = { body = "hi" }, name = nil },
+    }
+    luaunit.assertTrue(Node.CommitRename(node, "  Enrage callout  "))
+    luaunit.assertEquals(node.unknown.name, "Enrage callout")
+    luaunit.assertNil(node.name)
+    luaunit.assertEquals(node.unknown.type, "action.popup")
+    luaunit.assertEquals(node.unknown.controls.body, "hi")
+    luaunit.assertFalse(Node.CommitRename(node, "  "))
+    luaunit.assertEquals(node.unknown.name, "Enrage callout")
+end
+
+function TestHeaderPencil:testPlaceholderPencilSitsJustLeftOfClose()
+    local pins = { { name = "in", kind = "exec", direction = "in", label = "in" } }
+    local geom = Node.BuildGeometry(pins, 0, 0, Theme.NODE_WIDTH, { placeholder = true })
+    luaunit.assertTrue(geom.placeholder)
+    local view = View.new()
+    local ccx, ccy = closeScreenCenter(geom, view)
+    luaunit.assertTrue(Node.HitClose(geom, view, ccx, ccy))
+    local px = ccx - view:Scale(Theme.CLOSE_SIZE)
+    luaunit.assertTrue(Node.HitPencil(geom, view, px, ccy))
+    luaunit.assertFalse(Node.HitClose(geom, view, px, ccy))
+end
+
+function TestNodeHeader:testPlaceholderKeepsTheOriginalTypeKey()
+    luaunit.assertEquals(
+        Node.HeaderTitle("Unknown: action.popup", nil),
+        "Unknown: action.popup - New Unknown: action.popup")
+    luaunit.assertEquals(
+        Node.HeaderTitle("Unknown: action.popup", "Enrage callout"),
+        "Unknown: action.popup - Enrage callout")
+end
+
 function TestNodeModes:testModeDropdownChoicesDisambiguatesDuplicateLabels()
     local nt = {
         modes = {

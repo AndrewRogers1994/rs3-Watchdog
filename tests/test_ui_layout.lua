@@ -65,7 +65,7 @@ function TestUILayout:testManagerControlsAtMinimumWidth()
         Check = { new = component },
         AlignMode = { TOPLEFT = 1, CENTRE = 2 },
         CheckAlignMode = { LEFT = 1 },
-        Hook = { ONBUTTONPRESSED = 1 },
+        Hook = { ONBUTTONPRESSED = 1, ONSCROLLWHEEL = "wheel" },
     }
     Vector4 = {
         new = function(...)
@@ -128,6 +128,41 @@ function TestUILayout:testManagerControlsAtMinimumWidth()
             end,
         },
     }
+    local scrollViews = {}
+    prettyui.SimpleView = {
+        new = function(parent, opts)
+            local root = component(parent)
+            root:SetPos(opts.x or 0, opts.y or 0)
+            root:SetSize(opts.width or 0, opts.height or 0)
+            local contentLayer = component(root)
+            local view = {
+                root = root,
+                content = contentLayer,
+                contentWidth = opts.width or 0,
+                contentHeight = 0,
+                height = opts.height or 0,
+                scrollY = 0,
+                _onScrollWheel = function() return false end,
+            }
+            function view:_syncWidth()
+                -- PrettyUI reserves an 18px gutter only while content overflows.
+                local gutter = self.contentHeight > self.height and 18 or 0
+                self.contentWidth = math.max(1, (self.root.width or 0) - gutter)
+                self.content:SetSize(self.contentWidth, math.max(self.contentHeight, self.height))
+            end
+            function view:SetSize(w, h)
+                self.height = h
+                self.root:SetSize(w, h)
+                self:_syncWidth()
+            end
+            function view:SetContentHeight(h)
+                self.contentHeight = h
+                self:_syncWidth()
+            end
+            scrollViews[#scrollViews + 1] = view
+            return view
+        end,
+    }
     prettyui.CheckboxButton = {
         new = function(parent, choices, opts)
             local root = component(parent)
@@ -189,6 +224,24 @@ function TestUILayout:testManagerControlsAtMinimumWidth()
     m:Mount(content, host)
     m:SetVisible(true)
     assert(#errors == 0, table.concat(errors, "\n"))
+    local scroll = scrollViews[1]
+    assert(scroll ~= nil, "alert list has no scroll view")
+    assert(m.treePanel.parent == scroll.content, "rows are not inside the scroll view")
+    assert(scroll.root.x == 12 and scroll.root.y == 112, "scroll view is not below the column header")
+    assert(scroll.height == 376, "scroll view does not fill the space under the column header")
+    assert(m.headerPanel ~= nil and m.headerPanel.parent ~= scroll.content, "column header scrolls with the rows")
+    assert(m.headerPanel.y == 86 and m.headerPanel.height == 26, "column header is not pinned above the list")
+    -- 3 rows * 32. The header (26) stays outside the scroller.
+    assert(m.treePanel.height == 96, "tree clipped to the viewport instead of the row stack")
+    assert(scroll.contentHeight == 96, "scroll content height is not the row stack")
+    assert(scroll.contentWidth == scroll.root.width, "scrollbar gutter reserved when the list fits")
+    local pencil = nil
+    for _, b in ipairs(buttons) do
+        if b.text == "PENCIL" and not b.root.destroyed then pencil = b break end
+    end
+    assert(pencil ~= nil and pencil.options._onScrollWheel == scroll._onScrollWheel,
+        "wheel over a row button does not scroll the list")
+    assert(m.treePanel["wheel"] == scroll._onScrollWheel, "wheel over the list does not scroll")
     local function activeButtons(text)
         local out = {}
         for _, b in ipairs(buttons) do
@@ -211,25 +264,23 @@ function TestUILayout:testManagerControlsAtMinimumWidth()
     assert(#activeButtons("PENCIL") == 3, "Rename buttons missing after title construction")
     assert(#activeButtons("EXPORT") == 3, "Export buttons missing after title construction")
     assert(#activeButtons("TRASH") == 3, "Delete buttons missing after title construction")
-    for i, row in ipairs(m.treePanel.children) do
-        if i > 1 then
-            assert(#row.children >= 6, "Selection or action cells missing")
-            local cell = row.children[#row.children - 3]
-            local check = cell.children[1]
-            local item = check.children[1]
-            assert(item[ui.Hook.ONBUTTONPRESSED], "PrettyUI selection handler missing")
-            local box = item.children[1]
-            assert(
-                box.width == 14 and box.height == 14 and box.x == 7 and box.y == 7,
-                "Checkbox sprite resized or off center"
-            )
-            assert(
-                check.x * 2 + check.width == cell.width and check.y * 2 + check.height == cell.height,
-                "Selection checkbox is not centered"
-            )
-        end
+    for _, row in ipairs(m.treePanel.children) do
+        assert(#row.children >= 6, "Selection or action cells missing")
+        local cell = row.children[#row.children - 3]
+        local check = cell.children[1]
+        local item = check.children[1]
+        assert(item[ui.Hook.ONBUTTONPRESSED], "PrettyUI selection handler missing")
+        local box = item.children[1]
+        assert(
+            box.width == 14 and box.height == 14 and box.x == 7 and box.y == 7,
+            "Checkbox sprite resized or off center"
+        )
+        assert(
+            check.x * 2 + check.width == cell.width and check.y * 2 + check.height == cell.height,
+            "Selection checkbox is not centered"
+        )
     end
-    local first = m.treePanel.children[2]
+    local first = m.treePanel.children[1]
     local treeY = m.treePanel.y
     local selectCell = first.children[#first.children - 3]
     selectCell.children[1].children[1][ui.Hook.ONBUTTONPRESSED]()
@@ -272,5 +323,14 @@ function TestUILayout:testManagerControlsAtMinimumWidth()
             assert(width <= row.width, ("Row overflows: %s > %s"):format(width, row.width))
         end
     end
+    for id = 4, 40 do
+        entries[#entries + 1] = { id = id, kind = "alert", name = "Alert " .. id, enabled = true }
+    end
+    m:_rebuild()
+    -- 3 original rows + 37 new alerts. 40 * 32 = 1280, taller than the 376px viewport.
+    assert(scroll.contentHeight == 1280, "scroll content did not grow with the alert list")
+    assert(scroll.contentHeight > scroll.height, "overflow did not exceed the viewport")
+    assert(scroll.contentWidth == scroll.root.width - 18, "scrollbar gutter missing while the list overflows")
+    assert(m.treePanel.width == scroll.contentWidth, "rows draw under the scrollbar")
     assert(#errors == 0, table.concat(errors, "\n"))
 end

@@ -24,6 +24,7 @@ LibNodeGraph = {
 
 local Store = require("src/store")
 local Registry = require("registry")
+local Node = require("src/ui/node")
 
 -- A minimal in-memory stand-in for the client PersistentDB (string key/value store).
 local function newFakePersistentDB()
@@ -897,6 +898,59 @@ function TestStore:testDistinctCharactersUseDistinctBuckets()
 
     luaunit.assertEquals(Store.LoadKey(aKey).entries[1].name, "a-only")
     luaunit.assertEquals(Store.LoadKey(bKey).entries[1].name, "b-only")
+end
+
+--- Node name on the alert graph (#139). UpdateAlertGraph is the editor autosave path. -----
+
+function TestStore:testUnsetNodeNameIsOmittedFromTheSavedGraph()
+    local doc = Store.Empty()
+    local id = seedAlert(self, doc, "alpha", true)
+    local graph = graphWithOneNode(self.registry)
+    local nodeId = graph:GetNodes()[1].id
+    luaunit.assertNil(graph.nodes[nodeId].name)
+    luaunit.assertTrue(Store.UpdateAlertGraph(doc, id, graph, {}))
+
+    local reloaded = saveAndReload(doc)
+    luaunit.assertNil(reloaded.entries[1].graph.nodes[1].name)
+    local restored = Store.RestoreAll(reloaded, self.registry)
+    luaunit.assertNil(restored[1].graph.nodes[nodeId].name)
+end
+
+function TestStore:testRenamedNodeNameRoundTripsThroughTheAlertGraph()
+    local doc = Store.Empty()
+    local id = seedAlert(self, doc, "alpha", true)
+    local graph = graphWithOneNode(self.registry)
+    local nodeId = graph:GetNodes()[1].id
+    luaunit.assertTrue(Node.CommitRename(graph.nodes[nodeId], "  Enrage callout  "))
+    luaunit.assertTrue(Store.UpdateAlertGraph(doc, id, graph, {}))
+
+    local reloaded = saveAndReload(doc)
+    luaunit.assertEquals(reloaded.entries[1].graph.nodes[1].name, "Enrage callout")
+    local restored = Store.RestoreAll(reloaded, self.registry)
+    luaunit.assertEquals(restored[1].graph.nodes[nodeId].name, "Enrage callout")
+end
+
+function TestStore:testPlaceholderRenameKeepsUnknownNameWithOriginalTypeAndControls()
+    local doc = Store.Empty()
+    local id = seedAlert(self, doc, "alpha", true)
+    local first = Store.RestoreAll(bucketWithUnknownNode(), self.registry)[1]
+    luaunit.assertTrue(Node.CommitRename(first.graph.nodes[2], "Enrage callout"))
+    luaunit.assertTrue(Store.UpdateAlertGraph(doc, id, first.graph, first.layout))
+
+    local reloaded = saveAndReload(doc)
+    local saved
+    for _, n in ipairs(reloaded.entries[1].graph.nodes) do
+        if n.type == "action.overlay" then saved = n end
+    end
+    luaunit.assertEquals(saved.type, "action.overlay")
+    luaunit.assertEquals(saved.controls.text, "hi")
+    luaunit.assertEquals(saved.name, "Enrage callout")
+
+    local second = Store.RestoreAll(reloaded, self.registry)[1]
+    luaunit.assertEquals(second.graph.nodes[2].unknown.type, "action.overlay")
+    luaunit.assertEquals(second.graph.nodes[2].unknown.controls.text, "hi")
+    luaunit.assertEquals(second.graph.nodes[2].unknown.name, "Enrage callout")
+    luaunit.assertNil(second.graph.nodes[2].name)
 end
 
 return TestStore

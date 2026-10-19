@@ -5,6 +5,7 @@ local CaptureControl = require("src/ui/controls/capture")
 local ModeControl    = require("src/ui/controls/mode")
 local NumberField    = require("src/ui/widgets/number_field")
 local TextField      = require("src/ui/widgets/text_field")
+local ControlKinds   = require("src/ui/control_kinds")
 
 local Controls = {}
 
@@ -57,13 +58,18 @@ function Controls.Register(tag, descriptor)
     elseif descriptor.widget == "mode" then
         Controls.RegisterPinControl(tag, ModeControl.new(descriptor.modes or {}))
     end
+    -- Kind is recorded for every Register call, including node files, so a later enum tag
+    -- is markable without editing the preset library.
+    ControlKinds.Record(tag, descriptor.widget, descriptor.choices)
     return descriptor
 end
 
 -- ComboField ranks Add() entries alphabetically; match choices by label text, never id.
 Controls.Register("number", { widget = "number" })
 Controls.Register("string", { widget = "text" })
-Controls.RegisterPinControl("compareOperation", require("src/ui/controls/compare_operation"))
+local compareOperation = require("src/ui/controls/compare_operation")
+Controls.RegisterPinControl("compareOperation", compareOperation)
+ControlKinds.Record("compareOperation", "enum", compareOperation.choices)
 Controls.Register("bool", {
     widget = "enum",
     choices = {
@@ -73,7 +79,9 @@ Controls.Register("bool", {
 })
 
 Controls.RegisterPinControl("coordgrid", require("src/ui/controls/coordgrid"))
+ControlKinds.Record("coordgrid", "coordgrid")
 Controls.RegisterPinControl("matcher", require("src/ui/controls/matcher"))
+ControlKinds.Record("matcher", "matcher")
 
 Controls.Register("color", { widget = "swatch" })
 

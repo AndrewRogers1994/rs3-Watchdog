@@ -21,7 +21,9 @@ local chrome = {}
 ---@field variant string|nil
 ---@field disabled boolean|nil
 ---@field tooltip string|nil
+---@field setDisabled fun(disabled: boolean)|nil  # assigned at mount; tracks a field as it changes
 ---@field onClick (fun(): boolean|nil)|nil  # true = pop; false/nil = stay; omitted = pop (unless disabled)
+---@field button any|nil  # mounted footer button; set so disabled can change with the field
 
 ---@class Watchdog.DialogOpts
 ---@field title string|nil
@@ -234,6 +236,19 @@ local function bindAction(frame, action)
     end
 end
 
+--- A mounted action's `disabled` is live: bindAction reads it on click, and the button
+--- widget is updated so a field change can disable Rename without remounting.
+---@param action Watchdog.DialogAction|nil
+---@param disabled boolean
+function Dialog.setActionDisabled(action, disabled)
+    if action == nil then return end
+    action.disabled = disabled == true
+    local button = action.button
+    if button ~= nil and button.SetDisabled ~= nil then
+        pcall(function() button:SetDisabled(action.disabled) end)
+    end
+end
+
 ---@param win any
 ---@param frame Watchdog.DialogFrame
 ---@param actions Watchdog.DialogAction[]
@@ -245,8 +260,9 @@ local function mountActions(win, frame, actions)
         local label = action.label or ""
         local width = actionWidth(label, action)
         x = x - width
+        local btn
         pcall(function()
-            win:AddFancyButton(label, bindAction(frame, action), {
+            btn = win:AddFancyButton(label, bindAction(frame, action), {
                 variant = action.variant or "neutral",
                 disabled = action.disabled,
                 tooltip = action.tooltip,
@@ -256,6 +272,12 @@ local function mountActions(win, frame, actions)
                 y = Dialog.ACTION_Y,
             })
         end)
+        action.button = btn
+        -- The flag is fixed at mount unless the caller updates it as a field changes.
+        -- Rename calls Dialog.setActionDisabled; Save as preset calls action.setDisabled.
+        action.setDisabled = function(disabled)
+            Dialog.setActionDisabled(action, disabled)
+        end
         x = x - Dialog.ACTION_GAP
     end
 end
