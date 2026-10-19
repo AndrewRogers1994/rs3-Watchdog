@@ -92,6 +92,7 @@ function Manager.new(opts)
         tabs = nil,
         tabsScopeSig = nil,
         treePanel = nil,
+        headerPanel = nil,          -- column titles; sibling above the scroll view
         treeView = nil,             -- prettyui.SimpleView wrapping the row stack
         treeTop = 0,                -- content-local Y of the scroll view
         bulkBarButtons = {},
@@ -784,6 +785,10 @@ function Manager:_destroyTree()
         pcall(function() self.treePanel:Destroy() end)
         self.treePanel = nil
     end
+    if self.headerPanel ~= nil then
+        pcall(function() self.headerPanel:Destroy() end)
+        self.headerPanel = nil
+    end
 end
 
 -- Live rebuild only - not Unmount/Stop (must not Destroy before mux window Destroy).
@@ -1328,16 +1333,19 @@ function Manager:_rebuild()
     self.treeTop = treeTop
 
     -- SimpleView owns scrolling. Native ComponentCollection.scrollable is read-only;
-    -- writing it aborts the pcall and leaves no tree.
+    -- writing it aborts the pcall and leaves no tree. The column header sits above
+    -- the view so it stays put while the rows scroll.
     local outerW = math.max(40, w - 2 * Theme.MANAGER_PAGE_PAD)
     local treeH = math.max(40, h - treeTop - Theme.MANAGER_PAGE_PAD)
-    local view = self:_ensureTreeView(Theme.MANAGER_PAGE_PAD, treeTop, outerW, treeH)
+    local listTop = treeTop + Theme.MANAGER_HEADER_H
+    local listH = math.max(40, treeH - Theme.MANAGER_HEADER_H)
+    local view = self:_ensureTreeView(Theme.MANAGER_PAGE_PAD, listTop, outerW, listH)
     if view == nil then
         return
     end
 
     local rows = self:VisibleRows()
-    local contentH = Theme.MANAGER_HEADER_H + (#rows == 0 and 40 or #rows * Theme.MANAGER_ROW_H)
+    local contentH = #rows == 0 and 40 or #rows * Theme.MANAGER_ROW_H
     pcall(function() view:SetContentHeight(contentH) end)
     -- contentWidth shrinks by the scrollbar gutter only while the list overflows.
     local rowW = outerW
@@ -1365,17 +1373,20 @@ function Manager:_rebuild()
     -- All row controls are PrettyUI components on the native scrolling row.
     local baseNameW, headerNameW, headerMoveW, headerActionsW = managerColumnWidths(rowW, 0, self.moveMode)
     pcall(function()
-        local header = ui.Panel.new(treeParent)
+        local header = ui.Panel.new(self.contentParent)
         header.isVertical = false
         header.spacing = Theme.MANAGER_ROW_GAP
         header.clickthrough = true
+        header:SetPos(Theme.MANAGER_PAGE_PAD, treeTop)
         header:SetSize(rowW, Theme.MANAGER_HEADER_H)
+        header:MoveToFront()
         mountHeaderCell(header, Theme.MANAGER_ENABLE_W, Theme.MANAGER_HEADER_H, "Enabled", true)
         if self.moveMode then mountHeaderCell(header, headerMoveW, Theme.MANAGER_HEADER_H, "Move", true) end
         mountHeaderCell(header, headerNameW, Theme.MANAGER_HEADER_H, "Alert", false)
         mountHeaderCell(header, Theme.MANAGER_SELECT_W, Theme.MANAGER_HEADER_H, "Select", true)
         mountHeaderCell(header, headerActionsW, Theme.MANAGER_HEADER_H, "Actions", true)
         bindWheel(header, onWheel)
+        self.headerPanel = header
     end)
     if #rows == 0 then
         mountHeaderCell(treeParent, rowW, 40, "No alerts yet. Select + New alert to create one.", false)
@@ -1516,6 +1527,7 @@ function Manager:_rebuild()
             setChildVisible(componentRoot(b), false)
         end
         setChildVisible(self.treePanel, false)
+        setChildVisible(self.headerPanel, false)
         syncTreeViewVisibility(self.treeView, false)
         setChildVisible(componentRoot(self.renameField), false)
     end
@@ -1555,6 +1567,7 @@ function Manager:SetVisible(v)
         setChildVisible(componentRoot(b), self.visible)
     end
     setChildVisible(self.treePanel, self.visible)
+    setChildVisible(self.headerPanel, self.visible)
     syncTreeViewVisibility(self.treeView, self.visible)
     setChildVisible(componentRoot(self.renameField), self.visible)
     -- Dialogs live under the mux root - dismiss the stack when Manager tucks away.
@@ -1591,6 +1604,7 @@ function Manager:Unmount()
     self.toolbarButtons = {}
     self.bulkBarButtons = {}
     self.treePanel = nil
+    self.headerPanel = nil
     self.treeView = nil
     self.treeTop = 0
     self.tabs = nil

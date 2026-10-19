@@ -580,8 +580,8 @@ local function trimName(name)
 end
 
 -- Opens the library. Does not create an Alert by itself.
--- Rename and Delete stack on this same parent. The list is rebuilt from the
--- window's flow children; the footer actions stay mounted.
+-- Rename and Delete stack on this same parent. The preset list is rebuilt inside a
+-- SimpleView; the footer actions stay on the window and do not scroll.
 ---@param scopeKey string
 ---@return integer|nil
 local function onCreateAlert(scopeKey)
@@ -770,8 +770,30 @@ local function onCreateAlert(scopeKey)
         width = 400,
         height = 420,
         content = function(win)
-            alertWin = win
-            fillList(win)
+            if win.SetScrollable ~= nil then win:SetScrollable(false) end
+            if prettyui == nil or prettyui.SimpleView == nil or win.content == nil then
+                if log ~= nil then log("Watchdog: prettyui.SimpleView unavailable, New alert list aborted") end
+                return
+            end
+            -- Same chrome as the preset dialogs: title 32 + border 8, footer band 48.
+            local width = 400 - 16
+            local contentW = win.content.width
+            if type(contentW) == "number" and contentW > 0 then width = contentW end
+            local view
+            local ok, err = pcall(function()
+                view = prettyui.SimpleView.new(win.content, {
+                    x = 0,
+                    y = 0,
+                    width = width,
+                    height = 420 - 40 - 48,
+                })
+            end)
+            if not ok or view == nil then
+                if log ~= nil then log("Watchdog: New alert list failed - " .. tostring(err)) end
+                return
+            end
+            alertWin = view
+            fillList(view)
         end,
         actions = {
             { label = "Cancel" },
