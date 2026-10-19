@@ -10,40 +10,45 @@ local ScreenFlash = require("src/nodes/actions/screen_flash")
 
 TestScreenFlashAlphaAt = {}
 
+-- Rise is ticks 0-49 and fall is 50-99 (50 ticks each, 100-tick cycle), matching
+-- ScreenFlash's SEGMENT_TICKS. Fade steps are peak/50, so tick 0 is one step up
+-- and the last rise tick lands on peak.
+
 function TestScreenFlashAlphaAt:testInstantRiseHoldsPeakForWholeRiseSegment()
-    for tick = 0, 24 do
+    for tick = 0, 49 do
         luaunit.assertEquals(ScreenFlash.AlphaAt(tick, 200, "instant", "instant"), 200)
     end
 end
 
 function TestScreenFlashAlphaAt:testInstantFallDropsToZeroForWholeFallSegment()
-    for tick = 25, 49 do
+    for tick = 50, 99 do
         luaunit.assertEquals(ScreenFlash.AlphaAt(tick, 200, "instant", "instant"), 0)
     end
 end
 
 function TestScreenFlashAlphaAt:testInstantInstantIsASquareWaveAcrossCycles()
     luaunit.assertEquals(ScreenFlash.AlphaAt(0, 255, "instant", "instant"), 255)
-    luaunit.assertEquals(ScreenFlash.AlphaAt(49, 255, "instant", "instant"), 0)
-    -- Second cycle repeats identically -- this is a repeating pulse, not a one-shot.
-    luaunit.assertEquals(ScreenFlash.AlphaAt(50, 255, "instant", "instant"), 255)
     luaunit.assertEquals(ScreenFlash.AlphaAt(99, 255, "instant", "instant"), 0)
+    -- Second cycle repeats identically -- this is a repeating pulse, not a one-shot.
+    luaunit.assertEquals(ScreenFlash.AlphaAt(100, 255, "instant", "instant"), 255)
+    luaunit.assertEquals(ScreenFlash.AlphaAt(199, 255, "instant", "instant"), 0)
 end
 
 function TestScreenFlashAlphaAt:testFadeRiseRampsLinearlyAndHitsPeakOnLastRiseTick()
-    luaunit.assertAlmostEquals(ScreenFlash.AlphaAt(0, 250, "fade", "instant"), 10, 1e-9)
-    luaunit.assertAlmostEquals(ScreenFlash.AlphaAt(24, 250, "fade", "instant"), 250, 1e-9)
+    luaunit.assertAlmostEquals(ScreenFlash.AlphaAt(0, 250, "fade", "instant"), 5, 1e-9)
+    luaunit.assertAlmostEquals(ScreenFlash.AlphaAt(49, 250, "fade", "instant"), 250, 1e-9)
 end
 
 function TestScreenFlashAlphaAt:testFadeFallRampsLinearlyAndHitsZeroOnLastFallTick()
-    luaunit.assertAlmostEquals(ScreenFlash.AlphaAt(25, 250, "instant", "fade"), 240, 1e-9)
-    luaunit.assertAlmostEquals(ScreenFlash.AlphaAt(49, 250, "instant", "fade"), 0, 1e-9)
+    luaunit.assertAlmostEquals(ScreenFlash.AlphaAt(50, 250, "instant", "fade"), 245, 1e-9)
+    luaunit.assertAlmostEquals(ScreenFlash.AlphaAt(99, 250, "instant", "fade"), 0, 1e-9)
 end
 
 function TestScreenFlashAlphaAt:testIndependentShapesPerSegment()
     -- fade in, instant out: rise ramps, fall snaps to zero immediately.
-    luaunit.assertAlmostEquals(ScreenFlash.AlphaAt(12, 100, "fade", "instant"), 52, 1e-9)
-    luaunit.assertEquals(ScreenFlash.AlphaAt(25, 100, "fade", "instant"), 0)
+    -- Tick 25 is 26/50 of the way up (52); tick 50 is the first fall tick.
+    luaunit.assertAlmostEquals(ScreenFlash.AlphaAt(25, 100, "fade", "instant"), 52, 1e-9)
+    luaunit.assertEquals(ScreenFlash.AlphaAt(50, 100, "fade", "instant"), 0)
 end
 
 TestScreenFlashAutoDismiss = {}
