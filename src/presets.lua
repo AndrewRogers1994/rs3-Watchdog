@@ -259,10 +259,11 @@ local function upper(ch)
     return ch
 end
 
+--- Case-insensitive natural order. Spaces are skipped. -1 when a < b, 0 when equal, 1 when a > b.
 ---@param a string
 ---@param b string
----@return integer  # -1 when a < b, 0 when equal, 1 when a > b
-local function natcasecmp(a, b)
+---@return integer
+function Presets.natcasecmp(a, b)
     a = type(a) == "string" and a or ""
     b = type(b) == "string" and b or ""
     local aLen, bLen = #a, #b
@@ -370,7 +371,7 @@ function Presets.List()
         copy[i] = preset
     end
     table.sort(copy, function(left, right)
-        local cmp = natcasecmp(left.name, right.name)
+        local cmp = Presets.natcasecmp(left.name, right.name)
         if cmp ~= 0 then return cmp < 0 end
         return (left.id or 0) < (right.id or 0)
     end)
@@ -603,6 +604,49 @@ local function bake(graph, variables, answers)
     return nil
 end
 
+-- One copy path for a library Preset and an Alert Preset snapshot, so bake is not forked.
+-- Does not save the Bucket and does not write the Preset library.
+---@param bucket Watchdog.Bucket
+---@param name string|nil
+---@param graphData table|nil
+---@param layoutData Watchdog.LayoutArray|nil
+---@param variables Watchdog.PresetVariable[]|nil
+---@param registry LibNodeGraph.Registry
+---@param answers any[]|nil
+---@param reportLabel any
+---@return Watchdog.Entry|nil entry
+---@return LibNodeGraph.Graph|nil graph
+---@return Watchdog.Layout|nil layout
+---@return string|nil err
+local function instantiateSnapshot(bucket, name, graphData, layoutData, variables, registry, answers, reportLabel)
+    local hasVariables = type(variables) == "table" and #variables > 0
+    if hasVariables and answers == nil then
+        return nil, nil, nil, "variables"
+    end
+    if LibNodeGraph == nil or LibNodeGraph.Deserialize == nil then
+        return nil, nil, nil, "Could not copy the preset graph."
+    end
+    local ok, graph = pcall(function()
+        return LibNodeGraph.Deserialize(graphData, registry, { onUnknown = "placeholder" })
+    end)
+    if not ok or graph == nil then
+        report("could not instantiate preset " .. tostring(reportLabel) .. " - " .. tostring(graph))
+        return nil, nil, nil, "Could not copy the preset graph."
+    end
+    if hasVariables then
+        local bakeErr = bake(graph, variables, answers)
+        if bakeErr ~= nil then
+            return nil, nil, nil, bakeErr
+        end
+    end
+    local layout = layoutFromArray(layoutData)
+    local entry = Store.NewAlertEntry(Store.MintId(bucket), trim(name), graph, layout, true)
+    if not Store.InsertEntry(bucket, entry) then
+        return nil, nil, nil, "Could not create the alert."
+    end
+    return entry, graph, layout, nil
+end
+
 -- Answers bake a Preset that has Variables. Nil answers on a marked Preset still returns
 -- "variables" and writes nothing. Empty variables keep the previous result: an enabled Alert,
 -- a new Entry id, the Preset name, and the snapshot's node ids. The snapshot has no enabled flag.
@@ -632,32 +676,31 @@ function Presets.Instantiate(bucket, presetId, registry, answers)
     if preset == nil then
         return nil, nil, nil, "Preset not found."
     end
-    local hasVariables = type(preset.variables) == "table" and #preset.variables > 0
-    if hasVariables and answers == nil then
-        return nil, nil, nil, "variables"
+    return instantiateSnapshot(bucket, preset.name, preset.graph, preset.layout, preset.variables, registry, answers, presetId)
+end
+
+--- Copies a captured Alert Preset into an enabled Alert in the caller's Bucket.
+--- Unknown node types become placeholders. Nil answers on a snapshot that has
+--- Variables writes nothing. Does not save the Bucket, mint a Preset id, or
+--- keep the author id or Pack name.
+---@param bucket Watchdog.Bucket
+---@param snapshot Watchdog.PackAlertPreset
+---@param registry LibNodeGraph.Registry
+---@param answers any[]|nil
+---@return Watchdog.Entry|nil entry
+---@return LibNodeGraph.Graph|nil graph
+---@return Watchdog.Layout|nil layout
+---@return string|nil err
+function Presets.InstantiateSnapshot(bucket, snapshot, registry, answers)
+    if type(bucket) ~= "table" or registry == nil then
+        return nil, nil, nil, "No scope to create the alert in."
     end
-    if LibNodeGraph == nil or LibNodeGraph.Deserialize == nil then
+    if type(snapshot) ~= "table" then
         return nil, nil, nil, "Could not copy the preset graph."
     end
-    local ok, graph = pcall(function()
-        return LibNodeGraph.Deserialize(preset.graph, registry, { onUnknown = "placeholder" })
-    end)
-    if not ok or graph == nil then
-        report("could not instantiate preset " .. tostring(presetId) .. " - " .. tostring(graph))
-        return nil, nil, nil, "Could not copy the preset graph."
-    end
-    if hasVariables then
-        local bakeErr = bake(graph, preset.variables, answers)
-        if bakeErr ~= nil then
-            return nil, nil, nil, bakeErr
-        end
-    end
-    local layout = layoutFromArray(preset.layout)
-    local entry = Store.NewAlertEntry(Store.MintId(bucket), preset.name, graph, layout, true)
-    if not Store.InsertEntry(bucket, entry) then
-        return nil, nil, nil, "Could not create the alert."
-    end
-    return entry, graph, layout, nil
+    return instantiateSnapshot(
+        bucket, snapshot.name, snapshot.graph, snapshot.layout, snapshot.variables,
+        registry, answers, snapshot.name)
 end
 
 ---@param graph LibNodeGraph.Graph
