@@ -3,6 +3,9 @@
 
 local luaunit = require("luaunit")
 local CustomSound = require("src/nodes/actions/custom_sound")
+local Packs = require("src/packs")
+local Controls = require("src/ui/controls")
+local FakeHost = require("fake_control_host")
 
 local function makeFakeRegistry()
     return {
@@ -38,7 +41,11 @@ local function makeFakeAudio(calls)
             VOICEOVER = "voiceover",
         },
         SoundPlaybackParams = { new = function() return {} end },
-        Play = function(res, params) calls[#calls + 1] = { res = res, params = params } end,
+        Play = function(res, params)
+            local instance = { isPlaying = true }
+            calls[#calls + 1] = { res = res, params = params, instance = instance }
+            return instance
+        end,
     }
 end
 
@@ -53,6 +60,7 @@ end
 
 function TestCustomSoundRegistration:tearDown()
     _G.Plugin = nil
+    Packs.install(nil)
 end
 
 function TestCustomSoundRegistration:testRegistersActionCustomSoundPins()
@@ -99,6 +107,55 @@ function TestCustomSoundRegistration:testResourceChoicesIsJustNoneWithoutPlugin(
     luaunit.assertEquals(choices[1].label, "None")
 end
 
+function TestCustomSoundRegistration:testResourceChoicesIncludesALivePackAudioFile()
+    local packs = Packs.new()
+    Packs.install(packs)
+    packs:RegisterDataPack("Voice", {
+        audioFiles = {
+            { authorId = "bell", label = "Bell", audio = { loaded = true } },
+        },
+    })
+    local choices = CustomSound.ResourceChoices()
+    local byLabel = {}
+    for _, choice in ipairs(choices) do byLabel[choice.label] = choice.value end
+    luaunit.assertEquals(byLabel["beep"], "beep")
+    luaunit.assertEquals(byLabel["boop"], "boop")
+    luaunit.assertEquals(byLabel["Voice / Bell"], { pack = "Voice", authorId = "bell" })
+end
+
+function TestCustomSoundRegistration:testClosedControlShowsTheLiveLabel()
+    local packs = Packs.new()
+    Packs.install(packs)
+    packs:RegisterDataPack("Voice", {
+        audioFiles = {
+            { authorId = "a", label = "Bell", audio = { loaded = true } },
+            { authorId = "b", label = "Bell", audio = { loaded = true } },
+        },
+    })
+    local control = Controls.PinControlFor("customSoundResource")
+    luaunit.assertEquals(control.Display({ value = { pack = "Voice", authorId = "a" } }), "Bell")
+    luaunit.assertEquals(control.Display({ value = { pack = "Voice", authorId = "b" } }), "Bell")
+    luaunit.assertEquals(control.Display({ value = nil }), "None")
+    luaunit.assertEquals(control.Display({ value = "beep" }), "beep")
+end
+
+function TestCustomSoundRegistration:testCommitUsesTheRowsCapturedAtOpen()
+    local packs = Packs.new()
+    Packs.install(packs)
+    local token = packs:RegisterDataPack("Voice", {
+        audioFiles = {
+            { authorId = "bell", label = "Bell", audio = { loaded = true } },
+        },
+    })
+    local control = Controls.PinControlFor("customSoundResource")
+    local host = FakeHost.new(nil)
+    control.Press(host, { value = nil, pinName = "resource" })
+    packs:Clear(token)
+    host:Pick("Voice / Bell")
+    luaunit.assertEquals(host.committed, { pack = "Voice", authorId = "bell" })
+    luaunit.assertNil(host.committed.audio)
+end
+
 TestCustomSoundRun = {}
 
 function TestCustomSoundRun:setUp()
@@ -114,6 +171,7 @@ end
 function TestCustomSoundRun:tearDown()
     _G.Plugin = nil
     _G.audio = nil
+    Packs.install(nil)
 end
 
 function TestCustomSoundRun:testPlaysChosenResourceWithDefaultsOnSfxBus()
@@ -170,6 +228,39 @@ function TestCustomSoundRun:testRunLoadsResourceAsOnDemandBackstopWhenNotPreload
     luaunit.assertTrue(self.resources.beep.loaded)
 end
 
+function TestCustomSoundRun:testPackRecordPlaysTheRegistryResourceWithoutLoad()
+    local loads = 0
+    local resource = {
+        loaded = true,
+        Load = function() loads = loads + 1 end,
+    }
+    local packs = Packs.new()
+    Packs.install(packs)
+    packs:RegisterDataPack("Voice", {
+        audioFiles = {
+            { authorId = "bell", label = "Bell", audio = resource },
+        },
+    })
+    self.desc.run(makeCtx({
+        resource = { pack = "Voice", authorId = "bell" },
+        volume = 50,
+        loops = 3,
+        bus = "MUSIC",
+    }))
+    luaunit.assertEquals(#self.calls, 1)
+    luaunit.assertIs(self.calls[1].res, resource)
+    luaunit.assertEquals(self.calls[1].params.volume, 0.5)
+    luaunit.assertEquals(self.calls[1].params.numLoops, 3)
+    luaunit.assertEquals(self.calls[1].params.audioBus, "music")
+    luaunit.assertEquals(loads, 0)
+end
+
+function TestCustomSoundRun:testANilPackResolveDoesNotPlay()
+    Packs.install(Packs.new())
+    self.desc.run(makeCtx({ resource = { pack = "Voice", authorId = "bell" }, volume = 50, loops = 3 }))
+    luaunit.assertEquals(#self.calls, 0)
+end
+
 TestCustomSoundPreload = {}
 
 function TestCustomSoundPreload:setUp()
@@ -182,6 +273,7 @@ end
 
 function TestCustomSoundPreload:tearDown()
     _G.Plugin = nil
+    Packs.install(nil)
 end
 
 function TestCustomSoundPreload:testPreloadHookLoadsTheControlChosenResource()
@@ -199,4 +291,21 @@ function TestCustomSoundPreload:testResourceIsNeverReloadedOnceLoaded()
     self.desc.preload(makeNodeHandle({ resource = "beep" }))
     self.desc.preload(makeNodeHandle({ resource = "beep" }))
     luaunit.assertEquals(self.resources.beep.loaded, true)
+end
+
+function TestCustomSoundPreload:testPreloadDoesNotLoadAPackRecord()
+    local loads = 0
+    local resource = {
+        loaded = true,
+        Load = function() loads = loads + 1 end,
+    }
+    local packs = Packs.new()
+    Packs.install(packs)
+    packs:RegisterDataPack("Voice", {
+        audioFiles = {
+            { authorId = "bell", label = "Bell", audio = resource },
+        },
+    })
+    self.desc.preload(makeNodeHandle({ resource = { pack = "Voice", authorId = "bell" } }))
+    luaunit.assertEquals(loads, 0)
 end

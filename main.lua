@@ -1275,6 +1275,7 @@ end
 -- One in-memory Pack registry for this load. It is not written to PersistentDB,
 -- and Watchdog does not scan plugins to fill it.
 local packs = Packs.new()
+Packs.install(packs)
 
 local api = {}
 

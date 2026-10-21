@@ -34,8 +34,14 @@
 ---@field audioFiles table<string, Watchdog.PackAudioFile>
 ---@field alertPresets table<string, Watchdog.PackAlertPreset>
 
+---@class Watchdog.PackAudioHold
+---@field instance { isPlaying: boolean }
+---@field resource PluginAudioResource
+
 ---@class Watchdog.PackRegistry
 ---@field private byName table<string, Watchdog.PackRegistration>
+---@field private pendingAudio PluginAudioResource|nil
+---@field private audioHolds Watchdog.PackAudioHold[]|nil
 local Packs = {}
 Packs.__index = Packs
 
@@ -313,6 +319,250 @@ function Packs:Clear(token)
             return
         end
     end
+end
+
+-- A Watchdog file named None is the clear choice, so it is not also a file row.
+---@param watchdogNames string[]|nil
+---@return string[]
+local function watchdogFileNames(watchdogNames)
+    local names = {}
+    if type(watchdogNames) ~= "table" then return names end
+    for _, name in ipairs(watchdogNames) do
+        if type(name) == "string" and name ~= "None" then
+            names[#names + 1] = name
+        end
+    end
+    table.sort(names)
+    return names
+end
+
+-- Row text is "Pack name / label". A repeat of that text inside one Pack
+-- puts the author id on each of those rows so the player can tell them apart.
+---@return { pack: string, authorId: string, label: string }[]
+local function packAudioOffers(self)
+    local offers = {}
+    for packName, registration in pairs(self.byName) do
+        for authorId, file in pairs(registration.audioFiles) do
+            offers[#offers + 1] = {
+                pack = packName,
+                authorId = authorId,
+                label = file.label,
+            }
+        end
+    end
+    table.sort(offers, function(a, b)
+        if a.pack ~= b.pack then return a.pack < b.pack end
+        return a.authorId < b.authorId
+    end)
+    return offers
+end
+
+---@param offers { pack: string, authorId: string, label: string }[]
+---@return table<string, table<string, number>>
+local function rowTextCounts(offers)
+    local counts = {}
+    for _, offer in ipairs(offers) do
+        local byPack = counts[offer.pack]
+        if byPack == nil then
+            byPack = {}
+            counts[offer.pack] = byPack
+        end
+        local text = offer.pack .. " / " .. offer.label
+        byPack[text] = (byPack[text] or 0) + 1
+    end
+    return counts
+end
+
+---@param offer { pack: string, authorId: string, label: string }
+---@param counts table<string, table<string, number>>
+---@return string
+local function packRowLabel(offer, counts)
+    local text = offer.pack .. " / " .. offer.label
+    if counts[offer.pack][text] > 1 then
+        return text .. " (" .. offer.authorId .. ")"
+    end
+    return text
+end
+
+---@class Watchdog.AudioChoiceRow
+---@field label string
+---@field value nil|string|{ pack: string, authorId: string }
+
+---@class Watchdog.AudioChoiceList
+---@field rows Watchdog.AudioChoiceRow[]
+---@field stored any
+---@field highlighted string
+local AudioChoiceList = {}
+AudioChoiceList.__index = AudioChoiceList
+
+---@return Watchdog.AudioChoiceRow[]
+function AudioChoiceList:Rows()
+    return self.rows
+end
+
+--- The row for the stored identity, or None when nothing in this open matches.
+--- A highlight is not a stored value.
+---@param rows Watchdog.AudioChoiceRow[]
+---@param stored any
+---@return string
+local function highlightedLabel(rows, stored)
+    if type(stored) == "string" then
+        for _, row in ipairs(rows) do
+            if row.value == stored then return row.label end
+        end
+    elseif type(stored) == "table" then
+        for _, row in ipairs(rows) do
+            local value = row.value
+            if type(value) == "table" and value.pack == stored.pack and value.authorId == stored.authorId then
+                return row.label
+            end
+        end
+    end
+    return "None"
+end
+
+---@return string
+function AudioChoiceList:HighlightedLabel()
+    return self.highlighted
+end
+
+--- Moves which row is highlighted. The stored identity stays until Commit.
+---@param label string
+function AudioChoiceList:Highlight(label)
+    for _, row in ipairs(self.rows) do
+        if row.label == label then
+            self.highlighted = label
+            return
+        end
+    end
+end
+
+--- The identity this open was given. Opening does not replace it.
+---@return any
+function AudioChoiceList:Stored()
+    return self.stored
+end
+
+--- Stores the captured row's identity. None is nil. A pack row is pack and author id only.
+---@param label string
+---@return any value
+---@return boolean found
+function AudioChoiceList:Commit(label)
+    for _, row in ipairs(self.rows) do
+        if row.label == label then
+            if type(row.value) == "table" then
+                return { pack = row.value.pack, authorId = row.value.authorId }, true
+            end
+            return row.value, true
+        end
+    end
+    return nil, false
+end
+
+--- The open list for Custom Sound, captured here. A later call reads the live registry again.
+--- None, then each Watchdog audio file name, then each pack audio file.
+---@param watchdogNames string[]|nil
+---@param stored any
+---@return Watchdog.AudioChoiceList
+function Packs:OpenAudioChoices(watchdogNames, stored)
+    local rows = { { label = "None", value = nil } }
+    for _, name in ipairs(watchdogFileNames(watchdogNames)) do
+        rows[#rows + 1] = { label = name, value = name }
+    end
+    local offers = packAudioOffers(self)
+    local counts = rowTextCounts(offers)
+    for _, offer in ipairs(offers) do
+        rows[#rows + 1] = {
+            label = packRowLabel(offer, counts),
+            value = { pack = offer.pack, authorId = offer.authorId },
+        }
+    end
+    return setmetatable({
+        rows = rows,
+        stored = stored,
+        highlighted = highlightedLabel(rows, stored),
+    }, AudioChoiceList)
+end
+
+--- Closed Custom Sound text. A live pack audio file shows the live label, not the open-row text.
+--- A missing one reads "{pack} / {authorId} (missing)". Pack audio files do not use " (outdated)".
+---@param stored any
+---@return string
+function Packs:AudioClosedLabel(stored)
+    if stored == nil then return "None" end
+    if type(stored) == "string" then return stored end
+    if type(stored) ~= "table" or type(stored.pack) ~= "string" or type(stored.authorId) ~= "string" then
+        return tostring(stored)
+    end
+    local file = self:GetAudioFile(stored.pack, stored.authorId)
+    if file == nil then
+        return stored.pack .. " / " .. stored.authorId .. " (missing)"
+    end
+    return file.label
+end
+
+-- A play already handed to audio.Play can keep its resource after Clear. That reference
+-- is not a registration: ResolveAudioPlay never reads it. Drop it once the instance
+-- is no longer playing. Do not call Stop; the loop count it started with runs out.
+local function releaseFinishedAudioHolds(self)
+    local holds = self.audioHolds
+    if holds == nil then return end
+    local kept = {}
+    for _, hold in ipairs(holds) do
+        if hold.instance ~= nil and hold.instance.isPlaying == true then
+            kept[#kept + 1] = hold
+        end
+    end
+    self.audioHolds = kept
+end
+
+--- A new play. A string is a Watchdog audio file name. A pack record asks the live registry only.
+--- A miss returns nil. This does not call Load, and it does not return a privately held resource.
+---@param stored any
+---@param watchdogAudio table<string, PluginAudioResource>|nil
+---@return PluginAudioResource|nil
+function Packs:ResolveAudioPlay(stored, watchdogAudio)
+    releaseFinishedAudioHolds(self)
+    self.pendingAudio = nil
+    if type(stored) == "string" then
+        if type(watchdogAudio) ~= "table" then return nil end
+        return watchdogAudio[stored]
+    end
+    if type(stored) ~= "table" or type(stored.pack) ~= "string" or type(stored.authorId) ~= "string" then
+        return nil
+    end
+    local file = self:GetAudioFile(stored.pack, stored.authorId)
+    if file == nil then return nil end
+    self.pendingAudio = file.audio
+    return file.audio
+end
+
+--- The node reports the instance audio.Play returned. The resource just resolved stays
+--- reachable until that instance is finished. This does not stop the instance.
+---@param instance { isPlaying: boolean }|nil
+function Packs:NoteAudioPlay(instance)
+    releaseFinishedAudioHolds(self)
+    local resource = self.pendingAudio
+    self.pendingAudio = nil
+    if instance == nil or resource == nil then return end
+    local holds = self.audioHolds
+    if holds == nil then
+        holds = {}
+        self.audioHolds = holds
+    end
+    holds[#holds + 1] = { instance = instance, resource = resource }
+end
+
+local liveRegistry = nil
+
+---@param registry Watchdog.PackRegistry|nil
+function Packs.install(registry)
+    liveRegistry = registry
+end
+
+---@return Watchdog.PackRegistry|nil
+function Packs.live()
+    return liveRegistry
 end
 
 return Packs
