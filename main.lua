@@ -573,6 +573,26 @@ local function createFromPreset(scopeKey, presetId, answers)
     return entry.id
 end
 
+-- Same save, arm, and open as a library Preset. The registry does not save the Bucket.
+---@param scopeKey string
+---@param snapshot Watchdog.PackAlertPreset
+---@param answers any[]|nil
+---@return integer|nil id
+---@return string|nil err
+local function createFromAlertPreset(scopeKey, snapshot, answers)
+    local doc, key, list = scopeBucket(scopeKey)
+    if doc == nil then return nil, "No scope to create the alert in." end
+    local entry, graph, layout, err = Presets.InstantiateSnapshot(doc, snapshot, registry, answers)
+    if entry == nil or graph == nil or layout == nil then
+        return nil, err
+    end
+    Store.SaveTo(key, doc)
+    rememberAlert(list, entry.id, entry.name, graph, layout)
+    runtime:AddAlert(entry.id, entry.name, graph, true, key)
+    navOpenAlert(scopeKey, entry.id)
+    return entry.id
+end
+
 ---@param name string|nil
 ---@return string
 local function trimName(name)
@@ -592,6 +612,14 @@ local function onCreateAlert(scopeKey)
     local body = {}
     local alertWin
     local fillList, beginRename, beginDelete
+
+    -- Captured at this open. A later registration does not rebuild an open dialog.
+    -- Rename and delete call fillList again and still use this list.
+    local offered = {}
+    local livePacks = Packs.live()
+    if livePacks ~= nil then
+        offered = livePacks:AlertPresetGroups()
+    end
 
     -- PrettyUI flow padding (14) and column gap (8). The name fills the row;
     -- the pencil and trash sit inline after it, the same sprites as the Manager.
@@ -641,6 +669,17 @@ local function onCreateAlert(scopeKey)
         local contentW = host.contentWidth
         if type(contentW) ~= "number" then contentW = 352 end
         local width = contentW - FLOW_PAD * 2 - Theme.MANAGER_ACT_W * 2 - FLOW_GAP * 2
+        if width < 80 then width = 80 end
+        return width
+    end
+
+    -- Alert Preset rows have no rename or delete, so the name uses the whole row.
+    ---@param host any
+    ---@return integer
+    local function alertPresetWidth(host)
+        local contentW = host.contentWidth
+        if type(contentW) ~= "number" then contentW = 352 end
+        local width = contentW - FLOW_PAD * 2
         if width < 80 then width = 80 end
         return width
     end
@@ -717,50 +756,82 @@ local function onCreateAlert(scopeKey)
     fillList = function(host)
         clearBody(host)
         local listed, listErr = Presets.List()
+        local hasGroups = #offered > 0
         if listed == nil then
             remember(host:AddText(listErr or "Presets could not be read."))
-        elseif #listed == 0 then
+        elseif #listed == 0 and not hasGroups then
             remember(host:AddText("There are no presets."))
         else
-            local width = nameWidth(host)
-            local iconOffset = math.floor((Theme.MANAGER_ROW_H - Theme.MANAGER_ACT_W) / 2)
-            for _, preset in ipairs(listed) do
-                local captured = preset
-                remember(host:AddSimpleButton(captured.name, function()
-                    if presetHasVariables(captured) then
-                        PresetDialogs.mountVariables(parent, {
-                            preset = captured,
-                            registry = registry,
-                            onCreate = function(answers)
-                                return createFromPreset(scopeKey, captured.id, answers)
-                            end,
-                        })
-                        return
+            if listed ~= nil and #listed > 0 then
+                local width = nameWidth(host)
+                local iconOffset = math.floor((Theme.MANAGER_ROW_H - Theme.MANAGER_ACT_W) / 2)
+                for _, preset in ipairs(listed) do
+                    local captured = preset
+                    remember(host:AddSimpleButton(captured.name, function()
+                        if presetHasVariables(captured) then
+                            PresetDialogs.mountVariables(parent, {
+                                preset = captured,
+                                registry = registry,
+                                onCreate = function(answers)
+                                    return createFromPreset(scopeKey, captured.id, answers)
+                                end,
+                            })
+                            return
+                        end
+                        local id, err = createFromPreset(scopeKey, captured.id)
+                        if id == nil and err ~= "variables" and feedback ~= nil then
+                            feedback.content = err or "Could not create the alert."
+                        end
+                    end, {
+                        width = width,
+                        height = Theme.MANAGER_ROW_H,
+                    }))
+                    remember(host:AddSpriteButton("PENCIL", function()
+                        beginRename(captured)
+                    end, {
+                        inline = true,
+                        size = Theme.MANAGER_ACT_W,
+                        offsetY = iconOffset,
+                        tooltip = "Rename",
+                    }))
+                    remember(host:AddSpriteButton("TRASH", function()
+                        beginDelete(captured)
+                    end, {
+                        inline = true,
+                        size = Theme.MANAGER_ACT_W,
+                        offsetY = iconOffset,
+                        tooltip = "Delete",
+                    }))
+                end
+            end
+            -- The registry already ordered these groups. Do not sort them again.
+            if hasGroups then
+                local width = alertPresetWidth(host)
+                for _, group in ipairs(offered) do
+                    remember(host:AddText(group.packName))
+                    for _, preset in ipairs(group.presets) do
+                        local captured = preset
+                        remember(host:AddSimpleButton(captured.name, function()
+                            if presetHasVariables(captured) then
+                                PresetDialogs.mountVariables(parent, {
+                                    preset = captured,
+                                    registry = registry,
+                                    onCreate = function(answers)
+                                        return createFromAlertPreset(scopeKey, captured, answers)
+                                    end,
+                                })
+                                return
+                            end
+                            local id, err = createFromAlertPreset(scopeKey, captured)
+                            if id == nil and err ~= "variables" and feedback ~= nil then
+                                feedback.content = err or "Could not create the alert."
+                            end
+                        end, {
+                            width = width,
+                            height = Theme.MANAGER_ROW_H,
+                        }))
                     end
-                    local id, err = createFromPreset(scopeKey, captured.id)
-                    if id == nil and err ~= "variables" and feedback ~= nil then
-                        feedback.content = err or "Could not create the alert."
-                    end
-                end, {
-                    width = width,
-                    height = Theme.MANAGER_ROW_H,
-                }))
-                remember(host:AddSpriteButton("PENCIL", function()
-                    beginRename(captured)
-                end, {
-                    inline = true,
-                    size = Theme.MANAGER_ACT_W,
-                    offsetY = iconOffset,
-                    tooltip = "Rename",
-                }))
-                remember(host:AddSpriteButton("TRASH", function()
-                    beginDelete(captured)
-                end, {
-                    inline = true,
-                    size = Theme.MANAGER_ACT_W,
-                    offsetY = iconOffset,
-                    tooltip = "Delete",
-                }))
+                end
             end
         end
         feedback = remember(host:AddText(""))
@@ -1275,6 +1346,7 @@ end
 -- One in-memory Pack registry for this load. It is not written to PersistentDB,
 -- and Watchdog does not scan plugins to fill it.
 local packs = Packs.new()
+Packs.install(packs)
 
 local api = {}
 
