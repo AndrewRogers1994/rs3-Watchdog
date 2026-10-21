@@ -12,9 +12,15 @@ local testsDir = scriptDir()
 local rootDir = testsDir .. "../"
 
 -- Tests use the real graph libraries. Put LibNodeGraph and LibNodeGraphStd
--- in sibling folders or on LUA_PATH.
-package.path = rootDir .. "?.lua;" .. testsDir .. "?.lua;" .. rootDir .. "../LibNodeGraph/?.lua;" .. package.path
-package.path = rootDir .. "../LibNodeGraphStd/?.lua;" .. package.path
+-- in sibling folders or on LUA_PATH. The main checkout is one level below rs3.
+-- A worktree at .worktrees/<branch> is two levels further down, so also search there.
+package.path = rootDir .. "?.lua;" .. testsDir .. "?.lua;"
+    .. rootDir .. "../LibNodeGraph/?.lua;"
+    .. rootDir .. "../../../LibNodeGraph/?.lua;"
+    .. package.path
+package.path = rootDir .. "../LibNodeGraphStd/?.lua;"
+    .. rootDir .. "../../../LibNodeGraphStd/?.lua;"
+    .. package.path
 
 local luaunit = require("luaunit")
 
@@ -27,6 +33,7 @@ require("test_poll")
 require("test_player_scoping")
 require("test_store")
 require("test_presets")
+require("test_packs")
 require("test_export")
 require("test_chat_types")
 require("test_game_message")

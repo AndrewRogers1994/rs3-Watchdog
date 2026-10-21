@@ -144,6 +144,25 @@ function TestMainTiming:testToastLifetimeUsesTheSameSecondsClock()
     luaunit.assertEquals(self.runtime.toast:LiveCount(), 0)
 end
 
+function TestMainTiming:testRegisterAndClearHitTheLiveRegistry()
+    local token, refusals = Watchdog:RegisterDataPack("Voice", {
+        soundEffects = { { authorId = "bell", label = "Bell", soundId = 2608 } },
+    })
+    luaunit.assertNotNil(token)
+    luaunit.assertEquals(refusals, {})
+    luaunit.assertErrorMsgContentEquals("Pack name is already held.", function()
+        Watchdog:RegisterDataPack("Voice", nil)
+    end)
+    Watchdog:Clear("Voice")
+    luaunit.assertErrorMsgContentEquals("Pack name is already held.", function()
+        Watchdog:RegisterDataPack("Voice", nil)
+    end)
+    Watchdog:Clear(token)
+    local again, againRefusals = Watchdog:RegisterDataPack("Voice", nil)
+    luaunit.assertNotNil(again)
+    luaunit.assertEquals(againRefusals, {})
+end
+
 function TestMainTiming:testDurationIsIndependentOfFrameRate()
     for _, fps in ipairs({ 30, 60, 144 }) do
         self.runtime.effects:Clear()

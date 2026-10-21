@@ -3,6 +3,7 @@ local Manager = require("src/ui/manager")
 local Multiplexer = require("src/ui/multiplexer")
 local Store  = require("src/store")
 local Presets = require("src/presets")
+local Packs = require("src/packs")
 local Export = require("src/export")
 ---@type Watchdog.Runtime
 local Runtime = require("src/runtime")
@@ -1271,7 +1272,25 @@ local function onDraw(drawEvent)
     if mux ~= nil then mux:SyncChrome() end
 end
 
+-- One in-memory Pack registry for this load. It is not written to PersistentDB,
+-- and Watchdog does not scan plugins to fill it.
+local packs = Packs.new()
+
 local api = {}
+
+-- Policy lives in the registry. These methods only forward.
+---@param name string
+---@param contributions table|nil
+---@return any token
+---@return table refusals
+function api:RegisterDataPack(name, contributions)
+    return packs:RegisterDataPack(name, contributions)
+end
+
+---@param token any
+function api:Clear(token)
+    return packs:Clear(token)
+end
 
 function api.Stop()
     if runtime.objectMarkerCapture ~= nil then
