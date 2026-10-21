@@ -67,3 +67,20 @@ function TestSoundRun:testNonNumberSoundIdIsASilentNoop()
     luaunit.assertTrue(ok)
     luaunit.assertEquals(#self.calls, 0)
 end
+
+function TestSoundRun:testPackRecordPlaysItsStoredBuiltinSoundIdOnTheSfxBus()
+    self.desc.run(makeCtx({
+        soundId = { pack = "VoicePack", authorId = "greet_01", soundId = 12345 },
+    }))
+    luaunit.assertEquals(#self.calls, 1)
+    luaunit.assertEquals(self.calls[1].id, 12345)
+    luaunit.assertEquals(self.calls[1].params.audioBus, "sfx")
+end
+
+function TestSoundRun:testATableThatIsNotAPackRecordIsSilent()
+    local ok = pcall(function()
+        self.desc.run(makeCtx({ soundId = { soundId = 12345 } }))
+    end)
+    luaunit.assertTrue(ok)
+    luaunit.assertEquals(#self.calls, 0)
+end

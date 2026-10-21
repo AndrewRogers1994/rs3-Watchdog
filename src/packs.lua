@@ -315,4 +315,151 @@ function Packs:Clear(token)
     end
 end
 
+---@class Watchdog.PackSoundRow
+---@field pack string
+---@field authorId string
+---@field soundId number
+---@field label string
+
+--- One open of the Sound Effect list. The tables are a copy, so a later
+--- register or clear does not change rows the player already has open.
+--- A repeated "Pack name / label" inside one Pack shows the author id on
+--- each of those rows. The same label in two Packs does not: the Pack name
+--- is already part of the text.
+---@return Watchdog.PackSoundRow[]
+function Packs:SoundEffectRows()
+    local rows = {}
+    for packName, registration in pairs(self.byName) do
+        local effects = registration.soundEffects
+        if type(effects) == "table" then
+            local labelCount = {}
+            for _, effect in pairs(effects) do
+                labelCount[effect.label] = (labelCount[effect.label] or 0) + 1
+            end
+            for authorId, effect in pairs(effects) do
+                local text = packName .. " / " .. effect.label
+                if labelCount[effect.label] > 1 then
+                    text = text .. " (" .. authorId .. ")"
+                end
+                rows[#rows + 1] = {
+                    pack = packName,
+                    authorId = authorId,
+                    soundId = effect.soundId,
+                    label = text,
+                }
+            end
+        end
+    end
+    return rows
+end
+
+---@class Watchdog.PackSoundRecord
+---@field pack string
+---@field authorId string
+---@field soundId number
+
+---@param value any
+---@return boolean
+local function isPackSoundRecord(value)
+    return type(value) == "table"
+        and type(value.pack) == "string"
+        and type(value.authorId) == "string"
+        and type(value.soundId) == "number"
+end
+
+--- Closed Sound Effect text. A live offer shows its current label, plus
+--- " (outdated)" when the stored builtin sound id is not the one registered
+--- now. A missing offer shows the stored id, Pack name, and author id.
+--- A raw builtin sound id shows the number alone.
+---@param value any
+---@return string
+function Packs:SoundEffectClosedLabel(value)
+    if type(value) == "number" then
+        return tostring(value)
+    end
+    if not isPackSoundRecord(value) then
+        return ""
+    end
+    local offer = self:GetSoundEffect(value.pack, value.authorId)
+    if offer == nil then
+        return tostring(value.soundId) .. " (" .. value.pack .. " / " .. value.authorId .. ")"
+    end
+    if offer.soundId ~= value.soundId then
+        return offer.label .. " (outdated)"
+    end
+    return offer.label
+end
+
+--- The row for the stored Pack name and author id. A raw number selects
+--- nothing, including when some row's builtin sound id is that number.
+---@param rows Watchdog.PackSoundRow[]
+---@param value any
+---@return integer|nil
+function Packs:SoundEffectSelectedRow(rows, value)
+    if type(rows) ~= "table" or not isPackSoundRecord(value) then return nil end
+    for i, row in ipairs(rows) do
+        if row.pack == value.pack and row.authorId == value.authorId then
+            return i
+        end
+    end
+    return nil
+end
+
+--- What the Sound Effect control stores after a player action.
+--- A row commit copies that row and does not consult the live registry.
+--- A different number replaces a pack record. The same number leaves it.
+--- Highlighting or dismissing does not write.
+---@param stored any
+---@param action "row"|"number"|"highlight"|"dismiss"
+---@param choice Watchdog.PackSoundRow|number|nil
+---@return any
+function Packs:CommitSoundEffect(stored, action, choice)
+    if action == "highlight" or action == "dismiss" then
+        return stored
+    end
+    if action == "row" then
+        if type(choice) ~= "table"
+            or type(choice.pack) ~= "string"
+            or type(choice.authorId) ~= "string"
+            or type(choice.soundId) ~= "number" then
+            return stored
+        end
+        return { pack = choice.pack, authorId = choice.authorId, soundId = choice.soundId }
+    end
+    if action == "number" then
+        if type(choice) ~= "number" then return stored end
+        local current = nil
+        if type(stored) == "number" then
+            current = stored
+        elseif isPackSoundRecord(stored) then
+            current = stored.soundId
+        end
+        if current ~= nil and choice == current then return stored end
+        return choice
+    end
+    return stored
+end
+
+--- Builtin sound id to play. A number is that id. A pack record is the id it
+--- stored. Anything else is silent. The Pack does not have to be registered,
+--- and a changed live id is not substituted. A pack sound effect has no
+--- private hold.
+---@param value any
+---@return number|nil
+function Packs:ResolveSoundEffect(value)
+    if type(value) == "number" then return value end
+    if isPackSoundRecord(value) then return value.soundId end
+    return nil
+end
+
+local liveRegistry = nil
+
+function Packs.install(registry)
+    liveRegistry = registry
+end
+
+function Packs.live()
+    return liveRegistry
+end
+
 return Packs

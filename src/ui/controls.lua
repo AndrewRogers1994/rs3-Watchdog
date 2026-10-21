@@ -66,6 +66,9 @@ end
 
 -- ComboField ranks Add() entries alphabetically; match choices by label text, never id.
 Controls.Register("number", { widget = "number" })
+-- Sound Effect keeps dataType "number". This swaps in the pack-sound list for that pin.
+local SoundEffectControl = require("src/ui/controls/sound_effect")
+Controls.RegisterPinControl("number", SoundEffectControl.wrap(Controls.PinControlFor("number")))
 Controls.Register("string", { widget = "text" })
 local compareOperation = require("src/ui/controls/compare_operation")
 Controls.RegisterPinControl("compareOperation", compareOperation)
