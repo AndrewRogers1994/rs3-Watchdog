@@ -2,6 +2,8 @@
 -- Packs call in; Watchdog does not scan plugins. Registration does not write the
 -- Preset library and does not mint a Preset id.
 
+local Presets = require("src/presets")
+
 ---@class Watchdog.PackRefusal
 ---@field kind "soundEffects"|"audioFiles"|"alertPresets"
 ---@field authorId any
@@ -34,6 +36,10 @@
 ---@field audioFiles table<string, Watchdog.PackAudioFile>
 ---@field alertPresets table<string, Watchdog.PackAlertPreset>
 
+---@class Watchdog.AlertPresetGroup
+---@field packName string
+---@field presets Watchdog.PackAlertPreset[]
+
 ---@class Watchdog.PackRegistry
 ---@field private byName table<string, Watchdog.PackRegistration>
 local Packs = {}
@@ -42,7 +48,7 @@ Packs.__index = Packs
 local LIST_FIELDS = { "soundEffects", "audioFiles", "alertPresets" }
 local NAME_MAX = 80
 
--- Local copy of the Preset library trim. Packs does not call Presets.
+-- Local copy of the Preset library trim. Group order calls Presets.natcasecmp.
 ---@param name string|nil
 ---@return string
 local function trim(name)
@@ -450,6 +456,44 @@ function Packs:ResolveSoundEffect(value)
     if type(value) == "number" then return value end
     if isPackSoundRecord(value) then return value.soundId end
     return nil
+end
+
+--- Natural compare, then the raw string, then the author id when the names match.
+---@param left Watchdog.PackAlertPreset
+---@param right Watchdog.PackAlertPreset
+---@return boolean
+local function presetBefore(left, right)
+    local cmp = Presets.natcasecmp(left.name, right.name)
+    if cmp ~= 0 then return cmp < 0 end
+    if left.name ~= right.name then return left.name < right.name end
+    return left.authorId < right.authorId
+end
+
+--- Groups captured from the registrations held now. Pack order is the Preset
+--- library's case-insensitive natural compare, then Lua `<` on the pack name
+--- when that compare ties. Inside a group the same compare runs on the trimmed
+--- name, then `<` on the raw name, then `<` on the author id when the names
+--- match including case. A Pack with no Alert Preset is omitted. A later
+--- registration does not rewrite the arrays this call already returned.
+---@return Watchdog.AlertPresetGroup[]
+function Packs:AlertPresetGroups()
+    local groups = {}
+    for packName, registration in pairs(self.byName) do
+        local presets = {}
+        for _, preset in pairs(registration.alertPresets) do
+            presets[#presets + 1] = preset
+        end
+        if #presets > 0 then
+            table.sort(presets, presetBefore)
+            groups[#groups + 1] = { packName = packName, presets = presets }
+        end
+    end
+    table.sort(groups, function(left, right)
+        local cmp = Presets.natcasecmp(left.packName, right.packName)
+        if cmp ~= 0 then return cmp < 0 end
+        return left.packName < right.packName
+    end)
+    return groups
 end
 
 local liveRegistry = nil

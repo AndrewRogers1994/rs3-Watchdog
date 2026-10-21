@@ -1,4 +1,6 @@
 local Packs = require("src/packs")
+local Controls = require("src/ui/controls")
+local SoundEffectControl = require("src/ui/controls/sound_effect")
 
 local Sound = {}
 
@@ -27,5 +29,10 @@ function Sound.Register(registry)
         end,
     })
 end
+
+-- Sound Effect stays dataType "number". The pack-sound list is installed here,
+-- not from controls.lua: packs -> presets -> node -> controls would cycle if
+-- that registry required this module while packs.lua was still loading.
+Controls.RegisterPinControl("number", SoundEffectControl.wrap(Controls.PinControlFor("number")))
 
 return Sound

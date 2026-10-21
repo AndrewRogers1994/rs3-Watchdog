@@ -332,6 +332,9 @@ end
 TestPackSoundControl = {}
 
 function TestPackSoundControl:setUp()
+    _G.id = _G.id or {}
+    _G.id.Sound = _G.id.Sound or { TOWN_CRIER_BELL_RING_1 = 2608 }
+    require("src/nodes/actions/sound")
     self.packs = Packs.new()
     Packs.install(self.packs)
     self.token = self.packs:RegisterDataPack("VoicePack", {
