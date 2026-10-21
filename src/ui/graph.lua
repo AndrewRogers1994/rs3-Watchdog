@@ -208,6 +208,9 @@ function Editor:frontOverlayInteractives()
     if self.editing ~= nil and self.editing.field ~= nil then
         pcall(function() self.editing.field:MoveToFront() end)
     end
+    if self.editing ~= nil and self.editing.numberField ~= nil then
+        pcall(function() self.editing.numberField:MoveToFront() end)
+    end
     if self.colorHexField ~= nil then
         pcall(function() self.colorHexField:MoveToFront() end)
     end
@@ -221,6 +224,16 @@ function Editor:layoutTransientEditors()
             self.editing.field:SetPos(ax, ay)
             if self.editing.sw ~= nil then
                 self.editing.field:SetSize(self.editing.sw, self.editing.sh)
+            end
+        end)
+    end
+    if self.editing ~= nil and self.editing.numberField ~= nil
+        and self.editing.numberLocalX ~= nil then
+        local ax, ay = self:toScreen(self.editing.numberLocalX, self.editing.numberLocalY)
+        pcall(function()
+            self.editing.numberField:SetPos(ax, ay)
+            if self.editing.numberSw ~= nil then
+                self.editing.numberField:SetSize(self.editing.numberSw, self.editing.numberSh)
             end
         end)
     end
@@ -333,6 +346,21 @@ local function isSubmitCause(cause)
         end
     end
     return false
+end
+
+-- Enter confirms a Sound Effect number. Escape and focus loss dismiss it.
+local function isExplicitSubmit(cause)
+    if cause == nil then return false end
+    if cause == "SUBMIT" then return true end
+    local r = ui and ui.InputFieldActionResult
+    return r ~= nil and cause == r.SUBMIT
+end
+
+local function isEscapeSubmit(cause)
+    if cause == nil then return false end
+    if cause == "SUBMIT_ON_ESCAPE" then return true end
+    local r = ui and ui.InputFieldActionResult
+    return r ~= nil and cause == r.SUBMIT_ON_ESCAPE
 end
 
 local function safeButtonStyle()
@@ -1367,7 +1395,7 @@ end
 ---@param pinControl table
 ---@param nodeId integer
 ---@param ctrl table
----@param opts { labels: string[]|nil, initial: string|nil }
+---@param opts { labels: string[]|nil, initial: string|nil, numberField: boolean|nil, number: number|nil, onNumber: (fun(raw: string, quantity: number|nil))|nil }
 ---@param onSelect fun(label: string)
 function Editor:mountControlDropdown(pinControl, nodeId, ctrl, opts, onSelect)
     if self.editing ~= nil then
@@ -1380,6 +1408,31 @@ function Editor:mountControlDropdown(pinControl, nodeId, ctrl, opts, onSelect)
     if geom == nil then return end
 
     local px, py, sw, sh = self:controlEditRect(geom, ctrl)
+    -- Sound Effect opens a number field in the control rect and the choice
+    -- list under it. The number is not the ComboField's filter text: the
+    -- combo narrows rows on its own.
+    local numberField = nil
+    local numberX, numberY = nil, nil
+    if opts.numberField then
+        numberX, numberY = px, py
+        local numberText = ""
+        if type(opts.number) == "number" then numberText = tostring(opts.number) end
+        numberField = self:mountInputField(px, py, sw, sh, "NUMERIC", 16, numberText,
+            function(_, cause)
+                if isEscapeSubmit(cause) then
+                    self:closeControlEditor()
+                    return
+                end
+                if not isExplicitSubmit(cause) then return end
+                local editing = self.editing
+                if editing == nil or editing.numberField == nil then return end
+                local raw, quantity = fieldContent(editing.numberField)
+                local submit = editing.onNumber
+                if submit ~= nil then submit(raw, quantity) end
+                self:closeControlEditor()
+            end)
+        py = py + sh
+    end
     local ax, ay = self:toScreen(px, py)
     local field
     local ok = pcall(function()
@@ -1392,22 +1445,36 @@ function Editor:mountControlDropdown(pinControl, nodeId, ctrl, opts, onSelect)
         for i, label in ipairs(opts.labels or {}) do
             field:Add(label, i)
         end
-        local sel = 1
-        for i, e in ipairs(field.entries) do
-            if e.text == opts.initial then sel = i break end
+        if opts.numberField and opts.initial == nil then
+            -- A raw number must not land on the first row.
+            pcall(function() field:UnselectAll() end)
+        else
+            local sel = 1
+            for i, e in ipairs(field.entries) do
+                if e.text == opts.initial then sel = i break end
+            end
+            field:Select(sel, false)
         end
-        field:Select(sel, false)
         field:Subscribe(enumv(ui.Hook, "ONSELECTIONCHANGED"), function()
             self:onControlDropdownSelect()
         end)
     end)
-    if not ok or field == nil then return end
+    if not ok or field == nil then
+        if numberField ~= nil then pcall(function() numberField:Destroy() end) end
+        return
+    end
 
     self.editing = { nodeId = nodeId, pinName = ctrl.pinName, field = field,
         kind = ctrl.kind, axis = ctrl.axis, pinControl = pinControl, onSelect = onSelect,
+        onNumber = opts.onNumber, numberField = numberField,
+        numberLocalX = numberX, numberLocalY = numberY, numberSw = sw, numberSh = sh,
         localX = px, localY = py, sw = sw, sh = sh }
     self:frontOverlayInteractives()
-    pcall(function() field:SetFocus() end)
+    if numberField ~= nil then
+        pcall(function() numberField:SetFocus() end)
+    else
+        pcall(function() field:SetFocus() end)
+    end
 end
 
 function Editor:onControlDropdownSelect()
@@ -1461,6 +1528,7 @@ function Editor:closeControlEditor(opts)
     self:commitField()
     self.editing = nil
     if e.field ~= nil then pcall(function() e.field:Destroy() end) end
+    if e.numberField ~= nil then pcall(function() e.numberField:Destroy() end) end
     if e.kind == "nodeMode" and not (opts and opts.skipUnpark) then
         self:unparkControlEditor()
     end
