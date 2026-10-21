@@ -10,6 +10,7 @@ local ControlKinds   = require("src/ui/control_kinds")
 local Controls = {}
 
 local pinControls = {}
+local nodePinControls = {}
 
 ---@param tag string
 ---@param module table
@@ -21,11 +22,38 @@ function Controls.RegisterPinControl(tag, module)
     return module
 end
 
+--- One node pin, not every pin of that data type. A Sound Effect stays a number
+--- wire and still gets its own control.
+---@param typeKey string
+---@param pinName string
+---@param module table
+---@return table
+function Controls.RegisterNodePinControl(typeKey, pinName, module)
+    assert(type(typeKey) == "string" and typeKey ~= "", "node type key must be a non-empty string")
+    assert(type(pinName) == "string" and pinName ~= "", "pin name must be a non-empty string")
+    assert(type(module) == "table", "pin control must be a module table")
+    nodePinControls[typeKey .. "\0" .. pinName] = module
+    return module
+end
+
 ---@param tag string|nil
 ---@return table|nil
 function Controls.PinControlFor(tag)
     if tag == nil then return nil end
     return pinControls[tag]
+end
+
+--- The node-pin control when one was registered, otherwise the Type Tag control.
+---@param typeKey string|nil
+---@param pin { name: string, dataType: string|nil }|nil
+---@return table|nil
+function Controls.PinControlForPin(typeKey, pin)
+    if type(pin) ~= "table" then return nil end
+    if type(typeKey) == "string" and type(pin.name) == "string" then
+        local specific = nodePinControls[typeKey .. "\0" .. pin.name]
+        if specific ~= nil then return specific end
+    end
+    return Controls.PinControlFor(pin.dataType)
 end
 
 ---@class ControlDescriptor

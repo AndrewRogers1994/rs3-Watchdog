@@ -55,10 +55,11 @@ end
 
 ---@param pin table
 ---@param connected table<string, boolean>
+---@param typeKey string|nil
 ---@return table|nil
-local function pinControlFor(pin, connected)
+local function pinControlFor(pin, connected, typeKey)
     if pin.kind ~= "data" or connected[pin.name] then return nil end
-    return Controls.PinControlFor(pin.dataType)
+    return Controls.PinControlForPin(typeKey, pin)
 end
 
 ---@param nodeType table|nil
@@ -105,6 +106,7 @@ function Node.BuildGeometry(pins, x, y, width, opts)
         width = extraBodyW
     end
     local connected = (opts and opts.connected) or {}
+    local typeKey = opts and opts.typeKey or nil
     -- A placeholder node (#53) renders its reconstructed stubs as pins, but offers none of the
     -- interactive geometry: no Control boxes (raw controls are opaque without their codecs) and
     -- no per-exec-in test buttons (FireInput would assert on a pin the engine can't resolve).
@@ -140,7 +142,7 @@ function Node.BuildGeometry(pins, x, y, width, opts)
             local extraH = 0
             local pin = inputs[i]
             if pin ~= nil and not placeholder then
-                local pc = pinControlFor(pin, connected)
+                local pc = pinControlFor(pin, connected, typeKey)
                 if pc ~= nil then
                     extraH = pc.ReservedHeight(pin) or 0
                 end
@@ -223,7 +225,7 @@ function Node.BuildGeometry(pins, x, y, width, opts)
     -- beneath the row (rowTop[i+1] - extraH .. rowTop[i+1]).
     local labelStart = Theme.PIN_MARGIN_X + Theme.PIN_GLYPH * 0.5 + Theme.PIN_LABEL_GAP
     for i, pin in ipairs(placeholder and {} or inputs) do
-        local pinControl = pinControlFor(pin, connected)
+        local pinControl = pinControlFor(pin, connected, typeKey)
         if pinControl ~= nil then
             local rects
             if pinControl.Inline then

@@ -6,15 +6,22 @@ local ControlKinds = {}
 ---@class Watchdog.ControlKind
 ---@field widget string
 ---@field choices { value: any, label: string }[]|nil
+---@field choicesFn (fun(): { value: any, label: string }[])|nil
 
 ---@type table<string, Watchdog.ControlKind>
 local byTag = {}
 
+--- `choices` may be a function. The Variable dialog calls it when it opens, so a
+--- list that depends on the live Pack registry is not frozen at load.
 ---@param tag string
 ---@param widget string
----@param choices { value: any, label: string }[]|nil
+---@param choices ({ value: any, label: string }[]|fun(): { value: any, label: string }[])|nil
 function ControlKinds.Record(tag, widget, choices)
-    byTag[tag] = { widget = widget, choices = choices }
+    if type(choices) == "function" then
+        byTag[tag] = { widget = widget, choicesFn = choices }
+    else
+        byTag[tag] = { widget = widget, choices = choices }
+    end
 end
 
 ---@param tag string|nil
@@ -32,6 +39,9 @@ function ControlKinds.Choices(tag)
     if tag == nil then return nil end
     local recorded = byTag[tag]
     if recorded == nil then return nil end
+    if recorded.choicesFn ~= nil then
+        return recorded.choicesFn()
+    end
     return recorded.choices
 end
 

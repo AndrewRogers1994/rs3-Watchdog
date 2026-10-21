@@ -336,31 +336,26 @@ end
 local SUBMIT_CAUSES = {
     SUBMIT = true, SUBMIT_ON_ESCAPE = true, SUBMIT_ON_FOCUS_LOSS = true,
 }
+
+--- The InputField submit name, or nil when this change is not a submit.
+--- String names and `ui.InputFieldActionResult` values share this one check.
+---@param cause any
+---@return string|nil
+local function submitKind(cause)
+    if cause == nil then return nil end
+    if type(cause) == "string" and SUBMIT_CAUSES[cause] then return cause end
+    local r = ui and ui.InputFieldActionResult
+    if r == nil then return nil end
+    if cause == r.SUBMIT then return "SUBMIT" end
+    if cause == r.SUBMIT_ON_ESCAPE then return "SUBMIT_ON_ESCAPE" end
+    if cause == r.SUBMIT_ON_FOCUS_LOSS then return "SUBMIT_ON_FOCUS_LOSS" end
+    return nil
+end
+
+---@param cause any
+---@return boolean
 local function isSubmitCause(cause)
-    if cause == nil then return false end
-    if type(cause) == "string" and SUBMIT_CAUSES[cause] then return true end
-    local r = ui and ui.InputFieldActionResult
-    if r ~= nil then
-        if cause == r.SUBMIT or cause == r.SUBMIT_ON_ESCAPE or cause == r.SUBMIT_ON_FOCUS_LOSS then
-            return true
-        end
-    end
-    return false
-end
-
--- Enter confirms a Sound Effect number. Escape and focus loss dismiss it.
-local function isExplicitSubmit(cause)
-    if cause == nil then return false end
-    if cause == "SUBMIT" then return true end
-    local r = ui and ui.InputFieldActionResult
-    return r ~= nil and cause == r.SUBMIT
-end
-
-local function isEscapeSubmit(cause)
-    if cause == nil then return false end
-    if cause == "SUBMIT_ON_ESCAPE" then return true end
-    local r = ui and ui.InputFieldActionResult
-    return r ~= nil and cause == r.SUBMIT_ON_ESCAPE
+    return submitKind(cause) ~= nil
 end
 
 local function safeButtonStyle()
@@ -527,7 +522,7 @@ function Editor:buildGeoms()
             opts = { placeholder = true }
         else
             pins = self.graph:GetPins(n.id) or {}
-            opts = { connected = connectedIn[n.id] or {} }
+            opts = { connected = connectedIn[n.id] or {}, typeKey = n.typeKey }
             local nt = self.registry:GetNodeType(n.typeKey)
             if nt ~= nil and nt.modes ~= nil then
                 opts.modeLabel = modeLabelOf(nt, self.graph:GetMode(n.id))
@@ -991,7 +986,7 @@ function Editor:placeFromPalette(row)
     local x, y = anchorGX, anchorGY
     if centerOnAnchor then
         local pins = self.graph:GetPins(newId) or {}
-        local opts = { connected = {} }
+        local opts = { connected = {}, typeKey = row.typeKey }
         local nt = self.registry:GetNodeType(row.typeKey)
         if nt ~= nil and nt.modes ~= nil then
             opts.modeLabel = modeLabelOf(nt, self.graph:GetMode(newId))
@@ -1392,10 +1387,58 @@ function Editor:mountControlField(pinControl, nodeId, ctrl, opts, onChange)
     pcall(function() field:SetFocus() end)
 end
 
+--- A combo that sorts by `order` before the label. Native ComboField:Add sorts
+--- by label, which would reshuffle a list the pin control already ordered.
+--- The text box is the widget's; this does not define what counts as a match.
+---@param parent any
+---@param ax number
+---@param ay number
+---@param sw number
+---@param sh number
+---@param entries { label: string, id: integer, order: integer }[]
+---@param initial string|nil
+---@param onSelect fun(label: string)
+---@return table|nil
+local function mountOrderedCombo(parent, ax, ay, sw, sh, entries, initial, onSelect)
+    if prettyui == nil or prettyui.ComboBox == nil then
+        if log ~= nil then log("Watchdog: ordered combo unavailable, choice list not opened") end
+        return nil
+    end
+    local selectedID = nil
+    if initial ~= nil then
+        for _, entry in ipairs(entries) do
+            if entry.label == initial then
+                selectedID = entry.id
+                break
+            end
+        end
+    end
+    local combo
+    local ok = pcall(function()
+        combo = prettyui.ComboBox.new(parent, {
+            x = ax, y = ay, width = sw, height = sh,
+            stylesheetID = safeComboStyle(),
+            entries = entries,
+            selectedID = selectedID,
+            onChange = function(_, _, label)
+                if label ~= nil then onSelect(label) end
+            end,
+        })
+    end)
+    if not ok or combo == nil or combo.root == nil then return nil end
+    return {
+        SetPos = function(_, x, y) combo.root:SetPos(x, y) end,
+        SetSize = function(_, w, h) combo.root:SetSize(w, h) end,
+        MoveToFront = function(_) combo.root:MoveToFront() end,
+        Destroy = function(_) combo:Destroy() end,
+        _focus = combo.input,
+    }
+end
+
 ---@param pinControl table
 ---@param nodeId integer
 ---@param ctrl table
----@param opts { labels: string[]|nil, initial: string|nil, numberField: boolean|nil, number: number|nil, onNumber: (fun(raw: string, quantity: number|nil))|nil }
+---@param opts { labels: string[]|nil, entries: { label: string, id: integer, order: integer }[]|nil, initial: string|nil, number: number|nil, onNumber: (fun(raw: string, quantity: number|nil))|nil, openLayout: (fun(x: number, y: number, w: number, h: number): { x: number, y: number, w: number, h: number }|nil, { x: number, y: number, w: number, h: number })|nil }
 ---@param onSelect fun(label: string)
 function Editor:mountControlDropdown(pinControl, nodeId, ctrl, opts, onSelect)
     if self.editing ~= nil then
@@ -1407,23 +1450,32 @@ function Editor:mountControlDropdown(pinControl, nodeId, ctrl, opts, onSelect)
     local geom = self.geoms[nodeId]
     if geom == nil then return end
 
-    local px, py, sw, sh = self:controlEditRect(geom, ctrl)
-    -- Sound Effect opens a number field in the control rect and the choice
-    -- list under it. The number is not the ComboField's filter text: the
-    -- combo narrows rows on its own.
+    -- The pin control places the open number field and the list. The editor
+    -- hit-tests the closed control and mounts at the rects it is given.
+    local baseX, baseY, baseW, baseH = self:controlEditRect(geom, ctrl)
+    local numberRect, listRect
+    if opts.openLayout ~= nil then
+        numberRect, listRect = opts.openLayout(baseX, baseY, baseW, baseH)
+    else
+        listRect = { x = baseX, y = baseY, w = baseW, h = baseH }
+    end
+
     local numberField = nil
-    local numberX, numberY = nil, nil
-    if opts.numberField then
-        numberX, numberY = px, py
+    local numberX, numberY, numberSw, numberSh = nil, nil, nil, nil
+    if numberRect ~= nil then
+        numberX, numberY = numberRect.x, numberRect.y
+        numberSw, numberSh = numberRect.w, numberRect.h
         local numberText = ""
         if type(opts.number) == "number" then numberText = tostring(opts.number) end
-        numberField = self:mountInputField(px, py, sw, sh, "NUMERIC", 16, numberText,
+        numberField = self:mountInputField(numberX, numberY, numberSw, numberSh, "NUMERIC", 16, numberText,
             function(_, cause)
-                if isEscapeSubmit(cause) then
+                -- Enter stores the number. Escape dismisses it. Focus loss does neither.
+                local kind = submitKind(cause)
+                if kind == "SUBMIT_ON_ESCAPE" then
                     self:closeControlEditor()
                     return
                 end
-                if not isExplicitSubmit(cause) then return end
+                if kind ~= "SUBMIT" then return end
                 local editing = self.editing
                 if editing == nil or editing.numberField == nil then return end
                 local raw, quantity = fieldContent(editing.numberField)
@@ -1431,35 +1483,45 @@ function Editor:mountControlDropdown(pinControl, nodeId, ctrl, opts, onSelect)
                 if submit ~= nil then submit(raw, quantity) end
                 self:closeControlEditor()
             end)
-        py = py + sh
     end
-    local ax, ay = self:toScreen(px, py)
+
+    local ax, ay = self:toScreen(listRect.x, listRect.y)
     local field
-    local ok = pcall(function()
-        field = ui.ComboField.new(parent)
-        pcall(function() field.stylesheetID = safeComboStyle() end)
-        field.clickthrough = false
-        field:SetPos(ax, ay)
-        field:SetSize(sw, sh)
-        -- ComboField reorders entries and reassigns IDs; select by label.
-        for i, label in ipairs(opts.labels or {}) do
-            field:Add(label, i)
-        end
-        if opts.numberField and opts.initial == nil then
-            -- A raw number must not land on the first row.
-            pcall(function() field:UnselectAll() end)
-        else
-            local sel = 1
-            for i, e in ipairs(field.entries) do
-                if e.text == opts.initial then sel = i break end
+    if opts.entries ~= nil then
+        field = mountOrderedCombo(parent, ax, ay, listRect.w, listRect.h, opts.entries, opts.initial,
+            function(label)
+                if self.editing == nil then return end
+                onSelect(label)
+                self:closeControlEditor()
+            end)
+    else
+        local ok = pcall(function()
+            field = ui.ComboField.new(parent)
+            pcall(function() field.stylesheetID = safeComboStyle() end)
+            field.clickthrough = false
+            field:SetPos(ax, ay)
+            field:SetSize(listRect.w, listRect.h)
+            -- ComboField reorders entries and reassigns IDs; select by label.
+            for i, label in ipairs(opts.labels or {}) do
+                field:Add(label, i)
             end
-            field:Select(sel, false)
-        end
-        field:Subscribe(enumv(ui.Hook, "ONSELECTIONCHANGED"), function()
-            self:onControlDropdownSelect()
+            if opts.openLayout ~= nil and opts.initial == nil then
+                -- A raw number must not land on the first row.
+                pcall(function() field:UnselectAll() end)
+            else
+                local sel = 1
+                for i, e in ipairs(field.entries) do
+                    if e.text == opts.initial then sel = i break end
+                end
+                field:Select(sel, false)
+            end
+            field:Subscribe(enumv(ui.Hook, "ONSELECTIONCHANGED"), function()
+                self:onControlDropdownSelect()
+            end)
         end)
-    end)
-    if not ok or field == nil then
+        if not ok then field = nil end
+    end
+    if field == nil then
         if numberField ~= nil then pcall(function() numberField:Destroy() end) end
         return
     end
@@ -1467,11 +1529,13 @@ function Editor:mountControlDropdown(pinControl, nodeId, ctrl, opts, onSelect)
     self.editing = { nodeId = nodeId, pinName = ctrl.pinName, field = field,
         kind = ctrl.kind, axis = ctrl.axis, pinControl = pinControl, onSelect = onSelect,
         onNumber = opts.onNumber, numberField = numberField,
-        numberLocalX = numberX, numberLocalY = numberY, numberSw = sw, numberSh = sh,
-        localX = px, localY = py, sw = sw, sh = sh }
+        numberLocalX = numberX, numberLocalY = numberY, numberSw = numberSw, numberSh = numberSh,
+        localX = listRect.x, localY = listRect.y, sw = listRect.w, sh = listRect.h }
     self:frontOverlayInteractives()
     if numberField ~= nil then
         pcall(function() numberField:SetFocus() end)
+    elseif field._focus ~= nil then
+        pcall(function() field._focus:SetFocus() end)
     else
         pcall(function() field:SetFocus() end)
     end

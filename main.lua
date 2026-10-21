@@ -553,6 +553,29 @@ local function presetHasVariables(preset)
     return type(preset.variables) == "table" and #preset.variables > 0
 end
 
+-- Saves, arms, and opens the Alert the instantiate call inserted. A failed copy
+-- or a failed bake returns the error and leaves the Bucket as that call left it.
+---@param scopeKey string
+---@param doc Watchdog.Bucket
+---@param key string
+---@param list Watchdog.Entry[]
+---@param entry Watchdog.Entry|nil
+---@param graph LibNodeGraph.Graph|nil
+---@param layout Watchdog.Layout|nil
+---@param err string|nil
+---@return integer|nil id
+---@return string|nil err
+local function finishCreate(scopeKey, doc, key, list, entry, graph, layout, err)
+    if entry == nil or graph == nil or layout == nil then
+        return nil, err
+    end
+    Store.SaveTo(key, doc)
+    rememberAlert(list, entry.id, entry.name, graph, layout)
+    runtime:AddAlert(entry.id, entry.name, graph, true, key)
+    navOpenAlert(scopeKey, entry.id)
+    return entry.id
+end
+
 -- Bakes answers when the Preset has Variables. Opening the Editor dismisses mux-root dialogs.
 ---@param scopeKey string
 ---@param presetId integer
@@ -562,15 +585,7 @@ end
 local function createFromPreset(scopeKey, presetId, answers)
     local doc, key, list = scopeBucket(scopeKey)
     if doc == nil then return nil, "No scope to create the alert in." end
-    local entry, graph, layout, err = Presets.Instantiate(doc, presetId, registry, answers)
-    if entry == nil or graph == nil or layout == nil then
-        return nil, err
-    end
-    Store.SaveTo(key, doc)
-    rememberAlert(list, entry.id, entry.name, graph, layout)
-    runtime:AddAlert(entry.id, entry.name, graph, true, key)
-    navOpenAlert(scopeKey, entry.id)
-    return entry.id
+    return finishCreate(scopeKey, doc, key, list, Presets.Instantiate(doc, presetId, registry, answers))
 end
 
 -- Same save, arm, and open as a library Preset. The registry does not save the Bucket.
@@ -582,15 +597,7 @@ end
 local function createFromAlertPreset(scopeKey, snapshot, answers)
     local doc, key, list = scopeBucket(scopeKey)
     if doc == nil then return nil, "No scope to create the alert in." end
-    local entry, graph, layout, err = Presets.InstantiateSnapshot(doc, snapshot, registry, answers)
-    if entry == nil or graph == nil or layout == nil then
-        return nil, err
-    end
-    Store.SaveTo(key, doc)
-    rememberAlert(list, entry.id, entry.name, graph, layout)
-    runtime:AddAlert(entry.id, entry.name, graph, true, key)
-    navOpenAlert(scopeKey, entry.id)
-    return entry.id
+    return finishCreate(scopeKey, doc, key, list, Presets.InstantiateSnapshot(doc, snapshot, registry, answers))
 end
 
 ---@param name string|nil
@@ -1354,7 +1361,7 @@ local api = {}
 ---@param name string
 ---@param contributions table|nil
 ---@return any token
----@return table refusals
+---@return Watchdog.PackRefusal[] refusals
 function api:RegisterDataPack(name, contributions)
     return packs:RegisterDataPack(name, contributions)
 end

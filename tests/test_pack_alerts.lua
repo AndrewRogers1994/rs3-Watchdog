@@ -261,6 +261,73 @@ function TestPackAlerts:testVariablesBakeInCapturedListOrder()
     luaunit.assertEquals(PersistentDB.data, { presets = "library" })
 end
 
+function TestPackAlerts:testASoundEffectVariableKeepsThePackRecord()
+    _G.id = _G.id or {}
+    _G.id.Sound = _G.id.Sound or { TOWN_CRIER_BELL_RING_1 = 2608 }
+    local registry = Registry.new()
+    require("src/nodes/actions/sound").Register(registry)
+    local record = { pack = "Voice", authorId = "bell", soundId = 12345 }
+    local graph = LibNodeGraph.NewGraph(registry)
+    local nodeId = graph:AddNode("action.sound", { soundId = record })
+    self.packs:RegisterDataPack("Voice", {
+        alertPresets = { {
+            authorId = "greet",
+            name = "Callout",
+            graph = LibNodeGraph.Serialize(graph),
+            variables = { { nodeId = nodeId, pinName = "soundId" } },
+        } },
+    })
+    local snapshot = self.packs:AlertPresetGroups()[1].presets[1]
+    local bucket = Store.Empty()
+
+    local refused, _, _, refuseErr = Presets.InstantiateSnapshot(bucket, snapshot, registry, { "" })
+    luaunit.assertNil(refused)
+    luaunit.assertEquals(refuseErr, "Enter a number.")
+    luaunit.assertEquals(bucket.entries, {})
+    luaunit.assertEquals(self.packs:GetAlertPreset("Voice", "greet").name, "Callout")
+
+    local entry, live, _, err = Presets.InstantiateSnapshot(bucket, snapshot, registry, {
+        { raw = "12345" },
+    })
+    luaunit.assertNil(err)
+    luaunit.assertEquals(live:GetControl(nodeId, "soundId"), record)
+    luaunit.assertEquals(#bucket.entries, 1)
+    luaunit.assertEquals(entryKeys(entry), { "enabled", "graph", "id", "kind", "layout", "name" })
+
+    local replaced, replacedLive = Presets.InstantiateSnapshot(bucket, snapshot, registry, {
+        { raw = "99" },
+    })
+    luaunit.assertEquals(replacedLive:GetControl(nodeId, "soundId"), 99)
+    luaunit.assertEquals(live:GetControl(nodeId, "soundId"), record)
+    luaunit.assertTrue(replaced.id ~= entry.id)
+end
+
+function TestPackAlerts:testACustomSoundVariableBakesThePackAudioRecord()
+    local registry = Registry.new()
+    require("src/nodes/actions/custom_sound").Register(registry)
+    local record = { pack = "Voice", authorId = "bell" }
+    local graph = LibNodeGraph.NewGraph(registry)
+    local nodeId = graph:AddNode("action.custom_sound", { resource = record })
+    self.packs:RegisterDataPack("Voice", {
+        audioFiles = {
+            { authorId = "bell", label = "Bell", audio = { loaded = true } },
+        },
+        alertPresets = { {
+            authorId = "greet",
+            name = "Callout",
+            graph = LibNodeGraph.Serialize(graph),
+            variables = { { nodeId = nodeId, pinName = "resource" } },
+        } },
+    })
+    local snapshot = self.packs:AlertPresetGroups()[1].presets[1]
+    local bucket = Store.Empty()
+    local _, live, _, err = Presets.InstantiateSnapshot(bucket, snapshot, registry, { record })
+    luaunit.assertNil(err)
+    luaunit.assertEquals(live:GetControl(nodeId, "resource"), record)
+    luaunit.assertNil(live:GetControl(nodeId, "resource").soundId)
+    luaunit.assertEquals(#bucket.entries, 1)
+end
+
 function TestPackAlerts:testFailedBakeLeavesTheBucketAndTheOffer()
     local registry = noteRegistry()
     registry:RegisterNodeType("fixture.hold", {

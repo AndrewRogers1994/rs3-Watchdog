@@ -706,6 +706,31 @@ function TestPresets:testEnumInitialKeepsTheSnapshottedChoiceWhenItIsOffered()
     luaunit.assertEquals(Presets.EnumInitial(9, withNone, 1), 1)
 end
 
+function TestPresets:testAPackAudioRecordIsNotAskedAsNone()
+    local frozen = {
+        { value = nil, label = "None" },
+        { value = "beep", label = "beep" },
+    }
+    local stored = { pack = "Voice", authorId = "bell" }
+    local value, choices = Presets.EnumSlotValue(stored, frozen, nil, "Voice / bell (missing)")
+    luaunit.assertEquals(value, stored)
+    luaunit.assertEquals(choices[#choices].value, stored)
+    luaunit.assertEquals(choices[#choices].label, "Voice / bell (missing)")
+    local live = { pack = "Voice", authorId = "bell" }
+    local matched = Presets.EnumSlotValue(stored, {
+        { value = nil, label = "None" },
+        { value = live, label = "Voice / Bell" },
+    }, nil, nil)
+    luaunit.assertEquals(matched, live)
+end
+
+function TestPresets:testAPackSoundRecordFillsTheNumberFieldWithItsSoundId()
+    local record = { pack = "Voice", authorId = "bell", soundId = 12345 }
+    luaunit.assertEquals(Presets.NumberVariableText(record), "12345")
+    luaunit.assertEquals(Presets.NumberVariableText(7), "7")
+    luaunit.assertEquals(Presets.NumberVariableText(nil), "")
+end
+
 -- One remaining pin is the whole choice for that node. A node with nothing left is absent.
 function TestPresets:testNodesWithNothingLeftToMarkAreAbsent()
     local eligible = {

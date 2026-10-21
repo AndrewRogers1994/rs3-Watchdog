@@ -20,7 +20,9 @@ local MARKABLE_WIDGET = {
 
 local DB_KEY = "presets"
 local DOC_VERSION = 1
-local NAME_MAX = 80
+-- Blank and longer-than-this names are refused. Pack Alert Presets use this same cap.
+Presets.NAME_MAX = 80
+local NAME_MAX = Presets.NAME_MAX
 
 ---@class Watchdog.PresetVariable
 ---@field nodeId integer
@@ -90,12 +92,15 @@ function Presets.Load()
     return doc, nil
 end
 
+--- Leading and trailing whitespace removed. A non-string is empty.
 ---@param name string|nil
 ---@return string
-local function trim(name)
+function Presets.trim(name)
     if type(name) ~= "string" then return "" end
     return (name:match("^%s*(.-)%s*$"))
 end
+
+local trim = Presets.trim
 
 -- Same on-disk shape an Alert entry uses: `{ id, x, y }` sorted by node id.
 ---@param layout Watchdog.Layout|nil
@@ -579,7 +584,11 @@ local function bake(graph, variables, answers)
             if parsed == nil then
                 return "Enter a number."
             end
-            graph:SetControl(mark.nodeId, mark.pinName, parsed)
+            -- packs.lua requires this module while it is still loading, so the
+            -- registry is required here, at bake time, not at file scope.
+            local Packs = require("src/packs")
+            local existing = graph:GetControl(mark.nodeId, mark.pinName)
+            graph:SetControl(mark.nodeId, mark.pinName, Packs:CommitSoundEffect(existing, "number", parsed))
         elseif widget == "text" then
             if type(answer) ~= "string" then
                 return "A marked control is missing."
@@ -780,18 +789,106 @@ function Presets.MarkLabel(graph, nodeId, pinName)
         Presets.PinLabel(graph, nodeId, pinName))
 end
 
+--- The number a Variable field shows. A pack sound record shows its builtin
+--- sound id, so Create is not disabled just because the stored value is a record.
+--- packs.lua requires this module at load, so the registry is required here.
+---@param value any
+---@return string
+function Presets.NumberVariableText(value)
+    local Packs = require("src/packs")
+    return NumberField.Format(Packs:ResolveSoundEffect(value))
+end
+
+--- Same value, or the same Pack identity. Table identity is not required:
+--- `{ pack, authorId }` matches another table with those fields.
+---@param left any
+---@param right any
+---@return boolean
+function Presets.sameStored(left, right)
+    if left == right then return true end
+    if type(left) ~= "table" or type(right) ~= "table" then return false end
+    if type(left.pack) ~= "string" or type(right.pack) ~= "string" then return false end
+    if type(left.authorId) ~= "string" or type(right.authorId) ~= "string" then return false end
+    if left.pack ~= right.pack or left.authorId ~= right.authorId then return false end
+    if left.soundId ~= nil or right.soundId ~= nil then
+        return left.soundId == right.soundId
+    end
+    return true
+end
+
+---@param value any
+---@return boolean
+local function isPackIdentity(value)
+    return type(value) == "table"
+        and type(value.pack) == "string"
+        and type(value.authorId) == "string"
+end
+
+--- The offered rows, plus the stored Pack identity when the list does not
+--- already contain it. A frozen choice list from before the Pack was installed
+--- must not drop that record.
+---@param choices { value: any, label: string }[]|nil
+---@param snapshot any
+---@param missingLabel string|nil
+---@return { value: any, label: string }[]
+function Presets.withStoredChoice(choices, snapshot, missingLabel)
+    local offered = {}
+    for i, choice in ipairs(choices or {}) do
+        offered[i] = choice
+    end
+    if not isPackIdentity(snapshot) then return offered end
+    for _, choice in ipairs(offered) do
+        if type(choice) == "table" and Presets.sameStored(choice.value, snapshot) then
+            return offered
+        end
+    end
+    local label = missingLabel
+    if type(label) ~= "string" or label == "" then
+        label = snapshot.pack .. " / " .. snapshot.authorId
+    end
+    offered[#offered + 1] = { value = snapshot, label = label }
+    return offered
+end
+
 -- Snapshotted choice when that choice is still offered; otherwise the type's default.
+-- A Pack audio record that is not in the list is kept, so it is not baked as None.
 ---@param snapshot any
 ---@param choices { value: any, label: string }[]|nil
 ---@param defaultValue any
 ---@return any
 function Presets.EnumInitial(snapshot, choices, defaultValue)
     for _, choice in ipairs(choices or {}) do
-        if type(choice) == "table" and choice.value == snapshot then
-            return snapshot
+        if type(choice) == "table" and Presets.sameStored(choice.value, snapshot) then
+            return choice.value
         end
     end
+    if isPackIdentity(snapshot) then return snapshot end
     return defaultValue
+end
+
+--- What the Variable dialog stores for an enum pin, and the choices it shows.
+--- A pack audio record survives even when the recorded choice list does not contain it.
+---@param snapshot any
+---@param choices { value: any, label: string }[]|nil
+---@param defaultValue any
+---@param missingLabel string|nil
+---@return any value
+---@return { value: any, label: string }[] choices
+function Presets.EnumSlotValue(snapshot, choices, defaultValue, missingLabel)
+    local offered = Presets.withStoredChoice(choices, snapshot, missingLabel)
+    local initial = Presets.EnumInitial(snapshot, offered, defaultValue)
+    for _, choice in ipairs(offered) do
+        if type(choice) == "table" and Presets.sameStored(choice.value, initial) then
+            return choice.value, offered
+        end
+    end
+    if isPackIdentity(initial) then
+        return initial, offered
+    end
+    if offered[1] ~= nil then
+        return offered[1].value, offered
+    end
+    return initial, offered
 end
 
 return Presets

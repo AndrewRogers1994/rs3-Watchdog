@@ -343,7 +343,9 @@ function TestPackSoundControl:setUp()
         },
     })
     local Controls = require("src/ui/controls")
-    self.control = Controls.PinControlFor("number")
+    self.control = Controls.PinControlForPin("action.sound", {
+        name = "soundId", dataType = "number",
+    })
     self.FakeHost = require("fake_control_host")
 end
 
@@ -376,6 +378,33 @@ function TestPackSoundControl:testChoosingARowStoresTheSnapshotRecord()
     luaunit.assertEquals(host.committed, {
         pack = "VoicePack", authorId = "greet_01", soundId = 12345,
     })
+end
+
+function TestPackSoundControl:testAPlainNumberPinKeepsTheScalarControl()
+    local Controls = require("src/ui/controls")
+    local Node = require("src/ui/node")
+    local Theme = require("src/ui/theme")
+    local number = Controls.PinControlFor("number")
+    local host = self.FakeHost.new(5)
+    number.Press(host, { value = 5 })
+    luaunit.assertEquals(host.mounted.kind, "field")
+    local pins = {
+        { name = "soundId", kind = "data", direction = "in", dataType = "number" },
+    }
+    local plain = Node.BuildGeometry(pins, 0, 0, Theme.NODE_WIDTH)
+    local keyed = Node.BuildGeometry(pins, 0, 0, Theme.NODE_WIDTH, { typeKey = "action.sound" })
+    luaunit.assertEquals(plain.controls[1].pinControl, number)
+    luaunit.assertEquals(keyed.controls[1].pinControl, self.control)
+end
+
+function TestPackSoundControl:testOpenLayoutPutsTheNumberFieldAboveTheList()
+    local numberBox, listBox = self.control.OpenLayout(10, 20, 80, 24)
+    luaunit.assertEquals(numberBox, { x = 10, y = 20, w = 80, h = 24 })
+    luaunit.assertEquals(listBox, { x = 10, y = 44, w = 80, h = 24 })
+    local host = self.FakeHost.new(12345)
+    self.control.Press(host, { value = 12345 })
+    local placedNumber, placedList = host.mounted.opts.openLayout(0, 0, 40, 16)
+    luaunit.assertEquals(placedNumber.y + placedNumber.h, placedList.y)
 end
 
 function TestPackSoundControl:testSubmittingADifferentNumberClearsThePackRecord()

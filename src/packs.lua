@@ -52,14 +52,13 @@ local Packs = {}
 Packs.__index = Packs
 
 local LIST_FIELDS = { "soundEffects", "audioFiles", "alertPresets" }
-local NAME_MAX = 80
+-- The 80-character cap is the Preset name rule. Trim is the Preset trim.
+local NAME_MAX = Presets.NAME_MAX
 
--- Local copy of the Preset library trim. Group order calls Presets.natcasecmp.
 ---@param name string|nil
 ---@return string
 local function trim(name)
-    if type(name) ~= "string" then return "" end
-    return (name:match("^%s*(.-)%s*$"))
+    return Presets.trim(name)
 end
 
 -- authorId on a refusal is the value the Pack passed, not the trimmed text.
@@ -379,13 +378,16 @@ local function rowTextCounts(offers)
     return counts
 end
 
----@param offer { pack: string, authorId: string, label: string }
----@param counts table<string, table<string, number>>
+--- "Pack name / label", or that text plus the author id when it repeats inside one Pack.
+---@param pack string
+---@param label string
+---@param authorId string
+---@param repeated boolean
 ---@return string
-local function packRowLabel(offer, counts)
-    local text = offer.pack .. " / " .. offer.label
-    if counts[offer.pack][text] > 1 then
-        return text .. " (" .. offer.authorId .. ")"
+local function rowLabel(pack, label, authorId, repeated)
+    local text = pack .. " / " .. label
+    if repeated then
+        return text .. " (" .. authorId .. ")"
     end
     return text
 end
@@ -478,8 +480,9 @@ function Packs:OpenAudioChoices(watchdogNames, stored)
     local offers = packAudioOffers(self)
     local counts = rowTextCounts(offers)
     for _, offer in ipairs(offers) do
+        local text = offer.pack .. " / " .. offer.label
         rows[#rows + 1] = {
-            label = packRowLabel(offer, counts),
+            label = rowLabel(offer.pack, offer.label, offer.authorId, counts[offer.pack][text] > 1),
             value = { pack = offer.pack, authorId = offer.authorId },
         }
     end
@@ -581,15 +584,11 @@ function Packs:SoundEffectRows()
                 labelCount[effect.label] = (labelCount[effect.label] or 0) + 1
             end
             for authorId, effect in pairs(effects) do
-                local text = packName .. " / " .. effect.label
-                if labelCount[effect.label] > 1 then
-                    text = text .. " (" .. authorId .. ")"
-                end
                 rows[#rows + 1] = {
                     pack = packName,
                     authorId = authorId,
                     soundId = effect.soundId,
-                    label = text,
+                    label = rowLabel(packName, effect.label, authorId, labelCount[effect.label] > 1),
                 }
             end
         end

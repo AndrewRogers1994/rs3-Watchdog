@@ -6,6 +6,7 @@
 
 local Dialog = require("src/ui/dialog")
 local Presets = require("src/presets")
+local Packs = require("src/packs")
 local ControlKinds = require("src/ui/control_kinds")
 local NumberField = require("src/ui/widgets/number_field")
 
@@ -370,29 +371,20 @@ local function slotFor(graph, mark)
     slot.widget = widget
     local value = graph:GetControl(mark.nodeId, mark.pinName)
     if widget == "number" then
-        slot.raw = NumberField.Format(value)
+        -- A pack sound record shows its builtin sound id, so Create stays enabled.
+        slot.raw = Presets.NumberVariableText(value)
     elseif widget == "matcher" then
         if type(value) == "table" and type(value.needle) == "string" then
             slot.raw = value.needle
         end
     elseif widget == "enum" then
-        local choices = ControlKinds.Choices(pin.dataType) or {}
-        slot.choices = choices
-        local initial = Presets.EnumInitial(value, choices, pin.default)
-        local found = false
-        for _, choice in ipairs(choices) do
-            if choice.value == initial then
-                found = true
-                break
-            end
+        local label = nil
+        if type(value) == "table" then
+            local packs = Packs.live()
+            if packs ~= nil then label = packs:AudioClosedLabel(value) end
         end
-        if found then
-            slot.value = initial
-        elseif choices[1] ~= nil then
-            slot.value = choices[1].value
-        else
-            slot.value = initial
-        end
+        slot.value, slot.choices = Presets.EnumSlotValue(
+            value, ControlKinds.Choices(pin.dataType) or {}, pin.default, label)
     elseif type(value) == "string" then
         slot.raw = value
     end
@@ -474,7 +466,7 @@ function PresetDialogs.mountVariables(parent, opts)
                         local choices = slot.choices or {}
                         local selected = 1
                         for i, choice in ipairs(choices) do
-                            if choice.value == slot.value then
+                            if Presets.sameStored(choice.value, slot.value) then
                                 selected = i
                                 break
                             end
