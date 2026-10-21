@@ -45,20 +45,36 @@ _Avoid_: Open, launch
 ## Packs
 
 **Pack**:
-A plugin that depends on Watchdog and contributes Listings, Clips, and Alert Presets. Watchdog does not depend on a Pack, and running with none installed is normal.
+A plugin that depends on Watchdog and contributes pack sound effects, pack audio files, and Alert Presets. An Alert Preset uses the Preset snapshot defined under Alert Manager, not a second template type. Watchdog does not depend on a Pack, and running with none installed is normal.
 _Avoid_: Addon
 
-**Listing**:
-A name, offered by a Pack, for a builtin sound id. Choosing one stores that id on the alert. Sound Effect plays the id whether or not the Pack is still loaded.
-_Avoid_: Sound effect, catalog entry
+**Pack name**:
+The name a Pack supplies when it registers. Contributions are shown and addressed under it.
+_Avoid_: Manifest name, plugin name
 
-**Clip**:
-A named audio file shipped inside a Pack and offered on Custom Sound. The alert stores a key for it, and playback needs that Pack loaded.
-_Avoid_: Custom sound, resource
+**Registration token**:
+The hold Watchdog gives a Pack when that Pack's name enters the registry. The name stays taken while the Pack has that hold. Another plugin does not have it.
+_Avoid_: Pack name, author id
+
+**Author id**:
+The id a Pack author assigns to one pack sound effect, one pack audio file, or one Alert Preset. It is not the label, and it is not the Preset id.
+_Avoid_: Listing id, Clip id
+
+**Pack sound effect**:
+A Pack contribution offered on the Sound Effect node. It names a client builtin sound id, and the label is separate from its author id. Choosing one stores the Pack name, that author id, and the builtin sound id on the alert. The Sound Effect node plays that builtin sound id whether or not the Pack is still loaded. A raw builtin sound id typed by hand is not a pack sound effect.
+_Avoid_: Listing, builtin sound effect, sound effect (the node), catalog entry
+
+**Pack audio file**:
+Audio shipped inside a Pack and offered on the Custom Sound node. The label is separate from its author id, and the alert stores the Pack name and that author id. A new play needs that Pack loaded, and a play already started keeps going after that Pack is no longer loaded.
+_Avoid_: Clip, custom audio file, custom sound (the node), resource, filename
+
+**Watchdog audio file**:
+Audio shipped inside Watchdog and offered on the Custom Sound node beside pack audio files.
+_Avoid_: Pack audio file, custom audio file, resource
 
 **Alert Preset**:
-A named alert template a player adds as a copy, which is then an ordinary alert. A Pack may contribute these. How presets themselves work is decided on another map.
-_Avoid_: Import (that is the paste-an-export dialog)
+A Preset a Pack contributes, offered beside the Preset library while that Pack is registered. It is not a row in that library. The author assigns an author id for that contribution. That author id is not the Preset id. The player adds a copy, which is then an ordinary Alert, and that copy does not keep the author id. The snapshot is a Preset: name, serialized graph, layout, and Variables.
+_Avoid_: Import (that is the paste-an-export dialog); a second template type; a Preset library row
 
 ## Language
 
@@ -359,7 +375,7 @@ _Avoid_: Graph (that is the engine model an Alert wraps), rule, trigger
 **Preset**:
 A player-saved snapshot of one Alert that can be instantiated into a new Alert. Not an Entry,
 and not tied to the Alerts created from it.
-_Avoid_: Template (that is a Webhook body), pack, starter, rule
+_Avoid_: Template (that is a Webhook body), pack, starter, rule, Alert Preset
 
 **Preset id**:
 The integer that identifies one Preset in the Preset library. It is kept across rename, the player
@@ -375,7 +391,7 @@ The instantiated Alert lands in the active Scope. The whole library is one Persi
 `presets` (no `watchdog_` prefix), beside the Scope Buckets. It is not a field of `global` and
 not stored under any `player_<tracking id>` key, so saving a Scope or switching character does
 not rewrite it.
-_Avoid_: Catalog (that is a shipped set of starter Presets, which this effort does not include); per-Scope library; Bucket
+_Avoid_: Catalog (starter Presets shipped inside Watchdog, which this library does not include); per-Scope library; Bucket. A Pack offering Presets is the Pack contract, not a Catalog in this library.
 
 **Variable**:
 A text, number, or enum Control, or the needle of a Matcher, marked on a Preset so that
