@@ -152,14 +152,6 @@ function TestDropdown:testUnmatchedValueHasNoLabel()
     luaunit.assertNil(boolDropdown():LabelForValue(42))
 end
 
-function TestDropdown:testStableEntriesKeepSpecOrderPastALabelSort()
-    -- "Voice / Bell" sorts before "beep" by label. The order field keeps
-    -- None, then Watchdog file names, then pack audio files.
-    local labels = { "None", "beep", "boop", "Voice / Bell" }
-    local entries = Dropdown.StableEntries(labels)
-    luaunit.assertEquals(Dropdown.VisibleOrder(entries), labels)
-end
-
 --- toggle Widget: ordered mode cycle -----------------------------------------------------
 
 TestToggle = {}

@@ -75,7 +75,22 @@ function TestPackSoundClosedLabel:testLiveOfferShowsTheLiveLabel()
         },
     })
     local stored = { pack = "VoicePack", authorId = "greet_01", soundId = 12345 }
-    luaunit.assertEquals(self.packs:SoundEffectClosedLabel(stored), "Hello")
+    luaunit.assertEquals(self.packs:SoundEffectClosedLabel(stored), "VoicePack / Hello")
+end
+
+function TestPackSoundClosedLabel:testARepeatedLabelUsesTheOpenRowText()
+    self.packs:RegisterDataPack("VoicePack", {
+        soundEffects = {
+            { authorId = "greet_01", label = "Hello", soundId = 1 },
+            { authorId = "greet_02", label = "Hello", soundId = 2 },
+        },
+    })
+    luaunit.assertEquals(
+        self.packs:SoundEffectClosedLabel({ pack = "VoicePack", authorId = "greet_01", soundId = 1 }),
+        "VoicePack / Hello (greet_01)")
+    luaunit.assertEquals(
+        self.packs:SoundEffectClosedLabel({ pack = "VoicePack", authorId = "greet_02", soundId = 9 }),
+        "VoicePack / Hello (greet_02) (outdated)")
 end
 
 function TestPackSoundClosedLabel:testOutdatedBuiltinSoundIdMarksTheLiveLabel()
@@ -85,7 +100,7 @@ function TestPackSoundClosedLabel:testOutdatedBuiltinSoundIdMarksTheLiveLabel()
         },
     })
     local stored = { pack = "VoicePack", authorId = "greet_01", soundId = 12345 }
-    luaunit.assertEquals(self.packs:SoundEffectClosedLabel(stored), "Hello (outdated)")
+    luaunit.assertEquals(self.packs:SoundEffectClosedLabel(stored), "VoicePack / Hello (outdated)")
 end
 
 function TestPackSoundClosedLabel:testADifferentPackHoldingTheNameCanBeOutdated()
@@ -101,7 +116,7 @@ function TestPackSoundClosedLabel:testADifferentPackHoldingTheNameCanBeOutdated(
         },
     })
     local stored = { pack = "VoicePack", authorId = "greet_01", soundId = 12345 }
-    luaunit.assertEquals(self.packs:SoundEffectClosedLabel(stored), "Welcome (outdated)")
+    luaunit.assertEquals(self.packs:SoundEffectClosedLabel(stored), "VoicePack / Welcome (outdated)")
 end
 
 function TestPackSoundClosedLabel:testMissingOfferShowsSoundIdPackAndAuthorId()
@@ -246,7 +261,7 @@ function TestPackSoundOpenList:testChoosingTheOfferAgainStoresTheSoundIdItOffers
     local index = self.packs:SoundEffectSelectedRow(rows, stored)
     local committed = self.packs:CommitSoundEffect(stored, "row", rows[index])
     luaunit.assertEquals(committed, { pack = "VoicePack", authorId = "greet_01", soundId = 999 })
-    luaunit.assertEquals(self.packs:SoundEffectClosedLabel(committed), "Hello")
+    luaunit.assertEquals(self.packs:SoundEffectClosedLabel(committed), "VoicePack / Hello")
 end
 
 TestPackSoundPlay = {}
@@ -356,7 +371,7 @@ end
 function TestPackSoundControl:testClosedControlShowsTheLiveLabel()
     local stored = { pack = "VoicePack", authorId = "greet_01", soundId = 12345 }
     local text = self.control.Display({ pinName = "soundId", value = stored })
-    luaunit.assertEquals(text, "Hello")
+    luaunit.assertEquals(text, "VoicePack / Hello")
 end
 
 function TestPackSoundControl:testOpenPassesTheSnapshotAndTheStoredSoundId()

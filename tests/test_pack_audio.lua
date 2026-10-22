@@ -74,25 +74,25 @@ function TestPackAudioClosedLabel:setUp()
     self.packs = Packs.new()
 end
 
-function TestPackAudioClosedLabel:testALivePackAudioFileShowsItsLiveLabel()
+function TestPackAudioClosedLabel:testALivePackAudioFileShowsTheOpenRowText()
     self.packs:RegisterDataPack("Voice", {
         audioFiles = {
             { authorId = "bell", label = "Bell", audio = { loaded = true } },
         },
     })
     local stored = { pack = "Voice", authorId = "bell" }
-    luaunit.assertEquals(self.packs:AudioClosedLabel(stored), "Bell")
+    luaunit.assertEquals(self.packs:AudioClosedLabel(stored), "Voice / Bell")
 end
 
-function TestPackAudioClosedLabel:testASharedLabelStaysTheLiveLabelWhenClosed()
+function TestPackAudioClosedLabel:testARepeatedLabelUsesTheOpenRowText()
     self.packs:RegisterDataPack("Voice", {
         audioFiles = {
             { authorId = "bell", label = "Bell", audio = { loaded = true } },
             { authorId = "chime", label = "Bell", audio = { loaded = true } },
         },
     })
-    luaunit.assertEquals(self.packs:AudioClosedLabel({ pack = "Voice", authorId = "bell" }), "Bell")
-    luaunit.assertEquals(self.packs:AudioClosedLabel({ pack = "Voice", authorId = "chime" }), "Bell")
+    luaunit.assertEquals(self.packs:AudioClosedLabel({ pack = "Voice", authorId = "bell" }), "Voice / Bell (bell)")
+    luaunit.assertEquals(self.packs:AudioClosedLabel({ pack = "Voice", authorId = "chime" }), "Voice / Bell (chime)")
 end
 
 function TestPackAudioClosedLabel:testAMissingPackAudioFileNamesThePackAndAuthorId()
@@ -119,7 +119,7 @@ function TestPackAudioClosedLabel:testAChangedLabelShowsTheLiveLabel()
             { authorId = "bell", label = "Chime", audio = { loaded = true } },
         },
     })
-    luaunit.assertEquals(self.packs:AudioClosedLabel({ pack = "Voice", authorId = "bell" }), "Chime")
+    luaunit.assertEquals(self.packs:AudioClosedLabel({ pack = "Voice", authorId = "bell" }), "Voice / Chime")
 end
 
 TestPackAudioCommit = {}

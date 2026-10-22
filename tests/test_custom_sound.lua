@@ -133,8 +133,8 @@ function TestCustomSoundRegistration:testClosedControlShowsTheLiveLabel()
         },
     })
     local control = Controls.PinControlFor("customSoundResource")
-    luaunit.assertEquals(control.Display({ value = { pack = "Voice", authorId = "a" } }), "Bell")
-    luaunit.assertEquals(control.Display({ value = { pack = "Voice", authorId = "b" } }), "Bell")
+    luaunit.assertEquals(control.Display({ value = { pack = "Voice", authorId = "a" } }), "Voice / Bell (a)")
+    luaunit.assertEquals(control.Display({ value = { pack = "Voice", authorId = "b" } }), "Voice / Bell (b)")
     luaunit.assertEquals(control.Display({ value = nil }), "None")
     luaunit.assertEquals(control.Display({ value = "beep" }), "beep")
 end
@@ -159,7 +159,7 @@ function TestCustomSoundRegistration:testVariableChoicesFollowTheLiveRegistry()
     })
 end
 
-function TestCustomSoundRegistration:testOpenListKeepsSpecOrderPastAlphabeticalSort()
+function TestCustomSoundRegistration:testOpenListPassesNativeLabels()
     local packs = Packs.new()
     Packs.install(packs)
     packs:RegisterDataPack("Voice", {
@@ -170,10 +170,10 @@ function TestCustomSoundRegistration:testOpenListKeepsSpecOrderPastAlphabeticalS
     local control = Controls.PinControlFor("customSoundResource")
     local host = FakeHost.new(nil)
     control.Press(host, { value = nil, pinName = "resource" })
-    local Dropdown = require("src/ui/widgets/dropdown")
-    luaunit.assertEquals(Dropdown.VisibleOrder(host.mounted.opts.entries), {
+    luaunit.assertEquals(host.mounted.opts.labels, {
         "None", "beep", "boop", "Voice / Bell",
     })
+    luaunit.assertNil(host.mounted.opts.entries)
 end
 
 function TestCustomSoundRegistration:testCommitUsesTheRowsCapturedAtOpen()

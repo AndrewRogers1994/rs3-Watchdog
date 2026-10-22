@@ -493,7 +493,8 @@ function Packs:OpenAudioChoices(watchdogNames, stored)
     }, AudioChoiceList)
 end
 
---- Closed Custom Sound text. A live pack audio file shows the live label, not the open-row text.
+--- Closed Custom Sound text. A live pack audio file uses the same text as its
+--- open row ("Pack / label", plus the author id when that text repeats).
 --- A missing one reads "{pack} / {authorId} (missing)". Pack audio files do not use " (outdated)".
 ---@param stored any
 ---@return string
@@ -503,11 +504,13 @@ function Packs:AudioClosedLabel(stored)
     if type(stored) ~= "table" or type(stored.pack) ~= "string" or type(stored.authorId) ~= "string" then
         return tostring(stored)
     end
-    local file = self:GetAudioFile(stored.pack, stored.authorId)
-    if file == nil then
-        return stored.pack .. " / " .. stored.authorId .. " (missing)"
+    for _, row in ipairs(self:OpenAudioChoices(nil, stored):Rows()) do
+        local value = row.value
+        if type(value) == "table" and value.pack == stored.pack and value.authorId == stored.authorId then
+            return row.label
+        end
     end
-    return file.label
+    return stored.pack .. " / " .. stored.authorId .. " (missing)"
 end
 
 -- A play already handed to audio.Play can keep its resource after Clear. That reference
@@ -610,8 +613,8 @@ local function isPackSoundRecord(value)
         and type(value.soundId) == "number"
 end
 
---- Closed Sound Effect text. A live offer shows its current label, plus
---- " (outdated)" when the stored builtin sound id is not the one registered
+--- Closed Sound Effect text. A live offer uses the same text as its open row,
+--- plus " (outdated)" when the stored builtin sound id is not the one registered
 --- now. A missing offer shows the stored id, Pack name, and author id.
 --- A raw builtin sound id shows the number alone.
 ---@param value any
@@ -623,14 +626,15 @@ function Packs:SoundEffectClosedLabel(value)
     if not isPackSoundRecord(value) then
         return ""
     end
-    local offer = self:GetSoundEffect(value.pack, value.authorId)
-    if offer == nil then
-        return tostring(value.soundId) .. " (" .. value.pack .. " / " .. value.authorId .. ")"
+    for _, row in ipairs(self:SoundEffectRows()) do
+        if row.pack == value.pack and row.authorId == value.authorId then
+            if row.soundId ~= value.soundId then
+                return row.label .. " (outdated)"
+            end
+            return row.label
+        end
     end
-    if offer.soundId ~= value.soundId then
-        return offer.label .. " (outdated)"
-    end
-    return offer.label
+    return tostring(value.soundId) .. " (" .. value.pack .. " / " .. value.authorId .. ")"
 end
 
 --- The row for the stored Pack name and author id. A raw number selects

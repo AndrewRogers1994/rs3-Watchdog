@@ -50,9 +50,9 @@ function CustomSound.Display(ctrl)
     return registryOrEmpty():AudioClosedLabel(ctrl.value)
 end
 
---- The open list is the row set captured here. Entries carry that sequence as
---- `order`, so the combo's label sort does not reshuffle them. The combo's own
---- text box narrows the rows; this does not define a match.
+--- The open list is the row set captured here. The native combo sorts those
+--- labels alphabetically; selection is by label text. The combo's own text
+--- box narrows the rows; this does not define a match.
 ---@param host ControlHost
 ---@param ctrl table
 function CustomSound.Press(host, ctrl)
@@ -63,7 +63,7 @@ function CustomSound.Press(host, ctrl)
         labels[i] = row.label
     end
     host:MountDropdown(ctrl, {
-        entries = Dropdown.StableEntries(labels),
+        labels = labels,
         initial = list:HighlightedLabel(),
     }, function(label)
         local value, found = list:Commit(label)

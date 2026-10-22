@@ -1387,58 +1387,10 @@ function Editor:mountControlField(pinControl, nodeId, ctrl, opts, onChange)
     pcall(function() field:SetFocus() end)
 end
 
---- A combo that sorts by `order` before the label. Native ComboField:Add sorts
---- by label, which would reshuffle a list the pin control already ordered.
---- The text box is the widget's; this does not define what counts as a match.
----@param parent any
----@param ax number
----@param ay number
----@param sw number
----@param sh number
----@param entries { label: string, id: integer, order: integer }[]
----@param initial string|nil
----@param onSelect fun(label: string)
----@return table|nil
-local function mountOrderedCombo(parent, ax, ay, sw, sh, entries, initial, onSelect)
-    if prettyui == nil or prettyui.ComboBox == nil then
-        if log ~= nil then log("Watchdog: ordered combo unavailable, choice list not opened") end
-        return nil
-    end
-    local selectedID = nil
-    if initial ~= nil then
-        for _, entry in ipairs(entries) do
-            if entry.label == initial then
-                selectedID = entry.id
-                break
-            end
-        end
-    end
-    local combo
-    local ok = pcall(function()
-        combo = prettyui.ComboBox.new(parent, {
-            x = ax, y = ay, width = sw, height = sh,
-            stylesheetID = safeComboStyle(),
-            entries = entries,
-            selectedID = selectedID,
-            onChange = function(_, _, label)
-                if label ~= nil then onSelect(label) end
-            end,
-        })
-    end)
-    if not ok or combo == nil or combo.root == nil then return nil end
-    return {
-        SetPos = function(_, x, y) combo.root:SetPos(x, y) end,
-        SetSize = function(_, w, h) combo.root:SetSize(w, h) end,
-        MoveToFront = function(_) combo.root:MoveToFront() end,
-        Destroy = function(_) combo:Destroy() end,
-        _focus = combo.input,
-    }
-end
-
 ---@param pinControl table
 ---@param nodeId integer
 ---@param ctrl table
----@param opts { labels: string[]|nil, entries: { label: string, id: integer, order: integer }[]|nil, initial: string|nil, number: number|nil, onNumber: (fun(raw: string, quantity: number|nil))|nil, openLayout: (fun(x: number, y: number, w: number, h: number): { x: number, y: number, w: number, h: number }|nil, { x: number, y: number, w: number, h: number })|nil }
+---@param opts { labels: string[]|nil, initial: string|nil, number: number|nil, onNumber: (fun(raw: string, quantity: number|nil))|nil, openLayout: (fun(x: number, y: number, w: number, h: number): { x: number, y: number, w: number, h: number }|nil, { x: number, y: number, w: number, h: number })|nil }
 ---@param onSelect fun(label: string)
 function Editor:mountControlDropdown(pinControl, nodeId, ctrl, opts, onSelect)
     if self.editing ~= nil then
@@ -1487,40 +1439,31 @@ function Editor:mountControlDropdown(pinControl, nodeId, ctrl, opts, onSelect)
 
     local ax, ay = self:toScreen(listRect.x, listRect.y)
     local field
-    if opts.entries ~= nil then
-        field = mountOrderedCombo(parent, ax, ay, listRect.w, listRect.h, opts.entries, opts.initial,
-            function(label)
-                if self.editing == nil then return end
-                onSelect(label)
-                self:closeControlEditor()
-            end)
-    else
-        local ok = pcall(function()
-            field = ui.ComboField.new(parent)
-            pcall(function() field.stylesheetID = safeComboStyle() end)
-            field.clickthrough = false
-            field:SetPos(ax, ay)
-            field:SetSize(listRect.w, listRect.h)
-            -- ComboField reorders entries and reassigns IDs; select by label.
-            for i, label in ipairs(opts.labels or {}) do
-                field:Add(label, i)
+    local ok = pcall(function()
+        field = ui.ComboField.new(parent)
+        pcall(function() field.stylesheetID = safeComboStyle() end)
+        field.clickthrough = false
+        field:SetPos(ax, ay)
+        field:SetSize(listRect.w, listRect.h)
+        -- ComboField reorders entries and reassigns IDs; select by label.
+        for i, label in ipairs(opts.labels or {}) do
+            field:Add(label, i)
+        end
+        if opts.openLayout ~= nil and opts.initial == nil then
+            -- A raw number must not land on the first row.
+            pcall(function() field:UnselectAll() end)
+        else
+            local sel = 1
+            for i, e in ipairs(field.entries) do
+                if e.text == opts.initial then sel = i break end
             end
-            if opts.openLayout ~= nil and opts.initial == nil then
-                -- A raw number must not land on the first row.
-                pcall(function() field:UnselectAll() end)
-            else
-                local sel = 1
-                for i, e in ipairs(field.entries) do
-                    if e.text == opts.initial then sel = i break end
-                end
-                field:Select(sel, false)
-            end
-            field:Subscribe(enumv(ui.Hook, "ONSELECTIONCHANGED"), function()
-                self:onControlDropdownSelect()
-            end)
+            field:Select(sel, false)
+        end
+        field:Subscribe(enumv(ui.Hook, "ONSELECTIONCHANGED"), function()
+            self:onControlDropdownSelect()
         end)
-        if not ok then field = nil end
-    end
+    end)
+    if not ok then field = nil end
     if field == nil then
         if numberField ~= nil then pcall(function() numberField:Destroy() end) end
         return
@@ -1534,8 +1477,6 @@ function Editor:mountControlDropdown(pinControl, nodeId, ctrl, opts, onSelect)
     self:frontOverlayInteractives()
     if numberField ~= nil then
         pcall(function() numberField:SetFocus() end)
-    elseif field._focus ~= nil then
-        pcall(function() field._focus:SetFocus() end)
     else
         pcall(function() field:SetFocus() end)
     end
