@@ -37,7 +37,7 @@ Controls.Register("skill", {
     choices = skillChoices(),
 })
 
----@param raw table  # the raw client `SkillTransmit` event
+---@param raw SkillTransmit
 ---@return Watchdog.Payload.SkillTransmit
 local function transform(raw)
     return {

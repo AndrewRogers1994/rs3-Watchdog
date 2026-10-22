@@ -92,7 +92,6 @@ function Controls.Register(tag, descriptor)
     return descriptor
 end
 
--- ComboField ranks Add() entries alphabetically; match choices by label text, never id.
 Controls.Register("number", { widget = "number" })
 Controls.Register("string", { widget = "text" })
 local compareOperation = require("src/ui/controls/compare_operation")
