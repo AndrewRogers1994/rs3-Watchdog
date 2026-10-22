@@ -4,6 +4,7 @@
 
 local luaunit = require("luaunit")
 local Packs = require("src/packs")
+local Theme = require("src/ui/theme")
 
 local function labelsOf(rows)
     local labels = {}
@@ -368,26 +369,54 @@ function TestPackSoundControl:tearDown()
     Packs.install(nil)
 end
 
-function TestPackSoundControl:testClosedControlShowsTheLiveLabel()
+function TestPackSoundControl:testNumberLineShowsTheBuiltinId()
     local stored = { pack = "VoicePack", authorId = "greet_01", soundId = 12345 }
-    local text = self.control.Display({ pinName = "soundId", value = stored })
-    luaunit.assertEquals(text, "VoicePack / Hello")
+    luaunit.assertEquals(self.control.Display({ kind = "number", value = stored }), "12345")
+    luaunit.assertEquals(self.control.Display({ kind = "number", value = 50 }), "50")
 end
 
-function TestPackSoundControl:testOpenPassesTheSnapshotAndTheStoredSoundId()
+function TestPackSoundControl:testPackLineShowsTheLiveLabel()
+    local stored = { pack = "VoicePack", authorId = "greet_01", soundId = 12345 }
+    luaunit.assertEquals(
+        self.control.Display({ kind = "pack", value = stored }), "VoicePack / Hello")
+end
+
+function TestPackSoundControl:testPackLineIsEmptyForARawNumber()
+    luaunit.assertEquals(self.control.Display({ kind = "pack", value = 12345 }), "")
+end
+
+function TestPackSoundControl:testAnEmptyPackListKeepsTheRowAndDoesNotOpen()
+    self.packs:Clear(self.token)
+    luaunit.assertFalse(self.control.HasPackRows())
+    luaunit.assertEquals(self.control.ReservedHeight(), Theme.SOUND_BAND_H)
+    local rects = self.control.Layout({ x = 0, y = 0, w = 100, h = Theme.SOUND_BAND_H })
+    luaunit.assertEquals(rects[2].placeholder, self.control.EMPTY_PACK)
+    luaunit.assertEquals(self.control.Display({ kind = "pack", value = 12345 }), "")
     local host = self.FakeHost.new(12345)
-    self.control.Press(host, { pinName = "soundId", value = 12345 })
+    self.control.Press(host, { kind = "pack", value = 12345 })
+    luaunit.assertNil(host.mounted)
+    luaunit.assertEquals(host.commitCount, 0)
+    local stored = { pack = "VoicePack", authorId = "greet_01", soundId = 12345 }
+    luaunit.assertEquals(
+        self.control.Display({ kind = "pack", value = stored }),
+        "12345 (VoicePack / greet_01)")
+end
+
+function TestPackSoundControl:testOpeningThePackLinePassesTheSnapshot()
+    local host = self.FakeHost.new(12345)
+    self.control.Press(host, { kind = "pack", pinName = "soundId", value = 12345 })
     luaunit.assertEquals(host.mounted.kind, "dropdown")
     luaunit.assertEquals(host.mounted.opts.labels, { "VoicePack / Hello" })
     luaunit.assertNil(host.mounted.opts.initial)
-    luaunit.assertEquals(host.mounted.opts.number, 12345)
+    luaunit.assertNil(host.mounted.opts.number)
+    luaunit.assertNil(host.mounted.opts.openLayout)
     luaunit.assertEquals(host.commitCount, 0)
 end
 
 function TestPackSoundControl:testChoosingARowStoresTheSnapshotRecord()
     local stored = { pack = "Gone", authorId = "old", soundId = 1 }
     local host = self.FakeHost.new(stored)
-    self.control.Press(host, { pinName = "soundId", value = stored })
+    self.control.Press(host, { kind = "pack", pinName = "soundId", value = stored })
     self.packs:Clear(self.token)
     host:Pick("VoicePack / Hello")
     luaunit.assertEquals(host.committed, {
@@ -410,23 +439,33 @@ function TestPackSoundControl:testAPlainNumberPinKeepsTheScalarControl()
     local keyed = Node.BuildGeometry(pins, 0, 0, Theme.NODE_WIDTH, { typeKey = "action.sound" })
     luaunit.assertEquals(plain.controls[1].pinControl, number)
     luaunit.assertEquals(keyed.controls[1].pinControl, self.control)
+    luaunit.assertEquals(keyed.controls[1].kind, "number")
+    luaunit.assertEquals(keyed.controls[2].kind, "pack")
+    luaunit.assertEquals(keyed.controls[2].placeholder, "None")
+    luaunit.assertTrue(keyed.controls[2].y > keyed.controls[1].y + keyed.controls[1].h - 1)
+    luaunit.assertTrue(keyed.h > plain.h)
 end
 
-function TestPackSoundControl:testOpenLayoutPutsTheNumberFieldAboveTheList()
-    local numberBox, listBox = self.control.OpenLayout(10, 20, 80, 24)
-    luaunit.assertEquals(numberBox, { x = 10, y = 20, w = 80, h = 24 })
-    luaunit.assertEquals(listBox, { x = 10, y = 44, w = 80, h = 24 })
-    local host = self.FakeHost.new(12345)
-    self.control.Press(host, { value = 12345 })
-    local placedNumber, placedList = host.mounted.opts.openLayout(0, 0, 40, 16)
-    luaunit.assertEquals(placedNumber.y + placedNumber.h, placedList.y)
+function TestPackSoundControl:testLayoutStacksTheNumberAboveThePackList()
+    local bandH = self.control.ReservedHeight()
+    luaunit.assertEquals(bandH, Theme.SOUND_BAND_H)
+    local rects = self.control.Layout({ x = 10, y = 20, w = 200, h = bandH })
+    luaunit.assertEquals(rects[1].kind, "number")
+    luaunit.assertEquals(rects[2].kind, "pack")
+    luaunit.assertEquals(rects[1].x, 10)
+    luaunit.assertEquals(rects[2].x, 10)
+    luaunit.assertEquals(rects[1].w, 200)
+    luaunit.assertEquals(rects[2].y, rects[1].y + rects[1].h + Theme.SOUND_ROW_GAP)
 end
 
 function TestPackSoundControl:testSubmittingADifferentNumberClearsThePackRecord()
     local stored = { pack = "VoicePack", authorId = "greet_01", soundId = 12345 }
     local host = self.FakeHost.new(stored)
-    self.control.Press(host, { pinName = "soundId", value = stored })
-    host.mounted.opts.onNumber("99", 99)
+    self.control.Press(host, { kind = "number", pinName = "soundId", value = stored })
+    luaunit.assertEquals(host.mounted.kind, "field")
+    luaunit.assertTrue(host.mounted.opts.spinner)
+    luaunit.assertEquals(host.mounted.opts.initial, "12345")
+    host:Type("99", 99)
     luaunit.assertEquals(host.committed, 99)
 end
 

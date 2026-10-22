@@ -11,6 +11,7 @@ local Palette  = require("src/ui/palette")
 local ColorPopup = require("src/ui/color_popup")
 local IfaceScale = require("src/ui/iface_scale")
 local InvViewer = require("src/ui/inv_viewer")
+local NumberSpinner = require("src/ui/widgets/number_spinner")
 
 local Editor = {}
 Editor.__index = Editor
@@ -211,6 +212,13 @@ function Editor:frontOverlayInteractives()
     if self.editing ~= nil and self.editing.numberField ~= nil then
         pcall(function() self.editing.numberField:MoveToFront() end)
     end
+    if self.editing ~= nil and self.editing.spinners ~= nil then
+        -- Arrows sit on the field's right edge and must win the click, or the
+        -- capture overlay underneath closes the editor instead of stepping.
+        local spinners = self.editing.spinners
+        pcall(function() if spinners.up ~= nil then spinners.up:MoveToFront() end end)
+        pcall(function() if spinners.down ~= nil then spinners.down:MoveToFront() end end)
+    end
     if self.colorHexField ~= nil then
         pcall(function() self.colorHexField:MoveToFront() end)
     end
@@ -236,6 +244,11 @@ function Editor:layoutTransientEditors()
                 self.editing.numberField:SetSize(self.editing.numberSw, self.editing.numberSh)
             end
         end)
+    end
+    if self.editing ~= nil and self.editing.spinners ~= nil then
+        local spinners = self.editing.spinners
+        self:placeSpinnerArrow(spinners.up, spinners.upRect)
+        self:placeSpinnerArrow(spinners.down, spinners.downRect)
     end
     if self.colorHexField ~= nil and self.colorHexLocalX ~= nil then
         local ax, ay = self:toScreen(self.colorHexLocalX, self.colorHexLocalY)
@@ -356,6 +369,26 @@ end
 ---@return boolean
 local function isSubmitCause(cause)
     return submitKind(cause) ~= nil
+end
+
+--- Enter stores the spinner's number. Escape dismisses it. Focus loss and the
+--- write-back from an arrow click do neither.
+---@param self Editor
+---@param cause any
+local function onSpinnerContent(self, cause)
+    local editing = self.editing
+    if editing ~= nil and editing.suppressNumberSubmit then return end
+    local kind = submitKind(cause)
+    if kind == "SUBMIT_ON_ESCAPE" then
+        self:closeControlEditor()
+        return
+    end
+    if kind ~= "SUBMIT" then return end
+    editing = self.editing
+    if editing == nil or editing.numberField == nil or editing.onNumber == nil then return end
+    local raw, quantity = fieldContent(editing.numberField)
+    editing.onNumber(raw, quantity)
+    self:closeControlEditor()
 end
 
 local function safeButtonStyle()
@@ -1366,7 +1399,7 @@ end
 ---@param pinControl table
 ---@param nodeId integer
 ---@param ctrl table
----@param opts { filter: string|nil, maxLen: integer|nil, initial: string|nil }
+---@param opts { filter: string|nil, maxLen: integer|nil, initial: string|nil, spinner: boolean|nil }
 ---@param onChange fun(raw: string, quantity: number|nil)
 function Editor:mountControlField(pinControl, nodeId, ctrl, opts, onChange)
     if self.editing ~= nil then self:closeControlEditor() end
@@ -1375,6 +1408,34 @@ function Editor:mountControlField(pinControl, nodeId, ctrl, opts, onChange)
     if geom == nil then return end
 
     local px, py, sw, sh = self:controlEditRect(geom, ctrl)
+    if opts.spinner then
+        -- The closed row is shorter than two scrollbar arrows. Grow the editor
+        -- to that height and center it on the row.
+        local openH = NumberSpinner.OpenHeight()
+        py = py + (sh - openH) * 0.5
+        sh = openH
+        local spinners
+        px, py, sw, sh, spinners = self:tryMountSpinner(px, py, sw, sh)
+        local numberField = self:mountInputField(px, py, sw, sh, opts.filter or "NUMERIC",
+            opts.maxLen or 16, opts.initial or "", function(_, cause) onSpinnerContent(self, cause) end)
+        if numberField == nil then
+            if spinners ~= nil then
+                self:destroySpinnerArrow(spinners.up)
+                self:destroySpinnerArrow(spinners.down)
+            end
+            return
+        end
+        -- onChange stays off this record. closeControlEditor commits onChange,
+        -- and Escape must leave the stored id alone. Arrows and Enter call onNumber.
+        self.editing = { nodeId = nodeId, pinName = ctrl.pinName,
+            kind = ctrl.kind, axis = ctrl.axis, pinControl = pinControl,
+            onNumber = onChange, numberField = numberField, spinners = spinners,
+            numberLocalX = px, numberLocalY = py, numberSw = sw, numberSh = sh }
+        self:frontOverlayInteractives()
+        pcall(function() numberField:SetFocus() end)
+        return
+    end
+
     local field = self:mountInputField(px, py, sw, sh, opts.filter or "NONE", opts.maxLen or 128,
         opts.initial or "",
         function(_, cause, _newContent) self:onControlContent(cause, _newContent) end)
@@ -1414,27 +1475,25 @@ function Editor:mountControlDropdown(pinControl, nodeId, ctrl, opts, onSelect)
 
     local numberField = nil
     local numberX, numberY, numberSw, numberSh = nil, nil, nil, nil
+    local spinners = nil
     if numberRect ~= nil then
         numberX, numberY = numberRect.x, numberRect.y
         numberSw, numberSh = numberRect.w, numberRect.h
+        -- Arrows only when a number commit exists. A failed sprite mount leaves
+        -- the full-width field, which is the previous typing control.
+        if opts.onNumber ~= nil then
+            numberX, numberY, numberSw, numberSh, spinners = self:tryMountSpinner(
+                numberX, numberY, numberSw, numberSh)
+        end
         local numberText = ""
         if type(opts.number) == "number" then numberText = tostring(opts.number) end
         numberField = self:mountInputField(numberX, numberY, numberSw, numberSh, "NUMERIC", 16, numberText,
-            function(_, cause)
-                -- Enter stores the number. Escape dismisses it. Focus loss does neither.
-                local kind = submitKind(cause)
-                if kind == "SUBMIT_ON_ESCAPE" then
-                    self:closeControlEditor()
-                    return
-                end
-                if kind ~= "SUBMIT" then return end
-                local editing = self.editing
-                if editing == nil or editing.numberField == nil then return end
-                local raw, quantity = fieldContent(editing.numberField)
-                local submit = editing.onNumber
-                if submit ~= nil then submit(raw, quantity) end
-                self:closeControlEditor()
-            end)
+            function(_, cause) onSpinnerContent(self, cause) end)
+        if numberField == nil then
+            self:destroySpinnerArrow(spinners and spinners.up)
+            self:destroySpinnerArrow(spinners and spinners.down)
+            spinners = nil
+        end
     end
 
     local ax, ay = self:toScreen(listRect.x, listRect.y)
@@ -1466,12 +1525,16 @@ function Editor:mountControlDropdown(pinControl, nodeId, ctrl, opts, onSelect)
     if not ok then field = nil end
     if field == nil then
         if numberField ~= nil then pcall(function() numberField:Destroy() end) end
+        if spinners ~= nil then
+            self:destroySpinnerArrow(spinners.up)
+            self:destroySpinnerArrow(spinners.down)
+        end
         return
     end
 
     self.editing = { nodeId = nodeId, pinName = ctrl.pinName, field = field,
         kind = ctrl.kind, axis = ctrl.axis, pinControl = pinControl, onSelect = onSelect,
-        onNumber = opts.onNumber, numberField = numberField,
+        onNumber = opts.onNumber, numberField = numberField, spinners = spinners,
         numberLocalX = numberX, numberLocalY = numberY, numberSw = numberSw, numberSh = numberSh,
         localX = listRect.x, localY = listRect.y, sw = listRect.w, sh = listRect.h }
     self:frontOverlayInteractives()
@@ -1489,6 +1552,103 @@ function Editor:onControlDropdownSelect()
     pcall(function() label = e.field.selectedLabel end)
     if label ~= nil and e.onSelect ~= nil then e.onSelect(label) end
     self:closeControlEditor()
+end
+
+--- Up/down arrows in a column on the right of a number rect. Returns the
+--- field rect to mount, and nil spinners when the sprites are unavailable.
+---@param x number
+---@param y number
+---@param w number
+---@param h number
+---@return number fieldX
+---@return number fieldY
+---@return number fieldW
+---@return number fieldH
+---@return table|nil spinners
+function Editor:tryMountSpinner(x, y, w, h)
+    local fieldPart, upRect, downRect = NumberSpinner.Split(x, y, w, h)
+    local upSprite, downSprite = NumberSpinner.ArrowSprites()
+    if upSprite == nil or downSprite == nil then return x, y, w, h, nil end
+    local up = self:mountSpinnerArrow(upRect, upSprite, 1)
+    local down = self:mountSpinnerArrow(downRect, downSprite, -1)
+    if up == nil or down == nil then
+        self:destroySpinnerArrow(up)
+        self:destroySpinnerArrow(down)
+        return x, y, w, h, nil
+    end
+    return fieldPart.x, fieldPart.y, fieldPart.w, fieldPart.h,
+        { up = up, down = down, upRect = upRect, downRect = downRect }
+end
+
+function Editor:placeSpinnerArrow(arrow, rect)
+    if arrow == nil or rect == nil then return end
+    local ax, ay = self:toScreen(rect.x, rect.y)
+    pcall(function()
+        arrow:SetPos(ax, ay)
+        arrow:SetSize(rect.w, rect.h)
+    end)
+end
+
+function Editor:destroySpinnerArrow(arrow)
+    if arrow == nil then return end
+    pcall(function() arrow:Destroy() end)
+end
+
+--- Scrollbar up/down sprites beside the sound-id field. A press steps once.
+--- Holding repeats about every 500ms. Leaving the field does not commit a
+--- typed edit; the arrows commit each accepted step themselves.
+---@param rect { x: number, y: number, w: number, h: number }
+---@param spriteID number
+---@param delta number
+---@return ui.Sprite|nil
+function Editor:mountSpinnerArrow(rect, spriteID, delta)
+    local parent = self:interactiveParent()
+    if parent == nil or ui == nil or ui.Sprite == nil or spriteID == nil then return nil end
+    local arrow
+    local ok = pcall(function()
+        arrow = ui.Sprite.new(parent)
+        arrow.spriteID = spriteID
+        arrow.clickthrough = false
+        arrow:Subscribe(enumv(ui.Hook, "ONCLICK"), function()
+            self:onSpinnerArrow(delta, "press")
+            return false
+        end)
+        arrow:Subscribe(enumv(ui.Hook, "ONCLICKREPEAT"), function()
+            self:onSpinnerArrow(delta, "repeat")
+            return false
+        end)
+        arrow:Subscribe(enumv(ui.Hook, "ONRELEASE"), function()
+            self:onSpinnerArrow(delta, "release")
+            return false
+        end)
+    end)
+    if not ok or arrow == nil then
+        self:destroySpinnerArrow(arrow)
+        return nil
+    end
+    self:placeSpinnerArrow(arrow, rect)
+    return arrow
+end
+
+function Editor:onSpinnerArrow(delta, event)
+    if self.spinnerGate == nil then self.spinnerGate = {} end
+    local step, nextState = NumberSpinner.Gate(self.spinnerGate[delta], event, self.tick or 0)
+    self.spinnerGate[delta] = nextState
+    if step then self:stepNumberSpinner(delta) end
+end
+
+function Editor:stepNumberSpinner(delta)
+    local editing = self.editing
+    if editing == nil or editing.numberField == nil or editing.onNumber == nil then return end
+    local raw, quantity = fieldContent(editing.numberField)
+    local nextValue = NumberSpinner.Apply(raw, quantity, delta)
+    if nextValue == nil then return end
+    local text = tostring(nextValue)
+    local submit = editing.onNumber
+    editing.suppressNumberSubmit = true
+    pcall(function() editing.numberField.content = text end)
+    if self.editing == editing then editing.suppressNumberSubmit = false end
+    submit(text, nextValue)
 end
 
 function Editor:mountInputField(px, py, sw, sh, filterMode, maxLen, initialContent, onChanged)
@@ -1534,6 +1694,11 @@ function Editor:closeControlEditor(opts)
     self.editing = nil
     if e.field ~= nil then pcall(function() e.field:Destroy() end) end
     if e.numberField ~= nil then pcall(function() e.numberField:Destroy() end) end
+    if e.spinners ~= nil then
+        self:destroySpinnerArrow(e.spinners.up)
+        self:destroySpinnerArrow(e.spinners.down)
+    end
+    self.spinnerGate = nil
     if e.kind == "nodeMode" and not (opts and opts.skipUnpark) then
         self:unparkControlEditor()
     end
