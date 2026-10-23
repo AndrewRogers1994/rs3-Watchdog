@@ -55,11 +55,7 @@ local LIST_FIELDS = { "soundEffects", "audioFiles", "alertPresets" }
 -- The 80-character cap is the Preset name rule. Trim is the Preset trim.
 local NAME_MAX = Presets.NAME_MAX
 
----@param name string|nil
----@return string
-local function trim(name)
-    return Presets.trim(name)
-end
+local trim = Presets.trim
 
 -- authorId on a refusal is the value the Pack passed, not the trimmed text.
 ---@param entry any

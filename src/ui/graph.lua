@@ -1419,10 +1419,7 @@ function Editor:mountControlField(pinControl, nodeId, ctrl, opts, onChange)
         local numberField = self:mountInputField(px, py, sw, sh, opts.filter or "NUMERIC",
             opts.maxLen or 16, opts.initial or "", function(_, cause) onSpinnerContent(self, cause) end)
         if numberField == nil then
-            if spinners ~= nil then
-                self:destroySpinnerArrow(spinners.up)
-                self:destroySpinnerArrow(spinners.down)
-            end
+            self:destroySpinners(spinners)
             return
         end
         -- onChange stays off this record. closeControlEditor commits onChange,
@@ -1490,8 +1487,7 @@ function Editor:mountControlDropdown(pinControl, nodeId, ctrl, opts, onSelect)
         numberField = self:mountInputField(numberX, numberY, numberSw, numberSh, "NUMERIC", 16, numberText,
             function(_, cause) onSpinnerContent(self, cause) end)
         if numberField == nil then
-            self:destroySpinnerArrow(spinners and spinners.up)
-            self:destroySpinnerArrow(spinners and spinners.down)
+            self:destroySpinners(spinners)
             spinners = nil
         end
     end
@@ -1525,10 +1521,7 @@ function Editor:mountControlDropdown(pinControl, nodeId, ctrl, opts, onSelect)
     if not ok then field = nil end
     if field == nil then
         if numberField ~= nil then pcall(function() numberField:Destroy() end) end
-        if spinners ~= nil then
-            self:destroySpinnerArrow(spinners.up)
-            self:destroySpinnerArrow(spinners.down)
-        end
+        self:destroySpinners(spinners)
         return
     end
 
@@ -1592,6 +1585,12 @@ end
 function Editor:destroySpinnerArrow(arrow)
     if arrow == nil then return end
     pcall(function() arrow:Destroy() end)
+end
+
+function Editor:destroySpinners(spinners)
+    if spinners == nil then return end
+    self:destroySpinnerArrow(spinners.up)
+    self:destroySpinnerArrow(spinners.down)
 end
 
 --- Scrollbar up/down sprites beside the sound-id field. A press steps once.
@@ -1694,10 +1693,7 @@ function Editor:closeControlEditor(opts)
     self.editing = nil
     if e.field ~= nil then pcall(function() e.field:Destroy() end) end
     if e.numberField ~= nil then pcall(function() e.numberField:Destroy() end) end
-    if e.spinners ~= nil then
-        self:destroySpinnerArrow(e.spinners.up)
-        self:destroySpinnerArrow(e.spinners.down)
-    end
+    self:destroySpinners(e.spinners)
     self.spinnerGate = nil
     if e.kind == "nodeMode" and not (opts and opts.skipUnpark) then
         self:unparkControlEditor()

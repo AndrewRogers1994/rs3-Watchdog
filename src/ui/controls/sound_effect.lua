@@ -13,13 +13,6 @@ local SoundEffect = {}
 -- would grow the node and overlap whatever is placed underneath.
 SoundEffect.EMPTY_PACK = "No pack sounds"
 
----@param packs Watchdog.PackRegistry|nil
----@return Watchdog.PackRegistry
-local function registryOrEmpty(packs)
-    if packs ~= nil then return packs end
-    return Packs.new()
-end
-
 ---@param _pin table|nil
 ---@return number
 function SoundEffect.ReservedHeight(_pin)
@@ -28,7 +21,8 @@ end
 
 ---@return boolean
 function SoundEffect.HasPackRows()
-    return #registryOrEmpty(Packs.live()):SoundEffectRows() > 0
+    local packs = Packs.live() or Packs.new()
+    return #packs:SoundEffectRows() > 0
 end
 
 --- Number row, then the pack row, inside the band under the pin. The pack row
@@ -49,7 +43,7 @@ end
 ---@param ctrl table
 ---@return string
 function SoundEffect.Display(ctrl)
-    local packs = registryOrEmpty(Packs.live())
+    local packs = Packs.live() or Packs.new()
     if ctrl.kind == "number" then
         return NumberField.Format(packs:ResolveSoundEffect(ctrl.value))
     end
@@ -74,7 +68,7 @@ end
 ---@param host ControlHost
 ---@param ctrl table
 function SoundEffect.EditNumber(host, ctrl)
-    local packs = registryOrEmpty(Packs.live())
+    local packs = Packs.live() or Packs.new()
     host:MountField(ctrl, {
         filter = "NUMERIC", maxLen = 16, spinner = true,
         initial = NumberField.Format(packs:ResolveSoundEffect(ctrl.value)),
@@ -89,7 +83,7 @@ end
 ---@param host ControlHost
 ---@param ctrl table
 function SoundEffect.EditPack(host, ctrl)
-    local packs = registryOrEmpty(Packs.live())
+    local packs = Packs.live() or Packs.new()
     local rows = packs:SoundEffectRows()
     if #rows == 0 then return end
     local labels = {}

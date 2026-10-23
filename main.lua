@@ -600,13 +600,6 @@ local function createFromAlertPreset(scopeKey, snapshot, answers)
     return finishCreate(scopeKey, doc, key, list, Presets.InstantiateSnapshot(doc, snapshot, registry, answers))
 end
 
----@param name string|nil
----@return string
-local function trimName(name)
-    if type(name) ~= "string" then return "" end
-    return (name:match("^%s*(.-)%s*$"))
-end
-
 -- Opens the library. Does not create an Alert by itself.
 -- Rename and Delete stack on this same parent. The preset list is rebuilt inside a
 -- SimpleView; the footer actions stay on the window and do not scroll.
@@ -670,25 +663,35 @@ local function onCreateAlert(scopeKey)
         return widget
     end
 
+    -- `actions` is the pencil and trash. Alert Preset rows have neither, so the name uses the row.
     ---@param host any
+    ---@param actions integer
     ---@return integer
-    local function nameWidth(host)
+    local function rowWidth(host, actions)
         local contentW = host.contentWidth
         if type(contentW) ~= "number" then contentW = 352 end
-        local width = contentW - FLOW_PAD * 2 - Theme.MANAGER_ACT_W * 2 - FLOW_GAP * 2
+        local width = contentW - FLOW_PAD * 2 - (Theme.MANAGER_ACT_W + FLOW_GAP) * actions
         if width < 80 then width = 80 end
         return width
     end
 
-    -- Alert Preset rows have no rename or delete, so the name uses the whole row.
-    ---@param host any
-    ---@return integer
-    local function alertPresetWidth(host)
-        local contentW = host.contentWidth
-        if type(contentW) ~= "number" then contentW = 352 end
-        local width = contentW - FLOW_PAD * 2
-        if width < 80 then width = 80 end
-        return width
+    ---@param captured Watchdog.Preset|Watchdog.PackAlertPreset
+    ---@param create fun(answers: any[]|nil): integer|nil, string|nil
+    local function openPreset(captured, create)
+        if presetHasVariables(captured) then
+            PresetDialogs.mountVariables(parent, {
+                preset = captured,
+                registry = registry,
+                onCreate = function(answers)
+                    return create(answers)
+                end,
+            })
+            return
+        end
+        local id, err = create(nil)
+        if id == nil and err ~= "variables" and feedback ~= nil then
+            feedback.content = err or "Could not create the alert."
+        end
     end
 
     beginRename = function(preset)
@@ -697,11 +700,11 @@ local function onCreateAlert(scopeKey)
         local renameAction = {
             label = "Rename",
             variant = "positive",
-            disabled = trimName(initial) == "",
+            disabled = Presets.trim(initial) == "",
             onClick = function()
                 local name = ""
                 pcall(function() name = field:GetText() or "" end)
-                if trimName(name) == "" then return false end
+                if Presets.trim(name) == "" then return false end
                 local renamed, err = Presets.Rename(preset.id, name)
                 if renamed == nil then
                     if renameFeedback ~= nil then
@@ -727,7 +730,7 @@ local function onCreateAlert(scopeKey)
                         local text = ""
                         pcall(function() text = f:GetText() or "" end)
                         if renameAction.setDisabled ~= nil then
-                            renameAction.setDisabled(trimName(text) == "")
+                            renameAction.setDisabled(Presets.trim(text) == "")
                         end
                     end,
                 })
@@ -770,25 +773,14 @@ local function onCreateAlert(scopeKey)
             remember(host:AddText("There are no presets."))
         else
             if listed ~= nil and #listed > 0 then
-                local width = nameWidth(host)
+                local width = rowWidth(host, 2)
                 local iconOffset = math.floor((Theme.MANAGER_ROW_H - Theme.MANAGER_ACT_W) / 2)
                 for _, preset in ipairs(listed) do
                     local captured = preset
                     remember(host:AddSimpleButton(captured.name, function()
-                        if presetHasVariables(captured) then
-                            PresetDialogs.mountVariables(parent, {
-                                preset = captured,
-                                registry = registry,
-                                onCreate = function(answers)
-                                    return createFromPreset(scopeKey, captured.id, answers)
-                                end,
-                            })
-                            return
-                        end
-                        local id, err = createFromPreset(scopeKey, captured.id)
-                        if id == nil and err ~= "variables" and feedback ~= nil then
-                            feedback.content = err or "Could not create the alert."
-                        end
+                        openPreset(captured, function(answers)
+                            return createFromPreset(scopeKey, captured.id, answers)
+                        end)
                     end, {
                         width = width,
                         height = Theme.MANAGER_ROW_H,
@@ -813,26 +805,15 @@ local function onCreateAlert(scopeKey)
             end
             -- The registry already ordered these groups. Do not sort them again.
             if hasGroups then
-                local width = alertPresetWidth(host)
+                local width = rowWidth(host, 0)
                 for _, group in ipairs(offered) do
                     remember(host:AddText(group.packName))
                     for _, preset in ipairs(group.presets) do
                         local captured = preset
                         remember(host:AddSimpleButton(captured.name, function()
-                            if presetHasVariables(captured) then
-                                PresetDialogs.mountVariables(parent, {
-                                    preset = captured,
-                                    registry = registry,
-                                    onCreate = function(answers)
-                                        return createFromAlertPreset(scopeKey, captured, answers)
-                                    end,
-                                })
-                                return
-                            end
-                            local id, err = createFromAlertPreset(scopeKey, captured)
-                            if id == nil and err ~= "variables" and feedback ~= nil then
-                                feedback.content = err or "Could not create the alert."
-                            end
+                            openPreset(captured, function(answers)
+                                return createFromAlertPreset(scopeKey, captured, answers)
+                            end)
                         end, {
                             width = width,
                             height = Theme.MANAGER_ROW_H,

@@ -24,18 +24,11 @@ local function watchdogFileNames()
     return names
 end
 
----@return Watchdog.PackRegistry
-local function registryOrEmpty()
-    local packs = Packs.live()
-    if packs ~= nil then return packs end
-    return Packs.new()
-end
-
 --- None, then each Watchdog audio file name, then each pack audio file.
 --- Called when the list is shown, not when the control is registered.
 ---@return Watchdog.AudioChoiceRow[]
 function CustomSound.Choices()
-    return registryOrEmpty():OpenAudioChoices(watchdogFileNames(), nil):Rows()
+    return (Packs.live() or Packs.new()):OpenAudioChoices(watchdogFileNames(), nil):Rows()
 end
 
 ---@param box { x: number, y: number, w: number, h: number }
@@ -47,7 +40,7 @@ end
 ---@param ctrl table
 ---@return string
 function CustomSound.Display(ctrl)
-    return registryOrEmpty():AudioClosedLabel(ctrl.value)
+    return (Packs.live() or Packs.new()):AudioClosedLabel(ctrl.value)
 end
 
 --- The open list is the row set captured here. The native combo sorts those
@@ -56,7 +49,7 @@ end
 ---@param host ControlHost
 ---@param ctrl table
 function CustomSound.Press(host, ctrl)
-    local list = registryOrEmpty():OpenAudioChoices(watchdogFileNames(), ctrl.value)
+    local list = (Packs.live() or Packs.new()):OpenAudioChoices(watchdogFileNames(), ctrl.value)
     local rows = list:Rows()
     local labels = {}
     for i, row in ipairs(rows) do

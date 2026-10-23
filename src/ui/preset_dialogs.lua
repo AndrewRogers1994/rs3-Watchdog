@@ -70,13 +70,6 @@ local function scrollBody(win, height)
     return view
 end
 
----@param name string|nil
----@return string
-local function trimName(name)
-    if type(name) ~= "string" then return "" end
-    return (name:match("^%s*(.-)%s*$"))
-end
-
 ---@param field any
 ---@return string raw
 ---@return number|nil quantity
@@ -122,11 +115,15 @@ local function valueText(graph, nodeId, pinName)
         return ""
     end
     if widget == "number" then
-        return NumberField.Format(value)
+        return Presets.NumberVariableText(value)
     end
     if widget == "enum" then
         for _, choice in ipairs(ControlKinds.Choices(pin.dataType) or {}) do
-            if choice.value == value then return choice.label end
+            if Presets.sameStored(choice.value, value) then return choice.label end
+        end
+        if type(value) == "table" then
+            local packs = Packs.live() or Packs.new()
+            return packs:AudioClosedLabel(value)
         end
         if value == nil then return "" end
         return tostring(value)
@@ -155,7 +152,6 @@ local function sortedMarks(graph, marks)
     return out
 end
 
----@param graph LibNodeGraph.Graph
 ---@param marks Watchdog.PresetVariable[]
 ---@param nodeId integer
 ---@param pinName string
@@ -219,10 +215,10 @@ function PresetDialogs.mountSave(parent, opts)
         local saveAction = {
             label = "Save",
             variant = "positive",
-            disabled = trimName(nameText) == "",
+            disabled = Presets.trim(nameText) == "",
             onClick = function()
                 local name = ""
-                pcall(function() name = trimName(field:GetText()) end)
+                pcall(function() name = Presets.trim(field:GetText()) end)
                 if name == "" then return false end
                 local preset, err
                 if #marks == 0 then
@@ -269,7 +265,7 @@ function PresetDialogs.mountSave(parent, opts)
                         local text = ""
                         pcall(function() text = f:GetText() or "" end)
                         if saveAction.setDisabled ~= nil then
-                            saveAction.setDisabled(trimName(text) == "")
+                            saveAction.setDisabled(Presets.trim(text) == "")
                         end
                     end,
                 })
