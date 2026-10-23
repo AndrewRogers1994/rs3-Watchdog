@@ -167,9 +167,8 @@ function Node.BuildGeometry(pins, x, y, width, opts)
     -- Delete button center, in the header, Graph-space relative to the node origin. Shared
     -- by Draw and HitClose so the glyph and its hit-target can't disagree.
     geom.close = { cx = width - Theme.CLOSE_MARGIN, cy = Theme.HEADER_HEIGHT * 0.5 }
-    -- Pencil sits one glyph-width left of the X. Same size and the same title-zoom gate, so
-    -- it is present exactly when the delete target is, including on a placeholder.
-    geom.pencil = { cx = geom.close.cx - Theme.CLOSE_SIZE, cy = geom.close.cy }
+    -- Pencil sits left of the X. Same title-zoom gate as close, including on a placeholder.
+    geom.pencil = { cx = geom.close.cx - Theme.RENAME_ICON_SIZE, cy = geom.close.cy }
     if modeLabel ~= nil then
         geom.modeStrip = {
             x = Theme.PIN_MARGIN_X,
@@ -308,19 +307,18 @@ function Node.Draw(canvas, view, geom, meta, opts)
         end
     end
 
-    -- Header pencil, one glyph left of the delete X. Same zoom gate as the X so an
-    -- undrawn pencil is never clickable (HitPencil).
+    -- Header pencil, left of the delete X. Same zoom gate as HitClose.
     if showTitle and geom.pencil ~= nil then
         local pcx, pcy = view:ToScreen(geom.x + geom.pencil.cx, geom.y + geom.pencil.cy)
-        local half = view:Scale(Theme.CLOSE_SIZE) * 0.5
-        local arm  = half * 0.55
-        local hot  = opts.mouseX ~= nil and Node.HitPencil(geom, view, opts.mouseX, opts.mouseY)
-        local col = Theme.Vec4(hot and Theme.COL_TITLE or Theme.COL_CLOSE)
-        local t = math.max(1, view:Scale(2))
-        -- Shaft, tip, and a short eraser nub. Canvas lines only, same path as the X.
-        canvas:AddLine(pcx - arm, pcy + arm, pcx + arm * 0.35, pcy - arm * 0.35, t, col)
-        canvas:AddLine(pcx + arm * 0.35, pcy - arm * 0.35, pcx + arm, pcy - arm, t, col)
-        canvas:AddLine(pcx - arm, pcy + arm * 0.15, pcx - arm * 0.45, pcy + arm * 0.7, t, col)
+        local sz = view:Scale(Theme.RENAME_ICON_SIZE)
+        local half = sz * 0.5
+        local hot = opts.mouseX ~= nil and Node.HitPencil(geom, view, opts.mouseX, opts.mouseY)
+        if id and id.Sprite then
+            local spriteId = hot and id.Sprite.RS3_ICON_EDIT_23PX_1 or id.Sprite.RS3_ICON_EDIT_23PX_0
+            if spriteId ~= nil then
+                canvas:AddSprite(pcx - half, pcy - half, sz, sz, spriteId, 0xFFFFFFFF)
+            end
+        end
     end
 
     -- Header delete button (an X). Only shown when the header is legible (title zoom),
@@ -484,7 +482,7 @@ end
 function Node.HitPencil(geom, view, sx, sy)
     if geom.pencil == nil or view.zoom < Theme.TITLE_MIN_ZOOM then return false end
     local pcx, pcy = view:ToScreen(geom.x + geom.pencil.cx, geom.y + geom.pencil.cy)
-    local half = view:Scale(Theme.CLOSE_SIZE) * 0.5 + Theme.PIN_HIT_PAD
+    local half = view:Scale(Theme.RENAME_ICON_SIZE) * 0.5 + Theme.PIN_HIT_PAD
     return sx >= pcx - half and sx <= pcx + half
         and sy >= pcy - half and sy <= pcy + half
 end

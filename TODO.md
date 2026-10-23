@@ -21,6 +21,9 @@
 - [x] 16. Disabling an alert that has an infobox in it should clear that infobox (and probably any other visuals spawned by that alert) _(Disable, name toggle, group disable, and delete release that alert's InfoBox, toasts, marker/flash handles, and popups stamped with the node's state. Re-enable does not restore them. RemoveAlert alone keeps visuals so a bucket move does not blank an enabled alert.)_
 - [ ] 17. Add scrolling to main manager view and also preset modal
 - [ ] 18. Look into rounding the node layout positions to whole numbers
+- [ ] 19. consolidate the math nodes
+- [ ] 20. the new compare node should only accept numbers and also should have a number field when the pin is not connected just like the old ones
+- [ ] 21. bundle some good example presets and alerts
 
 ## Node port backlog (mirroring runelite-watchdog)
 

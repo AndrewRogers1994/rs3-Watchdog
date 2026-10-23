@@ -17,6 +17,7 @@ local function recordingCanvas()
     function c:AddRectangle() self.rects = self.rects + 1 end
     function c:AddOutline() end
     function c:AddText() end
+    function c:AddSprite() end
     return c
 end
 

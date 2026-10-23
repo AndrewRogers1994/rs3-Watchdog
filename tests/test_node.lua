@@ -339,8 +339,8 @@ function TestNodeHeader:testStoredNameReplacesTheNewLabel()
     luaunit.assertEquals(Node.HeaderTitle("Popup", "Enrage callout"), "Popup - Enrage callout")
 end
 
--- The pencil is a header hit target one glyph-width left of the delete X, and only while
--- that X is hittable (title zoom). Placeholder geometry uses the same header.
+-- The pencil is a header hit target left of the delete X, and only while that X is
+-- hittable (title zoom). Placeholder geometry uses the same header.
 TestHeaderPencil = {}
 
 local function closeScreenCenter(geom, view)
@@ -352,7 +352,7 @@ function TestHeaderPencil:testPencilSitsJustLeftOfCloseAtTitleZoom()
     local view = View.new()
     local ccx, ccy = closeScreenCenter(geom, view)
     luaunit.assertTrue(Node.HitClose(geom, view, ccx, ccy))
-    local px = ccx - view:Scale(Theme.CLOSE_SIZE)
+    local px = ccx - view:Scale(Theme.RENAME_ICON_SIZE)
     luaunit.assertTrue(Node.HitPencil(geom, view, px, ccy))
     luaunit.assertFalse(Node.HitClose(geom, view, px, ccy))
 end
@@ -363,7 +363,7 @@ function TestHeaderPencil:testPencilAbsentWhenCloseIsAbsent()
     view.zoom = Theme.TITLE_MIN_ZOOM * 0.5
     local ccx, ccy = closeScreenCenter(geom, view)
     luaunit.assertFalse(Node.HitClose(geom, view, ccx, ccy))
-    local px = ccx - view:Scale(Theme.CLOSE_SIZE)
+    local px = ccx - view:Scale(Theme.RENAME_ICON_SIZE)
     luaunit.assertFalse(Node.HitPencil(geom, view, px, ccy))
 end
 
@@ -417,7 +417,7 @@ function TestHeaderPencil:testPlaceholderPencilSitsJustLeftOfClose()
     local view = View.new()
     local ccx, ccy = closeScreenCenter(geom, view)
     luaunit.assertTrue(Node.HitClose(geom, view, ccx, ccy))
-    local px = ccx - view:Scale(Theme.CLOSE_SIZE)
+    local px = ccx - view:Scale(Theme.RENAME_ICON_SIZE)
     luaunit.assertTrue(Node.HitPencil(geom, view, px, ccy))
     luaunit.assertFalse(Node.HitClose(geom, view, px, ccy))
 end

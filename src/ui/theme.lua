@@ -17,6 +17,7 @@ Theme.PIN_LABEL_GAP    = 8
 Theme.PIN_HIT_PAD      = 4
 Theme.CLOSE_SIZE       = 14
 Theme.CLOSE_MARGIN     = 14
+Theme.RENAME_ICON_SIZE = 18
 
 Theme.CONTROL_H            = 16
 Theme.MODE_STRIP_PAD       = 4
