@@ -554,6 +554,9 @@ local function dataInPin(graph, nodeId, pinName)
 end
 
 -- Answers follow stored Variable order. A number is parsed; a blank is not stored as 0.
+-- A Sound Effect answer may name a pack row. That row is stored when the typed id is
+-- the row's builtin id. Choosing None stores the typed id and drops a pack record.
+-- Leaving the pack list untouched keeps the number path, so an outdated record survives.
 -- A Matcher answer is the needle. The mode already on that Control is kept.
 ---@param graph LibNodeGraph.Graph
 ---@param variables Watchdog.PresetVariable[]
@@ -588,7 +591,16 @@ local function bake(graph, variables, answers)
             -- registry is required here, at bake time, not at file scope.
             local Packs = require("src/packs")
             local existing = graph:GetControl(mark.nodeId, mark.pinName)
-            graph:SetControl(mark.nodeId, mark.pinName, Packs:CommitSoundEffect(existing, "number", parsed))
+            local soundPin = node.typeKey == "action.sound" and mark.pinName == "soundId"
+            local row = type(answer) == "table" and answer.packRow or nil
+            if soundPin and type(row) == "table" and parsed == row.soundId then
+                graph:SetControl(mark.nodeId, mark.pinName, Packs:CommitSoundEffect(existing, "row", row))
+            elseif soundPin and type(answer) == "table" and answer.clearPack == true then
+                -- Same id as the stored record would otherwise keep that record.
+                graph:SetControl(mark.nodeId, mark.pinName, parsed)
+            else
+                graph:SetControl(mark.nodeId, mark.pinName, Packs:CommitSoundEffect(existing, "number", parsed))
+            end
         elseif widget == "text" then
             if type(answer) ~= "string" then
                 return "A marked control is missing."

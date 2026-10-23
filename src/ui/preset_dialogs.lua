@@ -9,6 +9,7 @@ local Presets = require("src/presets")
 local Packs = require("src/packs")
 local ControlKinds = require("src/ui/control_kinds")
 local NumberField = require("src/ui/widgets/number_field")
+local SoundEffect = require("src/ui/controls/sound_effect")
 
 local PresetDialogs = {}
 
@@ -341,6 +342,12 @@ end
 ---@field quantity number|nil
 ---@field value any
 ---@field choices { value: any, label: string }[]|nil
+---@field soundRows Watchdog.PackSoundRow[]|nil
+---@field shown Watchdog.PackSoundRow|nil
+---@field packTouched boolean|nil
+---@field noneId integer|nil
+---@field combo any
+---@field mounting boolean|nil
 
 ---@param slots PresetDialogs.VariableSlot[]
 ---@return boolean
@@ -351,6 +358,39 @@ local function numbersOk(slots)
         end
     end
     return true
+end
+
+-- Sound Effect stays a number wire. The Variable form still has to offer the
+-- pack list that the node draws under the sound id.
+---@param graph LibNodeGraph.Graph
+---@param mark Watchdog.PresetVariable
+---@return boolean
+local function isSoundEffectMark(graph, mark)
+    local node = graph.nodes[mark.nodeId]
+    return node ~= nil and node.typeKey == "action.sound" and mark.pinName == "soundId"
+end
+
+---@param rows Watchdog.PackSoundRow[]
+local function sortSoundRows(rows)
+    table.sort(rows, function(left, right)
+        if left.label ~= right.label then return left.label < right.label end
+        if left.pack ~= right.pack then return left.pack < right.pack end
+        return left.authorId < right.authorId
+    end)
+end
+
+-- Typing a different id leaves the pack list. The same id keeps the row that
+-- is showing, including the one captured when the dialog opened.
+---@param slot PresetDialogs.VariableSlot
+local function syncSoundText(slot)
+    if slot.soundRows == nil or slot.shown == nil then return end
+    local parsed = NumberField.Parse(slot.raw, slot.quantity)
+    if parsed == slot.shown.soundId then return end
+    slot.shown = nil
+    slot.packTouched = true
+    if slot.combo ~= nil and slot.combo.Select ~= nil and slot.noneId ~= nil then
+        slot.combo:Select(slot.noneId, false)
+    end
 end
 
 ---@param graph LibNodeGraph.Graph
@@ -373,6 +413,14 @@ local function slotFor(graph, mark)
     if widget == "number" then
         -- A pack sound record shows its builtin sound id, so Create stays enabled.
         slot.raw = Presets.NumberVariableText(value)
+        if isSoundEffectMark(graph, mark) then
+            local packs = Packs.live() or Packs.new()
+            local rows = packs:SoundEffectRows()
+            sortSoundRows(rows)
+            slot.soundRows = rows
+            local index = packs:SoundEffectSelectedRow(rows, value)
+            if index ~= nil then slot.shown = rows[index] end
+        end
     elseif widget == "matcher" then
         if type(value) == "table" and type(value.needle) == "string" then
             slot.raw = value.needle
@@ -389,6 +437,84 @@ local function slotFor(graph, mark)
         slot.raw = value
     end
     return slot
+end
+
+-- PrettyUI's combo always has a selection. None is the node's unselected pack
+-- line, kept first so a raw sound id is not shown as the first pack sound.
+local SOUND_NONE_ID = 1
+
+---@param rows Watchdog.PackSoundRow[]
+---@param entryID integer
+---@param labelText string|nil
+---@return Watchdog.PackSoundRow|nil
+local function soundRowFromChoice(rows, entryID, labelText)
+    local row = rows[entryID - 1]
+    if row ~= nil and row.label == labelText then return row end
+    for _, candidate in ipairs(rows) do
+        if candidate.label == labelText then return candidate end
+    end
+    return nil
+end
+
+---@param createAction Watchdog.DialogAction
+---@param slots PresetDialogs.VariableSlot[]
+local function refreshCreate(createAction, slots)
+    if createAction.setDisabled ~= nil then
+        createAction.setDisabled(not numbersOk(slots))
+    end
+end
+
+-- Number field, then the pack list, matching the node. No offers leave the
+-- same message the node shows instead of an empty dropdown.
+---@param body any
+---@param slot PresetDialogs.VariableSlot
+---@param field any
+---@param slots PresetDialogs.VariableSlot[]
+---@param createAction Watchdog.DialogAction
+local function mountSoundPack(body, slot, field, slots, createAction)
+    local rows = slot.soundRows or {}
+    if #rows == 0 then
+        body:AddText(SoundEffect.EMPTY_PACK)
+        return
+    end
+    slot.noneId = SOUND_NONE_ID
+    local entries = { { label = "None", id = SOUND_NONE_ID, order = 0 } }
+    for i, row in ipairs(rows) do
+        entries[#entries + 1] = { label = row.label, id = i + 1, order = i }
+    end
+    local selected = SOUND_NONE_ID
+    if slot.shown ~= nil then
+        for i, row in ipairs(rows) do
+            if row.pack == slot.shown.pack and row.authorId == slot.shown.authorId then
+                selected = i + 1
+                break
+            end
+        end
+    end
+    slot.mounting = true
+    slot.combo = body:AddComboBox({
+        entries = entries,
+        selectedID = selected,
+        onChange = function(_, entryID, labelText)
+            if slot.mounting then return end
+            if entryID == SOUND_NONE_ID or labelText == "None" then
+                slot.shown = nil
+                slot.packTouched = true
+                return
+            end
+            local row = soundRowFromChoice(rows, entryID, labelText)
+            if row == nil then return end
+            slot.shown = row
+            slot.packTouched = true
+            slot.raw = tostring(row.soundId)
+            slot.quantity = nil
+            if field ~= nil and field.SetText ~= nil then
+                field:SetText(slot.raw, false)
+            end
+            refreshCreate(createAction, slots)
+        end,
+    })
+    slot.mounting = false
 end
 
 ---@class PresetDialogs.VariableOpts
@@ -428,7 +554,17 @@ function PresetDialogs.mountVariables(parent, opts)
             local answers = {}
             for i, slot in ipairs(slots) do
                 if slot.widget == "number" then
-                    answers[i] = { raw = slot.raw, quantity = slot.quantity }
+                    local answer = { raw = slot.raw, quantity = slot.quantity }
+                    -- An untouched pack list stays on the number path so an
+                    -- outdated record is kept. Choosing a row or None is explicit.
+                    if slot.soundRows ~= nil and slot.packTouched == true then
+                        if slot.shown ~= nil then
+                            answer.packRow = slot.shown
+                        else
+                            answer.clearPack = true
+                        end
+                    end
+                    answers[i] = answer
                 elseif slot.widget == "enum" then
                     answers[i] = slot.value
                 else
@@ -446,7 +582,11 @@ function PresetDialogs.mountVariables(parent, opts)
         end,
     }
 
-    local estimate = 200 + math.max(#variables, 1) * 80
+    local soundExtra = 0
+    for _, slot in ipairs(slots) do
+        if slot.soundRows ~= nil then soundExtra = soundExtra + 40 end
+    end
+    local estimate = 200 + math.max(#variables, 1) * 80 + soundExtra
     local height = dialogHeight(parent, estimate)
     Dialog.mount(parent, {
         title = preset.name or "",
@@ -493,18 +633,20 @@ function PresetDialogs.mountVariables(parent, opts)
                             end,
                         })
                     else
-                        body:AddTextField({
+                        local field = body:AddTextField({
                             text = slot.raw,
                             height = 30,
                             maxLength = 128,
                             filter = slot.widget == "number" and numericFilter() or nil,
                             onChange = function(f)
                                 slot.raw, slot.quantity = readField(f)
-                                if createAction.setDisabled ~= nil then
-                                    createAction.setDisabled(not numbersOk(slots))
-                                end
+                                syncSoundText(slot)
+                                refreshCreate(createAction, slots)
                             end,
                         })
+                        if slot.soundRows ~= nil then
+                            mountSoundPack(body, slot, field, slots, createAction)
+                        end
                     end
                 end
             end

@@ -302,6 +302,73 @@ function TestPackAlerts:testASoundEffectVariableKeepsThePackRecord()
     luaunit.assertTrue(replaced.id ~= entry.id)
 end
 
+function TestPackAlerts:testAChosenPackSoundIsStoredOnTheSoundEffect()
+    _G.id = _G.id or {}
+    _G.id.Sound = _G.id.Sound or { TOWN_CRIER_BELL_RING_1 = 2608 }
+    local registry = Registry.new()
+    require("src/nodes/actions/sound").Register(registry)
+    local graph = LibNodeGraph.NewGraph(registry)
+    local nodeId = graph:AddNode("action.sound", { soundId = 2608 })
+    local snapshot = {
+        name = "Callout",
+        graph = LibNodeGraph.Serialize(graph),
+        variables = { { nodeId = nodeId, pinName = "soundId" } },
+    }
+    local bucket = Store.Empty()
+    local _, live, _, err = Presets.InstantiateSnapshot(bucket, snapshot, registry, {
+        { raw = "50", packRow = { pack = "Voice", authorId = "horn", soundId = 50, label = "Voice / Horn" } },
+    })
+    luaunit.assertNil(err)
+    luaunit.assertEquals(live:GetControl(nodeId, "soundId"), {
+        pack = "Voice", authorId = "horn", soundId = 50,
+    })
+end
+
+function TestPackAlerts:testChoosingNoneStoresTheBuiltinSoundId()
+    _G.id = _G.id or {}
+    _G.id.Sound = _G.id.Sound or { TOWN_CRIER_BELL_RING_1 = 2608 }
+    local registry = Registry.new()
+    require("src/nodes/actions/sound").Register(registry)
+    local record = { pack = "Voice", authorId = "bell", soundId = 12345 }
+    local graph = LibNodeGraph.NewGraph(registry)
+    local nodeId = graph:AddNode("action.sound", { soundId = record })
+    local snapshot = {
+        name = "Callout",
+        graph = LibNodeGraph.Serialize(graph),
+        variables = { { nodeId = nodeId, pinName = "soundId" } },
+    }
+    local bucket = Store.Empty()
+    local _, live, _, err = Presets.InstantiateSnapshot(bucket, snapshot, registry, {
+        { raw = "12345", clearPack = true },
+    })
+    luaunit.assertNil(err)
+    luaunit.assertEquals(live:GetControl(nodeId, "soundId"), 12345)
+end
+
+function TestPackAlerts:testANumberVariableIgnoresAPackSoundRow()
+    local registry = Registry.new()
+    registry:RegisterNodeType("fixture.hold", {
+        category = "action",
+        pins = {
+            { name = "hold", kind = "data", direction = "in", dataType = "number", default = 4 },
+        },
+        run = function() end,
+    })
+    local graph = LibNodeGraph.NewGraph(registry)
+    local nodeId = graph:AddNode("fixture.hold", { hold = 4 })
+    local snapshot = {
+        name = "Callout",
+        graph = LibNodeGraph.Serialize(graph),
+        variables = { { nodeId = nodeId, pinName = "hold" } },
+    }
+    local bucket = Store.Empty()
+    local _, live, _, err = Presets.InstantiateSnapshot(bucket, snapshot, registry, {
+        { raw = "8", packRow = { pack = "Voice", authorId = "bell", soundId = 8 } },
+    })
+    luaunit.assertNil(err)
+    luaunit.assertEquals(live:GetControl(nodeId, "hold"), 8)
+end
+
 function TestPackAlerts:testACustomSoundVariableBakesThePackAudioRecord()
     local registry = Registry.new()
     require("src/nodes/actions/custom_sound").Register(registry)
