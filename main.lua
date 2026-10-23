@@ -2,16 +2,15 @@ local Editor = require("src/ui/graph")
 local Manager = require("src/ui/manager")
 local Multiplexer = require("src/ui/multiplexer")
 local Store  = require("src/store")
+local ScopeEdits = require("src/scope_edits")
 local Presets = require("src/presets")
 local Packs = require("src/packs")
-local Export = require("src/export")
 ---@type Watchdog.Runtime
 local Runtime = require("src/runtime")
 local ToastStack = require("src/toast")
 local Theme = require("src/ui/theme")
 local Dialog = require("src/ui/dialog")
 local PresetDialogs = require("src/ui/preset_dialogs")
-local Confirm = require("src/ui/confirm")
 local HubLayers = require("src/ui/hub_layers")
 
 local Events = {
@@ -263,8 +262,8 @@ end
 
 ---@type { doc: Watchdog.Bucket, key: string }|nil
 local boundScope = nil
-local boundLastEncoded = nil
 local persistNow -- assigned below
+local edits ---@type Watchdog.ScopeEdits
 
 local mux ---@type Watchdog.Multiplexer
 local managerSurface ---@type Watchdog.MuxSurface
@@ -279,7 +278,7 @@ local function navOpenAlert(scopeKey, entryId)
     local entry = Store.FindById(a.doc, entryId)
     editor:BindEntry(entryId, a.graph, a.layout, entry and entry.name)
     boundScope = { doc = a.doc, key = a.key }
-    boundLastEncoded = Store.Encode(a.doc)
+    edits:NoteSaved(a.key)
     if mux ~= nil and editorSurface ~= nil then
         mux:Push(editorSurface)
         mux:SetVisible(true)
@@ -290,7 +289,6 @@ local function navBack()
     if persistNow ~= nil then pcall(persistNow) end -- flush before unbinding
     editor:Unbind()
     boundScope = nil
-    boundLastEncoded = nil
     if mux ~= nil then mux:Pop() end
 end
 
@@ -309,85 +307,41 @@ local function scopeBucket(scopeKey)
     return nil
 end
 
----@param entry Watchdog.Entry
----@param out integer[]
-local function collectAlertIds(entry, out)
-    if entry.kind == "alert" then
-        out[#out + 1] = entry.id
-    else
-        for _, child in ipairs(entry.children or {}) do
-            collectAlertIds(child, out)
-        end
+edits = ScopeEdits.new({
+    store = Store,
+    runtime = runtime,
+    registry = registry,
+    bucket = function(scopeKey)
+        return scopeBucket(scopeKey)
+    end,
+})
+
+-- The Scope module returns one result. This applies it. The module does not
+-- show, hide, or rename the Editor, and it does not call navBack.
+---@return { alertId: integer, scopeKey: string, graph: LibNodeGraph.Graph|nil, layout: Watchdog.Layout|nil }|nil
+local function openAlert()
+    if editor.boundId == nil or boundScope == nil then return nil end
+    return {
+        alertId = editor.boundId,
+        scopeKey = boundScope.key,
+        graph = editor.graph,
+        layout = editor:GetLayout(),
+    }
+end
+
+---@param result Watchdog.EditorResult|nil
+local function applyEditor(result)
+    if result == nil or result.kind == nil or result.kind == "leave" then return end
+    if result.kind == "open" then
+        navOpenAlert(result.scopeKey, result.alertId)
+    elseif result.kind == "close" then
+        navBack()
+    elseif result.kind == "rename" then
+        editor.alertName = result.name
+        if editor.onAlertNameChanged ~= nil then editor.onAlertNameChanged(result.name) end
     end
 end
 
----@param list Watchdog.RestoredAlert[]
----@param ids integer[]
-local function purgeAlertList(list, ids)
-    local drop = {}
-    for _, id in ipairs(ids) do drop[id] = true end
-    for i = #list, 1, -1 do
-        if drop[list[i].id] then table.remove(list, i) end
-    end
-end
-
----@param scopeKey string
----@param id integer
-local function onToggleEnabled(scopeKey, id)
-    local doc, key = scopeBucket(scopeKey)
-    if doc == nil then return end
-    local entry = Store.FindById(doc, id)
-    if entry == nil then return end
-    local nextEnabled = not (entry.enabled ~= false)
-    Store.SetEnabled(doc, id, nextEnabled)
-    Store.SaveTo(key, doc)
-    if entry.kind == "alert" then
-        runtime:SetAlertEnabled(id, nextEnabled)
-        local _, _, list = scopeBucket(scopeKey)
-        if list ~= nil then
-            for _, a in ipairs(list) do
-                if a.id == id then a.enabled = nextEnabled end
-            end
-        end
-    elseif not nextEnabled then
-        -- A disabled group does not flip child alert.enabled; firing stops via the ancestor
-        -- check, so the visuals those children already spawned have to be released here.
-        local alertIds = {}
-        collectAlertIds(entry, alertIds)
-        for _, aid in ipairs(alertIds) do
-            runtime:ReleaseAlertVisuals(aid)
-        end
-    end
-end
-
----@param scopeKey string
----@param id integer
----@param name string
-local function onRename(scopeKey, id, name)
-    local doc, key, list = scopeBucket(scopeKey)
-    if doc == nil then return end
-    local entryBefore = Store.FindById(doc, id)
-    local oldName = entryBefore and entryBefore.name
-    if not Store.SetName(doc, id, name) then return false end
-    if not Store.SaveTo(key, doc) then
-        Store.SetName(doc, id, oldName)
-        return false
-    end
-    local entry = Store.FindById(doc, id)
-    if entry ~= nil and entry.kind == "alert" then
-        runtime:RenameAlert(id, name, key)
-        if list ~= nil then
-            for _, a in ipairs(list) do
-                if a.id == id then a.name = name end
-            end
-        end
-    end
-    if editor.boundId == id and boundScope ~= nil and boundScope.key == key then
-        editor.alertName = name
-        if editor.onAlertNameChanged ~= nil then editor.onAlertNameChanged(name) end
-    end
-    return true
-end
 editor.onRename = function()
     if boundScope == nil or editor.boundId == nil then return end
     local scopeKey, entryId = boundScope.key, editor.boundId
@@ -404,10 +358,12 @@ editor.onRename = function()
             { label = "Save", variant = "positive", onClick = function()
                 local name = field:GetText():match("^%s*(.-)%s*$")
                 if name == "" then feedback.content = "Enter an alert name."; return false end
-                if not onRename(scopeKey, entryId, name) then
+                local result, ok = edits:Rename(scopeKey, entryId, name, openAlert())
+                if not ok then
                     feedback.content = "Could not save the name. Try again."
                     return false
                 end
+                applyEditor(result)
                 return true
             end },
         },
@@ -470,634 +426,6 @@ editor.onSavePreset = function()
     })
 end
 
----@param scopeKey string
----@param id integer
-local function onDelete(scopeKey, id)
-    local doc, key, list = scopeBucket(scopeKey)
-    if doc == nil then return end
-    local entry = Store.FindById(doc, id)
-    if entry == nil then return end
-    local alertIds = {}
-    collectAlertIds(entry, alertIds)
-    if editor.boundId ~= nil and boundScope ~= nil and boundScope.key == key then
-        local function contains(e, target)
-            if e.id == target then return true end
-            for _, c in ipairs(e.children or {}) do
-                if contains(c, target) then return true end
-            end
-            return false
-        end
-        if contains(entry, editor.boundId) then
-            navBack()
-        end
-    end
-    Store.DeleteById(doc, id)
-    Store.SaveTo(key, doc)
-    for _, aid in ipairs(alertIds) do
-        runtime:ReleaseAlertVisuals(aid)
-        runtime:RemoveAlert(aid)
-    end
-    if list ~= nil then purgeAlertList(list, alertIds) end
-end
-
----@param scopeKey string
----@param id integer
----@param delta integer
-local function onReorderSibling(scopeKey, id, delta)
-    local doc, key = scopeBucket(scopeKey)
-    if doc == nil then return end
-    if not Store.ReorderSibling(doc, id, delta) then return end
-    Store.SaveTo(key, doc)
-end
-
----@param scopeKey string
----@param id integer
-local function onLift(scopeKey, id)
-    local doc, key = scopeBucket(scopeKey)
-    if doc == nil then return end
-    if not Store.LiftEntry(doc, id) then return end
-    Store.SaveTo(key, doc)
-end
-
----@param list Watchdog.RestoredAlert[]|nil
----@param id integer
----@param name string
----@param graph LibNodeGraph.Graph
----@param layout Watchdog.Layout
-local function rememberAlert(list, id, name, graph, layout)
-    if list == nil then return end
-    list[#list + 1] = { id = id, name = name, graph = graph, layout = layout, enabled = true }
-end
-
--- Today's From scratch result. Does not read the Preset library.
----@param scopeKey string
----@return integer|nil
-local function createFromScratch(scopeKey)
-    local doc, key, list = scopeBucket(scopeKey)
-    if doc == nil then return nil end
-    local graph = LibNodeGraph.NewGraph(registry)
-    local layout = {}
-    local id = Store.MintId(doc)
-    local name = "New Alert"
-    Store.InsertEntry(doc, Store.NewAlertEntry(id, name, graph, layout, true))
-    Store.SaveTo(key, doc)
-    rememberAlert(list, id, name, graph, layout)
-    runtime:AddAlert(id, name, graph, true, key)
-    navOpenAlert(scopeKey, id)
-    return id
-end
-
----@param preset Watchdog.Preset
----@return boolean
-local function presetHasVariables(preset)
-    return type(preset.variables) == "table" and #preset.variables > 0
-end
-
--- Saves, arms, and opens the Alert the instantiate call inserted. A failed copy
--- or a failed bake returns the error and leaves the Bucket as that call left it.
----@param scopeKey string
----@param doc Watchdog.Bucket
----@param key string
----@param list Watchdog.Entry[]
----@param entry Watchdog.Entry|nil
----@param graph LibNodeGraph.Graph|nil
----@param layout Watchdog.Layout|nil
----@param err string|nil
----@return integer|nil id
----@return string|nil err
-local function finishCreate(scopeKey, doc, key, list, entry, graph, layout, err)
-    if entry == nil or graph == nil or layout == nil then
-        return nil, err
-    end
-    Store.SaveTo(key, doc)
-    rememberAlert(list, entry.id, entry.name, graph, layout)
-    runtime:AddAlert(entry.id, entry.name, graph, true, key)
-    navOpenAlert(scopeKey, entry.id)
-    return entry.id
-end
-
--- Bakes answers when the Preset has Variables. Opening the Editor dismisses mux-root dialogs.
----@param scopeKey string
----@param presetId integer
----@param answers any[]|nil
----@return integer|nil id
----@return string|nil err
-local function createFromPreset(scopeKey, presetId, answers)
-    local doc, key, list = scopeBucket(scopeKey)
-    if doc == nil then return nil, "No scope to create the alert in." end
-    return finishCreate(scopeKey, doc, key, list, Presets.Instantiate(doc, presetId, registry, answers))
-end
-
--- Same save, arm, and open as a library Preset. The registry does not save the Bucket.
----@param scopeKey string
----@param snapshot Watchdog.PackAlertPreset
----@param answers any[]|nil
----@return integer|nil id
----@return string|nil err
-local function createFromAlertPreset(scopeKey, snapshot, answers)
-    local doc, key, list = scopeBucket(scopeKey)
-    if doc == nil then return nil, "No scope to create the alert in." end
-    return finishCreate(scopeKey, doc, key, list, Presets.InstantiateSnapshot(doc, snapshot, registry, answers))
-end
-
--- Opens the library. Does not create an Alert by itself.
--- Rename and Delete stack on this same parent. The preset list is rebuilt inside a
--- SimpleView; the footer actions stay on the window and do not scroll.
----@param scopeKey string
----@return integer|nil
-local function onCreateAlert(scopeKey)
-    local parent = mux ~= nil and mux.rootLayer or nil
-    if parent == nil then return nil end
-    local feedback
-    local body = {}
-    local alertWin
-    local fillList, beginRename, beginDelete
-
-    -- Captured at this open. A later registration does not rebuild an open dialog.
-    -- Rename and delete call fillList again and still use this list.
-    local offered = {}
-    local livePacks = Packs.live()
-    if livePacks ~= nil then
-        offered = livePacks:AlertPresetGroups()
-    end
-
-    -- PrettyUI flow padding (14) and column gap (8). The name fills the row;
-    -- the pencil and trash sit inline after it, the same sprites as the Manager.
-    local FLOW_PAD = 14
-    local FLOW_GAP = 8
-
-    local function forget(host, widget)
-        local entries = host._managedFlowEntries
-        if type(entries) == "table" then
-            for i = #entries, 1, -1 do
-                if entries[i].component == widget then
-                    table.remove(entries, i)
-                end
-            end
-        end
-        pcall(function() widget:Destroy() end)
-    end
-
-    local function clearBody(host)
-        for i = #body, 1, -1 do
-            local widget = body[i]
-            body[i] = nil
-            forget(host, widget)
-        end
-        local layout = host._flowLayout
-        if layout ~= nil then
-            layout.nextY = layout.startY
-            layout.row = nil
-            layout.hasItems = false
-            -- Flow only grows the scroll height. Drop it back so a shorter list,
-            -- including the empty library, does not leave the footer below a hole.
-            if host.SetContentHeight ~= nil then
-                pcall(function() host:SetContentHeight(layout.startY) end)
-            end
-        end
-        feedback = nil
-    end
-
-    local function remember(widget)
-        if widget ~= nil then body[#body + 1] = widget end
-        return widget
-    end
-
-    -- `actions` is the pencil and trash. Alert Preset rows have neither, so the name uses the row.
-    ---@param host any
-    ---@param actions integer
-    ---@return integer
-    local function rowWidth(host, actions)
-        local contentW = host.contentWidth
-        if type(contentW) ~= "number" then contentW = 352 end
-        local width = contentW - FLOW_PAD * 2 - (Theme.MANAGER_ACT_W + FLOW_GAP) * actions
-        if width < 80 then width = 80 end
-        return width
-    end
-
-    ---@param captured Watchdog.Preset|Watchdog.PackAlertPreset
-    ---@param create fun(answers: any[]|nil): integer|nil, string|nil
-    local function openPreset(captured, create)
-        if presetHasVariables(captured) then
-            PresetDialogs.mountVariables(parent, {
-                preset = captured,
-                registry = registry,
-                onCreate = function(answers)
-                    return create(answers)
-                end,
-            })
-            return
-        end
-        local id, err = create(nil)
-        if id == nil and err ~= "variables" and feedback ~= nil then
-            feedback.content = err or "Could not create the alert."
-        end
-    end
-
-    beginRename = function(preset)
-        local field, renameFeedback
-        local initial = preset.name or ""
-        local renameAction = {
-            label = "Rename",
-            variant = "positive",
-            disabled = Presets.trim(initial) == "",
-            onClick = function()
-                local name = ""
-                pcall(function() name = field:GetText() or "" end)
-                if Presets.trim(name) == "" then return false end
-                local renamed, err = Presets.Rename(preset.id, name)
-                if renamed == nil then
-                    if renameFeedback ~= nil then
-                        renameFeedback.content = err or "Could not rename the preset."
-                    end
-                    return false
-                end
-                if alertWin ~= nil then fillList(alertWin) end
-                return true
-            end,
-        }
-        Dialog.mount(parent, {
-            title = "Rename preset",
-            width = 380,
-            height = 200,
-            content = function(win)
-                win:AddText("Preset name")
-                field = win:AddTextField({
-                    text = initial,
-                    maxLength = 80,
-                    height = 30,
-                    onChange = function(f)
-                        local text = ""
-                        pcall(function() text = f:GetText() or "" end)
-                        if renameAction.setDisabled ~= nil then
-                            renameAction.setDisabled(Presets.trim(text) == "")
-                        end
-                    end,
-                })
-                renameFeedback = win:AddText("")
-            end,
-            actions = {
-                { label = "Cancel" },
-                renameAction,
-            },
-        })
-    end
-
-    beginDelete = function(preset)
-        Confirm.mount(parent, {
-            title = "CONFIRM DELETE",
-            body = string.format('Delete "%s"? This cannot be undone.', preset.name or ""),
-            confirmLabel = "DELETE",
-            confirmVariant = "negative",
-            onConfirm = function()
-                local deleted, err = Presets.Delete(preset.id)
-                if deleted ~= true then
-                    if feedback ~= nil then
-                        feedback.content = err or "Could not delete the preset."
-                    end
-                    return false
-                end
-                if alertWin ~= nil then fillList(alertWin) end
-                return true
-            end,
-        })
-    end
-
-    fillList = function(host)
-        clearBody(host)
-        local listed, listErr = Presets.List()
-        local hasGroups = #offered > 0
-        if listed == nil then
-            remember(host:AddText(listErr or "Presets could not be read."))
-        elseif #listed == 0 and not hasGroups then
-            remember(host:AddText("There are no presets."))
-        else
-            if listed ~= nil and #listed > 0 then
-                local width = rowWidth(host, 2)
-                local iconOffset = math.floor((Theme.MANAGER_ROW_H - Theme.MANAGER_ACT_W) / 2)
-                for _, preset in ipairs(listed) do
-                    local captured = preset
-                    remember(host:AddSimpleButton(captured.name, function()
-                        openPreset(captured, function(answers)
-                            return createFromPreset(scopeKey, captured.id, answers)
-                        end)
-                    end, {
-                        width = width,
-                        height = Theme.MANAGER_ROW_H,
-                    }))
-                    remember(host:AddSpriteButton("PENCIL", function()
-                        beginRename(captured)
-                    end, {
-                        inline = true,
-                        size = Theme.MANAGER_ACT_W,
-                        offsetY = iconOffset,
-                        tooltip = "Rename",
-                    }))
-                    remember(host:AddSpriteButton("TRASH", function()
-                        beginDelete(captured)
-                    end, {
-                        inline = true,
-                        size = Theme.MANAGER_ACT_W,
-                        offsetY = iconOffset,
-                        tooltip = "Delete",
-                    }))
-                end
-            end
-            -- The registry already ordered these groups. Do not sort them again.
-            if hasGroups then
-                local width = rowWidth(host, 0)
-                for _, group in ipairs(offered) do
-                    remember(host:AddText(group.packName))
-                    for _, preset in ipairs(group.presets) do
-                        local captured = preset
-                        remember(host:AddSimpleButton(captured.name, function()
-                            openPreset(captured, function(answers)
-                                return createFromAlertPreset(scopeKey, captured, answers)
-                            end)
-                        end, {
-                            width = width,
-                            height = Theme.MANAGER_ROW_H,
-                        }))
-                    end
-                end
-            end
-        end
-        feedback = remember(host:AddText(""))
-    end
-
-    Dialog.mount(parent, {
-        title = "New alert",
-        width = 400,
-        height = 420,
-        content = function(win)
-            if win.SetScrollable ~= nil then win:SetScrollable(false) end
-            if prettyui == nil or prettyui.SimpleView == nil or win.content == nil then
-                if log ~= nil then log("Watchdog: prettyui.SimpleView unavailable, New alert list aborted") end
-                return
-            end
-            -- Same chrome as the preset dialogs: title 32 + border 8, footer band 48.
-            local width = 400 - 16
-            local contentW = win.content.width
-            if type(contentW) == "number" and contentW > 0 then width = contentW end
-            local view
-            local ok, err = pcall(function()
-                view = prettyui.SimpleView.new(win.content, {
-                    x = 0,
-                    y = 0,
-                    width = width,
-                    height = 420 - 40 - 48,
-                })
-            end)
-            if not ok or view == nil then
-                if log ~= nil then log("Watchdog: New alert list failed - " .. tostring(err)) end
-                return
-            end
-            alertWin = view
-            fillList(view)
-        end,
-        actions = {
-            { label = "Cancel" },
-            {
-                label = "From scratch",
-                variant = "positive",
-                onClick = function()
-                    if createFromScratch(scopeKey) == nil then
-                        if feedback ~= nil then
-                            feedback.content = "Could not create the alert."
-                        end
-                        return false
-                    end
-                    return true
-                end,
-            },
-        },
-    })
-    return nil
-end
-
----@param scopeKey string
----@return integer|nil
-local function onCreateGroup(scopeKey)
-    local doc, key = scopeBucket(scopeKey)
-    if doc == nil then return nil end
-    local id = Store.MintId(doc)
-    Store.InsertEntry(doc, Store.NewGroupEntry(id, "New Group", true, {}))
-    Store.SaveTo(key, doc)
-    return id
-end
-
----@param entry Watchdog.Entry
----@return Watchdog.Entry
-local function cloneEntry(entry)
-    local copy = {
-        id = entry.id,
-        kind = entry.kind,
-        name = entry.name,
-        enabled = entry.enabled,
-        graph = entry.graph,
-        layout = entry.layout,
-    }
-    if entry.children ~= nil then
-        copy.children = {}
-        for i, child in ipairs(entry.children) do
-            copy.children[i] = cloneEntry(child)
-        end
-    end
-    return copy
-end
-
----@param scopeKey string
----@param ids integer[]
-local function onBulkDelete(scopeKey, ids)
-    local doc, key, list = scopeBucket(scopeKey)
-    if doc == nil or ids == nil then return end
-    for _, id in ipairs(ids) do
-        local entry = Store.FindById(doc, id)
-        if entry ~= nil then
-            local alertIds = {}
-            collectAlertIds(entry, alertIds)
-            if editor.boundId ~= nil and boundScope ~= nil and boundScope.key == key then
-                local function contains(e, target)
-                    if e.id == target then return true end
-                    for _, c in ipairs(e.children or {}) do
-                        if contains(c, target) then return true end
-                    end
-                    return false
-                end
-                if contains(entry, editor.boundId) then
-                    navBack()
-                end
-            end
-            Store.DeleteById(doc, id)
-            for _, aid in ipairs(alertIds) do
-                runtime:ReleaseAlertVisuals(aid)
-                runtime:RemoveAlert(aid)
-            end
-            if list ~= nil then purgeAlertList(list, alertIds) end
-        end
-    end
-    Store.SaveTo(key, doc)
-end
-
----@param scopeKey string
----@param ids integer[]
----@return integer|nil
-local function onBulkNewGroup(scopeKey, ids)
-    local doc, key = scopeBucket(scopeKey)
-    if doc == nil or ids == nil or #ids == 0 then return nil end
-    local newId = Store.GroupSelected(doc, ids, "New Group")
-    if newId == nil then return nil end
-    Store.SaveTo(key, doc)
-    return newId
-end
-
----@param scopeKey string
----@param destScopeKey string
----@param ids integer[]
-local function onBulkMove(scopeKey, destScopeKey, ids)
-    local srcDoc, srcKey, srcList = scopeBucket(scopeKey)
-    local destDoc, destKey, destList = scopeBucket(destScopeKey)
-    if srcDoc == nil or destDoc == nil or ids == nil then return end
-    for _, id in ipairs(ids) do
-        local before = Store.FindById(srcDoc, id)
-        if before ~= nil then
-            local alertIds = {}
-            collectAlertIds(before, alertIds)
-            local snapshots = {}
-            if srcList ~= nil then
-                for _, aid in ipairs(alertIds) do
-                    for _, a in ipairs(srcList) do
-                        if a.id == aid then
-                            snapshots[#snapshots + 1] = a
-                            break
-                        end
-                    end
-                end
-            end
-            if editor.boundId ~= nil and boundScope ~= nil and boundScope.key == srcKey then
-                local function contains(e, target)
-                    if e.id == target then return true end
-                    for _, c in ipairs(e.children or {}) do
-                        if contains(c, target) then return true end
-                    end
-                    return false
-                end
-                if contains(before, editor.boundId) then
-                    navBack()
-                end
-            end
-            local moved = Store.MoveEntryToBucket(srcDoc, destDoc, id)
-            if moved ~= nil then
-                if srcList ~= nil then purgeAlertList(srcList, alertIds) end
-                local leaves = {}
-                local function collectLeaves(e)
-                    if e.kind == "alert" then
-                        leaves[#leaves + 1] = e
-                    else
-                        for _, c in ipairs(e.children or {}) do collectLeaves(c) end
-                    end
-                end
-                collectLeaves(moved)
-                for i, leaf in ipairs(leaves) do
-                    local snap = snapshots[i]
-                    if snap ~= nil then
-                        runtime:RemoveAlert(snap.id)
-                        if destList ~= nil then
-                            destList[#destList + 1] = {
-                                id = leaf.id,
-                                name = snap.name,
-                                graph = snap.graph,
-                                layout = snap.layout,
-                                enabled = snap.enabled,
-                            }
-                        end
-                        runtime:AddAlert(leaf.id, snap.name, snap.graph, snap.enabled ~= false, destKey)
-                    end
-                end
-            end
-        end
-    end
-    Store.SaveTo(srcKey, srcDoc)
-    Store.SaveTo(destKey, destDoc)
-end
-
----@param kind string
----@param ok boolean
----@param detail string
-local function mirrorTransfer(kind, ok, detail)
-    pcall(function()
-        if PersistentDB == nil then return end
-        PersistentDB:SetString("transfer_last", string.format(
-            "%s\tok=%s\t%s", kind, tostring(ok), tostring(detail):sub(1, 500)))
-    end)
-end
-
----@param scopeKey string
----@param ids integer[]|nil
----@return boolean ok
----@return string jsonOrErr
-local function onExportEntries(scopeKey, ids)
-    local doc = select(1, scopeBucket(scopeKey))
-    if doc == nil then return false, "no active scope" end
-    local entries = {}
-    if ids == nil then
-        for _, entry in ipairs(doc.entries or {}) do
-            entries[#entries + 1] = cloneEntry(entry)
-        end
-    else
-        for _, id in ipairs(ids) do
-            local entry = Store.FindById(doc, id)
-            if entry ~= nil then entries[#entries + 1] = cloneEntry(entry) end
-        end
-    end
-    local ok, result = Export.Encode(entries)
-    if ok then
-        mirrorTransfer("export", true, string.format("%d bytes / %d entries", #result, #entries))
-    else
-        mirrorTransfer("export", false, result)
-    end
-    return ok, result
-end
-
----@param scopeKey string
----@param text string
----@return boolean ok
----@return Watchdog.ImportReport|string
-local function onImportJson(scopeKey, text)
-    local doc, key, list = scopeBucket(scopeKey)
-    if doc == nil then return false, "no active scope" end
-    local before = {}
-    for _, leaf in ipairs(Store.Leaves(doc)) do
-        before[leaf.id] = true
-    end
-    local ok, report = Export.Import(doc, text, { registry = registry })
-    if not ok then
-        mirrorTransfer("import", false, tostring(report))
-        return false, report
-    end
-    Store.SaveTo(key, doc)
-    local newLeaves = {}
-    for _, leaf in ipairs(Store.Leaves(doc)) do
-        if not before[leaf.id] then
-            newLeaves[#newLeaves + 1] = leaf
-        end
-    end
-    if #newLeaves > 0 then
-        local temp = Store.Empty()
-        temp.entries = newLeaves
-        local restored = Store.RestoreAll(temp, registry)
-        for _, a in ipairs(restored) do
-            if list ~= nil then
-                list[#list + 1] = a
-            end
-            runtime:AddAlert(a.id, a.name, a.graph, a.enabled ~= false, key)
-        end
-    end
-    local msg = (type(report) == "table" and report.message) or "ok"
-    mirrorTransfer("import", true, msg)
-    return true, report
-end
-
 local function getRootParent()
     local candidates = { "TOPLEVEL_V2__GAME_AREA" }
     for _, key in ipairs(candidates) do
@@ -1115,18 +443,53 @@ end
 manager = Manager.new({
     scopes = getScopes,
     onOpenAlert = navOpenAlert,
-    onToggleEnabled = onToggleEnabled,
-    onRename = onRename,
-    onDelete = onDelete,
-    onReorderSibling = onReorderSibling,
-    onLift = onLift,
-    onCreateAlert = onCreateAlert,
-    onCreateGroup = onCreateGroup,
-    onBulkDelete = onBulkDelete,
-    onBulkNewGroup = onBulkNewGroup,
-    onBulkMove = onBulkMove,
-    onExportEntries = onExportEntries,
-    onImportJson = onImportJson,
+    onToggleEnabled = function(scopeKey, id)
+        applyEditor(edits:ToggleEnabled(scopeKey, id))
+    end,
+    onRename = function(scopeKey, id, name)
+        local result, ok = edits:Rename(scopeKey, id, name, openAlert())
+        applyEditor(result)
+        return ok
+    end,
+    onDelete = function(scopeKey, id)
+        applyEditor(edits:Delete(scopeKey, id, openAlert()))
+    end,
+    onReorderSibling = function(scopeKey, id, delta)
+        applyEditor(edits:ReorderSibling(scopeKey, id, delta))
+    end,
+    onLift = function(scopeKey, id)
+        applyEditor(edits:Lift(scopeKey, id))
+    end,
+    onCreateAlert = function(scopeKey)
+        edits:MountNewAlert(mux ~= nil and mux.rootLayer or nil, scopeKey, applyEditor)
+        return nil
+    end,
+    onCreateGroup = function(scopeKey)
+        local result, id = edits:CreateGroup(scopeKey)
+        applyEditor(result)
+        return id
+    end,
+    onBulkDelete = function(scopeKey, ids)
+        applyEditor(edits:BulkDelete(scopeKey, ids, openAlert()))
+    end,
+    onBulkNewGroup = function(scopeKey, ids)
+        local result, id = edits:BulkNewGroup(scopeKey, ids)
+        applyEditor(result)
+        return id
+    end,
+    onBulkMove = function(scopeKey, destScopeKey, ids)
+        applyEditor(edits:BulkMove(scopeKey, destScopeKey, ids, openAlert()))
+    end,
+    onExportEntries = function(scopeKey, ids)
+        local result, ok, payload = edits:ExportEntries(scopeKey, ids)
+        applyEditor(result)
+        return ok, payload
+    end,
+    onImportJson = function(scopeKey, text)
+        local result, ok, report = edits:ImportJson(scopeKey, text)
+        applyEditor(result)
+        return ok, report
+    end,
     -- Parent dialogs to the shell so reload destroys them too.
     windowParent = function()
         return mux ~= nil and mux.rootLayer or nil
@@ -1205,13 +568,7 @@ local saveState = { tick = 0, wasOpen = false }
 
 persistNow = function()
     if editor.boundId == nil or boundScope == nil then return end
-    Store.UpdateAlertGraph(boundScope.doc, editor.boundId, editor.graph, editor:GetLayout())
-    local encoded = Store.Encode(boundScope.doc)
-    if encoded ~= nil and encoded ~= boundLastEncoded then
-        if Store.SaveTo(boundScope.key, boundScope.doc) then
-            boundLastEncoded = encoded
-        end
-    end
+    edits:Autosave(boundScope.key, editor.boundId, editor.graph, editor:GetLayout())
 end
 
 local function onLogic()

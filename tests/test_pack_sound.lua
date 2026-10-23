@@ -1,9 +1,12 @@
--- Pack sound effects on the Sound Effect node. The registry is the seam:
--- row labels, closed labels, commit results, the open-list snapshot, and
--- play resolution. No PrettyUI, and no peeking at the registry's tables.
+-- Pack sound effects on the Sound Effect node. Rows, closed text, and which
+-- row matches a stored pack sound effect are the row builder. The test passes
+-- the registry it built. Play resolution stays on the Pack registry.
+-- What a Sound Effect Control stores is tested on SoundEffectValue.
+-- No PrettyUI, and no peeking at the registry's tables.
 
 local luaunit = require("luaunit")
 local Packs = require("src/packs")
+local PackRows = require("src/pack_rows")
 local Theme = require("src/ui/theme")
 
 local function labelsOf(rows)
@@ -27,7 +30,7 @@ function TestPackSoundRows:testRowLabelIsPackNameThenLabel()
             { authorId = "greet_01", label = "Hello", soundId = 12345 },
         },
     })
-    local rows = self.packs:SoundEffectRows()
+    local rows = PackRows.SoundEffectRows(self.packs)
     luaunit.assertEquals(#rows, 1)
     luaunit.assertEquals(rows[1].label, "VoicePack / Hello")
     luaunit.assertEquals(rows[1].pack, "VoicePack")
@@ -43,7 +46,7 @@ function TestPackSoundRows:testRepeatedLabelInsideOnePackShowsTheAuthorId()
             { authorId = "bye", label = "Bye", soundId = 3 },
         },
     })
-    luaunit.assertEquals(labelsOf(self.packs:SoundEffectRows()), {
+    luaunit.assertEquals(labelsOf(PackRows.SoundEffectRows(self.packs)), {
         "VoicePack / Bye",
         "VoicePack / Hello (greet_01)",
         "VoicePack / Hello (greet_02)",
@@ -57,7 +60,7 @@ function TestPackSoundRows:testSameLabelInTwoPacksStaysPackNameThenLabel()
     self.packs:RegisterDataPack("Other", {
         soundEffects = { { authorId = "bell", label = "Bell", soundId = 2 } },
     })
-    luaunit.assertEquals(labelsOf(self.packs:SoundEffectRows()), {
+    luaunit.assertEquals(labelsOf(PackRows.SoundEffectRows(self.packs)), {
         "Other / Bell",
         "Voice / Bell",
     })
@@ -76,7 +79,7 @@ function TestPackSoundClosedLabel:testLiveOfferShowsTheLiveLabel()
         },
     })
     local stored = { pack = "VoicePack", authorId = "greet_01", soundId = 12345 }
-    luaunit.assertEquals(self.packs:SoundEffectClosedLabel(stored), "VoicePack / Hello")
+    luaunit.assertEquals(PackRows.SoundEffectClosedLabel(self.packs, stored), "VoicePack / Hello")
 end
 
 function TestPackSoundClosedLabel:testARepeatedLabelUsesTheOpenRowText()
@@ -87,10 +90,10 @@ function TestPackSoundClosedLabel:testARepeatedLabelUsesTheOpenRowText()
         },
     })
     luaunit.assertEquals(
-        self.packs:SoundEffectClosedLabel({ pack = "VoicePack", authorId = "greet_01", soundId = 1 }),
+        PackRows.SoundEffectClosedLabel(self.packs, { pack = "VoicePack", authorId = "greet_01", soundId = 1 }),
         "VoicePack / Hello (greet_01)")
     luaunit.assertEquals(
-        self.packs:SoundEffectClosedLabel({ pack = "VoicePack", authorId = "greet_02", soundId = 9 }),
+        PackRows.SoundEffectClosedLabel(self.packs, { pack = "VoicePack", authorId = "greet_02", soundId = 9 }),
         "VoicePack / Hello (greet_02) (outdated)")
 end
 
@@ -101,7 +104,7 @@ function TestPackSoundClosedLabel:testOutdatedBuiltinSoundIdMarksTheLiveLabel()
         },
     })
     local stored = { pack = "VoicePack", authorId = "greet_01", soundId = 12345 }
-    luaunit.assertEquals(self.packs:SoundEffectClosedLabel(stored), "VoicePack / Hello (outdated)")
+    luaunit.assertEquals(PackRows.SoundEffectClosedLabel(self.packs, stored), "VoicePack / Hello (outdated)")
 end
 
 function TestPackSoundClosedLabel:testADifferentPackHoldingTheNameCanBeOutdated()
@@ -117,12 +120,12 @@ function TestPackSoundClosedLabel:testADifferentPackHoldingTheNameCanBeOutdated(
         },
     })
     local stored = { pack = "VoicePack", authorId = "greet_01", soundId = 12345 }
-    luaunit.assertEquals(self.packs:SoundEffectClosedLabel(stored), "VoicePack / Welcome (outdated)")
+    luaunit.assertEquals(PackRows.SoundEffectClosedLabel(self.packs, stored), "VoicePack / Welcome (outdated)")
 end
 
 function TestPackSoundClosedLabel:testMissingOfferShowsSoundIdPackAndAuthorId()
     local stored = { pack = "VoicePack", authorId = "greet_01", soundId = 12345 }
-    luaunit.assertEquals(self.packs:SoundEffectClosedLabel(stored), "12345 (VoicePack / greet_01)")
+    luaunit.assertEquals(PackRows.SoundEffectClosedLabel(self.packs, stored), "12345 (VoicePack / greet_01)")
 end
 
 function TestPackSoundClosedLabel:testMissingAuthorIdShowsTheSameMissingText()
@@ -132,7 +135,7 @@ function TestPackSoundClosedLabel:testMissingAuthorIdShowsTheSameMissingText()
         },
     })
     local stored = { pack = "VoicePack", authorId = "greet_01", soundId = 12345 }
-    luaunit.assertEquals(self.packs:SoundEffectClosedLabel(stored), "12345 (VoicePack / greet_01)")
+    luaunit.assertEquals(PackRows.SoundEffectClosedLabel(self.packs, stored), "12345 (VoicePack / greet_01)")
 end
 
 function TestPackSoundClosedLabel:testRawBuiltinSoundIdShowsTheNumberAlone()
@@ -141,63 +144,7 @@ function TestPackSoundClosedLabel:testRawBuiltinSoundIdShowsTheNumberAlone()
             { authorId = "greet_01", label = "Hello", soundId = 12345 },
         },
     })
-    luaunit.assertEquals(self.packs:SoundEffectClosedLabel(12345), "12345")
-end
-
-TestPackSoundCommit = {}
-
-function TestPackSoundCommit:setUp()
-    self.packs = Packs.new()
-end
-
-function TestPackSoundCommit:testCommittingARowStoresThatRowsPackRecordAfterThePackClears()
-    local token = self.packs:RegisterDataPack("VoicePack", {
-        soundEffects = {
-            { authorId = "greet_01", label = "Hello", soundId = 12345 },
-        },
-    })
-    local rows = self.packs:SoundEffectRows()
-    self.packs:Clear(token)
-    local stored = self.packs:CommitSoundEffect(nil, "row", rows[1])
-    luaunit.assertEquals(stored, { pack = "VoicePack", authorId = "greet_01", soundId = 12345 })
-end
-
-function TestPackSoundCommit:testADifferentNumberClearsThePackRecord()
-    local stored = { pack = "VoicePack", authorId = "greet_01", soundId = 12345 }
-    luaunit.assertEquals(self.packs:CommitSoundEffect(stored, "number", 99), 99)
-end
-
-function TestPackSoundCommit:testTheSameNumberLeavesThePackRecordInPlace()
-    local stored = { pack = "VoicePack", authorId = "greet_01", soundId = 12345 }
-    luaunit.assertIs(self.packs:CommitSoundEffect(stored, "number", 12345), stored)
-end
-
-function TestPackSoundCommit:testHighlightIsNotACommit()
-    local stored = { pack = "VoicePack", authorId = "greet_01", soundId = 12345 }
-    local row = { pack = "Other", authorId = "bell", soundId = 7, label = "Other / Bell" }
-    luaunit.assertIs(self.packs:CommitSoundEffect(stored, "highlight", row), stored)
-end
-
-function TestPackSoundCommit:testDismissingLeavesTheStoredValueUnchanged()
-    local stored = { pack = "VoicePack", authorId = "greet_01", soundId = 12345 }
-    luaunit.assertIs(self.packs:CommitSoundEffect(stored, "dismiss", nil), stored)
-end
-
-function TestPackSoundCommit:testAStoredIdentityWithNoMatchingRowStaysUntilARealCommit()
-    self.packs:RegisterDataPack("VoicePack", {
-        soundEffects = {
-            { authorId = "other", label = "Hello", soundId = 12345 },
-        },
-    })
-    local stored = { pack = "VoicePack", authorId = "greet_01", soundId = 12345 }
-    local rows = self.packs:SoundEffectRows()
-    luaunit.assertNil(self.packs:SoundEffectSelectedRow(rows, stored))
-    luaunit.assertIs(self.packs:CommitSoundEffect(stored, "dismiss", nil), stored)
-    luaunit.assertIs(self.packs:CommitSoundEffect(stored, "number", 12345), stored)
-    luaunit.assertEquals(self.packs:CommitSoundEffect(stored, "number", 50), 50)
-    luaunit.assertEquals(self.packs:CommitSoundEffect(stored, "row", rows[1]), {
-        pack = "VoicePack", authorId = "other", soundId = 12345,
-    })
+    luaunit.assertEquals(PackRows.SoundEffectClosedLabel(self.packs, 12345), "12345")
 end
 
 TestPackSoundOpenList = {}
@@ -212,7 +159,7 @@ function TestPackSoundOpenList:testTheOpenListKeepsItsRowsUntilTheNextOpen()
             { authorId = "greet_01", label = "Hello", soundId = 12345 },
         },
     })
-    local opened = self.packs:SoundEffectRows()
+    local opened = PackRows.SoundEffectRows(self.packs)
     self.packs:Clear(token)
     self.packs:RegisterDataPack("VoicePack", {
         soundEffects = {
@@ -221,7 +168,7 @@ function TestPackSoundOpenList:testTheOpenListKeepsItsRowsUntilTheNextOpen()
     })
     luaunit.assertEquals(opened[1].label, "VoicePack / Hello")
     luaunit.assertEquals(opened[1].soundId, 12345)
-    local again = self.packs:SoundEffectRows()
+    local again = PackRows.SoundEffectRows(self.packs)
     luaunit.assertEquals(#again, 1)
     luaunit.assertEquals(again[1].label, "VoicePack / Welcome")
     luaunit.assertEquals(again[1].soundId, 999)
@@ -234,9 +181,9 @@ function TestPackSoundOpenList:testTheSelectedRowIsTheStoredPackAndAuthorId()
             { authorId = "greet_02", label = "Hello", soundId = 12345 },
         },
     })
-    local rows = self.packs:SoundEffectRows()
+    local rows = PackRows.SoundEffectRows(self.packs)
     local stored = { pack = "VoicePack", authorId = "greet_02", soundId = 1 }
-    local index = self.packs:SoundEffectSelectedRow(rows, stored)
+    local index = PackRows.SoundEffectSelectedRow(rows, stored)
     luaunit.assertNotNil(index)
     luaunit.assertEquals(rows[index].pack, "VoicePack")
     luaunit.assertEquals(rows[index].authorId, "greet_02")
@@ -248,21 +195,17 @@ function TestPackSoundOpenList:testARawNumberDoesNotSelectARowWithTheSameSoundId
             { authorId = "greet_01", label = "Hello", soundId = 12345 },
         },
     })
-    luaunit.assertNil(self.packs:SoundEffectSelectedRow(self.packs:SoundEffectRows(), 12345))
+    luaunit.assertNil(PackRows.SoundEffectSelectedRow(PackRows.SoundEffectRows(self.packs), 12345))
 end
 
-function TestPackSoundOpenList:testChoosingTheOfferAgainStoresTheSoundIdItOffersNow()
+function TestPackSoundOpenList:testAStoredPackAndAuthorIdWithNoOfferSelectsNothing()
     self.packs:RegisterDataPack("VoicePack", {
         soundEffects = {
-            { authorId = "greet_01", label = "Hello", soundId = 999 },
+            { authorId = "other", label = "Hello", soundId = 12345 },
         },
     })
     local stored = { pack = "VoicePack", authorId = "greet_01", soundId = 12345 }
-    local rows = self.packs:SoundEffectRows()
-    local index = self.packs:SoundEffectSelectedRow(rows, stored)
-    local committed = self.packs:CommitSoundEffect(stored, "row", rows[index])
-    luaunit.assertEquals(committed, { pack = "VoicePack", authorId = "greet_01", soundId = 999 })
-    luaunit.assertEquals(self.packs:SoundEffectClosedLabel(committed), "VoicePack / Hello")
+    luaunit.assertNil(PackRows.SoundEffectSelectedRow(PackRows.SoundEffectRows(self.packs), stored))
 end
 
 TestPackSoundPlay = {}

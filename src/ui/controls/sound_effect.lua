@@ -2,6 +2,8 @@ local Dropdown = require("src/ui/widgets/dropdown")
 local NumberField = require("src/ui/widgets/number_field")
 local Theme = require("src/ui/theme")
 local Packs = require("src/packs")
+local PackRows = require("src/pack_rows")
+local SoundEffectValue = require("src/sound_effect_value")
 
 -- Sound Effect's pin stays dataType "number" so a number output can still wire
 -- in. This module is registered for that pin only. The builtin id and the pack
@@ -22,7 +24,7 @@ end
 ---@return boolean
 function SoundEffect.HasPackRows()
     local packs = Packs.live() or Packs.new()
-    return #packs:SoundEffectRows() > 0
+    return #PackRows.SoundEffectRows(packs) > 0
 end
 
 --- Number row, then the pack row, inside the band under the pin. The pack row
@@ -49,7 +51,7 @@ function SoundEffect.Display(ctrl)
     end
     -- A raw builtin id has no pack offer. The number row already shows it.
     if type(ctrl.value) == "number" then return "" end
-    return packs:SoundEffectClosedLabel(ctrl.value)
+    return PackRows.SoundEffectClosedLabel(packs, ctrl.value)
 end
 
 -- Rows are the set captured at open. The combo narrows them; this does not
@@ -76,7 +78,7 @@ function SoundEffect.EditNumber(host, ctrl)
         local parsed = NumberField.Parse(raw, quantity)
         if parsed == nil then return end
         local stored = host:GetControl()
-        host:Commit(packs:CommitSoundEffect(stored, "number", parsed))
+        host:Commit(SoundEffectValue.apply(stored, "number", parsed))
     end)
 end
 
@@ -84,13 +86,13 @@ end
 ---@param ctrl table
 function SoundEffect.EditPack(host, ctrl)
     local packs = Packs.live() or Packs.new()
-    local rows = packs:SoundEffectRows()
+    local rows = PackRows.SoundEffectRows(packs)
     if #rows == 0 then return end
     local labels = {}
     for i, row in ipairs(rows) do
         labels[i] = row.label
     end
-    local index = packs:SoundEffectSelectedRow(rows, ctrl.value)
+    local index = PackRows.SoundEffectSelectedRow(rows, ctrl.value)
     local initial = nil
     if index ~= nil then initial = labels[index] end
     host:MountDropdown(ctrl, {
@@ -100,7 +102,7 @@ function SoundEffect.EditPack(host, ctrl)
         for _, row in ipairs(rows) do
             if row.label == label then
                 local stored = host:GetControl()
-                host:Commit(packs:CommitSoundEffect(stored, "row", row))
+                host:Commit(SoundEffectValue.apply(stored, "row", row))
                 return
             end
         end

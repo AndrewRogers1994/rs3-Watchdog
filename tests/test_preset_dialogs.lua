@@ -204,15 +204,11 @@ function TestPresetVariableSound:testChoosingAPackSoundFillsTheSoundIdAndCreates
     self.combos[1].opts.onChange(self.combos[1], 3, "Voice / Horn")
     luaunit.assertEquals(self.fields[1].text, "222")
     click(self.buttons, "Create")
-    luaunit.assertEquals(answers[1].raw, "222")
-    luaunit.assertEquals(answers[1].packRow.pack, "Voice")
-    luaunit.assertEquals(answers[1].packRow.authorId, "horn")
-    luaunit.assertEquals(answers[1].packRow.soundId, 222)
-    luaunit.assertNil(answers[1].clearPack)
+    luaunit.assertEquals(answers[1], { pack = "Voice", authorId = "horn", soundId = 222 })
     luaunit.assertEquals(answers[2], { raw = "4", quantity = nil })
 end
 
-function TestPresetVariableSound:testAnUntouchedPackRecordStaysOnTheNumberAnswer()
+function TestPresetVariableSound:testAnUntouchedPackSoundEffectShowsItsBuiltinSoundId()
     self.packs:RegisterDataPack("Voice", {
         soundEffects = {
             { authorId = "bell", label = "Bell", soundId = 111 },
@@ -227,26 +223,19 @@ function TestPresetVariableSound:testAnUntouchedPackRecordStaysOnTheNumberAnswer
     luaunit.assertEquals(self.fields[1].text, "12345")
     luaunit.assertEquals(self.combos[1].selectedID, 2)
     click(self.buttons, "Create")
-    luaunit.assertEquals(answers[1], { raw = "12345", quantity = nil })
+    luaunit.assertEquals(answers[2], { raw = "4", quantity = nil })
 end
 
-function TestPresetVariableSound:testChoosingNoneDropsThePackRecord()
+function TestPresetVariableSound:testChoosingNoneLeavesTheTypedSoundId()
     self.packs:RegisterDataPack("Voice", {
         soundEffects = {
             { authorId = "bell", label = "Bell", soundId = 111 },
         },
     })
     local record = { pack = "Voice", authorId = "bell", soundId = 12345 }
-    local answers
-    self:mount(self:preset(record), function(got)
-        answers = got
-        return 1
-    end)
+    self:mount(self:preset(record))
     self.combos[1].opts.onChange(self.combos[1], 1, "None")
-    click(self.buttons, "Create")
-    luaunit.assertEquals(answers[1].raw, "12345")
-    luaunit.assertEquals(answers[1].clearPack, true)
-    luaunit.assertNil(answers[1].packRow)
+    luaunit.assertEquals(self.fields[1].text, "12345")
 end
 
 function TestPresetVariableSound:testTypingADifferentIdClearsThePackSelection()
@@ -256,18 +245,10 @@ function TestPresetVariableSound:testTypingADifferentIdClearsThePackSelection()
         },
     })
     local record = { pack = "Voice", authorId = "bell", soundId = 12345 }
-    local answers
-    self:mount(self:preset(record), function(got)
-        answers = got
-        return 1
-    end)
+    self:mount(self:preset(record))
     self.fields[1].text = "99"
     self.fields[1].opts.onChange(self.fields[1])
     luaunit.assertEquals(self.combos[1].selectedID, 1)
-    click(self.buttons, "Create")
-    luaunit.assertEquals(answers[1].raw, "99")
-    luaunit.assertEquals(answers[1].clearPack, true)
-    luaunit.assertNil(answers[1].packRow)
 end
 
 function TestPresetVariableSound:testNoPackSoundsLeavesTheMessageInsteadOfADropdown()

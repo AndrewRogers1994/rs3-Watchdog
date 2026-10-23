@@ -14,7 +14,8 @@ LibNodeGraph = {
 }
 
 local Packs = require("src/packs")
-local Presets = require("src/presets")
+local PackRows = require("src/pack_rows")
+local PresetCopy = require("src/preset_copy")
 local Store = require("src/store")
 local Registry = require("registry")
 -- Records string/number widget kinds that bake reads.
@@ -84,7 +85,7 @@ function TestPackAlerts:testGroupsFollowNaturalPackNameOrder()
     })
 
     local got = {}
-    for i, group in ipairs(self.packs:AlertPresetGroups()) do
+    for i, group in ipairs(PackRows.AlertPresetGroups(self.packs)) do
         got[i] = group.packName
     end
     luaunit.assertEquals(got, {
@@ -117,7 +118,7 @@ function TestPackAlerts:testPresetsInsideAGroupFollowNameThenAuthorId()
         },
     })
 
-    local groups = self.packs:AlertPresetGroups()
+    local groups = PackRows.AlertPresetGroups(self.packs)
     luaunit.assertEquals(#groups, 1)
     luaunit.assertEquals(groups[1].packName, "Voice")
     local got = {}
@@ -169,7 +170,7 @@ function TestPackAlerts:testCapturedSnapshotCopiesAnEnabledAlertWithoutAnAuthorI
             },
         },
     })
-    local snapshot = self.packs:AlertPresetGroups()[1].presets[1]
+    local snapshot = PackRows.AlertPresetGroups(self.packs)[1].presets[1]
     luaunit.assertEquals(snapshot.name, "Enrage callout")
 
     PersistentDB = newFakePersistentDB()
@@ -179,7 +180,7 @@ function TestPackAlerts:testCapturedSnapshotCopiesAnEnabledAlertWithoutAnAuthorI
     existing:AddNode("fixture.note")
     Store.InsertEntry(bucket, Store.NewAlertEntry(7, "existing", existing, {}, true))
 
-    local entry, live, layout, err = Presets.InstantiateSnapshot(bucket, snapshot, registry)
+    local entry, live, layout, err = PresetCopy.InstantiateSnapshot(bucket, snapshot, registry)
     luaunit.assertNil(err)
     luaunit.assertEquals(entry.id, 8)
     luaunit.assertEquals(entry.kind, "alert")
@@ -205,7 +206,7 @@ function TestPackAlerts:testCapturedSnapshotCopiesAnEnabledAlertWithoutAnAuthorI
     luaunit.assertEquals(PersistentDB.data, { presets = "library" })
     luaunit.assertEquals(self.packs:GetAlertPreset("Voice", "greet").name, "Enrage callout")
 
-    local again = Presets.InstantiateSnapshot(bucket, snapshot, registry)
+    local again = PresetCopy.InstantiateSnapshot(bucket, snapshot, registry)
     luaunit.assertEquals(again.id, 9)
     luaunit.assertEquals(#bucket.entries, 3)
     luaunit.assertEquals(PersistentDB.data, { presets = "library" })
@@ -230,7 +231,7 @@ function TestPackAlerts:testVariablesBakeInCapturedListOrder()
             },
         },
     })
-    local snapshot = self.packs:AlertPresetGroups()[1].presets[1]
+    local snapshot = PackRows.AlertPresetGroups(self.packs)[1].presets[1]
     luaunit.assertEquals(snapshot.variables, {
         { nodeId = second, pinName = "text" },
         { nodeId = first, pinName = "text" },
@@ -239,14 +240,14 @@ function TestPackAlerts:testVariablesBakeInCapturedListOrder()
     PersistentDB = newFakePersistentDB()
     PersistentDB:SetString("presets", "library")
     local bucket = Store.Empty()
-    local refused, _, _, refuseErr = Presets.InstantiateSnapshot(bucket, snapshot, registry)
+    local refused, _, _, refuseErr = PresetCopy.InstantiateSnapshot(bucket, snapshot, registry)
     luaunit.assertNil(refused)
     luaunit.assertEquals(refuseErr, "variables")
     luaunit.assertEquals(bucket.entries, {})
     luaunit.assertEquals(self.packs:GetAlertPreset("Voice", "greet").name, "Callout")
     luaunit.assertEquals(PersistentDB.data, { presets = "library" })
 
-    local entry, live, _, err = Presets.InstantiateSnapshot(bucket, snapshot, registry, {
+    local entry, live, _, err = PresetCopy.InstantiateSnapshot(bucket, snapshot, registry, {
         "from-second",
         "from-first",
     })
@@ -261,7 +262,7 @@ function TestPackAlerts:testVariablesBakeInCapturedListOrder()
     luaunit.assertEquals(PersistentDB.data, { presets = "library" })
 end
 
-function TestPackAlerts:testASoundEffectVariableKeepsThePackRecord()
+function TestPackAlerts:testASoundEffectAnswerIsWrittenOntoTheControl()
     _G.id = _G.id or {}
     _G.id.Sound = _G.id.Sound or { TOWN_CRIER_BELL_RING_1 = 2608 }
     local registry = Registry.new()
@@ -277,69 +278,48 @@ function TestPackAlerts:testASoundEffectVariableKeepsThePackRecord()
             variables = { { nodeId = nodeId, pinName = "soundId" } },
         } },
     })
-    local snapshot = self.packs:AlertPresetGroups()[1].presets[1]
+    local snapshot = PackRows.AlertPresetGroups(self.packs)[1].presets[1]
     local bucket = Store.Empty()
 
-    local refused, _, _, refuseErr = Presets.InstantiateSnapshot(bucket, snapshot, registry, { "" })
+    local refused, _, _, refuseErr = PresetCopy.InstantiateSnapshot(bucket, snapshot, registry, { "" })
     luaunit.assertNil(refused)
     luaunit.assertEquals(refuseErr, "Enter a number.")
     luaunit.assertEquals(bucket.entries, {})
     luaunit.assertEquals(self.packs:GetAlertPreset("Voice", "greet").name, "Callout")
 
-    local entry, live, _, err = Presets.InstantiateSnapshot(bucket, snapshot, registry, {
-        { raw = "12345" },
+    local entry, live, _, err = PresetCopy.InstantiateSnapshot(bucket, snapshot, registry, {
+        record,
     })
     luaunit.assertNil(err)
     luaunit.assertEquals(live:GetControl(nodeId, "soundId"), record)
     luaunit.assertEquals(#bucket.entries, 1)
     luaunit.assertEquals(entryKeys(entry), { "enabled", "graph", "id", "kind", "layout", "name" })
 
-    local replaced, replacedLive = Presets.InstantiateSnapshot(bucket, snapshot, registry, {
-        { raw = "99" },
+    local replaced, replacedLive = PresetCopy.InstantiateSnapshot(bucket, snapshot, registry, {
+        99,
     })
     luaunit.assertEquals(replacedLive:GetControl(nodeId, "soundId"), 99)
     luaunit.assertEquals(live:GetControl(nodeId, "soundId"), record)
     luaunit.assertTrue(replaced.id ~= entry.id)
 end
 
-function TestPackAlerts:testAChosenPackSoundIsStoredOnTheSoundEffect()
+function TestPackAlerts:testAPlainNumberAnswerIsParsedOntoTheSoundEffect()
     _G.id = _G.id or {}
     _G.id.Sound = _G.id.Sound or { TOWN_CRIER_BELL_RING_1 = 2608 }
     local registry = Registry.new()
     require("src/nodes/actions/sound").Register(registry)
     local graph = LibNodeGraph.NewGraph(registry)
-    local nodeId = graph:AddNode("action.sound", { soundId = 2608 })
+    local nodeId = graph:AddNode("action.sound", {
+        soundId = { pack = "Voice", authorId = "bell", soundId = 12345 },
+    })
     local snapshot = {
         name = "Callout",
         graph = LibNodeGraph.Serialize(graph),
         variables = { { nodeId = nodeId, pinName = "soundId" } },
     }
     local bucket = Store.Empty()
-    local _, live, _, err = Presets.InstantiateSnapshot(bucket, snapshot, registry, {
-        { raw = "50", packRow = { pack = "Voice", authorId = "horn", soundId = 50, label = "Voice / Horn" } },
-    })
-    luaunit.assertNil(err)
-    luaunit.assertEquals(live:GetControl(nodeId, "soundId"), {
-        pack = "Voice", authorId = "horn", soundId = 50,
-    })
-end
-
-function TestPackAlerts:testChoosingNoneStoresTheBuiltinSoundId()
-    _G.id = _G.id or {}
-    _G.id.Sound = _G.id.Sound or { TOWN_CRIER_BELL_RING_1 = 2608 }
-    local registry = Registry.new()
-    require("src/nodes/actions/sound").Register(registry)
-    local record = { pack = "Voice", authorId = "bell", soundId = 12345 }
-    local graph = LibNodeGraph.NewGraph(registry)
-    local nodeId = graph:AddNode("action.sound", { soundId = record })
-    local snapshot = {
-        name = "Callout",
-        graph = LibNodeGraph.Serialize(graph),
-        variables = { { nodeId = nodeId, pinName = "soundId" } },
-    }
-    local bucket = Store.Empty()
-    local _, live, _, err = Presets.InstantiateSnapshot(bucket, snapshot, registry, {
-        { raw = "12345", clearPack = true },
+    local _, live, _, err = PresetCopy.InstantiateSnapshot(bucket, snapshot, registry, {
+        { raw = "12345" },
     })
     luaunit.assertNil(err)
     luaunit.assertEquals(live:GetControl(nodeId, "soundId"), 12345)
@@ -362,7 +342,7 @@ function TestPackAlerts:testANumberVariableIgnoresAPackSoundRow()
         variables = { { nodeId = nodeId, pinName = "hold" } },
     }
     local bucket = Store.Empty()
-    local _, live, _, err = Presets.InstantiateSnapshot(bucket, snapshot, registry, {
+    local _, live, _, err = PresetCopy.InstantiateSnapshot(bucket, snapshot, registry, {
         { raw = "8", packRow = { pack = "Voice", authorId = "bell", soundId = 8 } },
     })
     luaunit.assertNil(err)
@@ -386,9 +366,9 @@ function TestPackAlerts:testACustomSoundVariableBakesThePackAudioRecord()
             variables = { { nodeId = nodeId, pinName = "resource" } },
         } },
     })
-    local snapshot = self.packs:AlertPresetGroups()[1].presets[1]
+    local snapshot = PackRows.AlertPresetGroups(self.packs)[1].presets[1]
     local bucket = Store.Empty()
-    local _, live, _, err = Presets.InstantiateSnapshot(bucket, snapshot, registry, { record })
+    local _, live, _, err = PresetCopy.InstantiateSnapshot(bucket, snapshot, registry, { record })
     luaunit.assertNil(err)
     luaunit.assertEquals(live:GetControl(nodeId, "resource"), record)
     luaunit.assertNil(live:GetControl(nodeId, "resource").soundId)
@@ -416,13 +396,13 @@ function TestPackAlerts:testFailedBakeLeavesTheBucketAndTheOffer()
             },
         },
     })
-    local snapshot = self.packs:AlertPresetGroups()[1].presets[1]
+    local snapshot = PackRows.AlertPresetGroups(self.packs)[1].presets[1]
     local bucket = Store.Empty()
     local existing = LibNodeGraph.NewGraph(registry)
     existing:AddNode("fixture.note")
     Store.InsertEntry(bucket, Store.NewAlertEntry(7, "existing", existing, {}, true))
 
-    local entry, _, _, err = Presets.InstantiateSnapshot(bucket, snapshot, registry, { "" })
+    local entry, _, _, err = PresetCopy.InstantiateSnapshot(bucket, snapshot, registry, { "" })
     luaunit.assertNil(entry)
     luaunit.assertEquals(err, "Enter a number.")
     luaunit.assertEquals(#bucket.entries, 1)
@@ -441,13 +421,13 @@ function TestPackAlerts:testFailedDeserializeLeavesTheBucketAndTheOffer()
             { authorId = "greet", name = "Callout", graph = { nodes = { {} } } },
         },
     })
-    local snapshot = self.packs:AlertPresetGroups()[1].presets[1]
+    local snapshot = PackRows.AlertPresetGroups(self.packs)[1].presets[1]
     local bucket = Store.Empty()
     local existing = LibNodeGraph.NewGraph(registry)
     existing:AddNode("fixture.note")
     Store.InsertEntry(bucket, Store.NewAlertEntry(7, "existing", existing, {}, true))
 
-    local entry, _, _, err = Presets.InstantiateSnapshot(bucket, snapshot, registry)
+    local entry, _, _, err = PresetCopy.InstantiateSnapshot(bucket, snapshot, registry)
     luaunit.assertNil(entry)
     luaunit.assertEquals(err, "Could not copy the preset graph.")
     luaunit.assertEquals(#bucket.entries, 1)
@@ -472,12 +452,12 @@ function TestPackAlerts:testLaterRegistrationReplacesOnlyTheNextOffer()
         },
     })
     local captured
-    for _, preset in ipairs(self.packs:AlertPresetGroups()[1].presets) do
+    for _, preset in ipairs(PackRows.AlertPresetGroups(self.packs)[1].presets) do
         if preset.authorId == "greet" then captured = preset end
     end
 
     local bucket = Store.Empty()
-    local entry, live = Presets.InstantiateSnapshot(bucket, captured, registry)
+    local entry, live = PresetCopy.InstantiateSnapshot(bucket, captured, registry)
     luaunit.assertEquals(entry.name, "Greet")
     luaunit.assertEquals(live:GetControl(1, "text"), "first")
     luaunit.assertEquals(entryKeys(entry), { "enabled", "graph", "id", "kind", "layout", "name" })
@@ -493,13 +473,13 @@ function TestPackAlerts:testLaterRegistrationReplacesOnlyTheNextOffer()
     luaunit.assertEquals(live:GetControl(1, "text"), "first")
     luaunit.assertNil(self.packs:GetAlertPreset("Voice", "bell"))
 
-    local nextGroups = self.packs:AlertPresetGroups()
+    local nextGroups = PackRows.AlertPresetGroups(self.packs)
     luaunit.assertEquals(#nextGroups, 1)
     luaunit.assertEquals(#nextGroups[1].presets, 1)
     luaunit.assertEquals(nextGroups[1].presets[1].authorId, "greet")
     luaunit.assertEquals(nextGroups[1].presets[1].graph.nodes[1].controls.text, "second")
 
-    local again, againLive = Presets.InstantiateSnapshot(bucket, captured, registry)
+    local again, againLive = PresetCopy.InstantiateSnapshot(bucket, captured, registry)
     luaunit.assertEquals(again.id, entry.id + 1)
     luaunit.assertEquals(againLive:GetControl(1, "text"), "first")
     luaunit.assertEquals(#bucket.entries, 2)

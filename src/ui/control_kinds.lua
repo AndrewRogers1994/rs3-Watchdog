@@ -1,5 +1,6 @@
 -- Tag -> widget kind, recorded where the tag is registered.
--- presets.lua reads this table and does not draw.
+-- The Preset library reads this table to decide which pins can be marked.
+-- Copying a Preset into a Scope reads it to bake an answer. Neither draws.
 
 local ControlKinds = {}
 

@@ -6,10 +6,13 @@
 
 local Dialog = require("src/ui/dialog")
 local Presets = require("src/presets")
+local PresetLabels = require("src/ui/preset_labels")
 local Packs = require("src/packs")
+local PackRows = require("src/pack_rows")
 local ControlKinds = require("src/ui/control_kinds")
 local NumberField = require("src/ui/widgets/number_field")
 local SoundEffect = require("src/ui/controls/sound_effect")
+local SoundEffectValue = require("src/sound_effect_value")
 
 local PresetDialogs = {}
 
@@ -115,15 +118,14 @@ local function valueText(graph, nodeId, pinName)
         return ""
     end
     if widget == "number" then
-        return Presets.NumberVariableText(value)
+        return PresetLabels.NumberVariableText(Packs.live() or Packs.new(), value)
     end
     if widget == "enum" then
-        for _, choice in ipairs(ControlKinds.Choices(pin.dataType) or {}) do
-            if Presets.sameStored(choice.value, value) then return choice.label end
-        end
+        local choices = ControlKinds.Choices(pin.dataType) or {}
+        local index = PackRows.MatchingChoice(choices, value)
+        if index ~= nil then return choices[index].label end
         if type(value) == "table" then
-            local packs = Packs.live() or Packs.new()
-            return packs:AudioClosedLabel(value)
+            return PackRows.AudioClosedLabel(Packs.live() or Packs.new(), value)
         end
         if value == nil then return "" end
         return tostring(value)
@@ -274,7 +276,7 @@ function PresetDialogs.mountSave(parent, opts)
                 else
                     for _, mark in ipairs(marks) do
                         local captured = mark
-                        body:AddText(Presets.MarkLabel(graph, captured.nodeId, captured.pinName) or "")
+                        body:AddText(PresetLabels.MarkLabel(graph, captured.nodeId, captured.pinName) or "")
                         body:AddText(valueText(graph, captured.nodeId, captured.pinName))
                         body:AddSimpleButton("Remove", function()
                             reopen(mounted, withoutMark(marks, captured.nodeId, captured.pinName), nil)
@@ -284,7 +286,7 @@ function PresetDialogs.mountSave(parent, opts)
                         body:AddText("Choose a node")
                         for _, group in ipairs(choices) do
                             local captured = group
-                            local title = Presets.NodeTitle(graph, captured.nodeId) or tostring(captured.nodeId)
+                            local title = PresetLabels.NodeTitle(graph, captured.nodeId) or tostring(captured.nodeId)
                             body:AddSimpleButton(title, function()
                                 if #captured.pinNames == 1 then
                                     reopen(mounted, withMark(marks, captured.nodeId, captured.pinNames[1]), nil)
@@ -309,7 +311,7 @@ function PresetDialogs.mountSave(parent, opts)
                             for _, pinName in ipairs(group.pinNames) do
                                 local capturedPin = pinName
                                 local nodeId = group.nodeId
-                                body:AddSimpleButton(Presets.PinLabel(graph, nodeId, capturedPin), function()
+                                body:AddSimpleButton(PresetLabels.PinLabel(graph, nodeId, capturedPin), function()
                                     reopen(mounted, withMark(marks, nodeId, capturedPin), nil)
                                 end)
                             end
@@ -339,6 +341,7 @@ end
 ---@field value any
 ---@field choices { value: any, label: string }[]|nil
 ---@field soundRows Watchdog.PackSoundRow[]|nil
+---@field stored any
 ---@field shown Watchdog.PackSoundRow|nil
 ---@field packTouched boolean|nil
 ---@field noneId integer|nil
@@ -389,6 +392,21 @@ local function syncSoundText(slot)
     end
 end
 
+-- The answer is the value to store. An untouched pack list is a typed id.
+-- Choosing a row or None is the player's explicit action.
+---@param slot PresetDialogs.VariableSlot
+---@return any
+local function soundEffectAnswer(slot)
+    local parsed = NumberField.Parse(slot.raw, slot.quantity)
+    if slot.packTouched == true then
+        if slot.shown ~= nil then
+            return SoundEffectValue.apply(slot.stored, "row", slot.shown)
+        end
+        return SoundEffectValue.apply(slot.stored, "none", parsed)
+    end
+    return SoundEffectValue.apply(slot.stored, "number", parsed)
+end
+
 ---@param graph LibNodeGraph.Graph
 ---@param mark Watchdog.PresetVariable
 ---@return PresetDialogs.VariableSlot
@@ -408,13 +426,14 @@ local function slotFor(graph, mark)
     local value = graph:GetControl(mark.nodeId, mark.pinName)
     if widget == "number" then
         -- A pack sound record shows its builtin sound id, so Create stays enabled.
-        slot.raw = Presets.NumberVariableText(value)
+        slot.raw = PresetLabels.NumberVariableText(Packs.live() or Packs.new(), value)
         if isSoundEffectMark(graph, mark) then
+            slot.stored = value
             local packs = Packs.live() or Packs.new()
-            local rows = packs:SoundEffectRows()
+            local rows = PackRows.SoundEffectRows(packs)
             sortSoundRows(rows)
             slot.soundRows = rows
-            local index = packs:SoundEffectSelectedRow(rows, value)
+            local index = PackRows.SoundEffectSelectedRow(rows, value)
             if index ~= nil then slot.shown = rows[index] end
         end
     elseif widget == "matcher" then
@@ -425,9 +444,9 @@ local function slotFor(graph, mark)
         local label = nil
         if type(value) == "table" then
             local packs = Packs.live()
-            if packs ~= nil then label = packs:AudioClosedLabel(value) end
+            if packs ~= nil then label = PackRows.AudioClosedLabel(packs, value) end
         end
-        slot.value, slot.choices = Presets.EnumSlotValue(
+        slot.value, slot.choices = PresetLabels.EnumSlotValue(
             value, ControlKinds.Choices(pin.dataType) or {}, pin.default, label)
     elseif type(value) == "string" then
         slot.raw = value
@@ -478,14 +497,11 @@ local function mountSoundPack(body, slot, field, slots, createAction)
     for i, row in ipairs(rows) do
         entries[#entries + 1] = { label = row.label, id = i + 1, order = i }
     end
-    local selected = SOUND_NONE_ID
-    if slot.shown ~= nil then
-        for i, row in ipairs(rows) do
-            if row.pack == slot.shown.pack and row.authorId == slot.shown.authorId then
-                selected = i + 1
-                break
-            end
-        end
+    local selected = PackRows.SoundEffectSelectedRow(rows, slot.shown)
+    if selected ~= nil then
+        selected = selected + 1
+    else
+        selected = SOUND_NONE_ID
     end
     slot.mounting = true
     slot.combo = body:AddComboBox({
@@ -550,17 +566,11 @@ function PresetDialogs.mountVariables(parent, opts)
             local answers = {}
             for i, slot in ipairs(slots) do
                 if slot.widget == "number" then
-                    local answer = { raw = slot.raw, quantity = slot.quantity }
-                    -- An untouched pack list stays on the number path so an
-                    -- outdated record is kept. Choosing a row or None is explicit.
-                    if slot.soundRows ~= nil and slot.packTouched == true then
-                        if slot.shown ~= nil then
-                            answer.packRow = slot.shown
-                        else
-                            answer.clearPack = true
-                        end
+                    if slot.soundRows ~= nil then
+                        answers[i] = soundEffectAnswer(slot)
+                    else
+                        answers[i] = { raw = slot.raw, quantity = slot.quantity }
                     end
-                    answers[i] = answer
                 elseif slot.widget == "enum" then
                     answers[i] = slot.value
                 else
@@ -596,17 +606,11 @@ function PresetDialogs.mountVariables(parent, opts)
             else
                 for index, mark in ipairs(variables) do
                     local slot = slots[index]
-                    local label = Presets.MarkLabel(graph, mark.nodeId, mark.pinName) or mark.pinName
+                    local label = PresetLabels.MarkLabel(graph, mark.nodeId, mark.pinName) or mark.pinName
                     body:AddText(label)
                     if slot.widget == "enum" then
                         local choices = slot.choices or {}
-                        local selected = 1
-                        for i, choice in ipairs(choices) do
-                            if Presets.sameStored(choice.value, slot.value) then
-                                selected = i
-                                break
-                            end
-                        end
+                        local selected = PackRows.MatchingChoice(choices, slot.value) or 1
                         local entries = {}
                         for i, choice in ipairs(choices) do
                             entries[i] = { label = choice.label, id = i, order = i }

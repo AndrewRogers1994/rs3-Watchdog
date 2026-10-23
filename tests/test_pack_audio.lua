@@ -1,8 +1,12 @@
 -- Pack audio files on the Custom Sound choice list.
+-- Rows, closed text, and the open list are the row builder. The test passes
+-- the registry it built and the Watchdog audio file names. Play stays on the
+-- Pack registry.
 -- Loaded directly, the way the Preset library tests load that library. No PrettyUI.
 
 local luaunit = require("luaunit")
 local Packs = require("src/packs")
+local PackRows = require("src/pack_rows")
 local Registry = require("registry")
 local Graph = require("graph")
 local Serialize = require("serialize")
@@ -28,7 +32,7 @@ function TestPackAudioRows:testRowsAreNoneThenWatchdogFilesThenPackAudioFiles()
             { authorId = "bell", label = "Bell", audio = { loaded = true } },
         },
     })
-    local rows = self.packs:OpenAudioChoices({ "boop", "None", "beep" }, nil):Rows()
+    local rows = PackRows.OpenAudioChoices(self.packs, { "boop", "None", "beep" }, nil):Rows()
     luaunit.assertEquals(labelsOf(rows), { "None", "beep", "boop", "Voice / Bell" })
     luaunit.assertNil(rows[1].value)
     luaunit.assertEquals(rows[2].value, "beep")
@@ -44,7 +48,7 @@ function TestPackAudioRows:testARepeatedLabelInsideOnePackShowsTheAuthorId()
             { authorId = "horn", label = "Horn", audio = { loaded = true } },
         },
     })
-    local rows = self.packs:OpenAudioChoices({}, nil):Rows()
+    local rows = PackRows.OpenAudioChoices(self.packs, {}, nil):Rows()
     luaunit.assertEquals(labelsOf(rows), {
         "None",
         "Voice / Bell (bell)",
@@ -64,7 +68,7 @@ function TestPackAudioRows:testTheSameLabelInTwoPacksKeepsThePackNameOnly()
             { authorId = "bell", label = "Bell", audio = { loaded = true } },
         },
     })
-    local rows = self.packs:OpenAudioChoices({}, nil):Rows()
+    local rows = PackRows.OpenAudioChoices(self.packs, {}, nil):Rows()
     luaunit.assertEquals(labelsOf(rows), { "None", "Horns / Bell", "Voice / Bell" })
 end
 
@@ -81,7 +85,7 @@ function TestPackAudioClosedLabel:testALivePackAudioFileShowsTheOpenRowText()
         },
     })
     local stored = { pack = "Voice", authorId = "bell" }
-    luaunit.assertEquals(self.packs:AudioClosedLabel(stored), "Voice / Bell")
+    luaunit.assertEquals(PackRows.AudioClosedLabel(self.packs, stored), "Voice / Bell")
 end
 
 function TestPackAudioClosedLabel:testARepeatedLabelUsesTheOpenRowText()
@@ -91,20 +95,20 @@ function TestPackAudioClosedLabel:testARepeatedLabelUsesTheOpenRowText()
             { authorId = "chime", label = "Bell", audio = { loaded = true } },
         },
     })
-    luaunit.assertEquals(self.packs:AudioClosedLabel({ pack = "Voice", authorId = "bell" }), "Voice / Bell (bell)")
-    luaunit.assertEquals(self.packs:AudioClosedLabel({ pack = "Voice", authorId = "chime" }), "Voice / Bell (chime)")
+    luaunit.assertEquals(PackRows.AudioClosedLabel(self.packs, { pack = "Voice", authorId = "bell" }), "Voice / Bell (bell)")
+    luaunit.assertEquals(PackRows.AudioClosedLabel(self.packs, { pack = "Voice", authorId = "chime" }), "Voice / Bell (chime)")
 end
 
 function TestPackAudioClosedLabel:testAMissingPackAudioFileNamesThePackAndAuthorId()
     luaunit.assertEquals(
-        self.packs:AudioClosedLabel({ pack = "Voice", authorId = "bell" }),
+        PackRows.AudioClosedLabel(self.packs, { pack = "Voice", authorId = "bell" }),
         "Voice / bell (missing)"
     )
 end
 
 function TestPackAudioClosedLabel:testNoneAndAWatchdogFileKeepTheirClosedLabels()
-    luaunit.assertEquals(self.packs:AudioClosedLabel(nil), "None")
-    luaunit.assertEquals(self.packs:AudioClosedLabel("alarm"), "alarm")
+    luaunit.assertEquals(PackRows.AudioClosedLabel(self.packs, nil), "None")
+    luaunit.assertEquals(PackRows.AudioClosedLabel(self.packs, "alarm"), "alarm")
 end
 
 function TestPackAudioClosedLabel:testAChangedLabelShowsTheLiveLabel()
@@ -119,7 +123,7 @@ function TestPackAudioClosedLabel:testAChangedLabelShowsTheLiveLabel()
             { authorId = "bell", label = "Chime", audio = { loaded = true } },
         },
     })
-    luaunit.assertEquals(self.packs:AudioClosedLabel({ pack = "Voice", authorId = "bell" }), "Voice / Chime")
+    luaunit.assertEquals(PackRows.AudioClosedLabel(self.packs, { pack = "Voice", authorId = "bell" }), "Voice / Chime")
 end
 
 TestPackAudioCommit = {}
@@ -134,46 +138,46 @@ function TestPackAudioCommit:setUp()
 end
 
 function TestPackAudioCommit:testChoosingNoneStoresNil()
-    local list = self.packs:OpenAudioChoices({ "beep" }, { pack = "Voice", authorId = "bell" })
+    local list = PackRows.OpenAudioChoices(self.packs, { "beep" }, { pack = "Voice", authorId = "bell" })
     local value, found = list:Commit("None")
     luaunit.assertTrue(found)
     luaunit.assertNil(value)
 end
 
 function TestPackAudioCommit:testChoosingAWatchdogFileStoresThatFileName()
-    local list = self.packs:OpenAudioChoices({ "beep" }, { pack = "Voice", authorId = "bell" })
+    local list = PackRows.OpenAudioChoices(self.packs, { "beep" }, { pack = "Voice", authorId = "bell" })
     luaunit.assertEquals(list:Commit("beep"), "beep")
 end
 
 function TestPackAudioCommit:testChoosingAPackFileStoresPackAndAuthorId()
-    local list = self.packs:OpenAudioChoices({ "beep" }, "beep")
+    local list = PackRows.OpenAudioChoices(self.packs, { "beep" }, "beep")
     local value = list:Commit("Voice / Bell")
     luaunit.assertEquals(value, { pack = "Voice", authorId = "bell" })
     luaunit.assertNil(value.audio)
 end
 
 function TestPackAudioCommit:testCommitKeepsTheCapturedIdentityAfterClear()
-    local list = self.packs:OpenAudioChoices({}, nil)
+    local list = PackRows.OpenAudioChoices(self.packs, {}, nil)
     self.packs:Clear(self.token)
     luaunit.assertEquals(list:Commit("Voice / Bell"), { pack = "Voice", authorId = "bell" })
 end
 
 function TestPackAudioCommit:testTheNextOpenReadsTheLiveRegistry()
-    local open = self.packs:OpenAudioChoices({}, nil)
+    local open = PackRows.OpenAudioChoices(self.packs, {}, nil)
     self.packs:Clear(self.token)
     self.packs:RegisterDataPack("Voice", {
         audioFiles = {
             { authorId = "horn", label = "Horn", audio = { loaded = true } },
         },
     })
-    local again = self.packs:OpenAudioChoices({}, nil)
+    local again = PackRows.OpenAudioChoices(self.packs, {}, nil)
     luaunit.assertEquals(labelsOf(open:Rows()), { "None", "Voice / Bell" })
     luaunit.assertEquals(labelsOf(again:Rows()), { "None", "Voice / Horn" })
 end
 
 function TestPackAudioCommit:testAHighlightIsNotACommit()
     local stored = { pack = "Voice", authorId = "bell" }
-    local list = self.packs:OpenAudioChoices({ "beep" }, stored)
+    local list = PackRows.OpenAudioChoices(self.packs, { "beep" }, stored)
     luaunit.assertEquals(list:HighlightedLabel(), "Voice / Bell")
     list:Highlight("beep")
     luaunit.assertEquals(list:HighlightedLabel(), "beep")
@@ -184,7 +188,7 @@ end
 
 function TestPackAudioCommit:testAStoredIdentityWithNoMatchingRowStaysStored()
     local stored = { pack = "Gone", authorId = "old" }
-    local list = self.packs:OpenAudioChoices({ "beep" }, stored)
+    local list = PackRows.OpenAudioChoices(self.packs, { "beep" }, stored)
     luaunit.assertEquals(list:HighlightedLabel(), "None")
     luaunit.assertEquals(list:Stored().pack, "Gone")
     luaunit.assertEquals(list:Stored().authorId, "old")
@@ -215,7 +219,7 @@ function TestPackAudioCommit:testNilStringAndPackRecordRoundTrip()
             { authorId = "bell", label = "Bell", audio = { loaded = true, id = sentinel } },
         },
     })
-    local stored = self.packs:OpenAudioChoices({}, nil):Commit("Voice / Bell")
+    local stored = PackRows.OpenAudioChoices(self.packs, {}, nil):Commit("Voice / Bell")
     graph:SetControl(id, "resource", stored)
     local encoded = Serialize.ExportJSON(graph)
     luaunit.assertNil(encoded:find(sentinel, 1, true))

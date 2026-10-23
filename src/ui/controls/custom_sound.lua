@@ -1,6 +1,7 @@
 local Inline = require("src/ui/controls/inline")
 local Dropdown = require("src/ui/widgets/dropdown")
 local Packs = require("src/packs")
+local PackRows = require("src/pack_rows")
 local Controls = require("src/ui/controls")
 local ControlKinds = require("src/ui/control_kinds")
 
@@ -9,7 +10,7 @@ local ControlKinds = require("src/ui/control_kinds")
 
 local CustomSound = {}
 
---- Plugin audio file names, including a file named None. OpenAudioChoices
+--- Plugin audio file names, including a file named None. The row builder
 --- drops that name and sorts the rest. Order past this list is the Pack registry.
 ---@return string[]
 local function watchdogFileNames()
@@ -28,7 +29,7 @@ end
 --- Called when the list is shown, not when the control is registered.
 ---@return Watchdog.AudioChoiceRow[]
 function CustomSound.Choices()
-    return (Packs.live() or Packs.new()):OpenAudioChoices(watchdogFileNames(), nil):Rows()
+    return PackRows.OpenAudioChoices(Packs.live() or Packs.new(), watchdogFileNames(), nil):Rows()
 end
 
 ---@param box { x: number, y: number, w: number, h: number }
@@ -40,7 +41,7 @@ end
 ---@param ctrl table
 ---@return string
 function CustomSound.Display(ctrl)
-    return (Packs.live() or Packs.new()):AudioClosedLabel(ctrl.value)
+    return PackRows.AudioClosedLabel(Packs.live() or Packs.new(), ctrl.value)
 end
 
 --- The open list is the row set captured here. The native combo sorts those
@@ -49,7 +50,7 @@ end
 ---@param host ControlHost
 ---@param ctrl table
 function CustomSound.Press(host, ctrl)
-    local list = (Packs.live() or Packs.new()):OpenAudioChoices(watchdogFileNames(), ctrl.value)
+    local list = PackRows.OpenAudioChoices(Packs.live() or Packs.new(), watchdogFileNames(), ctrl.value)
     local rows = list:Rows()
     local labels = {}
     for i, row in ipairs(rows) do
