@@ -503,7 +503,7 @@ function TestScopeEdits:testImportArmsAnExportedAlert()
     luaunit.assertEquals(self.runtime.alerts[1].enabled, true)
     luaunit.assertEquals(self.runtime.alerts[1].bucketKey, "global")
     luaunit.assertEquals(Store.LoadKey("global").entries[1].name, "Gate")
-    luaunit.assertEquals(string.sub(PersistentDB:GetString("transfer_last"), 1, 14), "import\tok=true")
+    luaunit.assertNil(PersistentDB:GetString("transfer_last"))
 end
 
 function TestScopeEdits:testCreateFromPresetSavesTheAlertAndOpensIt()

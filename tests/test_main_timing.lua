@@ -163,6 +163,60 @@ function TestMainTiming:testRegisterAndClearHitTheLiveRegistry()
     luaunit.assertEquals(againRefusals, {})
 end
 
+function TestMainTiming:reloadWithPlayer(trackingId, db)
+    if Watchdog and Watchdog.Stop then Watchdog.Stop() end
+    self.events = newFakeEventSource()
+    Event = self.events.source
+    PersistentDB = db
+    Player = {
+        IsAvailable = function() return true end,
+        GetTrackingID = function() return trackingId end,
+        GetEntity = function()
+            return { isValid = true, displayName = "Ada" }
+        end,
+    }
+    dofile(mainPath)
+    self.events:Push("Logic", { logicTick = 1 })
+    self.runtime = Watchdog.editor.runtime
+end
+
+function TestMainTiming:testUnreadableCharacterBucketStaysOnDisk()
+    local db = { data = { player_42 = "{not-json" } }
+    function db:GetString(key) return self.data[key] end
+    function db:SetString(key, value) self.data[key] = value end
+    local lines = {}
+    log = function(message) lines[#lines + 1] = tostring(message) end
+    self:reloadWithPlayer(42, db)
+
+    luaunit.assertEquals(db.data.player_42, "{not-json")
+    local saw = false
+    for _, line in ipairs(lines) do
+        if line:find("player_42", 1, true) and line:find("left on disk", 1, true) then
+            saw = true
+        end
+    end
+    luaunit.assertTrue(saw)
+    local count = 0
+    for _, alert in ipairs(self.runtime.alerts) do
+        if alert.bucketKey == "player_42" then count = count + 1 end
+    end
+    luaunit.assertEquals(count, 0)
+end
+
+function TestMainTiming:testMissingCharacterBucketIsEmptyAndUnwritten()
+    local db = { data = {} }
+    function db:GetString(key) return self.data[key] end
+    function db:SetString(key, value) self.data[key] = value end
+    self:reloadWithPlayer(7, db)
+
+    luaunit.assertNil(db.data.player_7)
+    local count = 0
+    for _, alert in ipairs(self.runtime.alerts) do
+        if alert.bucketKey == "player_7" then count = count + 1 end
+    end
+    luaunit.assertEquals(count, 0)
+end
+
 function TestMainTiming:testDurationIsIndependentOfFrameRate()
     for _, fps in ipairs({ 30, 60, 144 }) do
         self.runtime.effects:Clear()

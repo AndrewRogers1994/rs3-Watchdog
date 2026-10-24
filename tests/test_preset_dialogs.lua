@@ -16,6 +16,7 @@ LibNodeGraph = {
 }
 
 local Packs = require("src/packs")
+local Presets = require("src/presets")
 local Dialog = require("src/ui/dialog")
 local PresetDialogs = require("src/ui/preset_dialogs")
 local Registry = require("registry")
@@ -260,4 +261,258 @@ function TestPresetVariableSound:testNoPackSoundsLeavesTheMessageInsteadOfADropd
     luaunit.assertTrue(sawMessage)
     luaunit.assertEquals(#self.combos, 0)
     luaunit.assertEquals(#self.fields, 2)
+end
+
+local function newFakePersistentDB()
+    local db = { data = {} }
+    function db:GetString(key) return self.data[key] end
+    function db:SetString(key, value) self.data[key] = value end
+    return db
+end
+
+local function live(widgets)
+    local out = {}
+    for _, widget in ipairs(widgets) do
+        if not widget.destroyed then out[#out + 1] = widget end
+    end
+    return out
+end
+
+local function labels(widgets)
+    local out = {}
+    for i, widget in ipairs(widgets) do
+        out[i] = widget.label or widget.content
+    end
+    return out
+end
+
+TestNewAlertDialog = {}
+
+function TestNewAlertDialog:setUp()
+    self.saved = {
+        ui = _G.ui,
+        prettyui = _G.prettyui,
+        Vector4 = _G.Vector4,
+        PersistentDB = _G.PersistentDB,
+    }
+    self.packs = Packs.new()
+    Packs.install(self.packs)
+    PersistentDB = newFakePersistentDB()
+    self.parent = { height = 800 }
+    self.windows = {}
+    self.rows = {}
+    self.sprites = {}
+    self.rowTexts = {}
+    local windows, rows, sprites, rowTexts = self.windows, self.rows, self.sprites, self.rowTexts
+    local body = {}
+    function body:AddText(text)
+        local widget = { content = text }
+        function widget:Destroy() self.destroyed = true end
+        rowTexts[#rowTexts + 1] = widget
+        return widget
+    end
+    function body:AddTextField(opts)
+        local field = { text = opts and opts.text or "" }
+        function field:GetText() return self.text end
+        function field:SetText(value) self.text = tostring(value or "") end
+        function field:Destroy() self.destroyed = true end
+        return field
+    end
+    function body:AddComboBox()
+        return { Destroy = function() end }
+    end
+    function body:AddSimpleButton(label, action, opts)
+        local widget = { label = label, action = action, opts = opts }
+        function widget:Destroy() self.destroyed = true end
+        rows[#rows + 1] = widget
+        return widget
+    end
+    function body:AddSpriteButton(sprite, action, opts)
+        local widget = { sprite = sprite, action = action, opts = opts }
+        function widget:Destroy() self.destroyed = true end
+        sprites[#sprites + 1] = widget
+        return widget
+    end
+    local function component()
+        return {
+            SetPos = function() end,
+            SetSize = function() end,
+            MoveToFront = function() end,
+            Destroy = function() end,
+        }
+    end
+    _G.Vector4 = { new = function() return {} end }
+    _G.ui = {
+        Layer = { new = component },
+        Rectangle = { new = component },
+        Hook = {},
+    }
+    _G.prettyui = {
+        FancyButton = { getSize = function() return 80, 27 end },
+        Window = {
+            new = function(_, options)
+                local win = {
+                    title = options.title,
+                    content = {},
+                    onClose = options.onClose,
+                    buttons = {},
+                    fields = {},
+                }
+                function win:SetScrollable() end
+                function win:Show() end
+                function win:MoveToFront() end
+                function win:AddText(text)
+                    local widget = { content = text }
+                    function widget:Destroy() self.destroyed = true end
+                    return widget
+                end
+                function win:AddTextField(opts)
+                    local field = { text = opts and opts.text or "" }
+                    function field:GetText() return self.text end
+                    function field:SetText(value) self.text = tostring(value or "") end
+                    self.fields[#self.fields + 1] = field
+                    return field
+                end
+                function win:AddFancyButton(label, action)
+                    local button = { label = label, action = action }
+                    function button:SetDisabled(disabled) self.disabled = disabled == true end
+                    self.buttons[#self.buttons + 1] = button
+                    return button
+                end
+                function win:Destroy() self.destroyed = true end
+                windows[#windows + 1] = win
+                return win
+            end,
+        },
+        SimpleView = { new = function() return body end },
+    }
+    self.registry = Registry.new()
+    self.registry:RegisterNodeType("fixture.hold", {
+        category = "action",
+        pins = {
+            { name = "hold", kind = "data", direction = "in", dataType = "number", default = 4 },
+        },
+        run = function() end,
+    })
+end
+
+function TestNewAlertDialog:tearDown()
+    Dialog.dismissAll(self.parent)
+    Packs.install(nil)
+    _G.ui = self.saved.ui
+    _G.prettyui = self.saved.prettyui
+    _G.Vector4 = self.saved.Vector4
+    _G.PersistentDB = self.saved.PersistentDB
+end
+
+function TestNewAlertDialog:button(win, label)
+    for _, button in ipairs(win.buttons) do
+        if button.label == label then return button end
+    end
+    error("missing button " .. label)
+end
+
+function TestNewAlertDialog:row(label)
+    for _, row in ipairs(live(self.rows)) do
+        if row.label == label then return row end
+    end
+    error("missing row " .. label)
+end
+
+function TestNewAlertDialog:testFromScratchReportsOpen()
+    local opened
+    PresetDialogs.mountNewAlert(self.parent, {
+        onFromScratch = function()
+            return { kind = "open", scopeKey = "global", alertId = 4 }, 4
+        end,
+        onCreated = function(result) opened = result end,
+    })
+    self:button(self.windows[1], "From scratch").action()
+    luaunit.assertEquals(opened.kind, "open")
+    luaunit.assertEquals(opened.scopeKey, "global")
+    luaunit.assertEquals(opened.alertId, 4)
+end
+
+function TestNewAlertDialog:testEmptyLibrarySaysThereAreNoPresets()
+    PresetDialogs.mountNewAlert(self.parent, {})
+    luaunit.assertEquals(labels(live(self.rowTexts)), { "There are no presets.", "" })
+end
+
+function TestNewAlertDialog:testPackRowsStayInAlertPresetGroupOrderAndIgnoreALaterRegistration()
+    self.packs:RegisterDataPack("Mango", {
+        alertPresets = {
+            { authorId = "z", name = "Zulu", graph = {} },
+            { authorId = "b", name = "Bravo", graph = {} },
+        },
+    })
+    self.packs:RegisterDataPack("Alpha", {
+        alertPresets = {
+            { authorId = "a", name = "Able", graph = {} },
+        },
+    })
+    PresetDialogs.mountNewAlert(self.parent, {})
+    luaunit.assertEquals(labels(live(self.rows)), { "Able", "Bravo", "Zulu" })
+    luaunit.assertEquals(labels(live(self.rowTexts)), { "Alpha", "Mango", "" })
+
+    self.packs:RegisterDataPack("Later", {
+        alertPresets = {
+            { authorId = "n", name = "Newcomer", graph = {} },
+        },
+    })
+    luaunit.assertEquals(labels(live(self.rows)), { "Able", "Bravo", "Zulu" })
+    luaunit.assertNil(self:findText("Later"))
+    luaunit.assertNil(self:findText("Newcomer"))
+end
+
+function TestNewAlertDialog:findText(content)
+    for _, widget in ipairs(live(self.rowTexts)) do
+        if widget.content == content then return widget end
+    end
+    return nil
+end
+
+function TestNewAlertDialog:testVariablePresetDoesNotCreateUntilAnswersExist()
+    local graph = LibNodeGraph.NewGraph(self.registry)
+    local nodeId = graph:AddNode("fixture.hold", { hold = 4 })
+    local preset, err = Presets.Add("Callout", graph, {}, {
+        { nodeId = nodeId, pinName = "hold" },
+    })
+    luaunit.assertNotNil(preset, err)
+    local calls = 0
+    PresetDialogs.mountNewAlert(self.parent, {
+        registry = self.registry,
+        onFromPreset = function()
+            calls = calls + 1
+            return { kind = "open", scopeKey = "global", alertId = 1 }, 1, nil
+        end,
+    })
+    self:row("Callout").action()
+    luaunit.assertEquals(calls, 0)
+    luaunit.assertEquals(self.windows[2].title, "Callout")
+end
+
+function TestNewAlertDialog:testRenameAndDeleteRefreshTheLibraryRow()
+    local graph = LibNodeGraph.NewGraph(self.registry)
+    graph:AddNode("fixture.hold", { hold = 1 })
+    local preset, err = Presets.Add("Siren", graph, {})
+    luaunit.assertNotNil(preset, err)
+    PresetDialogs.mountNewAlert(self.parent, {})
+
+    live(self.sprites)[1].action()
+    local rename = self.windows[2]
+    luaunit.assertEquals(rename.title, "Rename preset")
+    rename.fields[1].text = "Horn"
+    self:button(rename, "Rename").action()
+    luaunit.assertEquals(labels(live(self.rows)), { "Horn" })
+
+    local trash
+    for _, sprite in ipairs(live(self.sprites)) do
+        if sprite.sprite == "TRASH" then trash = sprite end
+    end
+    trash.action()
+    local confirm = self.windows[3]
+    luaunit.assertEquals(confirm.title, "CONFIRM DELETE")
+    self:button(confirm, "DELETE").action()
+    luaunit.assertEquals(labels(live(self.rows)), {})
+    luaunit.assertEquals(self:findText("There are no presets.").content, "There are no presets.")
 end

@@ -100,7 +100,6 @@ function ScreenFlash.Register(registry, runtime)
         run = function(ctx)
             ctx.state = ctx.state or {}
             local state = ctx.state
-
             local function dismiss()
                 if state.handle ~= nil then
                     runtime.effects:Dismiss(state.handle)

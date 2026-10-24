@@ -517,17 +517,19 @@ function Manager:_runExport(ids)
     if scopeKey == nil or self.onExportEntries == nil then return end
     local parent = self:_dialogParent()
     if parent == nil then return end
-    local okCall, ok, result = pcall(function()
+    local okCall, ok, result, count = pcall(function()
         return self.onExportEntries(scopeKey, ids)
     end)
     if not okCall then return end
     if ok then
         ImportExport.mountExport(parent, {
             text = result,
+            entryCount = count,
             message = "Select all and copy (Ctrl+A / Ctrl+C).",
             maxLength = Export.MAX_BYTES,
         })
     else
+        ImportExport.noteTransfer("export", false, tostring(result))
         Dialog.mount(parent, {
             title = "Export alerts",
             content = function(win)
@@ -554,7 +556,7 @@ function Manager:OpenImport()
             if not ok then return false, report end
             bumpMutate(self)
             self:_rebuild()
-            return true
+            return true, report
         end,
     })
 end

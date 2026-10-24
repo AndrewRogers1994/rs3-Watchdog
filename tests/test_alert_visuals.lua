@@ -6,6 +6,8 @@ local luaunit = require("luaunit")
 local Registry = require("registry")
 local Graph = require("graph")
 local Runtime = require("src/runtime")
+local Effects = require("src/effects")
+local InfoBox = require("src/ui/infobox")
 local Toast = require("src/toast")
 local newFakeEventSource = require("fake_event_source")
 
@@ -18,8 +20,13 @@ function TestAlertVisuals:setUp()
         pins = {},
         run = function() end,
     })
+    local effects = Effects.new()
+    local infobox = InfoBox.new()
+    local toast = Toast.new(effects)
     self.runtime = Runtime.new(newFakeEventSource().source)
-    self.runtime.toast = Toast.new(self.runtime.effects)
+    self.runtime.effects = effects
+    self.runtime.infobox = infobox
+    self.runtime.toast = toast
 end
 
 -- One node whose state table owns an infobox tile, a toast, a stacked effect handle,

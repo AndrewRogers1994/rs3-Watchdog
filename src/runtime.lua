@@ -3,11 +3,6 @@
 -- and not unique. Name-targeted SetEnabled/Toggle act on every match; persistence writes by `id`.
 -- Bucket keys: `global` (always armed) and `player_<tracking id>` (arm/disarm with login).
 
-local Effects = require("src/effects")
-local InfoBoxArea = require("src/ui/infobox")
-local ScreenMarkerCapture = require("src/ui/screen_marker_capture")
-local ObjectMarkerCapture = require("src/ui/object_marker_capture")
-local IfaceScale = require("src/ui/iface_scale")
 local Util = require("src/util")
 
 ---A live alert. `id` is Entry identity persistence keys on; `name` is not unique; `bucketKey` owns it.
@@ -42,10 +37,10 @@ local Util = require("src/util")
 
 ---@class Watchdog.Runtime
 ---@field alerts Watchdog.RuntimeAlert[]
----@field effects any                                      # EffectRegistry (effects.lua)
----@field infobox any                                      # InfoBox Area (ui/infobox.lua)
----@field screenMarkerCapture any                          # ui/screen_marker_capture.lua
----@field objectMarkerCapture any                          # ui/object_marker_capture.lua
+---@field effects any|nil                                  # EffectRegistry (effects.lua)
+---@field infobox any|nil                                  # InfoBox Area (ui/infobox.lua)
+---@field screenMarkerCapture any|nil                      # ui/screen_marker_capture.lua
+---@field objectMarkerCapture any|nil                      # ui/object_marker_capture.lua
 ---@field toast any|nil                                    # ToastStack, wired by main.lua
 ---@field keyboardActivityTick integer
 ---@field mouseActivityTick integer
@@ -92,6 +87,21 @@ local function makeNodeHandle(graph, node)
     }
 end
 
+-- Same division as IfaceScale.ToInterface. Runtime does not require src/ui.
+---@param mx number
+---@param my number
+---@return number, number
+local function toInterface(mx, my)
+    local factor = 1
+    local ok, setting = pcall(function()
+        return game.options.InterfaceScale.setting
+    end)
+    if ok and type(setting) == "number" and setting > 0 then
+        factor = setting / 100
+    end
+    return mx / factor, my / factor
+end
+
 ---@param eventSource any|nil
 ---@param mouseSource any|nil
 ---@param identitySource Watchdog.IdentitySource|nil
@@ -120,10 +130,6 @@ function Runtime.new(eventSource, mouseSource, identitySource)
         -- Parallel to pollEdgeState: last seedKey per graph/node. Weak-keyed so a dropped Graph
         -- does not keep the keys alive.
         pollSeedKey = setmetatable({}, { __mode = "k" }),
-        effects = Effects.new(),
-        infobox = InfoBoxArea.new(),
-        screenMarkerCapture = ScreenMarkerCapture.new(),
-        objectMarkerCapture = ObjectMarkerCapture.new(),
         keyboardActivityTick = 0,
         mouseActivityTick = 0,
         _lastMousePos = nil,
@@ -316,7 +322,7 @@ function Runtime:_pollMouseActivity()
     if not ok or pos == nil then
         return
     end
-    local ix, iy = IfaceScale.ToInterface(pos.x, pos.y)
+    local ix, iy = toInterface(pos.x, pos.y)
     local last = self._lastMousePos
     -- The first poll only establishes a baseline - there's nothing to compare yet, so it
     -- must not itself count as "activity" (a plugin load/reload isn't a mouse movement).
@@ -795,10 +801,6 @@ function Runtime:Stop()
         pcall(function() self._lifecycleSource.Unsubscribe("watchdog_runtime_gamestate") end)
         self._lifecycleSource = nil
     end
-    -- Unsubscribe MiniMenuReady so reload does not leak the prior instance.
-    pcall(function() self.objectMarkerCapture:Cancel() end)
-    self.effects:Clear()
-    self.infobox:Clear()
 end
 
 return Runtime

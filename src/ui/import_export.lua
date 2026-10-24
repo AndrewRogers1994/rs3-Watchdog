@@ -6,6 +6,18 @@ local Theme = require("src/ui/theme")
 
 local ImportExport = {}
 
+-- The paste dialog writes this key. It is not a Bucket.
+---@param kind string
+---@param ok boolean
+---@param detail string|nil
+function ImportExport.noteTransfer(kind, ok, detail)
+    pcall(function()
+        if PersistentDB == nil then return end
+        PersistentDB:SetString("transfer_last", string.format(
+            "%s\tok=%s\t%s", kind, tostring(ok), tostring(detail):sub(1, 500)))
+    end)
+end
+
 -- InputField hard cap (#83); Manager passes Export.MAX_BYTES. Kept here so the wrapper
 -- does not require export.lua.
 ImportExport.DEFAULT_MAX_LENGTH = 9999
@@ -14,7 +26,8 @@ ImportExport.DEFAULT_MAX_LENGTH = 9999
 ---@field text string|nil
 ---@field message string|nil
 ---@field maxLength integer|nil
----@field onImport (fun(text: string): boolean, any)|nil  # ok, err — Import recipe only
+---@field entryCount integer|nil                         # export success: how many entries the note records
+---@field onImport (fun(text: string): boolean, any)|nil  # ok, then err or report. Import recipe only.
 ---@field onDismiss (fun())|nil
 
 ---@param field any
@@ -98,13 +111,19 @@ function ImportExport.mountImport(parent, opts)
                         end
                     end)
                     if opts.onImport == nil then return true end
-                    local okCall, ok, err = pcall(opts.onImport, text)
+                    local okCall, ok, report = pcall(opts.onImport, text)
                     if not okCall then
+                        ImportExport.noteTransfer("import", false, tostring(ok))
                         stackError(parent, "Could not import alerts", ok)
                         return false
                     end
-                    if ok then return true end
-                    stackError(parent, "Could not import alerts", err)
+                    if ok then
+                        local detail = (type(report) == "table" and report.message) or "ok"
+                        ImportExport.noteTransfer("import", true, detail)
+                        return true
+                    end
+                    ImportExport.noteTransfer("import", false, tostring(report))
+                    stackError(parent, "Could not import alerts", report)
                     return false
                 end,
             },
@@ -118,6 +137,10 @@ end
 function ImportExport.mountExport(parent, opts)
     opts = opts or {}
     local frozen = opts.text or ""
+    if type(opts.entryCount) == "number" then
+        ImportExport.noteTransfer("export", true, string.format(
+            "%d bytes / %d entries", #frozen, opts.entryCount))
+    end
     local maxLength = opts.maxLength or ImportExport.DEFAULT_MAX_LENGTH
     return Dialog.mount(parent, {
         title = "Export alerts",

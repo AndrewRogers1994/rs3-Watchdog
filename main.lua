@@ -7,6 +7,10 @@ local Presets = require("src/presets")
 local Packs = require("src/packs")
 ---@type Watchdog.Runtime
 local Runtime = require("src/runtime")
+local Effects = require("src/effects")
+local InfoBoxArea = require("src/ui/infobox")
+local ScreenMarkerCapture = require("src/ui/screen_marker_capture")
+local ObjectMarkerCapture = require("src/ui/object_marker_capture")
 local ToastStack = require("src/toast")
 local Theme = require("src/ui/theme")
 local Dialog = require("src/ui/dialog")
@@ -58,10 +62,13 @@ local playerIdentity = {
     end,
 }
 
-local runtime = Runtime.new(nil, nil, playerIdentity)
+local effects = Effects.new()
+local infobox = InfoBoxArea.new()
+local screenMarkerCapture = ScreenMarkerCapture.new()
+local objectMarkerCapture = ObjectMarkerCapture.new()
 
 local TOAST_ANCHOR_KEY = "watchdog_toast_anchor"
-runtime.toast = ToastStack.new(runtime.effects, {
+local toast = ToastStack.new(effects, {
     Load = function()
         if PersistentDB == nil or LibNodeGraph == nil or LibNodeGraph.Json == nil then return nil end
         local text
@@ -79,6 +86,13 @@ runtime.toast = ToastStack.new(runtime.effects, {
         end
     end,
 })
+
+local runtime = Runtime.new(nil, nil, playerIdentity)
+runtime.effects = effects
+runtime.infobox = infobox
+runtime.screenMarkerCapture = screenMarkerCapture
+runtime.objectMarkerCapture = objectMarkerCapture
+runtime.toast = toast
 
 local registry = LibNodeGraph.NewRegistry()
 LibNodeGraphStd.Register(registry)
@@ -132,7 +146,7 @@ local charScope = nil
 
 runtime:SetBucketLoader(function(trackingId)
     local key = Store.PlayerKey(trackingId)
-    local playerDoc = Store.LoadKey(key)
+    local playerDoc = Store.Open(key)
     local restoredChar = {}
     local ok, r = pcall(function() return Store.RestoreAll(playerDoc, registry) end)
     if ok and r ~= nil then restoredChar = r end
@@ -465,7 +479,19 @@ manager = Manager.new({
         applyEditor(edits:Lift(scopeKey, id))
     end,
     onCreateAlert = function(scopeKey)
-        edits:MountNewAlert(mux ~= nil and mux.rootLayer or nil, scopeKey, applyEditor)
+        PresetDialogs.mountNewAlert(mux ~= nil and mux.rootLayer or nil, {
+            registry = registry,
+            onFromScratch = function()
+                return edits:CreateFromScratch(scopeKey)
+            end,
+            onFromPreset = function(presetId, answers)
+                return edits:CreateFromPreset(scopeKey, presetId, answers)
+            end,
+            onFromAlertPreset = function(snapshot, answers)
+                return edits:CreateFromAlertPreset(scopeKey, snapshot, answers)
+            end,
+            onCreated = applyEditor,
+        })
         return nil
     end,
     onCreateGroup = function(scopeKey)
@@ -485,9 +511,9 @@ manager = Manager.new({
         applyEditor(edits:BulkMove(scopeKey, destScopeKey, ids, openAlert()))
     end,
     onExportEntries = function(scopeKey, ids)
-        local result, ok, payload = edits:ExportEntries(scopeKey, ids)
+        local result, ok, payload, count = edits:ExportEntries(scopeKey, ids)
         applyEditor(result)
-        return ok, payload
+        return ok, payload, count
     end,
     onImportJson = function(scopeKey, text)
         local result, ok, report = edits:ImportJson(scopeKey, text)
@@ -716,6 +742,8 @@ end
 function api.Stop()
     if runtime.objectMarkerCapture ~= nil then
         runtime.objectMarkerCapture.onArmedChange = nil
+        -- Unsubscribe MiniMenuReady so reload does not leak the prior instance.
+        pcall(function() runtime.objectMarkerCapture:Cancel() end)
     end
     HubLayers.Stop()
     pcall(persistNow)
@@ -723,6 +751,8 @@ function api.Stop()
     pcall(function() Event.Draw.Unsubscribe(Events.Draw) end)
     pcall(function() Event.KeyDown.Unsubscribe(Events.KeyDown) end)
     pcall(function() runtime:Stop() end)
+    pcall(function() runtime.effects:Clear() end)
+    pcall(function() runtime.infobox:Clear() end)
     pcall(function() runtime.effects:Unmount() end)
     pcall(function() runtime.toast:Unmount() end)
     pcall(function() runtime.infobox:Unmount() end)

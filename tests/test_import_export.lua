@@ -105,6 +105,15 @@ function TestImportExport:tearDown()
     Dialog.dismissAll(self.parent)
     _G.ui = self._savedUi
     _G.prettyui = self._savedPretty
+    PersistentDB = nil
+end
+
+local function noteDb()
+    local db = { data = {} }
+    function db:GetString(key) return self.data[key] end
+    function db:SetString(key, value) self.data[key] = value end
+    PersistentDB = db
+    return db
 end
 
 function TestImportExport:testImportSuccessPopsWithNoNotice()
@@ -146,6 +155,37 @@ function TestImportExport:testPasteFieldMaxLengthMatchesExportCap()
     luaunit.assertEquals(ImportExport.DEFAULT_MAX_LENGTH, Export.MAX_BYTES)
     local win = ImportExport.mountImport(self.parent, {})
     luaunit.assertEquals(win.fields[1].opts.maxLength, 9999)
+end
+
+function TestImportExport:testSuccessfulPasteRecordsTheTransfer()
+    local db = noteDb()
+    local win = ImportExport.mountImport(self.parent, {
+        onImport = function()
+            return true, { message = "Imported 1 alert." }
+        end,
+    })
+    button(win, "Import").action()
+    luaunit.assertEquals(db:GetString("transfer_last"), "import\tok=true\tImported 1 alert.")
+end
+
+function TestImportExport:testFailedPasteRecordsTheTransfer()
+    local db = noteDb()
+    local win = ImportExport.mountImport(self.parent, {
+        onImport = function()
+            return false, "not a Watchdog export envelope"
+        end,
+    })
+    button(win, "Import").action()
+    luaunit.assertEquals(db:GetString("transfer_last"), "import\tok=false\tnot a Watchdog export envelope")
+end
+
+function TestImportExport:testExportRecordsBytesAndEntryCount()
+    local db = noteDb()
+    ImportExport.mountExport(self.parent, {
+        text = "abcd",
+        entryCount = 2,
+    })
+    luaunit.assertEquals(db:GetString("transfer_last"), "export\tok=true\t4 bytes / 2 entries")
 end
 
 function TestImportExport:testExportHasFrozenFieldAndDisabledSave()
