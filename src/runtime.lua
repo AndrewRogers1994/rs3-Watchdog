@@ -35,9 +35,10 @@ local Util = require("src/util")
 ---@field Resolve fun(self: Watchdog.IdentitySource): string|nil       # Tracking ID; nil when logged out or empty
 ---@field DisplayName fun(self: Watchdog.IdentitySource): string|nil  # tab label; never a bucket key
 
----Persistence hook for name-targeted SetEnabled/Toggle (keyed by Entry id).
+---Persistence hook for Alert Toggle, keyed by Bucket and Entry id.
 ---@class Watchdog.RuntimePersistence
----@field SetEnabled fun(id: integer, enabled: boolean)
+---@field SaveEnabled (fun(bucketKey: string, id: integer, enabled: boolean): boolean)|nil
+---@field SetEnabled (fun(id: integer, enabled: boolean))|nil
 
 ---@class Watchdog.Runtime
 ---@field alerts Watchdog.RuntimeAlert[]
@@ -53,17 +54,17 @@ local Util = require("src/util")
 ---@field GetActiveCharacter fun(self: Watchdog.Runtime): string|nil, string|nil
 ---@field Update fun(self: Watchdog.Runtime)
 ---@field GetMousePos fun(self: Watchdog.Runtime): number|nil, number|nil
----@field AddAlert fun(self: Watchdog.Runtime, id: integer|nil, name: string|nil, graph: LibNodeGraph.Graph|nil, enabled: boolean|nil, bucketKey: string|nil): Watchdog.RuntimeAlert
----@field RemoveAlert fun(self: Watchdog.Runtime, id: integer): boolean
----@field SetAlertEnabled fun(self: Watchdog.Runtime, id: integer, enabled: boolean): boolean
----@field ReleaseAlertVisuals fun(self: Watchdog.Runtime, id: integer): boolean
+---@field AddAlert fun(self: Watchdog.Runtime, id: integer|nil, name: string|nil, graph: LibNodeGraph.Graph|nil, enabled: boolean|nil, bucketKey: string|nil, entry: Watchdog.RuntimeAlert|nil): Watchdog.RuntimeAlert
+---@field RemoveAlert fun(self: Watchdog.Runtime, id: integer, bucketKey: string|nil): boolean
+---@field SetAlertEnabled fun(self: Watchdog.Runtime, id: integer, enabled: boolean, bucketKey: string|nil): boolean
+---@field ReleaseAlertVisuals fun(self: Watchdog.Runtime, id: integer, bucketKey: string|nil): boolean
 ---@field RenameAlert fun(self: Watchdog.Runtime, id: integer, name: string): boolean
 ---@field SetRegistry fun(self: Watchdog.Runtime, registry: LibNodeGraph.Registry)
 ---@field PreloadGraph fun(self: Watchdog.Runtime, graph: LibNodeGraph.Graph|nil)
 ---@field PreloadNode fun(self: Watchdog.Runtime, graph: LibNodeGraph.Graph, nodeId: integer)
 ---@field SetGraph fun(self: Watchdog.Runtime, graph: LibNodeGraph.Graph|nil)
 ---@field SetPersistence fun(self: Watchdog.Runtime, persistence: Watchdog.RuntimePersistence)
----@field SetEnabledResolver fun(self: Watchdog.Runtime, resolver: fun(id: integer): boolean)
+---@field SetEnabledResolver fun(self: Watchdog.Runtime, resolver: fun(id: integer, bucketKey: string|nil): boolean)
 ---@field SetEnabled fun(self: Watchdog.Runtime, name: string, enabled: boolean): boolean
 ---@field Toggle fun(self: Watchdog.Runtime, name: string): integer|nil
 ---@field BindTrigger fun(self: Watchdog.Runtime, typeKey: string, entries: Watchdog.TriggerBinding[])
@@ -221,7 +222,7 @@ function Runtime:_loadCharacterBucket(key, trackingId, displayName)
         self._bucketLoader, trackingId)
     if ok and type(restored) == "table" then
         for _, alert in ipairs(restored) do
-            self:AddAlert(alert.id, alert.name, alert.graph, alert.enabled, key)
+            self:AddAlert(alert.id, alert.name, alert.graph, alert.enabled, key, alert.entry or alert)
         end
     end
 end
@@ -325,15 +326,41 @@ function Runtime:_pollMouseActivity()
     self._lastMousePos = { x = ix, y = iy }
 end
 
+local ALERT_ENTRY_FIELDS = { id = true, name = true, enabled = true }
+
+-- id, name, and enabled live on the Scope Entry. The live graph stays on the
+-- runtime record so saving the Entry does not replace its serialized graph.
+local alertMeta = {
+    __index = function(alert, key)
+        if ALERT_ENTRY_FIELDS[key] then
+            return rawget(alert, "entry")[key]
+        end
+    end,
+    __newindex = function(alert, key, value)
+        if ALERT_ENTRY_FIELDS[key] then
+            rawget(alert, "entry")[key] = value
+            return
+        end
+        rawset(alert, key, value)
+    end,
+}
+
 ---@param id integer|nil
 ---@param name string|nil
 ---@param graph LibNodeGraph.Graph|nil
 ---@param enabled boolean|nil
 ---@param bucketKey string|nil  # owning Bucket; defaults to `global`
+---@param entry Watchdog.RuntimeAlert|nil  # the Scope's Alert; when omitted, one is created
 ---@return Watchdog.RuntimeAlert
-function Runtime:AddAlert(id, name, graph, enabled, bucketKey)
-    local alert = { id = id, name = name, graph = graph, enabled = enabled ~= false,
-        bucketKey = bucketKey or GLOBAL_BUCKET }
+function Runtime:AddAlert(id, name, graph, enabled, bucketKey, entry)
+    if entry == nil then
+        entry = { id = id, name = name, enabled = enabled ~= false }
+    end
+    local alert = setmetatable({
+        graph = graph,
+        bucketKey = bucketKey or GLOBAL_BUCKET,
+        entry = entry,
+    }, alertMeta)
     self.alerts[#self.alerts + 1] = alert
     self:_indexAlert(alert)
     self:PreloadGraph(graph)
@@ -343,10 +370,10 @@ end
 -- Memory-only; caller persists.
 ---@param id integer
 ---@return boolean
-function Runtime:RemoveAlert(id)
+function Runtime:RemoveAlert(id, bucketKey)
     local kept, removed = {}, false
     for _, alert in ipairs(self.alerts) do
-        if alert.id == id then
+        if alert.id == id and (bucketKey == nil or alert.bucketKey == bucketKey) then
             self.pollEdgeState[alert.graph] = nil
             self.pollSeedKey[alert.graph] = nil
             removed = true
@@ -393,9 +420,9 @@ end
 -- Public seam for delete and group-disable. Does not change `enabled` or remove the alert.
 ---@param id integer
 ---@return boolean
-function Runtime:ReleaseAlertVisuals(id)
+function Runtime:ReleaseAlertVisuals(id, bucketKey)
     for _, alert in ipairs(self.alerts) do
-        if alert.id == id then
+        if alert.id == id and (bucketKey == nil or alert.bucketKey == bucketKey) then
             self:_releaseGraphVisuals(alert.graph)
             return true
         end
@@ -408,9 +435,9 @@ end
 ---@param id integer
 ---@param enabled boolean
 ---@return boolean
-function Runtime:SetAlertEnabled(id, enabled)
+function Runtime:SetAlertEnabled(id, enabled, bucketKey)
     for _, alert in ipairs(self.alerts) do
-        if alert.id == id then
+        if alert.id == id and (bucketKey == nil or alert.bucketKey == bucketKey) then
             alert.enabled = enabled and true or false
             if not alert.enabled then
                 self:_releaseGraphVisuals(alert.graph)
@@ -489,31 +516,37 @@ function Runtime:SetPersistence(persistence)
 end
 
 -- Ancestor-group half of the enabled-chain (own flag is `alert.enabled`). Unset ⇒ all ancestors enabled.
----@param resolver fun(id: integer): boolean
+---@param resolver fun(id: integer, bucketKey: string|nil): boolean
 function Runtime:SetEnabledResolver(resolver)
     self._enabledResolver = resolver
 end
 
 -- Fail-open: no resolver, nil id, or a raising resolver leaves the alert firing.
 ---@param id integer|nil
+---@param bucketKey string|nil
 ---@return boolean
-function Runtime:_ancestorsEnabled(id)
+function Runtime:_ancestorsEnabled(id, bucketKey)
     if self._enabledResolver == nil or id == nil then return true end
     local ok, result = callOrLog("enabled resolver for id '" .. tostring(id) .. "'",
-        self._enabledResolver, id)
+        self._enabledResolver, id, bucketKey)
     if not ok then return true end
     return result ~= false
 end
 
--- Persist by Entry id, `global` Bucket only - ids are unique within a Bucket, not across them.
+-- Persist by Entry id inside the Alert's own Bucket. Ids are unique per Bucket, not across them.
 ---@param alert { id: integer|nil, bucketKey: string }
 ---@param enabled boolean
 function Runtime:_persistEnabled(alert, enabled)
-    if alert.id == nil or alert.bucketKey ~= GLOBAL_BUCKET then return end
-    if self._persistence ~= nil and self._persistence.SetEnabled ~= nil then
-        callOrLog("persistence SetEnabled for id '" .. tostring(alert.id) .. "'",
-            self._persistence.SetEnabled, alert.id, enabled)
+    if alert.id == nil or self._persistence == nil then return end
+    local key = alert.bucketKey or GLOBAL_BUCKET
+    if self._persistence.SaveEnabled ~= nil then
+        callOrLog("persistence SaveEnabled for id '" .. tostring(alert.id) .. "'",
+            self._persistence.SaveEnabled, key, alert.id, enabled)
+        return
     end
+    if key ~= GLOBAL_BUCKET or self._persistence.SetEnabled == nil then return end
+    callOrLog("persistence SetEnabled for id '" .. tostring(alert.id) .. "'",
+        self._persistence.SetEnabled, alert.id, enabled)
 end
 
 -- Name-targeted; names aren't unique so every match is set. No match → no persist write.
@@ -630,7 +663,7 @@ end
 
 function Runtime:_fireBinding(binding, payload)
     for _, alert in ipairs(self.alerts) do
-        if alert.enabled and self:_ancestorsEnabled(alert.id) and self:_bucketArmed(alert.bucketKey) then
+        if alert.enabled and self:_ancestorsEnabled(alert.id, alert.bucketKey) and self:_bucketArmed(alert.bucketKey) then
             self:_fireBindingInGraph(binding, payload, alert.graph)
         end
     end
@@ -661,7 +694,7 @@ end
 -- Same fire predicate; skipped alerts freeze poll edge state (world-hop re-arm must not replay Enter).
 function Runtime:_firePollBinding(binding, payload)
     for _, alert in ipairs(self.alerts) do
-        if alert.enabled and self:_ancestorsEnabled(alert.id) and self:_bucketArmed(alert.bucketKey) then
+        if alert.enabled and self:_ancestorsEnabled(alert.id, alert.bucketKey) and self:_bucketArmed(alert.bucketKey) then
             self:_firePollBindingInGraph(binding, payload, alert.graph)
         end
     end

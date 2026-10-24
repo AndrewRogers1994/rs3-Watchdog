@@ -136,6 +136,9 @@ runtime:SetBucketLoader(function(trackingId)
     local restoredChar = {}
     local ok, r = pcall(function() return Store.RestoreAll(playerDoc, registry) end)
     if ok and r ~= nil then restoredChar = r end
+    for _, alert in ipairs(restoredChar) do
+        alert.entry = Store.FindById(playerDoc, alert.id)
+    end
     charScope = { key = key, displayName = playerIdentity:DisplayName(), doc = playerDoc, alerts = restoredChar }
     return restoredChar
 end)
@@ -168,7 +171,12 @@ local function seedDemo()
     return graph, layout
 end
 
-local document = Store.Load()
+local document, missing = Store.Open("global")
+if missing then
+    local exampleGraph, exampleLayout = seedDemo()
+    Store.InsertEntry(document, Store.NewAlertEntry(1, "Tick Counter (Example alert)", exampleGraph, exampleLayout, false))
+    Store.Save(document)
+end
 
 local restored = {}
 do
@@ -176,44 +184,40 @@ do
     if ok and all ~= nil then
         restored = all
     elseif log ~= nil then
-        log("Watchdog: RestoreAll failed, seeding demo - " .. tostring(all))
-    end
-    if #restored == 0 then
-        local graph, layout = seedDemo()
-        local id = Store.MintId(document)
-        local name = "Tick Counter (Example alert)"
-        Store.InsertEntry(document, Store.NewAlertEntry(id, name, graph, layout, false))
-        Store.Save(document)
-        restored = { { id = id, name = name, graph = graph, layout = layout, enabled = true } }
+        log("Watchdog: RestoreAll failed - " .. tostring(all))
     end
 end
 
 for _, alert in ipairs(restored) do
-    runtime:AddAlert(alert.id, alert.name, alert.graph, alert.enabled)
+    local entry = Store.FindById(document, alert.id)
+    runtime:AddAlert(alert.id, alert.name, alert.graph, alert.enabled, "global", entry)
 end
 
 local editor = Editor.new(registry, runtime)
 
 runtime:SetPersistence({
-    SetEnabled = function(id, enabled)
-        Store.SetEnabled(document, id, enabled)
-        Store.Save(document)
+    SaveEnabled = function(key, id, enabled)
+        local doc
+        if key == "global" then
+            doc = document
+        elseif charScope ~= nil and charScope.key == key then
+            doc = charScope.doc
+        end
+        if doc == nil or not Store.SetEnabled(doc, id, enabled) then
+            return false
+        end
+        return Store.SaveTo(key, doc)
     end,
 })
 
-runtime:SetEnabledResolver(function(id)
-    for _, alert in ipairs(runtime.alerts) do
-        if alert.id == id then
-            local doc
-            if alert.bucketKey == "global" then
-                doc = document
-            elseif charScope ~= nil and charScope.key == alert.bucketKey then
-                doc = charScope.doc
-            end
-            if doc ~= nil then return Store.AncestorsEnabled(doc, id) end
-            return true
-        end
+runtime:SetEnabledResolver(function(id, bucketKey)
+    local doc
+    if bucketKey == "global" then
+        doc = document
+    elseif charScope ~= nil and charScope.key == bucketKey then
+        doc = charScope.doc
     end
+    if doc ~= nil then return Store.AncestorsEnabled(doc, id) end
     return true
 end)
 

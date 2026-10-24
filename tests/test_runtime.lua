@@ -387,6 +387,51 @@ function TestRuntime:testTriggerFiresInAllEnabledAlertsNotJustOne()
     luaunit.assertEquals(graphB:GetLastValue(bId, "payload"), "ping")
 end
 
+function TestRuntime:testFiringReadsTheEntryFlagAndLeavesItsGraphAlone()
+    registerEchoTrigger(self.registry, "fixture.echo")
+    self.runtime:BindTrigger("fixture.echo", { { event = "Custom" } })
+    local live = Graph.new(self.registry)
+    local nodeId = live:AddNode("fixture.echo")
+    local serialized = { serialized = true }
+    local entry = { id = 1, name = "A", enabled = true, graph = serialized }
+    self.runtime:SetGraph(nil)
+
+    self.runtime:AddAlert(1, "A", live, true, "global", entry)
+    entry.enabled = false
+    self.source:Push("Custom", "off")
+
+    luaunit.assertNil(live:GetLastValue(nodeId, "payload"))
+    luaunit.assertTrue(entry.graph.serialized)
+    entry.enabled = true
+    self.source:Push("Custom", "on")
+    luaunit.assertEquals(live:GetLastValue(nodeId, "payload"), "on")
+end
+
+function TestRuntime:testAncestorResolverGetsTheAlertBucket()
+    registerEchoTrigger(self.registry, "fixture.echo")
+    self.runtime:BindTrigger("fixture.echo", { { event = "Custom" } })
+    local seen = {}
+    self.runtime:SetEnabledResolver(function(id, bucketKey)
+        seen[#seen + 1] = { id = id, key = bucketKey }
+        return true
+    end)
+    local globalGraph = Graph.new(self.registry)
+    local playerGraph = Graph.new(self.registry)
+    globalGraph:AddNode("fixture.echo")
+    playerGraph:AddNode("fixture.echo")
+    self.runtime:SetGraph(nil)
+    self.runtime:AddAlert(1, "A", globalGraph, true, "global")
+    self.runtime:AddAlert(1, "A", playerGraph, true, "player_tid")
+
+    self.source:Push("Custom", "go")
+
+    table.sort(seen, function(a, b) return a.key < b.key end)
+    luaunit.assertEquals(seen, {
+        { id = 1, key = "global" },
+        { id = 1, key = "player_tid" },
+    })
+end
+
 function TestRuntime:testDisabledAlertSuppressesFiringButStaysLive()
     registerEchoTrigger(self.registry, "fixture.echo")
     self.runtime:BindTrigger("fixture.echo", { { event = "Custom" } })

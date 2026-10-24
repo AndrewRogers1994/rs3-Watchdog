@@ -368,9 +368,12 @@ is not part of this vocabulary yet (drag nest stays on #92).
 _Avoid_: Promote, outdent, move out, unnest, demote
 
 **Alert**:
-A leaf Entry (`kind = "alert"`) bundling one saved graph with its Layout and an `enabled` flag —
-the unit the Editor opens and the runtime fires (#75).
-_Avoid_: Graph (that is the engine model an Alert wraps), rule, trigger
+A leaf Entry (`kind = "alert"`) bundling one saved graph with its Layout and one `enabled` flag on this Entry. The Runtime fires that flag (#75). Alert Toggle and the Manager enable checkbox set it, and a failed save leaves the new value until the next load reads the Bucket.
+_Avoid_: Graph (that is the engine model an Alert wraps), rule, trigger, session enable, Runtime alert
+
+**Alert Toggle**:
+An Action whose target is an Alert name. It turns on, turns off, or flips every resident Alert with that name, saves each matched Bucket, and keeps the new flag when a save fails.
+_Avoid_: Name toggle; the Manager checkbox, which flips one Entry by id
 
 **Preset**:
 A player-saved snapshot of one Alert that can be instantiated into a new Alert. Not an Entry,
@@ -409,7 +412,7 @@ _Avoid_: Folder, category, section; "group" as a verb (that is bulk New-group, #
 The per-Scope `PersistentDB` key holding one Scope's tree as `{ version, entries }`: one `global`
 bucket plus one `player_<tracking id>` bucket per character. The `global` bucket also holds
 `infoboxAnchor` (the former `current` pointer is no longer persisted — see Level, #80). Keys carry
-**no `watchdog_` prefix** — `PersistentDB` is already plugin-scoped (#81). Scope is the Bucket, not
+**no `watchdog_` prefix** — `PersistentDB` is already plugin-scoped (#81). Scope is not
 a per-Entry field: changing an Entry's Scope moves its subtree across keys (#75, #77, #81).
 Buckets stored under a display name are not read.
 _Avoid_: Store slot, namespace, table; "partition" (that names the concept — see Scope)
@@ -420,8 +423,8 @@ _Avoid_: Display name, account name, uid (`PlayerEntity.uid` is a different fiel
 
 **Scope**:
 The partition a Bucket represents: `global`, or a single character keyed on that character's Tracking ID. Not a
-field on an Entry — an Entry's Scope is simply which Bucket holds it (#75, #77). The character tab's label is the current display name.
-_Avoid_: Profile, player field, owner, context
+field on an Entry — an Entry's Scope is simply which Bucket holds it (#75, #77). The character tab's label is the current display name. A loaded Scope is Resident, and Armed is a separate state of that same Scope.
+_Avoid_: Profile, player field, owner, context; Bucket (that is the saved key)
 
 **Active scope**:
 The Scope new Entries land in — the Manager's currently-selected tab; `global` when logged out. The
@@ -429,17 +432,17 @@ selector offers **`global` + the current character only** (#77, #78).
 _Avoid_: Selected scope, focus; "current scope" (that word names the deleted Store pointer)
 
 **Armed** / **Resident**:
-Two independent runtime states of a loaded Bucket (landed in `runtime.lua`, #89). **Resident** =
-loaded in memory. **Armed** = eligible to fire: `global` is armed at plugin start and never
-disarmed; a character Bucket arms on the `GAME` transition when its Tracking ID is unchanged (a
+Two independent runtime states of a loaded Scope (landed in `runtime.lua`, #89). **Resident** =
+loaded in memory. **Armed** = eligible to fire: the global Scope is armed at plugin start and never
+disarmed; a character Scope arms on the `GAME` transition when its Tracking ID is unchanged (a
 world-hop/reconnect re-arms *in place* — no reload, so `pollEdgeState` and `pollSeedKey` survive and no `Enter` is
-replayed), disarms but stays resident on leaving `GAME`, and is discarded+reloaded only when the
+replayed), disarms but stays resident on leaving `GAME`, and is discarded and reloaded only when the
 Tracking ID changes. A rename keeps the same Bucket. Identity has no switch event, so it's resolved by a **pending-resolve flag drained on
-Logic ticks** (which also covers a plugin reload mid-session). **Fire predicate: armed Bucket AND
+Logic ticks** (which also covers a plugin reload mid-session). The Runtime fires from armed Scopes. **Fire predicate: armed Scope AND
 enabled-chain true — nothing else** (editor state and the Manager's selected Scope never gate
 firing) (#77, #89). Entity Spawn and the Game Message trigger also stay silent while the player
 is Restricted; that silence is those triggers' own rule, not this predicate.
-_Avoid_: Active / loaded (ambiguous between the two states), enabled (that is the per-Entry switch)
+_Avoid_: Active / loaded (ambiguous between the two states), enabled (that is the per-Entry switch), Bucket (a Bucket is the saved key, and it is not armed)
 
 **Level** / **bound entry**:
 The depth-1 navigation stack between Manager (root) and Editor. The **bound entry** is the `id` the

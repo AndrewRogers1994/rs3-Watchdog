@@ -558,6 +558,34 @@ function Store.Load()
     return Store.LoadKey(DB_KEY)
 end
 
+-- Opens one Bucket. `missing` is true when the key has no text, so the caller
+-- may seed it. An unreadable value is left on disk and `missing` is false.
+---@param key string
+---@return Watchdog.Bucket doc
+---@return boolean missing
+function Store.Open(key)
+    if PersistentDB == nil then return Store.Empty(), false end
+    local text
+    pcall(function() text = PersistentDB:GetString(key) end)
+    if type(text) ~= "string" or text == "" then
+        return Store.Empty(), true
+    end
+    local c = codec()
+    local ok, doc = false, nil
+    if c ~= nil then
+        ok, doc = pcall(function() return c.decode(text) end)
+    end
+    if not ok or type(doc) ~= "table" then
+        if log ~= nil then
+            log("Watchdog: saved bucket '" .. tostring(key) .. "' unreadable, left on disk - " .. tostring(doc))
+        end
+        return Store.Empty(), false
+    end
+    doc.version = doc.version or DOC_VERSION
+    doc.entries = doc.entries or {}
+    return doc, false
+end
+
 ---@param key string
 ---@param doc Watchdog.Bucket  # the same shape Store.LoadKey returns (the round-trip contract)
 ---@return boolean  # true if the document was encoded and written
@@ -569,6 +597,9 @@ function Store.SaveTo(key, doc)
         return false
     end
     local ok = pcall(function() PersistentDB:SetString(key, text) end)
+    if not ok and log ~= nil then
+        log("Watchdog: failed to save bucket '" .. tostring(key) .. "'")
+    end
     return ok
 end
 

@@ -34,27 +34,27 @@ local function newRuntime()
         self.alerts[#self.alerts + 1] = alert
         return alert
     end
-    function rt:RemoveAlert(id)
+    function rt:RemoveAlert(id, bucketKey)
         for i, alert in ipairs(self.alerts) do
-            if alert.id == id then
+            if alert.id == id and (bucketKey == nil or alert.bucketKey == bucketKey) then
                 table.remove(self.alerts, i)
                 return true
             end
         end
         return false
     end
-    function rt:SetAlertEnabled(id, enabled)
+    function rt:SetAlertEnabled(id, enabled, bucketKey)
         for _, alert in ipairs(self.alerts) do
-            if alert.id == id then
+            if alert.id == id and (bucketKey == nil or alert.bucketKey == bucketKey) then
                 alert.enabled = enabled and true or false
                 return true
             end
         end
         return false
     end
-    function rt:ReleaseAlertVisuals(id)
+    function rt:ReleaseAlertVisuals(id, bucketKey)
         for _, alert in ipairs(self.alerts) do
-            if alert.id == id then
+            if alert.id == id and (bucketKey == nil or alert.bucketKey == bucketKey) then
                 self.released[#self.released + 1] = id
                 return true
             end
@@ -128,6 +128,44 @@ function TestScopeEdits:seedAlert(name, enabled)
     return id, graph
 end
 
+function TestScopeEdits:testToggleEnabledChangesTheScopeThatOwnsTheSharedId()
+    local globalId = self:seedAlert("Global", true)
+    local playerDoc = Store.Empty()
+    local playerList = {}
+    self.scopes["player_tid"] = { doc = playerDoc, key = "player_tid", list = playerList }
+    local graph = LibNodeGraph.NewGraph(self.registry)
+    graph:AddNode("fixture.trigger")
+    Store.InsertEntry(playerDoc, Store.NewAlertEntry(globalId, "Character", graph, {}, true))
+    playerList[1] = { id = globalId, name = "Character", graph = graph, layout = {}, enabled = true }
+    self.runtime:AddAlert(globalId, "Character", graph, true, "player_tid")
+
+    self.edits:ToggleEnabled("player_tid", globalId)
+
+    luaunit.assertEquals(Store.FindById(self.doc, globalId).enabled, true)
+    luaunit.assertEquals(Store.FindById(playerDoc, globalId).enabled, false)
+    luaunit.assertEquals(self.runtime.alerts[1].enabled, true)
+    luaunit.assertEquals(self.runtime.alerts[2].enabled, false)
+    luaunit.assertEquals(Store.LoadKey("player_tid").entries[1].enabled, false)
+end
+
+function TestScopeEdits:testToggleEnabledKeepsTheFlagWhenTheBucketSaveFails()
+    local id = self:seedAlert("Gate", true)
+    luaunit.assertTrue(Store.Save(self.doc))
+    local lines = {}
+    log = function(message) lines[#lines + 1] = message end
+    function PersistentDB:SetString() error("rejected") end
+
+    self.edits:ToggleEnabled("global", id)
+    log = nil
+
+    luaunit.assertEquals(Store.FindById(self.doc, id).enabled, false)
+    luaunit.assertEquals(self.runtime.alerts[1].enabled, false)
+    luaunit.assertEquals(self.list[1].enabled, false)
+    luaunit.assertTrue(Store.LoadKey("global").entries[1].enabled)
+    luaunit.assertEquals(#lines, 1)
+    luaunit.assertStrContains(lines[1], "failed to save")
+end
+
 function TestScopeEdits:testToggleEnabledSavesTheBucketAndDisablesTheRuntimeAlert()
     local id = self:seedAlert("Gate", true)
 
@@ -140,6 +178,26 @@ function TestScopeEdits:testToggleEnabledSavesTheBucketAndDisablesTheRuntimeAler
     local loaded = Store.LoadKey("global")
     luaunit.assertEquals(loaded.entries[1].id, id)
     luaunit.assertEquals(loaded.entries[1].enabled, false)
+end
+
+function TestScopeEdits:testGroupDisableKeepsTheNewFlagWhenTheSaveFails()
+    local graph = LibNodeGraph.NewGraph(self.registry)
+    local child = Store.NewAlertEntry(1, "Inside", graph, {}, true)
+    Store.InsertEntry(self.doc, Store.NewGroupEntry(2, "Folder", true, { child }))
+    self.list[1] = { id = 1, name = "Inside", graph = graph, layout = {}, enabled = true }
+    self.runtime:AddAlert(1, "Inside", graph, true, "global")
+    luaunit.assertTrue(Store.Save(self.doc))
+    function PersistentDB:SetString() error("rejected") end
+
+    self.edits:ToggleEnabled("global", 2)
+
+    luaunit.assertEquals(Store.FindById(self.doc, 2).enabled, false)
+    luaunit.assertEquals(Store.FindById(self.doc, 1).enabled, true)
+    luaunit.assertEquals(self.runtime.alerts[1].enabled, true)
+    luaunit.assertEquals(self.runtime.released, { 1 })
+    local loaded = Store.LoadKey("global")
+    luaunit.assertTrue(loaded.entries[1].enabled)
+    luaunit.assertTrue(loaded.entries[1].children[1].enabled)
 end
 
 function TestScopeEdits:testDisablingAGroupReleasesChildVisualsWithoutDisablingTheChild()

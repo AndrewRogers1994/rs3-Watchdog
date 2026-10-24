@@ -42,19 +42,15 @@ local function newFakeIdentity(trackingId, displayName)
     return id
 end
 
--- A fake Bucket loader over an in-memory map of Tracking ID -> list of alert specs. Records
+-- A fake Bucket loader over an in-memory map of Tracking ID -> list of alert entries. Records
 -- every id asked for, so a test can prove a display-name key is never requested, a world-hop
--- does NOT reload, and a Tracking ID change does. Each returned alert is a fresh table so the
--- runtime owns its own list.
+-- does NOT reload, and a Tracking ID change does. The returned tables are the entries the
+-- runtime fires, so a flag change is visible on the entry.
 local function newFakeLoader()
     local loader = { calls = {}, buckets = {} }
     loader.fn = function(trackingId)
         loader.calls[#loader.calls + 1] = trackingId
-        local out = {}
-        for _, spec in ipairs(loader.buckets[trackingId] or {}) do
-            out[#out + 1] = { id = spec.id, name = spec.name, graph = spec.graph, enabled = spec.enabled }
-        end
-        return out
+        return loader.buckets[trackingId] or {}
     end
     return loader
 end
@@ -383,18 +379,66 @@ function TestPlayerScoping:testArmedAndEnabledFires()
     luaunit.assertEquals(g:GetLastValue(nid, "payload"), "yes")
 end
 
-function TestPlayerScoping:testCharacterToggleFlipsInMemoryButNotThroughGlobalHook()
-    -- A character alert's enable flip must NOT reach the `global` persistence hook: Entry ids are
-    -- unique only within a Bucket, so writing a character id through the global hook could collide
-    -- with a same-id global entry. The flip still takes effect in memory (it stops firing).
+function TestPlayerScoping:testCharacterToggleSavesThatBucketAndFiresTheEntryFlag()
+    -- The loaded alert table is the Entry. Saving includes the bucket key so a shared id
+    -- cannot write the global Bucket. Firing reads that same table.
     local calls = {}
-    self.runtime:SetPersistence({ SetEnabled = function(id, enabled) calls[#calls + 1] = { id = id, enabled = enabled } end })
+    self.runtime:SetPersistence({
+        SaveEnabled = function(bucketKey, id, enabled)
+            calls[#calls + 1] = { key = bucketKey, id = id, enabled = enabled }
+            return true
+        end,
+    })
 
     local g, nid = self:seedCharacterAlert("tid-1", 1, "a", true)
     self:login("tid-1", "Alice")
     luaunit.assertTrue(self.runtime:SetEnabled("a", false))
 
-    luaunit.assertEquals(#calls, 0)
+    luaunit.assertEquals(calls, { { key = "player_tid-1", id = 1, enabled = false } })
+    self.source:Push("Custom", "silenced")
+    luaunit.assertNil(g:GetLastValue(nid, "payload"))
+
+    self.loader.buckets["tid-1"][1].enabled = true
+    self.source:Push("Custom", "back")
+    luaunit.assertEquals(g:GetLastValue(nid, "payload"), "back")
+end
+
+function TestPlayerScoping:testNameToggleSavesEachResidentScopeAndSkipsAnUnloadedOne()
+    local calls = {}
+    self.runtime:SetPersistence({
+        SaveEnabled = function(bucketKey, id, enabled)
+            calls[#calls + 1] = { key = bucketKey, id = id, enabled = enabled }
+            return true
+        end,
+    })
+    local globalGraph = Graph.new(self.registry)
+    globalGraph:AddNode("fixture.echo")
+    self.runtime:AddAlert(1, "a", globalGraph, true, "global")
+    self:seedCharacterAlert("tid-1", 1, "a", true)
+    self:seedCharacterAlert("tid-2", 3, "a", true)
+    self:login("tid-1", "Alice")
+    self:leaveGame()
+
+    luaunit.assertTrue(self.runtime:SetEnabled("a", false))
+
+    table.sort(calls, function(a, b) return a.key < b.key end)
+    luaunit.assertEquals(calls, {
+        { key = "global", id = 1, enabled = false },
+        { key = "player_tid-1", id = 1, enabled = false },
+    })
+    luaunit.assertTrue(self.loader.buckets["tid-2"][1].enabled)
+end
+
+function TestPlayerScoping:testCharacterToggleKeepsTheNewFlagWhenTheSaveFails()
+    self.runtime:SetPersistence({
+        SaveEnabled = function() return false end,
+    })
+
+    local g, nid = self:seedCharacterAlert("tid-1", 1, "a", true)
+    self:login("tid-1", "Alice")
+    self.runtime:SetEnabled("a", false)
+
+    luaunit.assertFalse(self.loader.buckets["tid-1"][1].enabled)
     self.source:Push("Custom", "silenced")
     luaunit.assertNil(g:GetLastValue(nid, "payload"))
 end

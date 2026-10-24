@@ -142,7 +142,7 @@ function ScopeEdits:ToggleEnabled(scopeKey, id)
     self.store.SetEnabled(doc, id, nextEnabled)
     self.store.SaveTo(key, doc)
     if entry.kind == "alert" then
-        self.runtime:SetAlertEnabled(id, nextEnabled)
+        self.runtime:SetAlertEnabled(id, nextEnabled, key)
         local _, _, list = self:_bucket(scopeKey)
         if list ~= nil then
             for _, alert in ipairs(list) do
@@ -153,7 +153,7 @@ function ScopeEdits:ToggleEnabled(scopeKey, id)
         local alertIds = {}
         collectAlertIds(entry, alertIds)
         for _, alertId in ipairs(alertIds) do
-            self.runtime:ReleaseAlertVisuals(alertId)
+            self.runtime:ReleaseAlertVisuals(alertId, key)
         end
     end
     return leave()
@@ -209,8 +209,8 @@ function ScopeEdits:Delete(scopeKey, id, open)
     self.store.DeleteById(doc, id)
     self.store.SaveTo(key, doc)
     for _, alertId in ipairs(alertIds) do
-        self.runtime:ReleaseAlertVisuals(alertId)
-        self.runtime:RemoveAlert(alertId)
+        self.runtime:ReleaseAlertVisuals(alertId, key)
+        self.runtime:RemoveAlert(alertId, key)
     end
     if list ~= nil then purgeAlertList(list, alertIds) end
     if closing then return { kind = "close" } end
@@ -245,7 +245,7 @@ function ScopeEdits:CreateFromScratch(scopeKey)
     self.store.InsertEntry(doc, self.store.NewAlertEntry(id, name, graph, layout, true))
     self.store.SaveTo(key, doc)
     rememberAlert(list, id, name, graph, layout)
-    self.runtime:AddAlert(id, name, graph, true, key)
+    self.runtime:AddAlert(id, name, graph, true, key, self.store.FindById(doc, id))
     return openEditor(scopeKey, id), id
 end
 
@@ -356,8 +356,8 @@ function ScopeEdits:BulkDelete(scopeKey, ids, open)
             end
             self.store.DeleteById(doc, id)
             for _, alertId in ipairs(alertIds) do
-                self.runtime:ReleaseAlertVisuals(alertId)
-                self.runtime:RemoveAlert(alertId)
+                self.runtime:ReleaseAlertVisuals(alertId, key)
+                self.runtime:RemoveAlert(alertId, key)
             end
             if list ~= nil then purgeAlertList(list, alertIds) end
         end
@@ -427,7 +427,7 @@ function ScopeEdits:BulkMove(scopeKey, destScopeKey, ids, open)
                 for i, leaf in ipairs(leaves) do
                     local snap = snapshots[i]
                     if snap ~= nil then
-                        self.runtime:RemoveAlert(snap.id)
+                        self.runtime:RemoveAlert(snap.id, srcKey)
                         if destList ~= nil then
                             destList[#destList + 1] = {
                                 id = leaf.id,
@@ -437,7 +437,7 @@ function ScopeEdits:BulkMove(scopeKey, destScopeKey, ids, open)
                                 enabled = snap.enabled,
                             }
                         end
-                        self.runtime:AddAlert(leaf.id, snap.name, snap.graph, snap.enabled ~= false, destKey)
+                        self.runtime:AddAlert(leaf.id, snap.name, snap.graph, snap.enabled ~= false, destKey, leaf)
                     end
                 end
             end
@@ -509,7 +509,7 @@ function ScopeEdits:ImportJson(scopeKey, text)
             if list ~= nil then
                 list[#list + 1] = alert
             end
-            self.runtime:AddAlert(alert.id, alert.name, alert.graph, alert.enabled ~= false, key)
+            self.runtime:AddAlert(alert.id, alert.name, alert.graph, alert.enabled ~= false, key, self.store.FindById(doc, alert.id))
         end
     end
     local msg = (type(report) == "table" and report.message) or "ok"
@@ -536,7 +536,7 @@ function ScopeEdits:_finishCreate(scopeKey, doc, key, list, entry, graph, layout
     end
     self.store.SaveTo(key, doc)
     rememberAlert(list, entry.id, entry.name, graph, layout)
-    self.runtime:AddAlert(entry.id, entry.name, graph, true, key)
+    self.runtime:AddAlert(entry.id, entry.name, graph, true, key, entry)
     return openEditor(scopeKey, entry.id), entry.id, nil
 end
 
