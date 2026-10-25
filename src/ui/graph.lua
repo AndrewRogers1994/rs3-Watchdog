@@ -60,6 +60,7 @@ function Editor.new(registry, runtime)
         backButton = nil,
         zoomSlider = nil,
         resetViewButton = nil,
+        infoButton = nil,
         zoomTickCanvas = nil,      -- clickthrough 1.0 mark on the slider track
         onBack = nil,              -- host nav-up (Manager)
         onSavePreset = nil,        -- host opens Save as preset
@@ -181,6 +182,7 @@ function Editor:FrontOverlayTooltips()
     frontToolbarTooltip(self.savePresetButton)
     frontToolbarTooltip(self.backButton)
     frontToolbarTooltip(self.resetViewButton)
+    frontToolbarTooltip(self.infoButton)
     frontToolbarTooltip(self.plusButton)
     InvViewer.FrontTooltips(self)
 end
@@ -203,6 +205,7 @@ function Editor:frontOverlayInteractives()
     if self.zoomSlider ~= nil then pcall(function() self.zoomSlider:MoveToFront() end) end
     if self.zoomTickCanvas ~= nil then pcall(function() self.zoomTickCanvas:MoveToFront() end) end
     if self.resetViewButton ~= nil then self.resetViewButton.root:MoveToFront() end
+    if self.infoButton ~= nil then self.infoButton.root:MoveToFront() end
     if self.plusButton ~= nil then self.plusButton.root:MoveToFront() end
     if self.savePresetButton ~= nil then self.savePresetButton.root:MoveToFront() end
     self:FrontOverlayTooltips()
@@ -423,7 +426,7 @@ local function titleRightSlot(win, w, h)
     w = w or Theme.TOOLBAR_BTN
     h = h or Theme.TOOLBAR_BTN
     local titleX, titleY, titleW, headerH = titleStrip(win)
-    local x = titleX + titleW - Theme.WINDOW_CLOSE_RESERVE - Theme.WINDOW_MAX_BTN - 6 - w
+    local x = titleX + titleW - Theme.WINDOW_MAX_BTN - 6 - w
     local y = titleY + math.floor((headerH - h) / 2)
     return x, y
 end
@@ -1902,6 +1905,7 @@ function Editor:OnShellHide()
     dismissToolbarTooltip(self.plusButton)
     dismissToolbarTooltip(self.savePresetButton)
     dismissToolbarTooltip(self.resetViewButton)
+    dismissToolbarTooltip(self.infoButton)
     dismissToolbarTooltip(self.renameButton)
     dismissToolbarTooltip(self.backButton)
 end
@@ -1932,6 +1936,7 @@ function Editor:SetVisible(v)
     hideToolbarButton(self.plusButton, not self.visible)
     hideToolbarButton(self.savePresetButton, not self.visible)
     hideToolbarButton(self.resetViewButton, not self.visible)
+    hideToolbarButton(self.infoButton, not self.visible)
     hideToolbarButton(self.backButton, not self.visible)
     hideToolbarButton(self.renameButton, not self.visible)
     if self.zoomSlider ~= nil then
@@ -1967,7 +1972,8 @@ function Editor:layoutToolbar()
     local titleX, titleY, titleW, headerH = titleStrip(win)
     local btnY = titleY + math.floor((headerH - bs) / 2)
     local slotX, slotY = titleRightSlot(win, bs, bs)
-    local resetX = slotX - pad - bs
+    local resetX = slotX - pad - bs - pad - bs
+    local infoX = slotX - pad - bs
     local sw, sh = Theme.ZOOM_SLIDER_W, Theme.ZOOM_SLIDER_H
     local sliderX = resetX - pad - sw
     local sliderY = titleY + math.floor((headerH - sh) / 2)
@@ -1990,6 +1996,10 @@ function Editor:layoutToolbar()
     if self.resetViewButton ~= nil then
         self.resetViewButton.root:SetPos(resetX, slotY)
         self.resetViewButton.root:SetSize(bs, bs)
+    end
+    if self.infoButton ~= nil then
+        self.infoButton.root:SetPos(infoX, slotY)
+        self.infoButton.root:SetSize(bs, bs)
     end
     if self.zoomSlider ~= nil then
         self.zoomSlider:SetPos(sliderX, sliderY)
@@ -2100,6 +2110,24 @@ function Editor:mountToolbar(overlayParent)
     self.resetViewButton = prettyui.SpriteButton.new(overlayParent, "GRID_LAYOUT", function()
         self:onResetView()
     end, { size = bs, tooltip = "Reset view" })
+
+    self.infoButton = prettyui.SpriteButton.new(overlayParent, "INFO", function()
+        Dialog.mount(overlayParent, {
+            title = "Tutorial", width = 440, height = 340,
+            rowBackgroundColours = { 0x24211EFF, 0x2E2825FF },
+            content = function(win)
+                win:AddTitle("Tutorial")
+                local generalSection = win:AddCollapseButton("General", { expanded = true })
+                    generalSection:AddText("Lorem ipsum dolor sit amet, consectetur adipiscing elit. Maecenas convallis congue nisi, non imperdiet massa porttitor at. Ut at ullamcorper odio, non pellentesque tortor. Mauris hendrerit sagittis elit, interdum mattis orci dictum non. Praesent ultrices vel ligula id dignissim. Fusce in leo orci.")
+                local nodesSection = win:AddCollapseButton("Nodes", { expanded = false })
+                win:RefreshRowBackgrounds()
+            end,
+            actions = {
+                { label = "Close" },
+            },
+        })
+    end)
+
     self.plusButton = prettyui.SpriteButton.new(overlayParent, "PLUS", function()
         self:openPaletteFromPlus()
     end, { size = bs, tooltip = "Add alert node" })
@@ -2148,6 +2176,10 @@ function Editor:Unmount()
     if self.resetViewButton ~= nil then
         self.resetViewButton:Destroy()
         self.resetViewButton = nil
+    end
+    if self.infoButton ~= nil then
+        self.infoButton:Destroy()
+        self.infoButton = nil
     end
     if self.plusButton ~= nil then
         self.plusButton:Destroy()
