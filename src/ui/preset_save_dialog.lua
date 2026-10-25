@@ -193,15 +193,14 @@ function PresetSaveDialog.mountSave(parent, opts)
                     end
                     if pick ~= nil and pick.kind == "node" then
                         body:AddText("Choose a node")
+                        body:AddSimpleButton("Back", function()
+                            reopen(mounted, marks)
+                        end)
                         for _, group in ipairs(choices) do
                             local captured = group
                             local title = PresetLabels.NodeTitle(graph, captured.nodeId) or tostring(captured.nodeId)
                             body:AddSimpleButton(title, function()
-                                if #captured.pinNames == 1 then
-                                    reopen(mounted, withMark(marks, captured.nodeId, captured.pinNames[1]), nil)
-                                else
-                                    reopen(mounted, marks, { kind = "pin", nodeId = captured.nodeId })
-                                end
+                                reopen(mounted, marks, { kind = "pin", nodeId = captured.nodeId })
                             end)
                         end
                     elseif pick ~= nil and pick.kind == "pin" then
@@ -226,7 +225,7 @@ function PresetSaveDialog.mountSave(parent, opts)
                             end
                         end
                     elseif #choices > 0 then
-                        body:AddSimpleButton("Add", function()
+                        body:AddSimpleButton("Mark Variable", function()
                             reopen(mounted, marks, { kind = "node" })
                         end)
                     end

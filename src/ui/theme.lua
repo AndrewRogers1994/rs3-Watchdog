@@ -265,13 +265,14 @@ Theme.DEFAULT_CATEGORY_COLOR = col(85, 85, 96, 1.0)
 
 -- Type Tag -> Data pin/wire color (loosely following Blueprint conventions).
 Theme.TYPE_COLORS = {
-    any    = col(176, 176, 176, 1.0),  -- wildcard: grey
-    bool   = col(150, 47, 47, 1.0),    -- red
-    number = col(63, 159, 111, 1.0),   -- green
-    string = col(192, 63, 159, 1.0),   -- magenta
-    coord  = col(208, 160, 32, 1.0),   -- gold
+    any         = col(150, 150, 150, 1.0),  -- wildcard: grey
+    bool        = col(60, 180, 60, 1.0),    -- muted green
+    number      = col(0, 180, 200, 1.0),    -- muted cyan
+    string      = col(210, 120, 30, 1.0),   -- muted orange
+    coordgrid   = col(200, 175, 0, 1.0),    -- muted gold
+    invSnapshot = col(0, 102, 204, 1.0),    -- my fave blue
 }
-Theme.DEFAULT_TYPE_COLOR = col(176, 176, 176, 1.0)
+Theme.DEFAULT_TYPE_COLOR = col(255, 0, 255, 1.0) -- unmapped type
 
 --- Lookups -------------------------------------------------------------------------
 

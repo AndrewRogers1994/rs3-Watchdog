@@ -794,16 +794,17 @@ Event.KeyDown.Subscribe(Events.KeyDown, function(keyEvent)
             runtime.objectMarkerCapture:Cancel()
             return
         end
-        if mux ~= nil and mux:IsVisible() then
-            if mux:IsTop("manager") and manager ~= nil and manager:IsVisible() then
-                if manager:HasSelection() then
-                    manager:ClearSelection()
-                    pcall(function() manager:_rebuild() end)
-                end
-            elseif mux:IsTop("editor") and editor:IsVisible() then
-                pcall(function() editor:onEscape() end)
-            end
-        end
+        -- We can't consume keypresses so these ones make it more confusing
+        -- if mux ~= nil and mux:IsVisible() then
+        --     if mux:IsTop("manager") and manager ~= nil and manager:IsVisible() then
+        --         if manager:HasSelection() then
+        --             manager:ClearSelection()
+        --             pcall(function() manager:_rebuild() end)
+        --         end
+        --     elseif mux:IsTop("editor") and editor:IsVisible() then
+        --         pcall(function() editor:onEscape() end)
+        --     end
+        -- end
         return
     end
     local target = GameKey[TOGGLE_KEY]

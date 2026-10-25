@@ -3,7 +3,7 @@
 > (GitHub issue #1). The per-node feasibility notes below are the source of truth that map's
 > tickets design against.
 
-- [ ] 1. consolidate the comparison nodes into one with a dropdown selector for the operation. it's clutter to have 6 different nodes to just change the operation between two numbers. ([#64](https://github.com/adamk33n3r/rs3-Watchdog/issues/64))
+- [x] 1. consolidate the comparison nodes into one with a dropdown selector for the operation. it's clutter to have 6 different nodes to just change the operation between two numbers. ([#64](https://github.com/adamk33n3r/rs3-Watchdog/issues/64)) _(Palette node is `std.compare` with an operation dropdown. The six old types stay registered and hidden so saved graphs still load.)_
 - [ ] 2. By default, exec IN pins allow more than one connection but can be configured to only allow a single connection ([#65](https://github.com/adamk33n3r/rs3-Watchdog/issues/65))
 - [x] 3. Right now you can create multiple duplicate connections. If you try to create a connection that already exists, treat that as the user wanting to remove that existing connection. _(Engine: `Connect` now returns `id` or `nil, reason` — uniform result contract, no asserts — and rejects exact-duplicate edges (`"duplicate"`, checked before `"data_input_occupied"`); new `Graph:FindConnection`. Editor `linkPins`: identical wire → toggle off (uniform exec+data); different-source data occupant → replace.)_
 - [ ] 4. checkbox control for booleans ([#66](https://github.com/adamk33n3r/rs3-Watchdog/issues/66) — combined with #11)
@@ -14,16 +14,16 @@
 - [x] 9. Dragging text to the right side of the editor window causes it to wrap.
 - [ ] 10. Concat node to combine strings ([#70](https://github.com/adamk33n3r/rs3-Watchdog/issues/70))
 - [ ] 11. Make any dropdowns that have "Any" put "Any" at the top. ([#66](https://github.com/adamk33n3r/rs3-Watchdog/issues/66) — combined with #4)
-- [#] 12. Screen Marker and Object Marker need a "hold" control like Toast. They also need their "armed modes" to be more noticable with instructions. Screen marker should have a "dimming overlay" and when you drag a box, it's not dim inside. like how windows snipping tool works. And object marker needs to have some sort of indicator that it's enabled and that you need to examine an object. maybe just a big text notification type thing in the top of the screen. ([#71](https://github.com/adamk33n3r/rs3-Watchdog/issues/71))
+- [x] 12. Screen Marker and Object Marker need a "hold" control like Toast. They also need their "armed modes" to be more noticable with instructions. Screen marker should have a "dimming overlay" and when you drag a box, it's not dim inside. like how windows snipping tool works. And object marker needs to have some sort of indicator that it's enabled and that you need to examine an object. maybe just a big text notification type thing in the top of the screen. ([#71](https://github.com/adamk33n3r/rs3-Watchdog/issues/71))
 - [x] 13. Location trigger node needs to not fire upon 1. load and 2. setting position ([#72](https://github.com/adamk33n3r/rs3-Watchdog/issues/72))
 - [x] 14. Hide watchdog window during object select _(Mux `HideForCapture` while `objectMarkerCapture` is armed; restore on commit/Esc/F8. No-op if the shell was already down.)_
 - [ ] 15. Area select + copy/paste in editor view
 - [x] 16. Disabling an alert that has an infobox in it should clear that infobox (and probably any other visuals spawned by that alert) _(Disable, name toggle, group disable, and delete release that alert's InfoBox, toasts, marker/flash handles, and popups stamped with the node's state. Re-enable does not restore them. RemoveAlert alone keeps visuals so a bucket move does not blank an enabled alert.)_
 - [x] 17. Add scrolling to main manager view and also preset modal
-- [ ] 18. Look into rounding the node layout positions to whole numbers so that the json is smaller
-- [ ] 19. consolidate the math nodes like we did for the compare node
-- [ ] 20. the new compare node should only accept numbers and also should have a number field when the pin is not connected just like the old ones
-- [ ] 21. bundle some good example presets and alerts
+- [ ] 18. Look into rounding the node layout positions to whole numbers so that the json is smaller ([#154](https://github.com/adamk33n3r/rs3-Watchdog/issues/154))
+- [ ] 19. consolidate the math nodes like we did for the compare node ([#154](https://github.com/adamk33n3r/rs3-Watchdog/issues/154))
+- [ ] 20. the new compare node should only accept numbers and also should have a number field when the pin is not connected just like the old ones ([#154](https://github.com/adamk33n3r/rs3-Watchdog/issues/154))
+- [ ] 21. bundle some good example presets and alerts ([#154](https://github.com/adamk33n3r/rs3-Watchdog/issues/154))
 - [ ] 22. close palette when opening dialog
 - [ ] 23. add chat picker
 
