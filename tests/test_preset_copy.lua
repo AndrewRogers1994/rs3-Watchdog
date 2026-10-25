@@ -317,3 +317,72 @@ function TestPresetCopy:testInstantiateRefusesAMarkThatDoesNotResolve()
     luaunit.assertEquals(bucket.entries, {})
     luaunit.assertEquals(PersistentDB:GetString("presets"), before)
 end
+
+-- Saving writes 1.5, -0.5 as 2, -1. The live point stays where the drag left it.
+function TestPresetCopy:testSavingAPresetWritesIntegersWithoutMovingTheLiveLayout()
+    local graph = LibNodeGraph.NewGraph(self.registry)
+    local id = graph:AddNode("fixture.trigger")
+    local layout = { [id] = { x = 1.5, y = -0.5 } }
+
+    local preset, err = Presets.Add("Gate", graph, layout)
+    luaunit.assertNil(err)
+    luaunit.assertEquals(layout[id].x, 1.5)
+    luaunit.assertEquals(layout[id].y, -0.5)
+    luaunit.assertEquals(preset.layout[1].x, 2)
+    luaunit.assertEquals(preset.layout[1].y, -1)
+
+    local loaded = Presets.Load()
+    luaunit.assertEquals(loaded.presets[1].layout[1].x, 2)
+    luaunit.assertEquals(loaded.presets[1].layout[1].y, -1)
+
+    local bucket = Store.Empty()
+    local entry, _, live = PresetCopy.Instantiate(bucket, preset.id, self.registry)
+    luaunit.assertEquals(entry.layout[1].x, 2)
+    luaunit.assertEquals(entry.layout[1].y, -1)
+    luaunit.assertEquals(live[id].x, 2)
+    luaunit.assertEquals(live[id].y, -1)
+end
+
+-- A preset saved at 1.5, -1.5 stays there through a copy. Saving that point writes 2, -2.
+function TestPresetCopy:testFractionalPresetLayoutStaysUntilThePresetIsSavedAgain()
+    local graph = LibNodeGraph.NewGraph(self.registry)
+    local nodeId = graph:AddNode("fixture.trigger")
+    local seeded = {
+        version = 1,
+        presets = {
+            {
+                id = 1,
+                name = "Old",
+                graph = LibNodeGraph.Serialize(graph),
+                layout = { { id = nodeId, x = 1.5, y = -1.5 } },
+                variables = {},
+            },
+        },
+    }
+    PersistentDB:SetString("presets", LibNodeGraph.Json.Default.encode(seeded))
+
+    local loaded = Presets.Load()
+    luaunit.assertEquals(loaded.presets[1].layout[1].x, 1.5)
+    luaunit.assertEquals(loaded.presets[1].layout[1].y, -1.5)
+
+    local bucket = Store.Empty()
+    local entry, _, live = PresetCopy.Instantiate(bucket, 1, self.registry)
+    luaunit.assertEquals(live[nodeId].x, 1.5)
+    luaunit.assertEquals(live[nodeId].y, -1.5)
+    luaunit.assertEquals(entry.layout[1].x, 2)
+    luaunit.assertEquals(entry.layout[1].y, -2)
+    luaunit.assertEquals(Presets.Load().presets[1].layout[1].x, 1.5)
+    luaunit.assertEquals(Presets.Load().presets[1].layout[1].y, -1.5)
+
+    local again, err = Presets.Add("Again", graph, live)
+    luaunit.assertNil(err)
+    luaunit.assertEquals(live[nodeId].x, 1.5)
+    luaunit.assertEquals(live[nodeId].y, -1.5)
+    luaunit.assertEquals(again.layout[1].x, 2)
+    luaunit.assertEquals(again.layout[1].y, -2)
+    local doc = Presets.Load()
+    luaunit.assertEquals(doc.presets[1].layout[1].x, 1.5)
+    luaunit.assertEquals(doc.presets[1].layout[1].y, -1.5)
+    luaunit.assertEquals(doc.presets[2].layout[1].x, 2)
+    luaunit.assertEquals(doc.presets[2].layout[1].y, -2)
+end

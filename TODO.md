@@ -20,10 +20,10 @@
 - [ ] 15. Area select + copy/paste in editor view
 - [x] 16. Disabling an alert that has an infobox in it should clear that infobox (and probably any other visuals spawned by that alert) _(Disable, name toggle, group disable, and delete release that alert's InfoBox, toasts, marker/flash handles, and popups stamped with the node's state. Re-enable does not restore them. RemoveAlert alone keeps visuals so a bucket move does not blank an enabled alert.)_
 - [x] 17. Add scrolling to main manager view and also preset modal
-- [ ] 18. Look into rounding the node layout positions to whole numbers so that the json is smaller ([#154](https://github.com/adamk33n3r/rs3-Watchdog/issues/154))
-- [ ] 19. consolidate the math nodes like we did for the compare node ([#154](https://github.com/adamk33n3r/rs3-Watchdog/issues/154))
-- [ ] 20. the new compare node should only accept numbers and also should have a number field when the pin is not connected just like the old ones ([#154](https://github.com/adamk33n3r/rs3-Watchdog/issues/154))
-- [ ] 21. bundle some good example presets and alerts ([#154](https://github.com/adamk33n3r/rs3-Watchdog/issues/154))
+- [x] 18. Look into rounding the node layout positions to whole numbers so that the json is smaller ([#154](https://github.com/adamk33n3r/rs3-Watchdog/issues/154)) _(Place and drag release store an integer. A save writes that integer. A mid-drag save does not snap the node under the cursor. Load leaves an old fraction alone.)_
+- [x] 19. consolidate the math nodes like we did for the compare node ([#154](https://github.com/adamk33n3r/rs3-Watchdog/issues/154)) _(Palette node is `std.math`. The seven old arithmetic types stay registered and hidden.)_
+- [x] 20. the new compare node should only accept numbers and also should have a number field when the pin is not connected just like the old ones ([#154](https://github.com/adamk33n3r/rs3-Watchdog/issues/154)) _(`std.compare` inputs are numbers defaulting to 0. A new string, bool, or any wire is refused. A wire already saved still loads.)_
+- [x] 21. bundle some good example presets and alerts ([#154](https://github.com/adamk33n3r/rs3-Watchdog/issues/154)) _(Pack Watchdog: Friend login, Low life points, Low prayer, Idle XP. Copies are ordinary Alerts. Tick Counter stays separate.)_
 - [ ] 22. close palette when opening dialog
 - [ ] 23. add chat picker
 

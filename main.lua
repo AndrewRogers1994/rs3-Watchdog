@@ -101,6 +101,7 @@ require("src/nodes/triggers/player_chat").Register(registry, runtime)
 require("src/nodes/triggers/logic").Register(registry, runtime)
 require("src/nodes/triggers/location").Register(registry, runtime)
 require("src/nodes/triggers/skill").Register(registry, runtime)
+require("src/nodes/triggers/resource").Register(registry, runtime)
 require("src/nodes/triggers/entity_spawn").Register(registry, runtime)
 require("src/nodes/triggers/inventory").Register(registry, runtime)
 require("src/nodes/actions/log").Register(registry)
@@ -733,6 +734,9 @@ local api = {}
 function api:RegisterDataPack(name, contributions)
     return packs:RegisterDataPack(name, contributions)
 end
+
+-- Plugins call this same method. Watchdog's own Pack is registered here, at startup.
+require("src/starter_alerts").register(api, registry)
 
 ---@param token any
 function api:Clear(token)

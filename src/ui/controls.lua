@@ -97,6 +97,9 @@ Controls.Register("string", { widget = "text" })
 local compareOperation = require("src/ui/controls/compare_operation")
 Controls.RegisterPinControl("compareOperation", compareOperation)
 ControlKinds.Record("compareOperation", "enum", compareOperation.choices)
+local mathOperation = require("src/ui/controls/math_operation")
+Controls.RegisterPinControl("mathOperation", mathOperation)
+ControlKinds.Record("mathOperation", "enum", mathOperation.choices)
 Controls.Register("bool", {
     widget = "enum",
     choices = {

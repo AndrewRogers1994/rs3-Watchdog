@@ -53,7 +53,7 @@ function TestSkill:addXpDrop(skillFilter)
 end
 
 function TestSkill:addStatChanged(skillFilter)
-    local id = self.graph:AddNode("trigger.stat_changed", { skillFilter = skillFilter })
+    local id = self.graph:AddNode("trigger.skill_changed", { skillFilter = skillFilter })
     self.graph:Connect(id, "out", self.graph:AddNode("fixture.stat"), "in")
     return id
 end
@@ -114,7 +114,7 @@ function TestSkill:testXpDropDoesNotFireWhenXpDecreases()
     luaunit.assertEquals(self.counts.xp, 0)
 end
 
---- Stat Changed ---------------------------------------------------------------------------
+--- Skill Changed ---------------------------------------------------------------------------
 
 function TestSkill:testStatChangedFiresOnLevelUp()
     self:addStatChanged(nil)

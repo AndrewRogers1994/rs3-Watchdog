@@ -80,9 +80,9 @@ function Skill.Register(registry, runtime)
         end,
     })
 
-    registry:RegisterNodeType("trigger.stat_changed", {
+    registry:RegisterNodeType("trigger.skill_changed", {
         category = "trigger",
-        displayName = "Stat Changed",
+        displayName = "Skill Changed",
         description = "A skill's level/boost changes",
         pins = {
             { name = "skillFilter", kind = "data", direction = "in", dataType = "skill", default = "any" },
@@ -112,7 +112,7 @@ function Skill.Register(registry, runtime)
         },
     })
 
-    runtime:BindTrigger("trigger.stat_changed", {
+    runtime:BindTrigger("trigger.skill_changed", {
         {
             event = "SkillTransmit",
             transform = transform,

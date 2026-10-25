@@ -48,6 +48,16 @@ function Util.ColorToInt(color)
     return (r << 24) | (g << 16) | (b << 8) | a
 end
 
+-- Half away from zero. floor(n + 0.5) turns -1.5 into -1.
+---@param n number
+---@return number
+function Util.RoundHalfAway(n)
+    if n >= 0 then
+        return math.floor(n + 0.5)
+    end
+    return -math.floor(-n + 0.5)
+end
+
 -- RestrictedAreas owns the area predicate.
 ---@return boolean
 function Util.PlayerIsRestricted()

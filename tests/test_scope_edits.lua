@@ -335,6 +335,54 @@ function TestScopeEdits:testAutosaveWritesTheOpenGraphAndLayout()
     luaunit.assertEquals(#restored[1].graph:GetNodes(), 2)
 end
 
+-- A save while the node is still on 1.5, -0.5 writes 2, -1 and leaves the live point there.
+function TestScopeEdits:testAutosaveDuringADragWritesIntegersWithoutMovingTheNode()
+    local id, graph = self:seedAlert("Gate", true)
+    self.edits:NoteSaved("global")
+    local nodeId = graph:AddNode("fixture.trigger")
+    local layout = { [nodeId] = { x = 1.5, y = -0.5 } }
+
+    self.edits:Autosave("global", id, graph, layout)
+
+    luaunit.assertEquals(layout[nodeId].x, 1.5)
+    luaunit.assertEquals(layout[nodeId].y, -0.5)
+    local loaded = Store.LoadKey("global")
+    luaunit.assertEquals(loaded.entries[1].layout[1].x, 2)
+    luaunit.assertEquals(loaded.entries[1].layout[1].y, -1)
+    local restored = Store.RestoreAll(loaded, self.registry)
+    luaunit.assertEquals(restored[1].layout[nodeId].x, 2)
+    luaunit.assertEquals(restored[1].layout[nodeId].y, -1)
+end
+
+-- Opening a saved 1.5, -1.5 leaves that point. The next save writes 2, -2 and does not snap it.
+function TestScopeEdits:testFractionalAlertLayoutStaysUntilTheAlertIsSavedAgain()
+    local id, graph = self:seedAlert("Gate", true)
+    local nodeId = graph:GetNodes()[1].id
+    local entry = Store.FindById(self.doc, id)
+    entry.layout = { { id = nodeId, x = 1.5, y = -1.5 } }
+    luaunit.assertTrue(Store.SaveTo("global", self.doc))
+
+    local loaded = Store.LoadKey("global")
+    luaunit.assertEquals(loaded.entries[1].layout[1].x, 1.5)
+    luaunit.assertEquals(loaded.entries[1].layout[1].y, -1.5)
+    local restored = Store.RestoreAll(loaded, self.registry)
+    local layout = restored[1].layout
+    local live = layout[nodeId]
+    luaunit.assertEquals(live.x, 1.5)
+    luaunit.assertEquals(live.y, -1.5)
+    luaunit.assertEquals(Store.LoadKey("global").entries[1].layout[1].x, 1.5)
+    luaunit.assertEquals(Store.LoadKey("global").entries[1].layout[1].y, -1.5)
+
+    self.edits:NoteSaved("global")
+    self.edits:Autosave("global", id, restored[1].graph, layout)
+
+    luaunit.assertEquals(live.x, 1.5)
+    luaunit.assertEquals(live.y, -1.5)
+    local saved = Store.LoadKey("global")
+    luaunit.assertEquals(saved.entries[1].layout[1].x, 2)
+    luaunit.assertEquals(saved.entries[1].layout[1].y, -2)
+end
+
 function TestScopeEdits:testAutosaveLeavesACleanGraphAndLayoutUnsaved()
     local id, graph = self:seedAlert("Gate", true)
     self.edits:NoteSaved("global")

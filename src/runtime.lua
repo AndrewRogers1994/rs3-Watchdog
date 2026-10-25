@@ -23,7 +23,7 @@ local Util = require("src/util")
 ---@field event string
 ---@field kind "event"|"poll"|nil                          # default "event"
 ---@field transform (fun(raw: any): any)|nil               # identity if omitted
----@field filter (fun(payload: any, node: Watchdog.NodeHandle): boolean)|nil  # always-pass if omitted
+---@field filter (fun(payload: any, node: Watchdog.NodeHandle, graph: LibNodeGraph.Graph): boolean|table)|nil  # true fires the shared event; a table fires that table; false or nil skips
 ---@field seedKey (fun(node: Watchdog.NodeHandle): any)|nil  # poll: changing key reseeds edge state (no Enter/Leave)
 
 ---@class Watchdog.IdentitySource
@@ -682,16 +682,24 @@ function Runtime:_fireBindingInGraph(binding, payload, graph)
     for _, node in ipairs(graph:GetNodes()) do
         if node.typeKey == binding.typeKey then
             local nodeId = node.id
+            local firePayload = payload
             local passes = true
             if binding.filter ~= nil then
                 local nodeHandle = makeNodeHandle(graph, node)
+                -- Third arg is the graph so a trigger can key samples outside the node.
+                -- A table is this node's payload. true keeps the shared event.
+                -- false and nil do not fire, so a filter cannot write onto that event.
                 local ok, result = callOrLog(
                     "filter error on '" .. binding.typeKey .. "'",
-                    binding.filter, payload, nodeHandle)
-                passes = ok and (result and true or false)
+                    binding.filter, payload, nodeHandle, graph)
+                if not ok or not result then
+                    passes = false
+                elseif type(result) == "table" then
+                    firePayload = result
+                end
             end
             if passes then
-                pcall(function() graph:Fire(nodeId, payload) end)
+                pcall(function() graph:Fire(nodeId, firePayload) end)
             end
         end
     end

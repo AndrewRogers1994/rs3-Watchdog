@@ -8,6 +8,8 @@
 -- `{ id, x, y }` because JSON object keys must be strings; it round-trips to a nodeId-keyed
 -- map on load (valid because Deserialize preserves node ids).
 
+local Util = require("src/util")
+
 local Store = {}
 
 local DB_KEY = "global"
@@ -63,12 +65,13 @@ end
 ---On-disk Layout: array of { id, x, y } (JSON object keys must be strings). Sorted by id for diffs.
 ---@alias Watchdog.LayoutArray { id: integer, x: number, y: number }[]
 
+-- The copy is a new number so a mid-drag save cannot snap the live point.
 ---@param layout Watchdog.Layout|nil
 ---@return Watchdog.LayoutArray
 local function layoutToArray(layout)
     local arr = {}
     for id, pos in pairs(layout or {}) do
-        arr[#arr + 1] = { id = id, x = pos.x, y = pos.y }
+        arr[#arr + 1] = { id = id, x = Util.RoundHalfAway(pos.x), y = Util.RoundHalfAway(pos.y) }
     end
     table.sort(arr, function(a, b) return a.id < b.id end)
     return arr

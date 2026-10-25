@@ -46,6 +46,10 @@ function TestGraphEditor:setUp()
     self.editor = setmetatable({ graph = self.graph }, { __index = Editor })
 end
 
+function TestGraphEditor:tearDown()
+    _G.Mouse = nil
+end
+
 -- #3: re-committing the identical exec wire removes it (toggle off), rather than stacking a
 -- duplicate the engine now refuses.
 function TestGraphEditor:testDuplicateExecWireTogglesOff()
@@ -434,8 +438,6 @@ function TestGraphEditor:testOnResetViewSyncsSliderToDefaultRung()
 end
 
 function TestGraphEditor:testPlaceFromPlusCentersNodeBodyOnViewCenter()
-    local Theme = require("src/ui/theme")
-    local Node = require("src/ui/node")
     local editor = Editor.new(self.registry, nil)
     editor:BindEntry(1, self.graph, {})
     editor.window.w, editor.window.h = 400, 300
@@ -458,9 +460,153 @@ function TestGraphEditor:testPlaceFromPlusCentersNodeBodyOnViewCenter()
     local id = editor.selected
     luaunit.assertNotNil(id)
     local pos = editor.layout[id]
-    local geom = Node.BuildGeometry(self.graph:GetPins(id), 0, 0, Theme.NODE_WIDTH)
-    luaunit.assertEquals(pos.x + geom.w * 0.5, 200)
-    luaunit.assertEquals(pos.y + geom.h * 0.5, 150)
+    -- 400x300 center is 200, 150. A 250x68 body centered there sits at 75, 116.
+    luaunit.assertEquals(pos.x, 75)
+    luaunit.assertEquals(pos.y, 116)
+end
+
+-- Centering runs first. Anchor 126.5, 34.5 puts the body at 1.5, 0.5, which the player sees as 2, 1.
+function TestGraphEditor:testPlaceFromPaletteRoundsHalvesAwayFromZero()
+    local editor = Editor.new(self.registry, nil)
+    editor:BindEntry(1, self.graph, {})
+    editor.expandCapture = function() end
+    editor.closeColorPopup = function() end
+    editor.positionCapture = function() end
+    editor.palette.anchorGX = 126.5
+    editor.palette.anchorGY = 34.5
+    editor.palette.centerOnAnchor = true
+
+    editor:placeFromPalette({ typeKey = "fixture.trigger" })
+
+    local pos = editor.layout[editor.selected]
+    luaunit.assertEquals(pos.x, 2)
+    luaunit.assertEquals(pos.y, 1)
+end
+
+-- Anchor 123.5, 33.5 centers the body at -1.5, -0.5. Those land on -2, -1.
+function TestGraphEditor:testPlaceFromPaletteRoundsNegativeHalvesAwayFromZero()
+    local editor = Editor.new(self.registry, nil)
+    editor:BindEntry(1, self.graph, {})
+    editor.expandCapture = function() end
+    editor.closeColorPopup = function() end
+    editor.positionCapture = function() end
+    editor.palette.anchorGX = 123.5
+    editor.palette.anchorGY = 33.5
+    editor.palette.centerOnAnchor = true
+
+    editor:placeFromPalette({ typeKey = "fixture.trigger" })
+
+    local pos = editor.layout[editor.selected]
+    luaunit.assertEquals(pos.x, -2)
+    luaunit.assertEquals(pos.y, -1)
+end
+
+-- Anchor 129, 26 centers the body at 4, -8. An integer stays that integer.
+function TestGraphEditor:testPlaceFromPaletteKeepsAnIntegerPosition()
+    local editor = Editor.new(self.registry, nil)
+    editor:BindEntry(1, self.graph, {})
+    editor.expandCapture = function() end
+    editor.closeColorPopup = function() end
+    editor.positionCapture = function() end
+    editor.palette.anchorGX = 129
+    editor.palette.anchorGY = 26
+    editor.palette.centerOnAnchor = true
+
+    editor:placeFromPalette({ typeKey = "fixture.trigger" })
+
+    local pos = editor.layout[editor.selected]
+    luaunit.assertEquals(pos.x, 4)
+    luaunit.assertEquals(pos.y, -8)
+end
+
+-- A click places the node on the anchor. -1.5, 0.5 is stored as -2, 1.
+function TestGraphEditor:testPlaceFromPaletteRoundsTheClickAnchor()
+    local editor = Editor.new(self.registry, nil)
+    editor:BindEntry(1, self.graph, {})
+    editor.expandCapture = function() end
+    editor.closeColorPopup = function() end
+    editor.positionCapture = function() end
+    editor.palette.anchorGX = -1.5
+    editor.palette.anchorGY = 0.5
+    editor.palette.centerOnAnchor = false
+
+    editor:placeFromPalette({ typeKey = "fixture.trigger" })
+
+    local pos = editor.layout[editor.selected]
+    luaunit.assertEquals(pos.x, -2)
+    luaunit.assertEquals(pos.y, 1)
+end
+
+-- No drag writes the integer onto the live point and into the saved array.
+-- The node being dragged stays fractional on the live layout. Halves go away from zero.
+function TestGraphEditor:testSaveRoundsLivePointsExceptTheDraggedNode()
+    local Store = require("src/store")
+    local editor = Editor.new(self.registry, nil)
+    local kept = self.graph:AddNode("fixture.trigger")
+    local dragged = self.graph:AddNode("fixture.trigger")
+    local layout = {
+        [kept] = { x = 1.5, y = -0.5 },
+        [dragged] = { x = -1.5, y = 2.5 },
+    }
+    editor:BindEntry(1, self.graph, layout)
+
+    editor:GetLayout()
+    local quiet = Store.NewAlertEntry(1, "Quiet", self.graph, layout)
+    luaunit.assertEquals(layout[kept].x, 2)
+    luaunit.assertEquals(layout[kept].y, -1)
+    luaunit.assertEquals(layout[dragged].x, -2)
+    luaunit.assertEquals(layout[dragged].y, 3)
+    luaunit.assertEquals(quiet.layout, {
+        { id = kept, x = 2, y = -1 },
+        { id = dragged, x = -2, y = 3 },
+    })
+
+    layout[kept].x = 1.5
+    layout[kept].y = -0.5
+    layout[dragged].x = -1.5
+    layout[dragged].y = 2.5
+    editor.dragNodeId = dragged
+    editor:GetLayout()
+    local mid = Store.NewAlertEntry(1, "Drag", self.graph, layout)
+    luaunit.assertEquals(layout[kept].x, 2)
+    luaunit.assertEquals(layout[kept].y, -1)
+    luaunit.assertEquals(layout[dragged].x, -1.5)
+    luaunit.assertEquals(layout[dragged].y, 2.5)
+    luaunit.assertEquals(mid.layout, {
+        { id = kept, x = 2, y = -1 },
+        { id = dragged, x = -2, y = 3 },
+    })
+end
+
+-- The body follows the cursor while the button is held. Release stores 1.5, -0.5 as 2, -1.
+function TestGraphEditor:testDragFollowsTheCursorUntilReleaseRoundsTheLayout()
+    local editor = Editor.new(self.registry, nil)
+    local id = self.graph:AddNode("fixture.trigger")
+    editor:BindEntry(1, self.graph, { [id] = { x = 10, y = 20 } })
+    editor.visible = true
+    editor:buildGeoms()
+
+    local function mouseAt(lx, ly)
+        _G.Mouse = {
+            GetPosition = function()
+                return { x = editor.window.x + lx, y = editor.window.y + ly }
+            end,
+        }
+    end
+
+    -- Center of the body, below the header and left of the output pin.
+    mouseAt(135, 54)
+    editor:beginPress()
+    luaunit.assertEquals(editor.mode, "dragnode")
+
+    mouseAt(126.5, 33.5)
+    editor:update()
+    luaunit.assertEquals(editor.layout[id].x, 1.5)
+    luaunit.assertEquals(editor.layout[id].y, -0.5)
+
+    editor:endPress()
+    luaunit.assertEquals(editor.layout[id].x, 2)
+    luaunit.assertEquals(editor.layout[id].y, -1)
 end
 
 local function registerModeFixture(registry)

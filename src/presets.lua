@@ -3,6 +3,7 @@
 -- Does not copy a Preset into a Scope and does not read the Pack registry.
 
 local ControlKinds = require("src/ui/control_kinds")
+local Util = require("src/util")
 
 local Presets = {}
 
@@ -99,13 +100,14 @@ end
 
 local trim = Presets.trim
 
+-- The copy is a new number so a mid-drag save cannot snap the live point.
 -- Same on-disk shape an Alert entry uses: `{ id, x, y }` sorted by node id.
 ---@param layout Watchdog.Layout|nil
 ---@return Watchdog.LayoutArray
 local function layoutToArray(layout)
     local arr = {}
     for id, pos in pairs(layout or {}) do
-        arr[#arr + 1] = { id = id, x = pos.x or 0, y = pos.y or 0 }
+        arr[#arr + 1] = { id = id, x = Util.RoundHalfAway(pos.x or 0), y = Util.RoundHalfAway(pos.y or 0) }
     end
     table.sort(arr, function(a, b) return a.id < b.id end)
     return arr

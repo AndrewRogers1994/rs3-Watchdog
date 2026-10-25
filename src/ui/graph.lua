@@ -13,6 +13,7 @@ local ColorPopup = require("src/ui/color_popup")
 local IfaceScale = require("src/ui/iface_scale")
 local InvViewer = require("src/ui/inv_viewer")
 local NumberSpinner = require("src/ui/widgets/number_spinner")
+local Util = require("src/util")
 
 local Editor = {}
 Editor.__index = Editor
@@ -110,8 +111,16 @@ function Editor:Unbind()
     self.selected = nil
 end
 
+-- A save reads this. Round every live point except the node being dragged.
+-- layoutToArray copies a new number, so that drag is not snapped.
 ---@return Watchdog.Layout
 function Editor:GetLayout()
+    for id, pos in pairs(self.layout) do
+        if id ~= self.dragNodeId then
+            pos.x = Util.RoundHalfAway(pos.x)
+            pos.y = Util.RoundHalfAway(pos.y)
+        end
+    end
     return self.layout
 end
 
@@ -881,6 +890,14 @@ function Editor:endPress()
         self:commitWire()
     end
 
+    if self.mode == "dragnode" and self.dragNodeId ~= nil then
+        local pos = self.layout[self.dragNodeId]
+        if pos ~= nil then
+            pos.x = Util.RoundHalfAway(pos.x)
+            pos.y = Util.RoundHalfAway(pos.y)
+        end
+    end
+
     self.mode = "idle"
     self.wire = nil
     self.dragNodeId = nil
@@ -1032,7 +1049,8 @@ function Editor:placeFromPalette(row)
         x = anchorGX - geom.w * 0.5
         y = anchorGY - geom.h * 0.5
     end
-    self.layout[newId] = { x = x, y = y }
+    -- Store the integer the player sees. A half goes away from zero.
+    self.layout[newId] = { x = Util.RoundHalfAway(x), y = Util.RoundHalfAway(y) }
     self:bringToFront(newId)
     self.selected = newId
 
