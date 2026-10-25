@@ -231,9 +231,10 @@ function TestUILayout:testManagerControlsAtMinimumWidth()
     assert(scroll.height == 376, "scroll view does not fill the space under the column header")
     assert(m.headerPanel ~= nil and m.headerPanel.parent ~= scroll.content, "column header scrolls with the rows")
     assert(m.headerPanel.y == 86 and m.headerPanel.height == 26, "column header is not pinned above the list")
-    -- 3 rows * 32. The header (26) stays outside the scroller.
-    assert(m.treePanel.height == 96, "tree clipped to the viewport instead of the row stack")
-    assert(scroll.contentHeight == 96, "scroll content height is not the row stack")
+    -- Loaded groups start collapsed, so Food is not a row. 2 * 32.
+    -- The header (26) stays outside the scroller.
+    assert(m.treePanel.height == 64, "tree clipped to the viewport instead of the row stack")
+    assert(scroll.contentHeight == 64, "scroll content height is not the row stack")
     assert(scroll.contentWidth == scroll.root.width, "scrollbar gutter reserved when the list fits")
     local pencil = nil
     for _, b in ipairs(buttons) do
@@ -261,9 +262,9 @@ function TestUILayout:testManagerControlsAtMinimumWidth()
     )
     assert(#activeButtons("+ New group") == 0, "+ New group is hidden until rows can join an existing group")
     assert(#activeButtons("ARROW_UP") == 0, "Move arrows visible by default")
-    assert(#activeButtons("PENCIL") == 3, "Rename buttons missing after title construction")
-    assert(#activeButtons("EXPORT") == 3, "Export buttons missing after title construction")
-    assert(#activeButtons("TRASH") == 3, "Delete buttons missing after title construction")
+    assert(#activeButtons("PENCIL") == 2, "Rename buttons missing after title construction")
+    assert(#activeButtons("EXPORT") == 2, "Export buttons missing after title construction")
+    assert(#activeButtons("TRASH") == 2, "Delete buttons missing after title construction")
     for _, row in ipairs(m.treePanel.children) do
         assert(#row.children >= 6, "Selection or action cells missing")
         local cell = row.children[#row.children - 3]
@@ -299,7 +300,7 @@ function TestUILayout:testManagerControlsAtMinimumWidth()
     m:ToggleMoveMode()
     m:_rebuild()
     assert(m.moveMode)
-    assert(#activeButtons("ARROW_UP") == 3, "Move controls missing")
+    assert(#activeButtons("ARROW_UP") == 2, "Move controls missing")
     m:ToggleSelection(1, false)
     m:_rebuild()
     assert(not m.moveMode and m:HasSelection())
@@ -327,8 +328,9 @@ function TestUILayout:testManagerControlsAtMinimumWidth()
         entries[#entries + 1] = { id = id, kind = "alert", name = "Alert " .. id, enabled = true }
     end
     m:_rebuild()
-    -- 3 original rows + 37 new alerts. 40 * 32 = 1280, taller than the 376px viewport.
-    assert(scroll.contentHeight == 1280, "scroll content did not grow with the alert list")
+    -- 2 visible rows plus 37 new alerts. Food stays inside the collapsed group.
+    -- 39 * 32 = 1248, taller than the 376px viewport.
+    assert(scroll.contentHeight == 1248, "scroll content did not grow with the alert list")
     assert(scroll.contentHeight > scroll.height, "overflow did not exceed the viewport")
     assert(scroll.contentWidth == scroll.root.width - 18, "scrollbar gutter missing while the list overflows")
     assert(m.treePanel.width == scroll.contentWidth, "rows draw under the scrollbar")

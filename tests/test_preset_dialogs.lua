@@ -690,8 +690,9 @@ function TestSavePresetDialog:testANameAndOneMarkSavesThatMark()
             return { id = 1 }
         end,
     })
-    self:row("Add").action()
+    self:row("Mark Variable").action()
     self:row("Hold - New Hold").action()
+    self:row("hold").action()
     self:button(self:openWindow(), "Save").action()
     luaunit.assertEquals(savedName, "Siren")
     luaunit.assertEquals(savedMarks, { { nodeId = nodeId, pinName = "hold" } })
