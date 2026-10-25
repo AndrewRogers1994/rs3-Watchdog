@@ -77,7 +77,7 @@ function Manager.new(opts)
         windowParent = opts and opts.windowParent,
         activeScope = nil,          -- nil ⇒ first scope (Global)
         moveMode = false,
-        expanded = {},              -- expanded[scopeKey][id]; absent ⇒ expanded
+        expanded = {},              -- expanded[scopeKey][id]; absent ⇒ collapsed
         expandVersion = 0,
         mutateVersion = 0,
         selected = {},              -- selected[id] = true; antichain after every toggle
@@ -148,14 +148,29 @@ end
 
 --- Pure logic: expand/collapse ------------------------------------------------------------
 
--- Groups default to expanded.
+-- No session flag means collapsed. A group already in the bucket (load, import) stays
+-- closed until the user opens it. CreateGroup / BulkNewGroup set the flag so a group
+-- made this session starts open. The flag is session UI only and is not saved.
 ---@param scopeKey string
 ---@param id integer
 ---@return boolean
 function Manager:IsExpanded(scopeKey, id)
     local perScope = self.expanded[scopeKey]
-    if perScope == nil or perScope[id] == nil then return true end
+    if perScope == nil or perScope[id] == nil then return false end
     return perScope[id]
+end
+
+---@param scopeKey string
+---@param id integer
+---@param expanded boolean
+function Manager:_setExpanded(scopeKey, id, expanded)
+    local perScope = self.expanded[scopeKey]
+    if perScope == nil then
+        perScope = {}
+        self.expanded[scopeKey] = perScope
+    end
+    perScope[id] = expanded
+    self.expandVersion = self.expandVersion + 1
 end
 
 local function entryContainsId(entries, ancestorId, maybeDescendant)
@@ -354,7 +369,10 @@ function Manager:CreateGroup()
     if scopeKey == nil or self.onCreateGroup == nil then return nil end
     local ok, id = pcall(self.onCreateGroup, scopeKey)
     bumpMutate(self)
-    if ok and type(id) == "number" then return id end
+    if ok and type(id) == "number" then
+        self:_setExpanded(scopeKey, id, true)
+        return id
+    end
     return nil
 end
 
@@ -477,7 +495,10 @@ function Manager:BulkNewGroup(ids)
     local ok, newId = pcall(self.onBulkNewGroup, scopeKey, ids)
     bumpMutate(self)
     self:ClearSelection()
-    if ok and type(newId) == "number" then return newId end
+    if ok and type(newId) == "number" then
+        self:_setExpanded(scopeKey, newId, true)
+        return newId
+    end
     return nil
 end
 

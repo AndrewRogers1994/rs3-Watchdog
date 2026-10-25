@@ -96,6 +96,7 @@ function TestManager:testGroupChildrenNestWithDepthAndCount()
         alert(4, "root-alert"),
     })
     local mgr = self:makeManager({ { key = "global", label = "Global", doc = doc } })
+    mgr:ToggleExpand("global", 1)
     local rows = mgr:VisibleRows()
     -- Pre-order: group, its two children (depth 1), then the root-level alert.
     luaunit.assertEquals(#rows, 4)
@@ -116,6 +117,8 @@ function TestManager:testNestedGroupsDeepenDepth()
         group(1, "outer", { group(2, "inner", { alert(3, "leaf") }) }),
     })
     local mgr = self:makeManager({ { key = "global", label = "Global", doc = doc } })
+    mgr:ToggleExpand("global", 1)
+    mgr:ToggleExpand("global", 2)
     local rows = mgr:VisibleRows()
     luaunit.assertEquals(#rows, 3)
     luaunit.assertEquals(rows[1].depth, 0)
@@ -132,6 +135,8 @@ function TestManager:testCollapseHidesSubtree()
         alert(5, "tail"),
     })
     local mgr = self:makeManager({ { key = "global", label = "Global", doc = doc } })
+    mgr:ToggleExpand("global", 1)
+    mgr:ToggleExpand("global", 3)
     luaunit.assertEquals(#mgr:VisibleRows(), 5)
 
     mgr:ToggleExpand("global", 1)
@@ -151,9 +156,11 @@ function TestManager:testToggleIsPerScope()
         { key = "player_alice", label = "Alice", doc = p },
     }
     local mgr = self:makeManager(scopes)
-    mgr:ToggleExpand("global", 1)
     luaunit.assertEquals(mgr:IsExpanded("global", 1), false)
-    luaunit.assertEquals(mgr:IsExpanded("player_alice", 1), true)
+    luaunit.assertEquals(mgr:IsExpanded("player_alice", 1), false)
+    mgr:ToggleExpand("global", 1)
+    luaunit.assertEquals(mgr:IsExpanded("global", 1), true)
+    luaunit.assertEquals(mgr:IsExpanded("player_alice", 1), false)
 end
 
 function TestManager:testToggleBumpsSignature()
@@ -177,10 +184,11 @@ end
 function TestManager:testActivateGroupRowTogglesInsteadOfOpening()
     local doc = bucket({ group(9, "g", { alert(1, "a") }) })
     local mgr, opened = self:makeManager({ { key = "global", label = "Global", doc = doc } })
+    luaunit.assertEquals(mgr:IsExpanded("global", 9), false)
     local row = mgr:VisibleRows()[1]
     mgr:_activateRow("global", row)
     luaunit.assertEquals(opened, {})
-    luaunit.assertEquals(mgr:IsExpanded("global", 9), false)
+    luaunit.assertEquals(mgr:IsExpanded("global", 9), true)
 end
 
 function TestManager:testActivateReportsCharacterScopeKey()
@@ -379,6 +387,66 @@ function TestManager:testLiftReportsActiveScopeAndId()
     luaunit.assertEquals(calls, { { "global", 1 } })
 end
 
+function TestManager:testLoadedGroupsStartCollapsed()
+    local doc = bucket({
+        group(1, "outer", { group(2, "inner", { alert(3, "leaf") }), alert(4, "sib") }),
+        alert(5, "root"),
+    })
+    local mgr = self:makeManager({ { key = "global", label = "Global", doc = doc } })
+    luaunit.assertEquals(mgr:IsExpanded("global", 1), false)
+    luaunit.assertEquals(mgr:IsExpanded("global", 2), false)
+    local rows = mgr:VisibleRows()
+    luaunit.assertEquals(#rows, 2)
+    luaunit.assertEquals(rows[1].id, 1)
+    luaunit.assertEquals(rows[1].expanded, false)
+    luaunit.assertEquals(rows[2].id, 5)
+
+    mgr:ToggleExpand("global", 1)
+    rows = mgr:VisibleRows()
+    luaunit.assertEquals(#rows, 4)
+    luaunit.assertEquals(rows[2].id, 2)
+    luaunit.assertEquals(rows[2].expanded, false)
+    luaunit.assertEquals(rows[3].id, 4)
+end
+
+function TestManager:testCreateGroupStartsExpanded()
+    local doc = bucket({})
+    local mgr = self:makeManager(
+        { { key = "global", label = "Global", doc = doc } },
+        {
+            onCreateGroup = function()
+                doc.entries[1] = group(42, "New Group", { alert(7, "a") })
+                return 42
+            end,
+        }
+    )
+    luaunit.assertEquals(mgr:CreateGroup(), 42)
+    luaunit.assertEquals(mgr:IsExpanded("global", 42), true)
+    local rows = mgr:VisibleRows()
+    luaunit.assertEquals(#rows, 2)
+    luaunit.assertEquals(rows[1].expanded, true)
+    luaunit.assertEquals(rows[2].id, 7)
+end
+
+function TestManager:testBulkNewGroupStartsExpanded()
+    local doc = bucket({ alert(1, "a"), alert(2, "b") })
+    local mgr = self:makeManager(
+        { { key = "global", label = "Global", doc = doc } },
+        {
+            onBulkNewGroup = function()
+                doc.entries = { group(99, "New Group", { alert(1, "a"), alert(2, "b") }) }
+                return 99
+            end,
+        }
+    )
+    mgr:ToggleSelection(1, false)
+    mgr:ToggleSelection(2, false)
+    luaunit.assertEquals(mgr:BulkNewGroup(), 99)
+    luaunit.assertEquals(mgr:IsExpanded("global", 99), true)
+    luaunit.assertEquals(#mgr:VisibleRows(), 3)
+    luaunit.assertEquals(mgr:VisibleRows()[1].expanded, true)
+end
+
 function TestManager:testCreateGroupReturnsMintedIdFromHost()
     local mgr = self:makeManager(
         { { key = "global", label = "Global", doc = bucket({}) } },
@@ -549,7 +617,7 @@ function TestManager:testShiftClickRangeUsesVisibleOrderNotCollapsedSubtree()
         alert(5, "e"),
     })
     local mgr = self:makeManager({ { key = "global", label = "Global", doc = doc } })
-    mgr:ToggleExpand("global", 2) -- collapse; visible = 1, 2, 5
+    -- Loaded groups start collapsed, so the hidden children are outside the visible range.
     mgr:ToggleSelection(1, false)
     mgr:ToggleSelection(5, true)
     luaunit.assertEquals(selectedSet(mgr), { [1] = true, [2] = true, [5] = true })
@@ -575,6 +643,7 @@ function TestManager:testCollapseOfGroupContainingSelectionDropsInside()
         alert(4, "tail"),
     })
     local mgr = self:makeManager({ { key = "global", label = "Global", doc = doc } })
+    mgr:ToggleExpand("global", 1)
     mgr:ToggleSelection(2, false)
     mgr:ToggleSelection(4, false)
     mgr:ToggleExpand("global", 1)
@@ -587,6 +656,7 @@ function TestManager:testCollapseOfUnrelatedGroupPreservesSelection()
         alert(3, "tail"),
     })
     local mgr = self:makeManager({ { key = "global", label = "Global", doc = doc } })
+    mgr:ToggleExpand("global", 1)
     mgr:ToggleSelection(3, false)
     mgr:ToggleExpand("global", 1)
     luaunit.assertEquals(selectedSet(mgr), { [3] = true })
