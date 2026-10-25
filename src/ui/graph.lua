@@ -1,6 +1,7 @@
 -- Content coordinates start at the content origin; overlay coordinates are screen-relative.
 
 local Dialog = require("src/ui/dialog")
+local EditorHelp = require("src/ui/editor_help")
 local Theme    = require("src/ui/theme")
 local View     = require("src/ui/view")
 local Node     = require("src/ui/node")
@@ -2113,20 +2114,16 @@ function Editor:mountToolbar(overlayParent)
 
     self.infoButton = prettyui.SpriteButton.new(overlayParent, "INFO", function()
         Dialog.mount(overlayParent, {
-            title = "Tutorial", width = 440, height = 340,
+            title = "Tutorial", width = 480, height = 420,
             rowBackgroundColours = { 0x24211EFF, 0x2E2825FF },
             content = function(win)
-                win:AddTitle("Tutorial")
-                local generalSection = win:AddCollapseButton("General", { expanded = true })
-                    generalSection:AddText("Lorem ipsum dolor sit amet, consectetur adipiscing elit. Maecenas convallis congue nisi, non imperdiet massa porttitor at. Ut at ullamcorper odio, non pellentesque tortor. Mauris hendrerit sagittis elit, interdum mattis orci dictum non. Praesent ultrices vel ligula id dignissim. Fusce in leo orci.")
-                local nodesSection = win:AddCollapseButton("Nodes", { expanded = false })
-                win:RefreshRowBackgrounds()
+                EditorHelp.fill(win)
             end,
             actions = {
                 { label = "Close" },
             },
         })
-    end)
+    end, { size = bs, tooltip = "Tutorial" })
 
     self.plusButton = prettyui.SpriteButton.new(overlayParent, "PLUS", function()
         self:openPaletteFromPlus()

@@ -33,6 +33,7 @@ local chrome = {}
 ---@field content (fun(win: any))|nil
 ---@field actions Watchdog.DialogAction[]|nil
 ---@field onDismiss (fun())|nil  # titlebar X only; no args; cannot veto
+---@field rowBackgroundColours integer[]|nil  # striped flow rows on the PrettyUI window
 
 ---@class Watchdog.DialogFrame
 ---@field parent any
@@ -52,6 +53,7 @@ function Dialog.resolve(opts)
         content = opts.content,
         actions = opts.actions or {},
         onDismiss = opts.onDismiss,
+        rowBackgroundColours = opts.rowBackgroundColours,
     }
 end
 
@@ -310,6 +312,7 @@ function Dialog.mount(parent, opts)
             minHeight = h,
             maxWidth = w,
             maxHeight = h,
+            rowBackgroundColours = opts.rowBackgroundColours,
             destroyOnClose = true,
             onClose = function()
                 -- PrettyUI X: always pops. onDismiss is notification, not a veto.

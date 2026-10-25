@@ -149,7 +149,13 @@ function TestDialog:testResolveDefaults()
     luaunit.assertEquals(opts.height, Dialog.DEFAULT_HEIGHT)
     luaunit.assertTrue(opts.modal)
     luaunit.assertEquals(#opts.actions, 0)
+    luaunit.assertNil(opts.rowBackgroundColours)
     luaunit.assertFalse(Dialog.resolve({ modal = false }).modal)
+    local colours = { 1, 2 }
+    luaunit.assertEquals(
+        Dialog.resolve({ rowBackgroundColours = colours }).rowBackgroundColours,
+        colours
+    )
 end
 
 function TestDialog:testMountNilWithoutPrettyui()
