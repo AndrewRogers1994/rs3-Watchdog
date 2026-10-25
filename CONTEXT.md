@@ -45,8 +45,8 @@ _Avoid_: Open, launch
 ## Packs
 
 **Pack**:
-A plugin that depends on Watchdog and contributes pack sound effects, pack audio files, and Alert Presets. An Alert Preset uses the Preset snapshot defined under Alert Manager, not a second template type. Watchdog does not depend on a Pack, and running with none installed is normal.
-_Avoid_: Addon
+A named registration of pack sound effects, pack audio files, and Alert Presets. Another plugin can hold one. Watchdog holds one named Watchdog for the starter Alert Presets.
+_Avoid_: Addon, Catalog
 
 **Pack name**:
 The name a Pack supplies when it registers. Contributions are shown and addressed under it.
@@ -211,10 +211,34 @@ it opens the Control Editor.
 _Avoid_: Field, input box, widget (that's the mounted Editor), textbox
 
 **Compare**:
-A Node that compares two values and produces a boolean Result. Its Operation Control
+A Node that compares two numbers and produces a boolean Result. Its Operation Control
 selects equality, inequality, greater than, less than, greater or equal, or less or equal.
-Changing the Operation leaves the two input Pins and their Wires in place.
-_Avoid_: Separate comparison types. Existing saved alerts can still use the old types.
+Changing the Operation leaves the two input Pins and their Wires in place. An unconnected
+input stores a number.
+_Avoid_: Separate comparison types. Equals and Not Equals, the hidden types that still load
+old graphs comparing other values.
+
+**Math**:
+A Node that combines two numbers and produces a number Result. Its Operation Control
+selects add, subtract, multiply, divide, modulo, minimum, or maximum. Changing the
+Operation leaves the two input Pins and their Wires in place.
+_Avoid_: Separate arithmetic types. Abs and Negate are their own nodes.
+
+**Life points**:
+The pool combat damage is subtracted from. It is not the Hitpoints skill level.
+_Avoid_: Hitpoints, HP, constitution
+
+**Resource**:
+The pool Resource Changed is watching. One of life points, prayer points, summoning points, adrenaline, or run energy.
+_Avoid_: audio file, pack audio file, the Hitpoints skill, the Prayer skill, the Summoning skill, the run toggle
+
+**Run energy**:
+The percentage of the run pool. Resource Changed reads the current value from the player, and the maximum is 100.
+_Avoid_: run toggle, weight
+
+**Resource Changed**:
+A Trigger that fires when the selected Resource's current value changes. It outputs that current value, the maximum, and the previous current value. Changing the selected Resource leaves those outputs in place.
+_Avoid_: Stat Changed. A separate trigger per pool.
 
 **Control Editor**:
 The single transient real component (`ui.InputField` for text/number, `ui.ComboField` for
@@ -394,7 +418,7 @@ The instantiated Alert lands in the active Scope. The whole library is one Persi
 `presets` (no `watchdog_` prefix), beside the Scope Buckets. It is not a field of `global` and
 not stored under any `player_<tracking id>` key, so saving a Scope or switching character does
 not rewrite it.
-_Avoid_: Catalog (starter Presets shipped inside Watchdog, which this library does not include); per-Scope library; Bucket. A Pack offering Presets is the Pack contract, not a Catalog in this library.
+_Avoid_: per-Scope library; Bucket. Starter Alert Presets live on Watchdog's own Pack, not in this library.
 
 **Variable**:
 A text, number, or enum Control, or the needle of a Matcher, marked on a Preset so that
