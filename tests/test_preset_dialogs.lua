@@ -516,3 +516,202 @@ function TestNewAlertDialog:testRenameAndDeleteRefreshTheLibraryRow()
     luaunit.assertEquals(labels(live(self.rows)), {})
     luaunit.assertEquals(self:findText("There are no presets.").content, "There are no presets.")
 end
+
+-- Save as preset, through the same front door the Editor calls.
+TestSavePresetDialog = {}
+
+function TestSavePresetDialog:setUp()
+    self.saved = {
+        ui = _G.ui,
+        prettyui = _G.prettyui,
+        Vector4 = _G.Vector4,
+    }
+    self.packs = Packs.new()
+    Packs.install(self.packs)
+    self.parent = { height = 800 }
+    self.windows = {}
+    self.texts = {}
+    self.rows = {}
+    local windows, texts, rows = self.windows, self.texts, self.rows
+    local body = {}
+    function body:AddText(text)
+        local widget = { content = text }
+        texts[#texts + 1] = widget
+        return widget
+    end
+    function body:AddTextField(opts)
+        local field = { text = opts and opts.text or "" }
+        function field:GetText() return self.text end
+        function field:SetText(value) self.text = tostring(value or "") end
+        return field
+    end
+    function body:AddSimpleButton(label, action)
+        local widget = { label = label, action = action }
+        rows[#rows + 1] = widget
+        return widget
+    end
+    local function component()
+        return {
+            SetPos = function() end,
+            SetSize = function() end,
+            MoveToFront = function() end,
+            Destroy = function() end,
+        }
+    end
+    _G.Vector4 = { new = function() return {} end }
+    _G.ui = {
+        Layer = { new = component },
+        Rectangle = { new = component },
+        Hook = {},
+    }
+    _G.prettyui = {
+        FancyButton = { getSize = function() return 80, 27 end },
+        Window = {
+            new = function(_, options)
+                local win = {
+                    title = options.title,
+                    content = {},
+                    onClose = options.onClose,
+                    buttons = {},
+                }
+                function win:SetScrollable() end
+                function win:Show() end
+                function win:MoveToFront() end
+                function win:AddFancyButton(label, action)
+                    local button = { label = label, action = action }
+                    function button:SetDisabled(disabled) self.disabled = disabled == true end
+                    self.buttons[#self.buttons + 1] = button
+                    return button
+                end
+                function win:Destroy() self.destroyed = true end
+                windows[#windows + 1] = win
+                return win
+            end,
+        },
+        SimpleView = { new = function() return body end },
+    }
+    self.registry = Registry.new()
+    self.registry:RegisterNodeType("fixture.hold", {
+        category = "action",
+        displayName = "Hold",
+        pins = {
+            { name = "hold", kind = "data", direction = "in", dataType = "number", default = 4 },
+        },
+        run = function() end,
+    })
+end
+
+function TestSavePresetDialog:tearDown()
+    Dialog.dismissAll(self.parent)
+    Packs.install(nil)
+    _G.ui = self.saved.ui
+    _G.prettyui = self.saved.prettyui
+    _G.Vector4 = self.saved.Vector4
+end
+
+function TestSavePresetDialog:openWindow()
+    local open
+    for _, win in ipairs(self.windows) do
+        if not win.destroyed then open = win end
+    end
+    if open == nil then error("no open dialog") end
+    return open
+end
+
+function TestSavePresetDialog:button(win, label)
+    for _, button in ipairs(win.buttons) do
+        if button.label == label then return button end
+    end
+    error("missing button " .. label)
+end
+
+function TestSavePresetDialog:row(label)
+    for _, row in ipairs(self.rows) do
+        if row.label == label then return row end
+    end
+    error("missing row " .. label)
+end
+
+function TestSavePresetDialog:findText(content)
+    for _, widget in ipairs(self.texts) do
+        if widget.content == content then return widget end
+    end
+    return nil
+end
+
+function TestSavePresetDialog:holdGraph()
+    local graph = LibNodeGraph.NewGraph(self.registry)
+    local nodeId = graph:AddNode("fixture.hold", { hold = 4 })
+    return graph, nodeId
+end
+
+function TestSavePresetDialog:testABlankNameDoesNotCallSave()
+    local graph = LibNodeGraph.NewGraph(self.registry)
+    local calls = 0
+    PresetDialogs.mountSave(self.parent, {
+        graph = graph,
+        initialName = "",
+        onSave = function()
+            calls = calls + 1
+            return { id = 1 }
+        end,
+    })
+    local win = self:openWindow()
+    self:button(win, "Save").action()
+    luaunit.assertEquals(calls, 0)
+    luaunit.assertNil(win.destroyed)
+    luaunit.assertEquals(win.title, "Save as preset")
+end
+
+function TestSavePresetDialog:testANameAndNoMarksSavesWithNoVariableList()
+    local graph = self:holdGraph()
+    local savedName, savedMarks
+    PresetDialogs.mountSave(self.parent, {
+        graph = graph,
+        initialName = "Siren",
+        onSave = function(name, marks)
+            savedName, savedMarks = name, marks
+            return { id = 1 }
+        end,
+    })
+    self:button(self:openWindow(), "Save").action()
+    luaunit.assertEquals(savedName, "Siren")
+    luaunit.assertNil(savedMarks)
+end
+
+function TestSavePresetDialog:testANameAndOneMarkSavesThatMark()
+    local graph, nodeId = self:holdGraph()
+    local savedName, savedMarks
+    PresetDialogs.mountSave(self.parent, {
+        graph = graph,
+        initialName = "Siren",
+        onSave = function(name, marks)
+            savedName, savedMarks = name, marks
+            return { id = 1 }
+        end,
+    })
+    self:row("Add").action()
+    self:row("Hold - New Hold").action()
+    self:button(self:openWindow(), "Save").action()
+    luaunit.assertEquals(savedName, "Siren")
+    luaunit.assertEquals(savedMarks, { { nodeId = nodeId, pinName = "hold" } })
+end
+
+function TestSavePresetDialog:testARefusedSaveLeavesTheDialogOpenAndShowsTheReason()
+    local graph = self:holdGraph()
+    local calls = 0
+    PresetDialogs.mountSave(self.parent, {
+        graph = graph,
+        initialName = "Siren",
+        onSave = function()
+            calls = calls + 1
+            return nil, "Could not copy the graph."
+        end,
+    })
+    local win = self:openWindow()
+    self:button(win, "Save").action()
+    luaunit.assertEquals(calls, 1)
+    luaunit.assertNil(win.destroyed)
+    luaunit.assertEquals(win.title, "Save as preset")
+    luaunit.assertEquals(self:findText("Could not copy the graph.").content, "Could not copy the graph.")
+end

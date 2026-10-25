@@ -24,6 +24,8 @@
 - [ ] 19. consolidate the math nodes like we did for the compare node
 - [ ] 20. the new compare node should only accept numbers and also should have a number field when the pin is not connected just like the old ones
 - [ ] 21. bundle some good example presets and alerts
+- [ ] 22. close palette when opening dialog
+- [ ] 23. add chat picker
 
 ## Node port backlog (mirroring runelite-watchdog)
 
