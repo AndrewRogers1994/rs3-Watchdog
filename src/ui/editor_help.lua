@@ -90,7 +90,7 @@ function EditorHelp.fill(win)
         "FlipFlop alternates between a and b.",
         "Math does arithmetic.",
         "To String and To Number are under Convert. They change a value so it fits a pin of another type.",
-        "Inventory reads what you are carrying. Item Count Changed runs when a count changes.",
+        "Inventory reads what you are carrying. Item Count sums matching stacks. Item Count Changed also reports the previous sum and how much it moved.",
     })
 
     -- The Close button is anchored over the bottom of the scrolling page.

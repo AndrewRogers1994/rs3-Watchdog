@@ -874,6 +874,17 @@ function TestStore:testLoadKeyReturnsEmptyBucketForAbsentKey()
     luaunit.assertEquals(doc.version, 2)
 end
 
+function TestStore:testLoadKeyLeavesUnreadableTextOnDisk()
+    local key = Store.PlayerKey("nobody")
+    local corrupt = "{not-json"
+    PersistentDB:SetString(key, corrupt)
+
+    local doc = Store.LoadKey(key)
+
+    luaunit.assertEquals(PersistentDB:GetString(key), corrupt)
+    luaunit.assertEquals(doc.entries, {})
+end
+
 function TestStore:testSaveToAndLoadKeyRoundTripPlayerBucket()
     local key = Store.PlayerKey("Alice")
     local doc = Store.Empty()
@@ -951,51 +962,6 @@ function TestStore:testPlaceholderRenameKeepsUnknownNameWithOriginalTypeAndContr
     luaunit.assertEquals(second.graph.nodes[2].unknown.controls.text, "hi")
     luaunit.assertEquals(second.graph.nodes[2].unknown.name, "Enrage callout")
     luaunit.assertNil(second.graph.nodes[2].name)
-end
-
---- Opening a Bucket: a missing key is empty. Unreadable and readable keys are left alone. ---
-
-function TestStore:testMissingBucketIsEmptyAndReportsMissing()
-    local doc, missing = Store.Open("global")
-
-    luaunit.assertTrue(missing)
-    luaunit.assertEquals(#doc.entries, 0)
-    luaunit.assertNil(PersistentDB:GetString("global"))
-end
-
-function TestStore:testReadableEmptyBucketIsNotMissing()
-    Store.Save(Store.Empty())
-    local before = PersistentDB:GetString("global")
-
-    local doc, missing = Store.Open("global")
-
-    luaunit.assertFalse(missing)
-    luaunit.assertEquals(#doc.entries, 0)
-    luaunit.assertEquals(PersistentDB:GetString("global"), before)
-end
-
-function TestStore:testReadableBucketKeepsItsEntries()
-    local existing = Store.Empty()
-    seedAlert(self, existing, "kept", false)
-    Store.Save(existing)
-
-    local doc, missing = Store.Open("global")
-
-    luaunit.assertFalse(missing)
-    luaunit.assertEquals(#doc.entries, 1)
-    luaunit.assertEquals(doc.entries[1].name, "kept")
-    luaunit.assertFalse(doc.entries[1].enabled)
-end
-
-function TestStore:testUnreadableBucketIsLeftOnDisk()
-    local corrupt = "{not-json"
-    PersistentDB:SetString("global", corrupt)
-
-    local doc, missing = Store.Open("global")
-
-    luaunit.assertFalse(missing)
-    luaunit.assertEquals(PersistentDB:GetString("global"), corrupt)
-    luaunit.assertEquals(#doc.entries, 0)
 end
 
 return TestStore

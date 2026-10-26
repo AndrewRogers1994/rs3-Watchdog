@@ -689,6 +689,11 @@ function Editor:connectionInto(nodeId, pinName)
 end
 
 function Editor:deleteNode(nodeId)
+    -- Capture state before RemoveNode. The strip, toasts, and effect handles are
+    -- keyed by that table, and GetState returns nil once the node is gone.
+    if self.runtime ~= nil then
+        self.runtime:ReleaseNodeVisuals(self.graph, nodeId)
+    end
     self.graph:RemoveNode(nodeId)
     self.layout[nodeId] = nil
     self.geoms[nodeId] = nil
@@ -1031,7 +1036,7 @@ function Editor:placeFromPalette(row)
     self:closePalette()
 
     local ok, newId = pcall(function()
-        return self.graph:AddNode(row.typeKey, nil, row.targetMode)
+        return self.graph:AddNode(row.typeKey, nil, { mode = row.targetMode })
     end)
     if not ok or newId == nil then
         if log ~= nil then log("Watchdog: AddNode failed - " .. tostring(newId)) end

@@ -62,6 +62,8 @@ local function runItemCount(ctx)
     ctx:Out("count", matchingSum(ctx:In("snapshot"), ctx:In("nameMatch"), ctx:In("noteFilter")))
 end
 
+--- Pure Node. A pull recomputes all three outs from the wired snapshots.
+--- `delta ~= 0` is the change check; an exec pin would freeze these numbers until fired.
 ---@param ctx LibNodeGraph.RunContext
 local function runItemCountChanged(ctx)
     local matcher = ctx:In("nameMatch")
@@ -71,9 +73,6 @@ local function runItemCountChanged(ctx)
     ctx:Out("count", count)
     ctx:Out("prevCount", prevCount)
     ctx:Out("delta", count - prevCount)
-    if count ~= prevCount then
-        ctx:Fire("changed")
-    end
 end
 
 ---@param registry LibNodeGraph.Registry
@@ -97,10 +96,8 @@ function InventoryCount.Register(registry)
     registry:RegisterNodeType("inventory.item_count_changed", {
         category = "inventory",
         displayName = "Item Count Changed",
-        description = "Filters inventory triggers by item count changing",
+        description = "Current and previous matching stack sums, and their difference",
         pins = {
-            { name = "in", kind = "exec", direction = "in" },
-            { name = "changed", kind = "exec", direction = "out" },
             { name = "snapshot", kind = "data", direction = "in", dataType = "invSnapshot",
               label = "Snapshot" },
             { name = "prevSnapshot", kind = "data", direction = "in", dataType = "invSnapshot",

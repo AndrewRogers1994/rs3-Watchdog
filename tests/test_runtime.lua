@@ -235,7 +235,7 @@ function TestRuntime:testFilterSeesNodeMode()
     })
 
     local fullId = self.graph:AddNode("fixture.modeful")
-    local countId = self.graph:AddNode("fixture.modeful", nil, "count")
+    local countId = self.graph:AddNode("fixture.modeful", nil, { mode = "count" })
 
     self.source:Push("Custom", "hit")
 

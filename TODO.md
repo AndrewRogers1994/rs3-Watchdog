@@ -23,7 +23,7 @@
 - [x] 18. Look into rounding the node layout positions to whole numbers so that the json is smaller ([#154](https://github.com/adamk33n3r/rs3-Watchdog/issues/154)) _(Place and drag release store an integer. A save writes that integer. A mid-drag save does not snap the node under the cursor. Load leaves an old fraction alone.)_
 - [x] 19. consolidate the math nodes like we did for the compare node ([#154](https://github.com/adamk33n3r/rs3-Watchdog/issues/154)) _(Palette node is `std.math`. The seven old arithmetic types stay registered and hidden.)_
 - [x] 20. the new compare node should only accept numbers and also should have a number field when the pin is not connected just like the old ones ([#154](https://github.com/adamk33n3r/rs3-Watchdog/issues/154)) _(`std.compare` inputs are numbers defaulting to 0. A new string, bool, or any wire is refused. A wire already saved still loads.)_
-- [x] 21. bundle some good example presets and alerts ([#154](https://github.com/adamk33n3r/rs3-Watchdog/issues/154)) _(Pack Watchdog: Friend login, Low life points, Low prayer, Idle XP. Copies are ordinary Alerts. Tick Counter stays separate.)_
+- [x] 21. bundle some good example presets and alerts ([#154](https://github.com/adamk33n3r/rs3-Watchdog/issues/154)) _(Pack Watchdog: Friend login, Idle XP, Tick Counter, Low life points, Low prayer. Copies are ordinary Alerts. A missing global Bucket stays empty.)_
 - [ ] 22. close palette when opening dialog
 - [ ] 23. add chat picker
 
@@ -49,7 +49,7 @@ Target: mirror the trigger/notification list from https://github.com/adamk33n3r/
 - [x] Spawned Object — object/player/npc spawn or despawn
   - `Event.NPCEntityAdded` / `Event.NPCEntityRemoved` (`npcEntity`), `Event.PlayerEntityAdded` / `Event.PlayerEntityRemoved` (`playerEntity`), `Event.ObjStackEntityAdded` / `Event.ObjStackEntityRemoved` / `Event.ObjStackEntityChanged` (`objStackEntity`, `objType`, `count`/`old+newCount`). One node likely fans out over all three entity kinds + add/remove.
 - [x] Inventory — occupancy + snapshots (`trigger.inventory`, #98), Item Count (`inventory.item_count`, #99), Item Count Changed (`inventory.item_count_changed`, #100)
-  - `Event.InventoryUpdated` for Container Inventory (`Inv.INV`) or Bank (`Inv.BANK`). Occupancy outs (prev/current used slots, isFull, isEmpty) and frozen `invSnapshot` pins. Item matching is Item Count; matching-sum edges are Item Count Changed, not Modes on this Trigger.
+  - `Event.InventoryUpdated` for Container Inventory (`Inv.INV`) or Bank (`Inv.BANK`). Occupancy outs (prev/current used slots, isFull, isEmpty) and frozen `invSnapshot` pins. Item matching is Item Count. Item Count Changed is a Pure Node publishing `count`, `prevCount`, and `delta`. Edges are Compare/Branch on those numbers, not Modes on this Trigger.
 - [x] Location — near a set location
   - NO EVENT, but POLLABLE. No position-change event; poll `Player.GetEntity().coordGrid` (CoordGrid) or `.position` (Vector3) on `Event.Logic` (~50/s) and test distance against the target coord. `Player.IsAvailable()` guards logged-out state.
 

@@ -53,6 +53,7 @@ local Util = require("src/util")
 ---@field RemoveAlert fun(self: Watchdog.Runtime, id: integer, bucketKey: string|nil): boolean
 ---@field SetAlertEnabled fun(self: Watchdog.Runtime, id: integer, enabled: boolean, bucketKey: string|nil): boolean
 ---@field ReleaseAlertVisuals fun(self: Watchdog.Runtime, id: integer, bucketKey: string|nil): boolean
+---@field ReleaseNodeVisuals fun(self: Watchdog.Runtime, graph: LibNodeGraph.Graph|nil, nodeId: integer|nil)
 ---@field RenameAlert fun(self: Watchdog.Runtime, id: integer, name: string): boolean
 ---@field SetRegistry fun(self: Watchdog.Runtime, registry: LibNodeGraph.Registry)
 ---@field PreloadGraph fun(self: Watchdog.Runtime, graph: LibNodeGraph.Graph|nil)
@@ -393,9 +394,31 @@ function Runtime:RemoveAlert(id, bucketKey)
     return true
 end
 
--- Drop overlay visuals keyed by this graph's node state tables: infobox tiles, toasts,
+-- Drop overlay visuals keyed by these node state tables: infobox tiles, toasts,
 -- per-node effect handles (screen marker, object marker, screen flash), and popups stamped
--- with `handle.source == state`. Other alerts' nodes keep their own state tables.
+-- with `handle.source == state`. States not in the set are left alone.
+---@param states table<any, boolean>
+function Runtime:_releaseStateSet(states)
+    for state in pairs(states) do
+        if self.infobox ~= nil then
+            self.infobox:Remove(state)
+        end
+        if self.toast ~= nil then
+            self.toast:Dismiss(state)
+        end
+        if state.handle ~= nil and self.effects ~= nil then
+            self.effects:Dismiss(state.handle)
+            state.handle = nil
+        end
+    end
+    if self.effects ~= nil then
+        self.effects:DismissIf(function(handle)
+            return handle.source ~= nil and states[handle.source] == true
+        end)
+    end
+end
+
+-- Every node on the graph. Used when the whole alert goes quiet.
 ---@param graph LibNodeGraph.Graph|nil
 function Runtime:_releaseGraphVisuals(graph)
     if graph == nil then return end
@@ -404,23 +427,20 @@ function Runtime:_releaseGraphVisuals(graph)
         local state = graph:GetState(node.id)
         if state ~= nil then
             states[state] = true
-            if self.infobox ~= nil then
-                self.infobox:Remove(state)
-            end
-            if self.toast ~= nil then
-                self.toast:Dismiss(state)
-            end
-            if state.handle ~= nil and self.effects ~= nil then
-                self.effects:Dismiss(state.handle)
-                state.handle = nil
-            end
         end
     end
-    if self.effects ~= nil then
-        self.effects:DismissIf(function(handle)
-            return handle.source ~= nil and states[handle.source] == true
-        end)
-    end
+    self:_releaseStateSet(states)
+end
+
+-- One node, while it still exists. GetState is nil after RemoveNode, and the
+-- InfoBox strip keys its tile by that state table.
+---@param graph LibNodeGraph.Graph|nil
+---@param nodeId integer|nil
+function Runtime:ReleaseNodeVisuals(graph, nodeId)
+    if graph == nil or nodeId == nil then return end
+    local state = graph:GetState(nodeId)
+    if state == nil then return end
+    self:_releaseStateSet({ [state] = true })
 end
 
 -- Public seam for delete and group-disable. Does not change `enabled` or remove the alert.

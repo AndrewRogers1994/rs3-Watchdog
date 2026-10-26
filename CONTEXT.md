@@ -611,19 +611,19 @@ A Pure Node in the inventory Category: one Inventory Snapshot plus a Matcher plu
 Filter in, one number out — the sum of matching slot quantities. Walks `1..slotCount` and
 skips empty slots; Lua `#slots` is not the walk (holes). Empty Matcher needle still means
 every name; occupancy (used slots) stays on the Inventory Trigger. Threshold crossing is
-Compare on Item Count Changed's `count` / `prevCount` (or two Item Counts), not a pin on
-this node.
+Compare on Item Count Changed's `count`, `prevCount`, or `delta` (or two Item
+Counts), not a pin on this node.
 _Avoid_: query node; GetTotal; amount Mode; putting ids on a Control
 
 **Item Count Changed**:
-An execution node in the inventory Category: Inventory `out` plus previous and current
-Inventory Snapshots, the same Matcher and Note Filter as Item Count. Always publishes
-`count`, `prevCount`, and signed `delta`; Fires `changed` only when those two sums differ.
-Empty needle means the Container's total stack quantity moved, not that a slot identity swapped.
-Previous count comes from the Trigger's frozen prev Snapshot, not `ctx.state`. Thresholds
-and "gained only" stay Compare/Branch on the published numbers.
-_Avoid_: Matcher on the Inventory Trigger; amount Mode; `unchanged` exec out; remembering
-last-count in node state; per-slot identity tracking
+A Pure Node in the inventory Category: previous and current Inventory Snapshots, the same
+Matcher and Note Filter as Item Count. Publishes `count`, `prevCount`, and signed `delta`
+(current minus previous). Empty needle means the Container's total stack quantity, not a
+slot identity swap. Previous count comes from the Trigger's frozen prev Snapshot, not
+`ctx.state`. A change, a threshold, or "gained only" is Compare/Branch on those numbers
+(`delta ~= 0` is the change).
+_Avoid_: Matcher on the Inventory Trigger; amount Mode; an exec in or a `changed` exec out;
+remembering last-count in node state; per-slot identity tracking
 
 **Webhook** (`action.webhook`):
 An Action Node that POSTs a JSON body to an HTTP endpoint when exec'd. The endpoint is a

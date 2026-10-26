@@ -8,4 +8,4 @@ A separate Catalog section, plus a one-shot seed of disabled Alerts into the glo
 
 ## Consequences
 
-The Tick Counter Alert, created when the global Bucket is missing, stays. It is not one of these Alert Presets.
+A missing global Bucket stays empty. Tick Counter is an Alert Preset on this Pack, same as the other starters.

@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Watchdog — Save as preset prototype</title>
+<!--
+  PROTOTYPE — throwaway. Not production.
+
+  Question for #133: how does the player mark Variables when saving an Alert
+  as a Preset, once a flat list of every eligible control is too long to scan?
+
+  Three variants, switchable via ?variant=checklist|add|graph and the bottom bar.
+  The sample Alert is deliberately crowded (two of several node types, plus
+  controls that cannot be Variables) so the scale is the thing being judged.
+
+  Settled, and identical in every variant:
+  - The action is an Editor toolbar button.
+  - The source Alert keeps no marks.
+  - The name is prefilled, blank or whitespace disables Save, and Save always
+    adds a new Preset.
+  - Labels are "Node display name: pin label", with (2), (3) in serialized order.
+  - Control values are shown and are not editable.
+  - A matcher is one row (the needle). Mode is not its own row.
+  - Wired pins and composite controls are not markable.
+  - A save with nothing marked is allowed.
+
+  No persistence. Open this file in a browser.
+-->
+<style>
+  :root {
+    --viewport: #1a1a1e;
+    --panel: #202026;
+    --header: #30303a;
+    --header-tx: #96bee6;
+    --row: #2b2b30;
+    --line: #0f0f12;
+    --hot: #33333c;
+    --title: #f0f0f4;
+    --ink: #e4e6ec;
+    --dim: #9a9ca8;
+    --accent: #f0a020;
+    --trigger: #9b2f2f;
+    --action: #2f5f9b;
+    --ok: #5fb35f;
+    --font: "Segoe UI", Roboto, sans-serif;
+    --mono: Consolas, "Liberation Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: #141418;
+    color: var(--ink);
+    font-family: var(--font);
+    font-size: 13px;
+  }
+  .page {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 18px 18px 72px;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; font-weight: 650; }
+  .lede { margin: 0 0 14px; color: var(--dim); max-width: 85ch; line-height: 1.5; }
+  .lede code { font-family: var(--mono); font-size: 12px; color: var(--header-tx); }
+  .layout { display: grid; grid-template-columns: 1fr 320px; gap: 16px; align-items: start; }
+  @media (max-width: 980px) { .layout { grid-template-columns: 1fr; } }
+
+  .editor {
+    position: relative;
+    background: var(--viewport);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow: hidden;
+    min-height: 640px;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
+  }
+  .titlebar, .toolbar, .markbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 10px;
+    background: var(--header);
+    border-bottom: 1px solid var(--line);
+  }
+  .titlebar { height: 34px; }
+  .titlebar h2 { margin: 0; font-size: 13px; font-weight: 600; color: var(--title); flex: 1; }
+  .toolbar { height: 40px; background: #1d1d22; }
+  .spacer { flex: 1; }
+  button, select {
+    font: inherit;
+    color: var(--ink);
+    background: var(--row);
+    border: 1px solid #3a3a44;
+    border-radius: 4px;
+    height: 26px;
+    padding: 0 10px;
+    cursor: pointer;
+  }
+  button:hover, select:hover { background: var(--hot); border-color: var(--accent); }
+  button:disabled { opacity: .4; cursor: default; }
+  button.primary { background: #3d4a28; border-color: #6e8f3a; color: #e7f0d0; }
+  button.primary:hover:not(:disabled) { background: #4a5a30; }
+  button.ghost { opacity: .55; cursor: default; }
+  button.ghost:hover { background: var(--row); border-color: #3a3a44; }
+  button.on { border-color: var(--accent); color: var(--accent); }
+
+  .viewport { position: relative; flex: 1; overflow: auto; background:
+    radial-gradient(circle at 1px 1px, #2a2a30 1px, transparent 0) 0 0 / 22px 22px; }
+  .canvas { position: relative; }
+
+  .node {
+    position: absolute;
+    width: 240px;
+    background: #24242a;
+    border: 1px solid #121216;
+    border-radius: 5px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, .35);
+  }
+  .node header {
+    height: 26px;
+    display: flex;
+    align-items: center;
+    padding: 0 8px;
+    font-size: 12px;
+    font-weight: 650;
+    color: white;
+    border-radius: 4px 4px 0 0;
+  }
+  .node.trigger header { background: var(--trigger); }
+  .node.action header { background: var(--action); }
+  .pin {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 24px;
+    padding: 2px 8px;
+    font-size: 12px;
+  }
+  .pin .lab { flex: 1; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pin .val { color: var(--dim); font-family: var(--mono); font-size: 11px; max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pin.omit { opacity: .45; }
+  .pin.omit .why { font-size: 10px; letter-spacing: .03em; text-transform: uppercase; color: #c8b48a; }
+  .pin.markable { cursor: pointer; }
+  .pin.markable:hover { background: #2e2e36; }
+  .pin.marked { background: #3a3320; }
+  .pin input { margin: 0; accent-color: var(--accent); }
+  .box { display: none; }
+  .marking .box { display: inline-block; }
+
+  .dim {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, .4);
+    z-index: 5;
+  }
+  .dialog {
+    position: absolute;
+    z-index: 6;
+    top: 72px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 420px;
+    max-height: calc(100% - 96px);
+    display: flex;
+    flex-direction: column;
+    background: #2a2a30;
+    border: 1px solid #121216;
+    border-radius: 6px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, .55);
+  }
+  .dialog header, .markbar {
+    height: 34px;
+    background: var(--header);
+    color: var(--title);
+    font-weight: 650;
+  }
+  .dialog header { display: flex; align-items: center; padding: 0 8px 0 12px; border-radius: 6px 6px 0 0; }
+  .dialog header span { flex: 1; }
+  .x {
+    width: 26px; padding: 0; height: 22px;
+    background: transparent; border: none; color: var(--dim); font-size: 16px;
+  }
+  .x:hover { color: white; background: transparent; border: none; }
+  .dialog .body { padding: 12px; overflow: auto; }
+  .dialog footer, .markbar .actions { display: flex; justify-content: flex-end; gap: 8px; }
+  .dialog footer { padding: 10px 12px; border-top: 1px solid var(--line); }
+  label.field { display: block; margin-bottom: 10px; color: var(--dim); font-size: 12px; }
+  label.field input[type="text"] {
+    display: block; width: 100%; margin-top: 4px; height: 28px; padding: 0 8px;
+    background: #1a1a1e; color: var(--ink); border: 1px solid #3a3a44; border-radius: 4px;
+    font: inherit;
+  }
+  .hint { color: var(--dim); margin: 0 0 8px; line-height: 1.4; }
+  .rows { display: flex; flex-direction: column; gap: 4px; }
+  .check, .added {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 6px; background: var(--row); border-radius: 4px;
+  }
+  .check span, .added span { flex: 1; }
+  .check small, .added small { color: var(--dim); font-family: var(--mono); font-size: 11px; }
+  .addbox { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .addbox select { flex: 1; min-width: 140px; }
+  .empty { color: var(--dim); font-style: italic; }
+
+  .markbar {
+    height: auto;
+    min-height: 44px;
+    padding: 8px 10px;
+    background: #26262e;
+    flex-wrap: wrap;
+  }
+  .markbar input[type="text"] { height: 26px; width: 180px; background: #1a1a1e; color: var(--ink); border: 1px solid #3a3a44; border-radius: 4px; font: inherit; padding: 0 8px; }
+  .markbar .count { color: var(--dim); }
+
+  aside {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 12px;
+    position: sticky;
+    top: 12px;
+  }
+  aside h3 { margin: 0 0 6px; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--header-tx); }
+  aside p { margin: 0 0 10px; color: var(--dim); line-height: 1.45; }
+  aside dl { margin: 0 0 10px; }
+  aside dt { color: var(--dim); font-size: 11px; }
+  aside dd { margin: 0 0 6px; font-family: var(--mono); font-size: 12px; }
+  aside ul { margin: 0 0 10px; padding-left: 16px; }
+  aside li { margin: 2px 0; }
+  aside .saved { border-top: 1px solid var(--line); padding-top: 8px; }
+
+  #switcher {
+    position: fixed;
+    left: 50%;
+    bottom: 14px;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    background: #0e0e12;
+    color: white;
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .5);
+    z-index: 20;
+  }
+  #switcher button { width: 32px; padding: 0; background: #1c1c22; color: white; border-color: #444; }
+  #switcher strong { min-width: 220px; text-align: center; font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Save as preset</h1>
+  <p class="lede">
+    Throwaway prototype for
+    <a href="https://github.com/adamk33n3r/rs3-Watchdog/issues/133">#133</a>.
+    The Alert below is a crowded boss helper. Flip variants with the bar or the left and right arrow keys.
+    Checklist puts every eligible control in one dialog. Add starts empty and drills into one node.
+    Mark on the graph leaves the canvas scrollable and toggles a control where it already sits.
+  </p>
+  <div class="layout">
+    <div class="editor" id="editor">
+      <div class="titlebar"><h2>Telos enrage</h2></div>
+      <div class="toolbar">
+        <button class="ghost" type="button" title="Not part of this prototype">Back</button>
+        <button class="ghost" type="button" title="Not part of this prototype">Rename</button>
+        <button class="ghost" type="button" title="Not part of this prototype">Add node</button>
+        <span class="spacer"></span>
+        <button type="button" id="open">Save as preset</button>
+      </div>
+      <div class="markbar" id="markbar" hidden></div>
+      <div class="viewport" id="viewport"><div class="canvas" id="canvas"></div></div>
+      <div class="dim" id="dim" hidden></div>
+      <div class="dialog" id="dialog" hidden></div>
+    </div>
+    <aside id="state"></aside>
+  </div>
+</div>
+<div id="switcher">
+  <button type="button" id="prev" aria-label="Previous variant">&#8592;</button>
+  <strong id="sw-label"></strong>
+  <button type="button" id="next" aria-label="Next variant">&#8594;</button>
+</div>
+
+<script>
+const ALERT_NAME = "Telos enrage";
+const VARIANTS = [
+  { id: "checklist", name: "Every control" },
+  { id: "add", name: "Add a node" },
+  { id: "graph", name: "Mark on the graph" },
+];
+
+function P(name, label, kind, value) {
+  return { name: name, label: label || name, kind: kind, value: value, eligible: true };
+}
+function X(name, label, reason) {
+  return { name: name, label: label || name, kind: reason, value: "", eligible: false, reason: reason };
+}
+
+const NODES = [
+  { id: "n1", displayName: "Game Message", category: "trigger", pins: [
+    P("type", "type", "enum", "Any"),
+    P("contains", "Message contains", "matcher", "minion spawns"),
+  ]},
+  { id: "n2", displayName: "Game Message", category: "trigger", pins: [
+    X("type", "type", "wired"),
+    P("contains", "Message contains", "matcher", "Telos enrages"),
+  ]},
+  { id: "n3", displayName: "Player Chat", category: "trigger", pins: [
+    P("type", "type", "enum", "Any"),
+    P("contains", "Message contains", "matcher", ""),
+    P("senderContains", "Sender contains", "matcher", ""),
+  ]},
+  { id: "n4", displayName: "Entity Spawn", category: "trigger", pins: [
+    P("kind", "kind", "enum", "NPC"),
+    P("nameMatch", null, "matcher", "Telos"),
+    P("mineOnly", "Mine only", "bool", false),
+  ]},
+  { id: "n5", displayName: "Location", category: "trigger", pins: [
+    X("target", "target", "coordgrid"),
+    P("radius", "radius", "number", 12),
+  ]},
+  { id: "n6", displayName: "Inventory", category: "trigger", pins: [
+    P("container", "Container", "enum", "Inventory"),
+  ]},
+  { id: "n7", displayName: "Item Count", category: "action", pins: [
+    X("snapshot", "Snapshot", "snapshot"),
+    P("nameMatch", "Name", "matcher", "Saradomin brew"),
+    P("noteFilter", "Notes", "enum", "Both"),
+  ]},
+  { id: "n8", displayName: "Item Count Changed", category: "action", pins: [
+    X("snapshot", "Snapshot", "snapshot"),
+    X("prevSnapshot", "Prev snapshot", "snapshot"),
+    P("nameMatch", "Name", "matcher", "Rocktail"),
+    P("noteFilter", "Notes", "enum", "Unnoted"),
+  ]},
+  { id: "n9", displayName: "Popup", category: "action", pins: [
+    P("body", "body", "string", "Phase change"),
+    P("title", "title", "string", "Enrage"),
+    P("icon", "icon", "enum", "None"),
+    P("theme", "theme", "enum", "Default"),
+    P("hold", "Hold (seconds)", "number", 6),
+  ]},
+  { id: "n10", displayName: "Popup", category: "action", pins: [
+    P("body", "body", "string", "Brew now"),
+    P("title", "title", "string", "Drops"),
+    P("icon", "icon", "enum", "None"),
+    P("theme", "theme", "enum", "Default"),
+    P("hold", "Hold (seconds)", "number", 4),
+  ]},
+  { id: "n11", displayName: "Toast", category: "action", pins: [
+    P("text", "text", "string", "Enrage"),
+    X("color", "color", "color"),
+    P("icon", "icon", "enum", "None"),
+    P("sticky", "sticky", "bool", false),
+    P("hold", "hold", "number", 4),
+  ]},
+  { id: "n12", displayName: "InfoBox", category: "action", pins: [
+    X("value", "value", "any"),
+    X("color", "color", "color"),
+    P("icon", "icon", "enum", "Hitpoints"),
+    P("title", "title", "string", "Enrage"),
+    P("dismissWhenEmpty", "dismissWhenEmpty", "bool", false),
+  ]},
+  { id: "n13", displayName: "Screen Flash", category: "action", pins: [
+    X("color", "color", "color"),
+    P("inShape", "In Shape", "enum", "Fade"),
+    P("outShape", "Out Shape", "enum", "Fade"),
+    P("dismissOn", "Dismiss On", "enum", "Both"),
+  ]},
+  { id: "n14", displayName: "Object Marker", category: "action", pins: [
+    X("object", "object", "capture"),
+    X("mode", "mode", "mode"),
+    X("color", "color", "color"),
+    P("width", "width", "number", 2),
+    P("showLabel", "showLabel", "bool", true),
+    P("sticky", "sticky", "bool", false),
+    P("hold", "hold", "number", 8),
+  ]},
+  { id: "n15", displayName: "Custom Sound", category: "action", pins: [
+    P("resource", "resource", "enum", "Alarm"),
+    P("bus", "Bus", "enum", "UI"),
+    P("volume", "volume", "number", 80),
+    P("loops", "loops", "number", 0),
+  ]},
+  { id: "n16", displayName: "Log", category: "action", pins: [
+    P("message", "message", "string", "enrage tick"),
+  ]},
+  { id: "n17", displayName: "Alert Toggle", category: "action", pins: [
+    P("target", "target", "string", "Phase 2"),
+  ]},
+  { id: "n18", displayName: "Game Message", category: "action", pins: [
+    P("message", "message", "string", "Enrage"),
+  ]},
+];
+
+function assignLabels() {
+  const seen = {};
+  NODES.forEach(function (node) {
+    node.pins.forEach(function (pin) {
+      if (!pin.eligible) return;
+      const base = node.displayName + ": " + pin.label;
+      const n = (seen[base] || 0) + 1;
+      seen[base] = n;
+      pin.varLabel = n === 1 ? base : base + " (" + n + ")";
+    });
+  });
+  const nameSeen = {};
+  NODES.forEach(function (node) {
+    const n = (nameSeen[node.displayName] || 0) + 1;
+    nameSeen[node.displayName] = n;
+    node.choiceLabel = n === 1 ? node.displayName : node.displayName + " (" + n + ")";
+  });
+}
+assignLabels();
+
+function layout() {
+  const xs = [20, 280, 540];
+  const ys = [20, 20, 20];
+  NODES.forEach(function (node, i) {
+    const col = i % 3;
+    node.x = xs[col];
+    node.y = ys[col];
+    const h = 26 + node.pins.length * 26 + 8;
+    node.h = h;
+    ys[col] += h + 18;
+  });
+  return { w: 800, h: Math.max.apply(null, ys) + 12 };
+}
+
+function valueText(pin) {
+  if (!pin.eligible) return pin.reason;
+  if (pin.kind === "matcher") return pin.value === "" ? "(empty needle)" : '"' + pin.value + '"';
+  if (pin.kind === "bool") return pin.value ? "Yes" : "No";
+  if (pin.kind === "string") return pin.value === "" ? "(empty)" : '"' + pin.value + '"';
+  return String(pin.value);
+}
+
+function keyOf(node, pin) { return node.id + "/" + pin.name; }
+
+const state = {
+  variant: "checklist",
+  open: false,
+  name: ALERT_NAME,
+  marks: new Set(),
+  addNode: "",
+  saved: null,
+};
+
+function eligiblePins() {
+  const out = [];
+  NODES.forEach(function (node) {
+    node.pins.forEach(function (pin) {
+      if (pin.eligible) out.push({ node: node, pin: pin });
+    });
+  });
+  return out;
+}
+
+function markedRows() {
+  return eligiblePins().filter(function (row) {
+    return state.marks.has(keyOf(row.node, row.pin));
+  });
+}
+
+function remainingOn(node) {
+  return node.pins.filter(function (pin) {
+    return pin.eligible && !state.marks.has(keyOf(node, pin));
+  });
+}
+
+function readVariant() {
+  const id = new URLSearchParams(location.search).get("variant");
+  const known = VARIANTS.some(function (v) { return v.id === id; });
+  state.variant = known ? id : VARIANTS[0].id;
+}
+
+function setVariant(id) {
+  const url = new URL(location.href);
+  url.searchParams.set("variant", id);
+  history.replaceState(null, "", url);
+  state.variant = id;
+  closeFlow();
+  render();
+}
+
+function cycle(step) {
+  const i = VARIANTS.findIndex(function (v) { return v.id === state.variant; });
+  const next = VARIANTS[(i + step + VARIANTS.length) % VARIANTS.length];
+  setVariant(next.id);
+}
+
+function closeFlow() {
+  state.open = false;
+  state.name = ALERT_NAME;
+  state.marks = new Set();
+  state.addNode = "";
+}
+
+function openFlow() {
+  state.open = true;
+  state.name = ALERT_NAME;
+  state.marks = new Set();
+  state.addNode = "";
+  render();
+}
+
+function toggleMark(node, pin) {
+  const key = keyOf(node, pin);
+  if (state.marks.has(key)) state.marks.delete(key);
+  else state.marks.add(key);
+  if (state.addNode === node.id && remainingOn(node).length === 0) state.addNode = "";
+  render();
+}
+
+function nameBlank() { return state.name.trim() === ""; }
+
+function commit() {
+  if (nameBlank()) return;
+  state.saved = {
+    name: state.name.trim(),
+    marks: markedRows().map(function (row) {
+      return {
+        nodeId: row.node.id,
+        pin: row.pin.name,
+        label: row.pin.varLabel,
+        needle: row.pin.kind === "matcher",
+      };
+    }),
+  };
+  closeFlow();
+  render();
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+  });
+}
+
+function renderCanvas() {
+  const box = layout();
+  const canvas = document.getElementById("canvas");
+  canvas.style.width = box.w + "px";
+  canvas.style.height = box.h + "px";
+  canvas.innerHTML = NODES.map(function (node) {
+    const pins = node.pins.map(function (pin) {
+      if (!pin.eligible) {
+        return '<div class="pin omit"><span class="lab">' + esc(pin.label) +
+          '</span><span class="why">' + esc(pin.reason) + "</span></div>";
+      }
+      return '<div class="pin markable" data-node="' + node.id + '" data-pin="' + pin.name + '">' +
+        '<input class="box" type="checkbox" tabindex="-1">' +
+        '<span class="lab">' + esc(pin.label) + "</span>" +
+        '<span class="val">' + esc(valueText(pin)) + "</span></div>";
+    }).join("");
+    return '<article class="node ' + node.category + '" style="left:' + node.x + "px;top:" + node.y + 'px">' +
+      "<header>" + esc(node.displayName) + "</header>" + pins + "</article>";
+  }).join("");
+}
+
+function paintMarks() {
+  const graphMode = state.open && state.variant === "graph";
+  document.getElementById("canvas").classList.toggle("marking", graphMode);
+  document.querySelectorAll(".pin.markable").forEach(function (el) {
+    const on = state.marks.has(el.dataset.node + "/" + el.dataset.pin);
+    el.classList.toggle("marked", on && graphMode);
+    const box = el.querySelector("input");
+    if (box) box.checked = on;
+  });
+}
+
+function rowHtml(row, control, cls) {
+  return '<div class="' + cls + '">' +
+    control +
+    "<span>" + esc(row.pin.varLabel) + "</span>" +
+    "<small>" + esc(valueText(row.pin)) + "</small></div>";
+}
+
+function renderChecklist() {
+  const rows = eligiblePins().map(function (row) {
+    const checked = state.marks.has(keyOf(row.node, row.pin)) ? " checked" : "";
+    const box = '<input type="checkbox" data-node="' + row.node.id + '" data-pin="' + row.pin.name + '"' + checked + ">";
+    return rowHtml(row, box, "check");
+  }).join("");
+  return '<p class="hint">' + eligiblePins().length +
+    " eligible controls. None start checked. Composite controls and wired pins are not in this list.</p>" +
+    '<div class="rows">' + rows + "</div>";
+}
+
+function renderAdd() {
+  const marked = markedRows();
+  const list = marked.length
+    ? marked.map(function (row) {
+        return rowHtml(row, '<button type="button" data-remove="' + keyOf(row.node, row.pin) + '">Remove</button>', "added");
+      }).join("")
+    : '<p class="empty">Nothing marked. Instantiating this Preset will not ask any questions.</p>';
+  const choices = NODES.filter(function (node) { return remainingOn(node).length > 0; });
+  let pinPick = "";
+  const chosen = NODES.find(function (node) { return node.id === state.addNode; });
+  if (chosen && remainingOn(chosen).length > 1) {
+    pinPick = '<select id="pinpick"><option value="">Choose a pin…</option>' +
+      remainingOn(chosen).map(function (pin) {
+        return '<option value="' + esc(pin.name) + '">' + esc(pin.label) + "</option>";
+      }).join("") +
+      '</select><button type="button" id="addpin">Add</button>';
+  }
+  const nodePick = choices.length
+    ? '<div class="addbox"><select id="nodepick"><option value="">Choose a node…</option>' +
+      choices.map(function (node) {
+        const sel = node.id === state.addNode ? " selected" : "";
+        return '<option value="' + node.id + '"' + sel + ">" + esc(node.choiceLabel) + "</option>";
+      }).join("") +
+      "</select>" + pinPick + "</div>"
+    : '<p class="empty">Every eligible control is already marked.</p>';
+  return '<p class="hint">The list starts empty. Pick a node, then a pin. A node with one eligible pin is marked as soon as you pick it.</p>' +
+    '<div class="rows" id="added">' + list + "</div>" + nodePick;
+}
+
+function shell(body) {
+  const dialog = document.getElementById("dialog");
+  const dim = document.getElementById("dim");
+  dialog.hidden = false;
+  dim.hidden = false;
+  dialog.innerHTML =
+    "<header><span>Save as preset</span><button class='x' type='button' id='dismiss' aria-label='Close'>&times;</button></header>" +
+    '<div class="body"><label class="field">Name<input id="name" type="text" value="' + esc(state.name) + '"></label>' +
+    body + "</div>" +
+    '<footer><button type="button" id="cancel">Cancel</button>' +
+    '<button type="button" class="primary" id="save"' + (nameBlank() ? " disabled" : "") + ">Save</button></footer>";
+  document.getElementById("dismiss").onclick = closeAndRender;
+  document.getElementById("cancel").onclick = closeAndRender;
+  document.getElementById("save").onclick = commit;
+  const name = document.getElementById("name");
+  bindName(name);
+}
+
+function closeAndRender() { closeFlow(); render(); }
+
+function renderDialog() {
+  const dialog = document.getElementById("dialog");
+  const dim = document.getElementById("dim");
+  const bar = document.getElementById("markbar");
+  dialog.hidden = true;
+  dim.hidden = true;
+  bar.hidden = true;
+  if (!state.open) return;
+  if (state.variant === "graph") {
+    bar.hidden = false;
+    const n = markedRows().length;
+    bar.innerHTML =
+      "<strong>Save as preset</strong>" +
+      '<input id="name" type="text" value="' + esc(state.name) + '" aria-label="Preset name">' +
+      '<span class="count">' + n + " marked. Click a control on the graph.</span>" +
+      '<span class="spacer"></span><span class="actions">' +
+      "<button type='button' id='cancel'>Cancel</button>" +
+      '<button type="button" class="primary" id="save"' + (nameBlank() ? " disabled" : "") + ">Save</button></span>";
+    document.getElementById("cancel").onclick = closeAndRender;
+    document.getElementById("save").onclick = commit;
+    bindName(document.getElementById("name"));
+    return;
+  }
+  shell(state.variant === "add" ? renderAdd() : renderChecklist());
+  if (state.variant === "checklist") {
+    dialog.querySelectorAll(".check input").forEach(function (box) {
+      box.onchange = function () {
+        const node = NODES.find(function (n) { return n.id === box.dataset.node; });
+        const pin = node.pins.find(function (p) { return p.name === box.dataset.pin; });
+        toggleMark(node, pin);
+      };
+    });
+  } else {
+    const nodepick = document.getElementById("nodepick");
+    if (nodepick) {
+      nodepick.onchange = function () {
+        const node = NODES.find(function (n) { return n.id === nodepick.value; });
+        if (!node) { state.addNode = ""; render(); return; }
+        const left = remainingOn(node);
+        if (left.length === 1) {
+          state.marks.add(keyOf(node, left[0]));
+          state.addNode = "";
+        } else {
+          state.addNode = node.id;
+        }
+        render();
+      };
+    }
+    const addpin = document.getElementById("addpin");
+    if (addpin) {
+      addpin.onclick = function () {
+        const pinName = document.getElementById("pinpick").value;
+        const node = NODES.find(function (n) { return n.id === state.addNode; });
+        const pin = node && node.pins.find(function (p) { return p.name === pinName; });
+        if (!pin) return;
+        state.marks.add(keyOf(node, pin));
+        if (remainingOn(node).length === 0) state.addNode = "";
+        render();
+      };
+    }
+    dialog.querySelectorAll("[data-remove]").forEach(function (btn) {
+      btn.onclick = function () {
+        state.marks.delete(btn.dataset.remove);
+        render();
+      };
+    });
+  }
+}
+
+function renderState() {
+  const rows = markedRows();
+  const omitted = [];
+  NODES.forEach(function (node) {
+    node.pins.forEach(function (pin) {
+      if (!pin.eligible) omitted.push(node.choiceLabel + " · " + pin.label + " — " + pin.reason);
+    });
+  });
+  const variant = VARIANTS.find(function (v) { return v.id === state.variant; });
+  const saved = state.saved
+    ? "<div class='saved'><h3>Last save</h3><dl><dt>name</dt><dd>" + esc(state.saved.name) +
+      "</dd><dt>marks</dt><dd>" + (state.saved.marks.length ? state.saved.marks.map(function (m) {
+        return esc(m.nodeId + "/" + m.pin) + (m.needle ? " needle" : "");
+      }).join("<br>") : "(none)") + "</dd></dl><ul>" +
+      state.saved.marks.map(function (m) { return "<li>" + esc(m.label) + "</li>"; }).join("") +
+      "</ul></div>"
+    : "<div class='saved'><h3>Last save</h3><p>Nothing saved this session.</p></div>";
+  document.getElementById("state").innerHTML =
+    "<h3>" + esc(variant.id) + "</h3><p>" + esc(blurb(variant.id)) + "</p>" +
+    "<dl><dt>eligible</dt><dd>" + eligiblePins().length + "</dd>" +
+    "<dt>omitted</dt><dd>" + omitted.length + "</dd>" +
+    "<dt>marked</dt><dd>" + rows.length + "</dd>" +
+    "<dt>name</dt><dd>" + esc(state.name.trim() || "(blank)") + "</dd></dl>" +
+    "<h3>Marked</h3>" +
+    (rows.length ? "<ul>" + rows.map(function (r) {
+      return "<li>" + esc(r.pin.varLabel) + "</li>";
+    }).join("") + "</ul>" : "<p>None.</p>") +
+    "<h3>Instantiate dialog would list</h3>" +
+    (rows.length ? "<ul>" + rows.map(function (r) {
+      return "<li>" + esc(r.pin.varLabel) + " · " + esc(valueText(r.pin)) + "</li>";
+    }).join("") + "</ul>" : "<p>No questions. The new Alert is created immediately.</p>") +
+    "<h3>Omitted</h3><ul>" + omitted.map(function (line) { return "<li>" + esc(line) + "</li>"; }).join("") + "</ul>" +
+    saved;
+}
+
+function blurb(id) {
+  if (id === "add") return "Starts empty. You add a node, then one of its pins. One-pin nodes mark immediately.";
+  if (id === "graph") return "The graph stays usable. A control is marked by clicking it on its node.";
+  return "One checkbox per eligible control, all unchecked. This is the list that may be too long.";
+}
+
+function renderSwitcher() {
+  const variant = VARIANTS.find(function (v) { return v.id === state.variant; });
+  const i = VARIANTS.indexOf(variant) + 1;
+  document.getElementById("sw-label").textContent = variant.id + " (" + variant.name + ")  " + i + "/" + VARIANTS.length;
+  document.getElementById("open").classList.toggle("on", state.open);
+  document.getElementById("open").disabled = state.open;
+}
+
+function bindName(name) {
+  name.oninput = function () {
+    state.name = name.value;
+    const save = document.getElementById("save");
+    if (save) save.disabled = nameBlank();
+    renderState();
+  };
+}
+
+function render() {
+  const body = document.querySelector("#dialog .body");
+  const bodyTop = body ? body.scrollTop : 0;
+  const view = document.getElementById("viewport");
+  const viewTop = view.scrollTop;
+  paintMarks();
+  renderDialog();
+  const bodyNext = document.querySelector("#dialog .body");
+  if (bodyNext) bodyNext.scrollTop = bodyTop;
+  view.scrollTop = viewTop;
+  renderState();
+  renderSwitcher();
+}
+
+document.getElementById("canvas").addEventListener("click", function (event) {
+  if (!(state.open && state.variant === "graph")) return;
+  const pinEl = event.target.closest(".pin.markable");
+  if (!pinEl) return;
+  const node = NODES.find(function (n) { return n.id === pinEl.dataset.node; });
+  const pin = node.pins.find(function (p) { return p.name === pinEl.dataset.pin; });
+  toggleMark(node, pin);
+});
+
+document.getElementById("open").onclick = openFlow;
+document.getElementById("prev").onclick = function () { cycle(-1); };
+document.getElementById("next").onclick = function () { cycle(1); };
+document.addEventListener("keydown", function (event) {
+  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+  const tag = document.activeElement && document.activeElement.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+  event.preventDefault();
+  cycle(event.key === "ArrowRight" ? 1 : -1);
+});
+
+readVariant();
+renderCanvas();
+render();
+</script>
+</body>
+</html>

@@ -1,7 +1,5 @@
 -- Alert Presets on the Pack named Watchdog.
 
-local ALERT_SOUND = 885
-
 local StarterAlerts = {}
 
 -- Pack layout is the same { id, x, y } array an Alert save uses.
@@ -33,29 +31,31 @@ end
 ---@return Watchdog.PackAlertPreset
 local function friendLogin(registry)
     local graph = LibNodeGraph.NewGraph(registry)
-    -- Login/Logout is chat type group "login", id 5. An empty substring Matcher
-    -- matches every line of that channel. Restricted silence is the Game
-    -- Message trigger's own filter, so this graph does not add another check.
     local message = graph:AddNode("trigger.game_message", {
         type = "login",
         contains = { needle = "", mode = "substring" },
-    })
-    local toast = graph:AddNode("action.toast")
-    local sound = graph:AddNode("action.sound", { soundId = ALERT_SOUND })
+    }, { name = "Login/logout" })
+    local toast = graph:AddNode("action.toast", {
+        color = { r = 0, g = 255, b = 240, a = 255 },
+        icon = id.Sprite.ICON_STAR_FILL,
+        sticky = false,
+        hold = 5,
+    }, { name = "Toast" })
+    local sound = graph:AddNode("action.sound", {
+        soundId = id.Sound.DEVCOM_MINIGAME_ALERT,
+    }, { name = "Ding a ling" })
     connect(graph, "Friend login", message, "out", sound, "in")
     connect(graph, "Friend login", message, "out", toast, "show")
     connect(graph, "Friend login", message, "message", toast, "text")
-    -- 320 apart, wider than a node body, so the three nodes do not stack.
     return {
         authorId = "friend-login",
         name = "Friend login",
         graph = LibNodeGraph.Serialize(graph),
         layout = layoutArray({
-            [message] = { x = 32, y = 48 },
-            [toast] = { x = 352, y = 48 },
-            [sound] = { x = 672, y = 48 },
+            [message] = { x = 135, y = 50 },
+            [toast] = { x = 515, y = 26 },
+            [sound] = { x = 514, y = 264 },
         }),
-        variables = {},
     }
 end
 
@@ -63,97 +63,150 @@ end
 ---@return Watchdog.PackAlertPreset
 local function idleXp(registry)
     local graph = LibNodeGraph.NewGraph(registry)
-    -- Client Tick runs 50 times a second, so interval 5 is a tenth of a second.
-    -- Fifty steps of this Counter is five seconds with no XP. Both numbers are
-    -- hardcoded Controls. There is no Variable and no timer node.
-    local logic = graph:AddNode("trigger.logic", { interval = 5 })
-    local counter = graph:AddNode("std.counter", { step = 1, start = 0 })
-    local compare = graph:AddNode("std.compare", { operation = ">=", a = 0, b = 50 })
-    local branch = graph:AddNode("std.branch")
-    local sound = graph:AddNode("action.sound", { soundId = ALERT_SOUND })
-    local xp = graph:AddNode("trigger.xp_drop", { skillFilter = "any" })
+    local logic = graph:AddNode("trigger.logic", { interval = 50 }, { name = "1/sec" })
+    local counter = graph:AddNode("std.counter", { step = 1, start = 0 }, { name = "Second counter" })
+    local compare = graph:AddNode("std.compare", { operation = ">=", a = 0, b = 10 }, { name = "X seconds" })
+    local branch = graph:AddNode("std.branch", { condition = false }, { name = "If true" })
+    local xp = graph:AddNode("trigger.xp_drop", { skillFilter = "any" }, { name = "Any xp drop" })
+    local once = graph:AddNode("std.doonce", { startClosed = true }, { name = "Only ding once" })
+    local sound = graph:AddNode("action.sound", { soundId = id.Sound.TOWN_CRIER_BELL_RING_1 }, { name = "Ding" })
     connect(graph, "Idle XP", logic, "out", counter, "in")
     connect(graph, "Idle XP", counter, "count", compare, "a")
     connect(graph, "Idle XP", counter, "out", branch, "in")
     connect(graph, "Idle XP", compare, "result", branch, "condition")
-    -- True plays the sound and resets. Reset terminates, so that edge does not
-    -- continue into the sound. XP Drop uses the same reset and has no other wire.
-    connect(graph, "Idle XP", branch, "true", sound, "in")
-    connect(graph, "Idle XP", branch, "true", counter, "reset")
+    connect(graph, "Idle XP", branch, "true", once, "in")
+    connect(graph, "Idle XP", xp, "out", once, "reset")
     connect(graph, "Idle XP", xp, "out", counter, "reset")
+    connect(graph, "Idle XP", once, "out", sound, "in")
     return {
         authorId = "idle-xp",
         name = "Idle XP",
         graph = LibNodeGraph.Serialize(graph),
-        -- Same 320 gap as Friend login, wider than a node body.
         layout = layoutArray({
-            [logic] = { x = 32, y = 48 },
-            [xp] = { x = 352, y = 48 },
-            [counter] = { x = 672, y = 48 },
-            [compare] = { x = 32, y = 368 },
-            [branch] = { x = 352, y = 368 },
-            [sound] = { x = 672, y = 368 },
+            [logic] = { x = 6, y = 10 },
+            [counter] = { x = 282, y = 9 },
+            [compare] = { x = 580, y = 13 },
+            [branch] = { x = 61, y = 279 },
+            [xp] = { x = 6, y = 112 },
+            [once] = { x = 343, y = 279 },
+            [sound] = { x = 615, y = 279 },
         }),
-        variables = {},
+        variables = {
+            { nodeId = compare, pinName = "b" },
+            { nodeId = xp, pinName = "skillFilter" },
+        },
     }
 end
 
--- current * 100 < max * threshold. Strict less-than, so equality is recovery.
--- A max of 0 makes both sides 0, and 0 < 0 is false, so no extra case.
--- The threshold input is the only Variable. 25 is the offered default.
-local THRESHOLD_DEFAULT = 25
+local THRESHOLD_DEFAULT = 4
+local FLASH_RED = { r = 255, g = 0, b = 0, a = 127 }
+local FLASH_PRAYER = { r = 89, g = 0, b = 255, a = 127 }
 
 ---@param registry LibNodeGraph.Registry
 ---@param resource string
 ---@param authorId string
 ---@param name string
+---@param soundId number
+---@param flashColor { r: integer, g: integer, b: integer, a: integer }
+---@param triggerName string
 ---@return Watchdog.PackAlertPreset
-local function lowResource(registry, resource, authorId, name)
+local function lowResource(registry, resource, authorId, name, soundId, flashColor, triggerName)
     local graph = LibNodeGraph.NewGraph(registry)
-    local trigger = graph:AddNode("trigger.resource_changed", { resource = resource })
-    local times100 = graph:AddNode("std.math", { operation = "*", b = 100 })
-    local timesThreshold = graph:AddNode("std.math", { operation = "*", b = THRESHOLD_DEFAULT })
-    local compare = graph:AddNode("std.compare", { operation = "<" })
-    local branch = graph:AddNode("std.branch")
-    local once = graph:AddNode("std.doonce", { startClosed = false })
-    local sound = graph:AddNode("action.sound", { soundId = ALERT_SOUND })
-    local flash = graph:AddNode("action.screen_flash")
-    connect(graph, name, trigger, "current", times100, "a")
-    connect(graph, name, trigger, "max", timesThreshold, "a")
-    connect(graph, name, times100, "result", compare, "a")
-    connect(graph, name, timesThreshold, "result", compare, "b")
+    local trigger = graph:AddNode("trigger.resource_changed", { resource = resource }, { name = triggerName })
+    local divide = graph:AddNode("std.math", { operation = "/", a = 0, b = THRESHOLD_DEFAULT }, { name = "25%" })
+    local compare = graph:AddNode("std.compare", { operation = "<=", a = 0, b = 0 }, { name = "Less than or equal" })
+    local branch = graph:AddNode("std.branch", { condition = false }, { name = "Condition branch" })
+    local once = graph:AddNode("std.doonce", { startClosed = false }, { name = "Only alert once" })
+    local sound = graph:AddNode("action.sound", { soundId = soundId })
+    local flash = graph:AddNode("action.screen_flash", {
+        color = flashColor,
+        inShape = "instant",
+        outShape = "instant",
+        dismissOn = "both",
+    })
+    connect(graph, name, trigger, "current", compare, "a")
+    connect(graph, name, trigger, "max", divide, "a")
+    connect(graph, name, divide, "result", compare, "b")
     connect(graph, name, trigger, "out", branch, "in")
     connect(graph, name, compare, "result", branch, "condition")
     connect(graph, name, branch, "true", once, "in")
     connect(graph, name, branch, "false", once, "reset")
     connect(graph, name, once, "out", sound, "in")
     connect(graph, name, once, "out", flash, "show")
-    local gap = 320
-    local order = { trigger, times100, timesThreshold, compare, branch, once, sound, flash }
-    local layout = {}
-    for index, id in ipairs(order) do
-        local col = (index - 1) % 4
-        local row = math.floor((index - 1) / 4)
-        layout[id] = { x = 32 + col * gap, y = 48 + row * gap }
-    end
     return {
         authorId = authorId,
         name = name,
         graph = LibNodeGraph.Serialize(graph),
-        layout = layoutArray(layout),
-        variables = { { nodeId = timesThreshold, pinName = "b" } },
+        -- Positions from the saved preset. Sound and flash share a column.
+        layout = layoutArray({
+            [trigger] = { x = 9, y = 9 },
+            [divide] = { x = 281, y = 17 },
+            [compare] = { x = 581, y = 18 },
+            [branch] = { x = 61, y = 238 },
+            [once] = { x = 336, y = 238 },
+            [sound] = { x = 615, y = 165 },
+            [flash] = { x = 615, y = 314 },
+        }),
+        variables = { { nodeId = divide, pinName = "b" } },
+    }
+end
+
+---@param registry LibNodeGraph.Registry
+---@return Watchdog.PackAlertPreset
+local function tickCounter(registry)
+    local graph = LibNodeGraph.NewGraph(registry)
+    -- Taken from the saved preset "Tick Counter". Server Tick interval 1 is
+    -- every server tick. The count is shown in the infobox. At or above the
+    -- marked number, the branch resets the counter. The infobox icon and that
+    -- number are the Variables.
+    local tick = graph:AddNode("trigger.server_logic", { interval = 1 }, { name = "Each tick" })
+    local counter = graph:AddNode("std.counter", { step = 1, start = 0 }, { name = "Tick Counter" })
+    local box = graph:AddNode("action.infobox", {
+        icon = id.Sprite.RS3_ICON_CHECK_MARK_24PX_0,
+        title = "",
+        dismissWhenEmpty = false,
+        color = { r = 255, g = 255, b = 255, a = 255 },
+    }, { name = "Tick infobox" })
+    local compare = graph:AddNode("std.greaterorequal", { a = 0, b = 4 }, { name = "Loop X ticks" })
+    local branch = graph:AddNode("std.branch", { condition = false }, { name = "Reset loop" })
+    connect(graph, "Tick Counter", tick, "out", counter, "in")
+    connect(graph, "Tick Counter", counter, "count", box, "value")
+    connect(graph, "Tick Counter", counter, "count", compare, "a")
+    connect(graph, "Tick Counter", counter, "out", branch, "in")
+    connect(graph, "Tick Counter", counter, "out", box, "update")
+    connect(graph, "Tick Counter", compare, "result", branch, "condition")
+    connect(graph, "Tick Counter", branch, "true", counter, "reset")
+    return {
+        authorId = "tick-counter",
+        name = "Tick Counter",
+        graph = LibNodeGraph.Serialize(graph),
+        layout = layoutArray({
+            [tick] = { x = 9, y = 11 },
+            [counter] = { x = 304, y = 11 },
+            [box] = { x = 611, y = 11 },
+            [compare] = { x = 50, y = 221 },
+            [branch] = { x = 348, y = 225 },
+        }),
+        variables = {
+            { nodeId = box, pinName = "icon" },
+            { nodeId = compare, pinName = "b" },
+        },
     }
 end
 
 ---@param api { RegisterDataPack: fun(self, name: string, contributions: table|nil) }
 ---@param registry LibNodeGraph.Registry
 function StarterAlerts.register(api, registry)
+    local horn = id.Sound.FISHCOMP_KLAXON
+    local alertBells = id.Sound.CHOSEN_HAM_BASE_ALARM
+    local alertBellsLong = id.Sound.MAH3_HEIST_ALARM
     api:RegisterDataPack("Watchdog", {
         alertPresets = {
             friendLogin(registry),
             idleXp(registry),
-            lowResource(registry, "life", "low-life-points", "Low life points"),
-            lowResource(registry, "prayer", "low-prayer", "Low prayer"),
+            tickCounter(registry),
+            lowResource(registry, "life", "low-life-points", "Low life points", alertBells, FLASH_RED, "Life"),
+            lowResource(registry, "prayer", "low-prayer", "Low prayer", horn, FLASH_PRAYER, "Prayer"),
         },
     })
 end

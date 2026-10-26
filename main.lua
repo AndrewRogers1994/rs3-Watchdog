@@ -147,7 +147,7 @@ local charScope = nil
 
 runtime:SetBucketLoader(function(trackingId)
     local key = Store.PlayerKey(trackingId)
-    local playerDoc = Store.Open(key)
+    local playerDoc = Store.LoadKey(key)
     local restoredChar = {}
     local ok, r = pcall(function() return Store.RestoreAll(playerDoc, registry) end)
     if ok and r ~= nil then restoredChar = r end
@@ -158,40 +158,7 @@ runtime:SetBucketLoader(function(trackingId)
     return restoredChar
 end)
 
-local function seedDemo()
-    local graph = LibNodeGraph.NewGraph(registry)
-
-    local tickNode = graph:AddNode("trigger.server_logic", { interval = 1 })
-    local counterNode = graph:AddNode("std.counter", { step = 1, start = 0 })
-    local infoNode = graph:AddNode("action.infobox", { title = "", icon = 17127, dismissWhenEmpty = false })
-    local compareNode = graph:AddNode("std.greaterorequal", { a = 0, b = 4 })
-    local branchNode = graph:AddNode("std.branch", { condition = false })
-
-    assert(graph:Connect(tickNode, "out", counterNode, "in"))
-    assert(graph:Connect(counterNode, "count", infoNode, "value"))
-    assert(graph:Connect(counterNode, "count", compareNode, "a"))
-    assert(graph:Connect(counterNode, "out", branchNode, "in"))
-    assert(graph:Connect(counterNode, "out", infoNode, "update"))
-    assert(graph:Connect(compareNode, "result", branchNode, "condition"))
-    assert(graph:Connect(branchNode, "true", counterNode, "reset"))
-
-    local layout = {
-        [tickNode] = { x = 7, y = 15 },
-        [counterNode] = { x = 276, y = 116 },
-        [infoNode] = { x = 607, y = 94 },
-        [compareNode] = { x = 46, y = 356 },
-        [branchNode] = { x = 363, y = 363 },
-    }
-
-    return graph, layout
-end
-
-local document, missing = Store.Open("global")
-if missing then
-    local exampleGraph, exampleLayout = seedDemo()
-    Store.InsertEntry(document, Store.NewAlertEntry(1, "Tick Counter (Example alert)", exampleGraph, exampleLayout, false))
-    Store.Save(document)
-end
+local document = Store.LoadKey("global")
 
 local restored = {}
 do

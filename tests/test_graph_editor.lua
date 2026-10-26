@@ -991,3 +991,44 @@ function TestGraphEditor:testPlaceholderHeaderKeepsTheOriginalTypeKey()
     luaunit.assertEquals(graph.nodes[1].unknown.type, "action.popup")
     luaunit.assertEquals(graph.nodes[1].unknown.controls.body, "hi")
 end
+
+-- The X removes the node. The InfoBox strip is keyed by that node's state table, which
+-- RemoveNode drops from the graph without telling the strip. Alert disable already
+-- releases every node; this is the single-node path.
+function TestGraphEditor:testDeleteNodeClearsThatNodesInfobox()
+    local InfoBox = require("src/ui/infobox")
+    local Runtime = require("src/runtime")
+    local newFakeEventSource = require("fake_event_source")
+
+    local infobox = InfoBox.new()
+    local runtime = Runtime.new(newFakeEventSource().source)
+    runtime.infobox = infobox
+
+    local editor = Editor.new(self.registry, runtime)
+    editor:BindEntry(1, self.graph, {})
+
+    local removedId = self.graph:AddNode("fixture.action")
+    local keptId = self.graph:AddNode("fixture.action")
+    local removedState = self.graph:GetState(removedId)
+    local keptState = self.graph:GetState(keptId)
+    editor.layout[removedId] = { x = 0, y = 0 }
+    editor.layout[keptId] = { x = 40, y = 0 }
+    editor.nodeOrder = { removedId, keptId }
+    editor.selected = removedId
+    editor.geoms[removedId] = {}
+
+    infobox:Set(removedState, { text = "9", title = "gone" })
+    infobox:Set(keptState, { text = "1", title = "stay" })
+
+    editor:deleteNode(removedId)
+
+    luaunit.assertFalse(infobox:Has(removedState))
+    luaunit.assertTrue(infobox:Has(keptState))
+    luaunit.assertEquals(infobox:Count(), 1)
+    luaunit.assertNil(self.graph:GetState(removedId))
+    luaunit.assertNotNil(self.graph:GetState(keptId))
+    luaunit.assertNil(editor.layout[removedId])
+    luaunit.assertNil(editor.geoms[removedId])
+    luaunit.assertNil(editor.selected)
+    luaunit.assertEquals(editor.nodeOrder, { keptId })
+end
