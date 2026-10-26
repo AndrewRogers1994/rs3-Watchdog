@@ -14,70 +14,42 @@ local MAXLIFEPOINTS = id.VarPlayer.MAXLIFEPOINTS
 local ADREN_BASE = 100
 
 
--- Re-read `.value`. The event's old/new fields are not the pool.
--- FromID is userdata in the client and a function in tests. The definition is the same split.
-local function lookupVar(varId)
-    if var == nil or var.VarPlayer == nil then
-        return nil
-    end
-    local fromId = var.VarPlayer.FromID
-    local kind = type(fromId)
-    if kind ~= "function" and kind ~= "userdata" then
-        return nil
-    end
-    local ok, def = pcall(fromId, varId)
-    if not ok or (type(def) ~= "userdata" and type(def) ~= "table") then
-        return nil
-    end
-    return def
-end
-
+-- Transmit old/new are not the pool. FromID is userdata in the client and a function in tests.
 local function readVar(varId)
-    local def = lookupVar(varId)
-    if def == nil or type(def.value) ~= "number" then
+    if var == nil or var.VarPlayer == nil or var.VarPlayer.FromID == nil then
+        return nil
+    end
+    local def = var.VarPlayer.FromID(varId)
+    if type(def) ~= "userdata" and type(def) ~= "table" then
+        return nil
+    end
+    if type(def.value) ~= "number" then
         return nil
     end
     return def.value
 end
 
--- Client API objects and callables are userdata. Tests build tables and functions.
-local function isApiValue(value)
-    local kind = type(value)
-    return kind == "userdata" or kind == "table"
-end
-
-local function isCallable(value)
-    local kind = type(value)
-    return kind == "function" or kind == "userdata"
-end
-
--- Prayer is SkillType 5 and Summoning is 23, the same ids Stat Changed uses.
+-- Prayer is SkillType 5 and Summoning is 23, the same ids Skill Changed uses.
 local function gameplayTimes10(skillName, fallback)
-    if Player == nil or not isCallable(Player.GetLevelGameplay) then
+    if Player == nil or Player.GetLevelGameplay == nil then
         return nil
     end
     local skill = fallback
-    if isApiValue(SkillType) and type(SkillType[skillName]) == "number" then
-        skill = SkillType[skillName]
+    local skills = SkillType
+    local kind = type(skills)
+    if (kind == "table" or kind == "userdata") and type(skills[skillName]) == "number" then
+        skill = skills[skillName]
     end
-    local ok, level = pcall(Player.GetLevelGameplay, skill)
-    if not ok or type(level) ~= "number" then
+    local level = Player.GetLevelGameplay(skill)
+    if type(level) ~= "number" then
         return nil
     end
     return level * 10
 end
 
--- Production pools. Tests replace this; the trigger is the only caller.
--- Life max is MAXLIFEPOINTS, which already includes gear and bonfires.
--- Prayer's base var 3274 is masked 0x7FFF inside the PRAYER_POINTS varbit, so
--- this reads that varbit instead of masking the base. That var counts tenths:
--- 29688 is 2,968 points on the action bar, and the bar drops by 1 after ten
--- ticks. Adrenaline is the same kind of tenth on SA_ENERGY, already divided by
--- 10. Heightened Senses stores 100 for a 10% cap, and a full Vestments of
--- Havoc set stores 4 for another 20%. Summoning points are tenths too:
--- 28700 on LORE_POINTS is 2,870 on the cyan bar. Run energy is
--- Player.GetRunEnergy, already the percentage, with no divide. Life matches
--- the UI with no scale.
+-- Life is the raw pool. Prayer, summoning, and adrenaline vars are tenths.
+-- Adrenaline max is 100, plus 10 when Heightened Senses is 100, plus 20 for four Vestments of Havoc pieces.
+-- A missing bonus var adds nothing. Run energy is already a percentage.
 local function productionRead(resource)
     if resource == "life" then
         local current = readVar(LIFEPOINTS)
@@ -100,8 +72,6 @@ local function productionRead(resource)
     if resource == "adrenaline" then
         local raw = readVar(ADRENALINE_VAR)
         if raw == nil then return nil end
-        -- 100 on the relic var is +10. Four pieces of the Zamorak melee set is +20.
-        -- A missing var is no bonus, not a failed read.
         local bonus = readVar(SENSES_BOOST) or 0
         local max = ADREN_BASE + bonus / 10
         if readVar(ZAM_MELEE_SET) == 4 then
@@ -110,11 +80,11 @@ local function productionRead(resource)
         return raw / 10, max
     end
     if resource == "run-energy" then
-        if Player == nil or not isCallable(Player.GetRunEnergy) then
+        if Player == nil or Player.GetRunEnergy == nil then
             return nil
         end
-        local ok, current = pcall(Player.GetRunEnergy)
-        if not ok or type(current) ~= "number" then
+        local current = Player.GetRunEnergy()
+        if type(current) ~= "number" then
             return nil
         end
         return current, ADREN_BASE
@@ -122,11 +92,7 @@ local function productionRead(resource)
     return nil
 end
 
--- Last successful current, on the runtime and weak-keyed by graph. A new graph has
--- no row, so its first successful read stays silent. The slot also stores which
--- resource was sampled. A different dropdown drops that slot on the next read,
--- before the new value is kept, so the new pool's first success stays silent.
--- Both event filters call `observe`; neither filter holds the sample.
+-- Weak-keyed by graph. The first successful read stays silent. A new dropdown value drops that sample.
 local function samplesOf(runtime)
     if runtime._resourceSamples == nil then
         runtime._resourceSamples = setmetatable({}, { __mode = "k" })
@@ -136,8 +102,7 @@ end
 
 local reader = productionRead
 
---- Tests install `(resource) -> current, max`. Nil current is a failed read.
---- Passing nil restores the production reader. The trigger is the only production caller.
+--- Tests install `(resource) -> current, max`. Nil current is a failed read. Nil restores production.
 ---@param fn (fun(resource: string): number|nil, number|nil)|nil
 function Resource.SetReader(fn)
     reader = fn or productionRead
@@ -182,7 +147,6 @@ local function observe(runtime, graph, nodeId, resource)
         byNode[nodeId] = { resource = resource, current = current }
         return nil
     end
-    -- same value, skip
     if current == slot.current then
         return nil
     end
@@ -207,7 +171,7 @@ local function varId(payload)
     return eventVar.id
 end
 
--- A new table. The event is shared with every later binding on this channel.
+-- Later bindings on this event still see the original payload.
 local function publish(current, max, previous)
     if current == nil then
         return false
@@ -219,12 +183,12 @@ end
 ---@param payload VarTransmit
 local function varApplies(resource, payload)
     local id = varId(payload)
-    -- LIFEPOINTS and MAXLIFEPOINTS each arrive as their own transmit. There is no parent.
+    -- Life has no parent var. Either transmit is the pool.
     if resource == "life" then
         return id == LIFEPOINTS or id == MAXLIFEPOINTS
     end
     if resource == "prayer" then
-        return varId(payload) == PRAYER_BASE
+        return id == PRAYER_BASE
     end
     if resource == "adrenaline" then
         return id == ADRENALINE_VAR or id == SENSES_BOOST or id == ZAM_MELEE_SET

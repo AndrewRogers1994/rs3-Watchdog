@@ -686,9 +686,7 @@ function Runtime:_fireBindingInGraph(binding, payload, graph)
             local passes = true
             if binding.filter ~= nil then
                 local nodeHandle = makeNodeHandle(graph, node)
-                -- Third arg is the graph so a trigger can key samples outside the node.
-                -- A table is this node's payload. true keeps the shared event.
-                -- false and nil do not fire, so a filter cannot write onto that event.
+                -- Graph is the sample key. A table replaces the shared event. false and nil skip.
                 local ok, result = callOrLog(
                     "filter error on '" .. binding.typeKey .. "'",
                     binding.filter, payload, nodeHandle, graph)

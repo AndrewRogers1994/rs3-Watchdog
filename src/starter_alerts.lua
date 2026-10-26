@@ -1,7 +1,4 @@
 -- Alert Presets on the Pack named Watchdog.
--- New alert copies one into the active Scope. This module does not insert a
--- copy itself, and it does not write the Preset library.
--- 885 is DEVCOM_MINIGAME_ALERT. The graph stores that raw builtin id.
 
 local ALERT_SOUND = 885
 
@@ -19,6 +16,19 @@ local function layoutArray(layout)
     return arr
 end
 
+---@param graph LibNodeGraph.Graph
+---@param label string
+---@param fromNode integer
+---@param fromPin string
+---@param toNode integer
+---@param toPin string
+local function connect(graph, label, fromNode, fromPin, toNode, toPin)
+    local id, reason = graph:Connect(fromNode, fromPin, toNode, toPin)
+    if id == nil then
+        error(string.format("%s graph: %s %s -> %s", label, tostring(reason), fromPin, toPin))
+    end
+end
+
 ---@param registry LibNodeGraph.Registry
 ---@return Watchdog.PackAlertPreset
 local function friendLogin(registry)
@@ -32,12 +42,9 @@ local function friendLogin(registry)
     })
     local toast = graph:AddNode("action.toast")
     local sound = graph:AddNode("action.sound", { soundId = ALERT_SOUND })
-    local soundWire, soundReason = graph:Connect(message, "out", sound, "in")
-    local showWire, showReason = graph:Connect(message, "out", toast, "show")
-    local textWire, textReason = graph:Connect(message, "message", toast, "text")
-    if soundWire == nil or showWire == nil or textWire == nil then
-        error("Friend login graph: " .. tostring(soundReason or showReason or textReason))
-    end
+    connect(graph, "Friend login", message, "out", sound, "in")
+    connect(graph, "Friend login", message, "out", toast, "show")
+    connect(graph, "Friend login", message, "message", toast, "text")
     -- 320 apart, wider than a node body, so the three nodes do not stack.
     return {
         authorId = "friend-login",
@@ -50,18 +57,6 @@ local function friendLogin(registry)
         }),
         variables = {},
     }
-end
-
----@param graph LibNodeGraph.Graph
----@param fromNode integer
----@param fromPin string
----@param toNode integer
----@param toPin string
-local function connect(graph, fromNode, fromPin, toNode, toPin)
-    local id, reason = graph:Connect(fromNode, fromPin, toNode, toPin)
-    if id == nil then
-        error(string.format("Idle XP graph: %s %s -> %s", tostring(reason), fromPin, toPin))
-    end
 end
 
 ---@param registry LibNodeGraph.Registry
@@ -77,15 +72,15 @@ local function idleXp(registry)
     local branch = graph:AddNode("std.branch")
     local sound = graph:AddNode("action.sound", { soundId = ALERT_SOUND })
     local xp = graph:AddNode("trigger.xp_drop", { skillFilter = "any" })
-    connect(graph, logic, "out", counter, "in")
-    connect(graph, counter, "count", compare, "a")
-    connect(graph, counter, "out", branch, "in")
-    connect(graph, compare, "result", branch, "condition")
+    connect(graph, "Idle XP", logic, "out", counter, "in")
+    connect(graph, "Idle XP", counter, "count", compare, "a")
+    connect(graph, "Idle XP", counter, "out", branch, "in")
+    connect(graph, "Idle XP", compare, "result", branch, "condition")
     -- True plays the sound and resets. Reset terminates, so that edge does not
     -- continue into the sound. XP Drop uses the same reset and has no other wire.
-    connect(graph, branch, "true", sound, "in")
-    connect(graph, branch, "true", counter, "reset")
-    connect(graph, xp, "out", counter, "reset")
+    connect(graph, "Idle XP", branch, "true", sound, "in")
+    connect(graph, "Idle XP", branch, "true", counter, "reset")
+    connect(graph, "Idle XP", xp, "out", counter, "reset")
     return {
         authorId = "idle-xp",
         name = "Idle XP",
@@ -120,31 +115,19 @@ local function lowResource(registry, resource, authorId, name)
     local timesThreshold = graph:AddNode("std.math", { operation = "*", b = THRESHOLD_DEFAULT })
     local compare = graph:AddNode("std.compare", { operation = "<" })
     local branch = graph:AddNode("std.branch")
-    -- startClosed false: the first drop below the line plays. Later drops stay
-    -- quiet until the false side resets this node.
     local once = graph:AddNode("std.doonce", { startClosed = false })
     local sound = graph:AddNode("action.sound", { soundId = ALERT_SOUND })
-    -- Color, inShape, and outShape stay the node defaults. dismissOn "both"
-    -- is that default too: mouse or keyboard clears the flash.
     local flash = graph:AddNode("action.screen_flash")
-    local function wire(fromNode, fromPin, toNode, toPin)
-        local id, reason = graph:Connect(fromNode, fromPin, toNode, toPin)
-        if id == nil then
-            error(string.format("%s graph: %s %s -> %s", name, tostring(reason), fromPin, toPin))
-        end
-    end
-    wire(trigger, "current", times100, "a")
-    wire(trigger, "max", timesThreshold, "a")
-    wire(times100, "result", compare, "a")
-    wire(timesThreshold, "result", compare, "b")
-    wire(trigger, "out", branch, "in")
-    wire(compare, "result", branch, "condition")
-    wire(branch, "true", once, "in")
-    -- reset terminates, so recovery does not continue into the sound or the flash.
-    wire(branch, "false", once, "reset")
-    wire(once, "out", sound, "in")
-    wire(once, "out", flash, "show")
-    -- Same 320 gap as Friend login, wider than a node body.
+    connect(graph, name, trigger, "current", times100, "a")
+    connect(graph, name, trigger, "max", timesThreshold, "a")
+    connect(graph, name, times100, "result", compare, "a")
+    connect(graph, name, timesThreshold, "result", compare, "b")
+    connect(graph, name, trigger, "out", branch, "in")
+    connect(graph, name, compare, "result", branch, "condition")
+    connect(graph, name, branch, "true", once, "in")
+    connect(graph, name, branch, "false", once, "reset")
+    connect(graph, name, once, "out", sound, "in")
+    connect(graph, name, once, "out", flash, "show")
     local gap = 320
     local order = { trigger, times100, timesThreshold, compare, branch, once, sound, flash }
     local layout = {}
@@ -162,8 +145,6 @@ local function lowResource(registry, resource, authorId, name)
     }
 end
 
--- `api` is the table published as Watchdog. RegisterDataPack is the method
--- another plugin calls.
 ---@param api { RegisterDataPack: fun(self, name: string, contributions: table|nil) }
 ---@param registry LibNodeGraph.Registry
 function StarterAlerts.register(api, registry)

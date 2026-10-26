@@ -1,15 +1,5 @@
--- Beginner copy for the graph editor tutorial.
--- Order follows the path a new user walks: what a graph is, how to move,
--- how to place a node, how wires work, then one concrete alert.
--- Later sections are the rest of the catalog. They start collapsed so the
--- first screen is the idea, not a wall of text.
---
--- Pin colors, gestures, and node names match the editor. A wire that the
--- engine would reject snaps back, so the copy says that instead of listing
--- every rejection code.
---
--- The client draws a newline as a missing-glyph box. A new paragraph is
--- another AddText, never a line break inside one string.
+-- Tutorial copy for the graph editor. Sections after the first start collapsed.
+-- The client draws a newline as a missing-glyph box, so each paragraph is its own AddText.
 
 local EditorHelp = {}
 
@@ -105,9 +95,7 @@ function EditorHelp.fill(win)
 
     -- The Close button is anchored over the bottom of the scrolling page.
     win:AddText({ text = "", height = FOOTER_CLEARANCE, rowBackground = false })
-    if win.RefreshRowBackgrounds ~= nil then
-        win:RefreshRowBackgrounds()
-    end
+    win:RefreshRowBackgrounds()
 end
 
 return EditorHelp
