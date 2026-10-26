@@ -2,12 +2,12 @@ local luaunit = require("luaunit")
 TestUILayout = {}
 function TestUILayout:setUp()
     self.saved = {}
-    for _, key in ipairs({ "ui", "id", "config", "prettyui", "Vector4", "pcall" }) do
+    for _, key in ipairs({ "ui", "id", "config", "prettyui", "Vector4", "pcall", "Plugin", "PluginPermissions" }) do
         self.saved[key] = _G[key]
     end
 end
 function TestUILayout:tearDown()
-    for _, key in ipairs({ "ui", "id", "config", "prettyui", "Vector4", "pcall" }) do
+    for _, key in ipairs({ "ui", "id", "config", "prettyui", "Vector4", "pcall", "Plugin", "PluginPermissions" }) do
         _G[key] = self.saved[key]
     end
 end
@@ -335,4 +335,67 @@ function TestUILayout:testManagerControlsAtMinimumWidth()
     assert(scroll.contentWidth == scroll.root.width - 18, "scrollbar gutter missing while the list overflows")
     assert(m.treePanel.width == scroll.contentWidth, "rows draw under the scrollbar")
     assert(#errors == 0, table.concat(errors, "\n"))
+end
+
+function TestUILayout:testTrackingHintBesideAllCharactersUntilGranted()
+    local function component(parent)
+        local c = { children = {}, parent = parent, x = 0, y = 0, width = 0, height = 0 }
+        if parent then parent.children[#parent.children + 1] = c end
+        function c:SetSize(w, h) self.width, self.height = w, h end
+        function c:SetPos(x, y) self.x, self.y = x, y end
+        function c:MoveToFront() end
+        function c:Destroy() self.destroyed = true end
+        return c
+    end
+    ui = {
+        Text = { new = component },
+        AlignMode = { TOPLEFT = 1, CENTRE = 2 },
+    }
+    id = { Font = { MUSEO_SANS_15PT_REGULAR = 1 } }
+    local granted = false
+    PluginPermissions = { trackingAccess = "trackingAccess" }
+    Plugin = {
+        HasPermission = function(permission)
+            return permission == "trackingAccess" and granted
+        end,
+    }
+    local parent = component(nil)
+    local hit = component(nil)
+    hit.x = 4
+    local root = component(parent)
+    root.x = 10
+    root.y = 2
+    local Manager = require("src/ui/manager")
+    local mgr = Manager.new({ scopes = function() return {} end })
+    mgr.visible = true
+    mgr.tabs = {
+        root = root,
+        parent = parent,
+        GetTab = function(_, index)
+            if index ~= 1 then return nil end
+            return { width = 148, hit = hit }
+        end,
+    }
+    mgr:_syncTrackingHint()
+    luaunit.assertNotNil(mgr.trackingHint)
+    luaunit.assertEquals(mgr.trackingHint.content,
+        "Grant the Tracking Access permission to enable saving alerts per character.")
+    luaunit.assertEquals(mgr.trackingHint.x, 10 + 4 + 148 + 12)
+    luaunit.assertEquals(mgr.trackingHint.y, 2 + 7)
+    luaunit.assertEquals(mgr.trackingHint.parent, parent)
+    luaunit.assertFalse(mgr.trackingHint.hidden)
+
+    local hint = mgr.trackingHint
+    granted = true
+    mgr.contentParent = parent
+    mgr.lastSignature = mgr:_signature()
+    mgr:Update()
+    luaunit.assertNil(mgr.trackingHint)
+    luaunit.assertTrue(hint.destroyed)
+
+    granted = false
+    mgr:Update()
+    luaunit.assertNotNil(mgr.trackingHint)
+    luaunit.assertEquals(mgr.trackingHint.content,
+        "Grant the Tracking Access permission to enable saving alerts per character.")
 end

@@ -9,10 +9,6 @@
     "RestrictedAreas": 6442936,
     "prettyui": 6398181
   },
-  "requiredPermissions": ["trackingAccess"],
-  "optionalPermissions": ["chatAccess", "httpAccess"],
-  "urls": {
-    "elevenlabs": "https://elevenlabs.io/",
-    "github": "https://github.com/"
-  }
+  "requiredPermissions": [],
+  "optionalPermissions": ["trackingAccess", "chatAccess"]
 }

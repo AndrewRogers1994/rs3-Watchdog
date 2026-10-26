@@ -571,6 +571,13 @@ end
 
 local function onLogic()
     pcall(function() runtime:Update() end)
+    -- A tracking revoke discards the character bucket. Leave the editor if it was bound there.
+    if boundScope ~= nil and boundScope.key ~= "global" then
+        local _, key = runtime:GetActiveCharacter()
+        if key ~= boundScope.key then
+            pcall(navBack)
+        end
+    end
     pcall(function() runtime.toast:Update() end)
 
     if state.infoboxMounted then

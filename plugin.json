@@ -13,9 +13,5 @@
     "shortestpath": "shortestpath"
   },
   "requiredPermissions": [],
-  "optionalPermissions": ["trackingAccess", "chatAccess", "httpAccess"],
-  "urls": {
-    "elevenlabs": "https://elevenlabs.io/",
-    "github": "https://github.com/"
-  }
+  "optionalPermissions": ["trackingAccess", "chatAccess"]
 }

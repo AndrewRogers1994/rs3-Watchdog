@@ -121,7 +121,8 @@ function Runtime.new(eventSource, mouseSource, identitySource)
         -- disarm (stay resident) on leave-GAME; discard+reload only when the Tracking ID changes.
         buckets = { [GLOBAL_BUCKET] = { key = GLOBAL_BUCKET, armed = true, resident = true } },
         _characterBucketKey = nil,
-        -- GAME only sets this; Update drains it (name may not be readable yet; reload has no GameStateChanged).
+        -- GAME, a mid-session reload that can already read the id, or a trackingAccess
+        -- grant sets this. Update drains it. The id may not be readable on the same tick.
         _pendingResolve = false,
         _bucketLoader = nil,
         channels = {},
@@ -137,6 +138,7 @@ function Runtime.new(eventSource, mouseSource, identitySource)
     }, Runtime)
     self:_bindActivityTracking()
     self:_bindLifecycle()
+    self:_bindPermission()
     -- Reload mid-session gets no GameStateChanged: if a Tracking ID is already readable, drain on first Update.
     if self.identitySource ~= nil and self.identitySource:Resolve() ~= nil then
         self._pendingResolve = true
@@ -150,11 +152,6 @@ function Runtime:_bindActivityTracking()
         return
     end
     local runtime = self
-    -- LOAD-BEARING print() - do NOT remove (undocumented client-API quirk, measured in-client):
-    -- reading an injected event-source channel and calling :Subscribe in the same scope hard-crashes
-    -- the client unless a print() executes in that scope first. Looks like a stray debug line; it
-    -- isn't. Every event-source Subscribe/Unsubscribe site needs it. See CLAUDE.md "Three ways to hard-crash the client" (#3) / memory client-event-param-crash.
-    print()
     source.Subscribe("watchdog_runtime_activity_key", function()
         runtime.keyboardActivityTick = runtime.keyboardActivityTick + 1
     end)
@@ -169,14 +166,43 @@ function Runtime:_bindLifecycle()
         return
     end
     local runtime = self
-    -- LOAD-BEARING print() - do NOT remove. Without it, this GameStateChanged Subscribe hard-crashes
-    -- the client on plugin load (this was the #89 crash: the function was copied from
-    -- _bindActivityTracking above but dropped its print()). See CLAUDE.md "Three ways to hard-crash the client" (#3) / memory client-event-param-crash.
-    print()
     source.Subscribe("watchdog_runtime_gamestate", function(payload)
         runtime:_onGameStateChanged(payload)
     end)
     self._lifecycleSource = source
+end
+
+-- Already in GAME: no GameStateChanged, and the constructor's Resolve saw no id.
+function Runtime:_bindPermission()
+    if self.identitySource == nil then
+        return
+    end
+    local source = self.eventSource.OptionalPermissionChanged
+    if source == nil or source.Subscribe == nil then
+        return
+    end
+    local runtime = self
+    source.Subscribe("watchdog_runtime_permission", function(payload)
+        runtime:_onOptionalPermissionChanged(payload)
+    end)
+    self._permissionSource = source
+end
+
+function Runtime:_onOptionalPermissionChanged(payload)
+    local kind = type(payload)
+    if kind ~= "table" and kind ~= "userdata" then return end
+    if payload.permissionName ~= "trackingAccess" then return end
+    if payload.enabled == true then
+        self._pendingResolve = true
+        if log ~= nil then
+            log("Watchdog: tracking access granted")
+        end
+        return
+    end
+    self._pendingResolve = false
+    if self._characterBucketKey ~= nil then
+        self:_discardBucket(self._characterBucketKey)
+    end
 end
 
 -- GAME: defer identity to Update. Else: disarm resident character Bucket (`global` never disarms).
@@ -826,6 +852,10 @@ function Runtime:Stop()
     if self._lifecycleSource ~= nil then
         pcall(function() self._lifecycleSource.Unsubscribe("watchdog_runtime_gamestate") end)
         self._lifecycleSource = nil
+    end
+    if self._permissionSource ~= nil then
+        pcall(function() self._permissionSource.Unsubscribe("watchdog_runtime_permission") end)
+        self._permissionSource = nil
     end
 end
 

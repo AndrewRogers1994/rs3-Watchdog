@@ -18,6 +18,10 @@ local ImportExport = require("src/ui/import_export")
 
 local DELETE_CONFIRM_TITLE = "CONFIRM DELETE"
 local DELETE_CONFIRM_LABEL = "DELETE"
+local TRACKING_HINT = "Grant the Tracking Access permission to enable saving alerts per character."
+local TRACKING_HINT_GAP = 12
+local TRACKING_HINT_Y = 7
+local TRACKING_HINT_H = 32
 
 local Manager = {}
 Manager.__index = Manager
@@ -821,6 +825,80 @@ function Manager:_destroyTabs()
     self.tabsScopeSig = nil
 end
 
+local function trackingGranted()
+    if Plugin == nil or PluginPermissions == nil then return false end
+    return Plugin.HasPermission(PluginPermissions.trackingAccess) == true
+end
+
+-- Tab 1 is All characters. hit.x is inside the tabs root.
+local function allCharactersTabRight(tabs)
+    if tabs == nil or tabs.GetTab == nil then return nil end
+    local tab = tabs:GetTab(1)
+    if tab == nil or tab.width == nil then return nil end
+    local hitX = (tab.hit and tab.hit.x) or 0
+    local rootX = (tabs.root and tabs.root.x) or 0
+    return rootX + hitX + tab.width
+end
+
+function Manager:_destroyTrackingHint()
+    local hint = self.trackingHint
+    self.trackingHint = nil
+    self.trackingHintParent = nil
+    if hint == nil then return end
+    pcall(function() hint:Destroy() end)
+end
+
+-- Sibling of the tabs root. Hover raises the strip divider over a child of that root.
+function Manager:_syncTrackingHint()
+    if trackingGranted() then
+        self:_destroyTrackingHint()
+        return
+    end
+    local tabs = self.tabs
+    local right = allCharactersTabRight(tabs)
+    local parent = tabs and tabs.parent
+    if right == nil or parent == nil or ui == nil or ui.Text == nil then
+        return
+    end
+    if self.trackingHint ~= nil and self.trackingHintParent ~= parent then
+        self:_destroyTrackingHint()
+    end
+    local hint = self.trackingHint
+    if hint == nil then
+        local created
+        local ok = pcall(function() created = ui.Text.new(parent) end)
+        if not ok or created == nil then return end
+        hint = created
+        self.trackingHint = hint
+        self.trackingHintParent = parent
+    end
+    local x = right + TRACKING_HINT_GAP
+    local y = ((tabs.root and tabs.root.y) or 0) + TRACKING_HINT_Y
+    pcall(function()
+        hint:SetPos(x, y)
+        hint:SetSize(-(x + 8), TRACKING_HINT_H, 1)
+        hint.content = TRACKING_HINT
+        hint.clickthrough = true
+        hint.isShadowed = true
+        hint.maxLines = 1
+        hint.hidden = not self.visible
+        hint.enabled = self.visible
+        if id ~= nil and id.Font ~= nil then
+            hint.font = id.Font.MUSEO_SANS_15PT_REGULAR
+        end
+        local c = Theme.COL_PALETTE_TEXT
+        local function ch(v) return math.floor((v or 1) * 255 + 0.5) end
+        local rgb = ch(c[1]) * 0x1000000 + ch(c[2]) * 0x10000 + ch(c[3]) * 0x100 + ch(c[4])
+        hint.rgb = rgb
+        hint.rgba = rgb
+        if ui.AlignMode ~= nil then
+            hint.alignHorizontal = ui.AlignMode.TOPLEFT
+            hint.alignVertical = ui.AlignMode.CENTRE
+        end
+        hint:MoveToFront()
+    end)
+end
+
 -- Recreate on key/label change; otherwise SetActive without notify (avoids rebuild re-entrancy).
 ---@return boolean
 function Manager:_ensureTabs()
@@ -1338,8 +1416,10 @@ function Manager:_rebuild()
         return
     end
     if not self:_ensureTabs() then
+        self:_destroyTrackingHint()
         return
     end
+    self:_syncTrackingHint()
     self:_clearChildren()
     self.lastSignature = self:_signature()
 
@@ -1565,6 +1645,7 @@ function Manager:Update()
     if width ~= self.window.w or height ~= self.window.h or self:_signature() ~= self.lastSignature then
         self:_rebuild()
     end
+    self:_syncTrackingHint()
 end
 
 --- Client view: visibility / lifecycle ----------------------------------------------------
@@ -1579,6 +1660,7 @@ function Manager:SetVisible(v)
     local becomingVisible = v and not self.visible
     self.visible = v and true or false
     setChildVisible(componentRoot(self.tabs), self.visible)
+    setChildVisible(self.trackingHint, self.visible)
     for _, b in ipairs(self.toolbarButtons) do
         setChildVisible(componentRoot(b), self.visible)
     end
@@ -1628,6 +1710,8 @@ function Manager:Unmount()
     self.treeTop = 0
     self.tabs = nil
     self.tabsScopeSig = nil
+    self.trackingHint = nil
+    self.trackingHintParent = nil
     self.contentParent = nil
     self.layoutHost = nil
 end

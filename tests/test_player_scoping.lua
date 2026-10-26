@@ -227,6 +227,109 @@ function TestPlayerScoping:testPendingResolveRetriesUntilTrackingIdReadable()
     luaunit.assertEquals(self.loader.calls, { "tid-1" })
 end
 
+function TestPlayerScoping:testTrackingGrantResolvesWithoutGameStateOrReload()
+    local g, nid = self:seedCharacterAlert("tid-1", 1, "a", true)
+    self.identity.trackingId = "tid-1"
+    self.identity.displayName = "Alice"
+    self.runtime:Update()
+    luaunit.assertEquals(#self.loader.calls, 0)
+
+    self.source:Push("OptionalPermissionChanged", {
+        permissionName = "trackingAccess",
+        enabled = true,
+    })
+    luaunit.assertEquals(#self.loader.calls, 0)
+    self.runtime:Update()
+    self.source:Push("Custom", "after-grant")
+    luaunit.assertEquals(g:GetLastValue(nid, "payload"), "after-grant")
+    luaunit.assertEquals(self.loader.calls, { "tid-1" })
+    luaunit.assertEquals(self.runtime._characterBucketKey, "player_tid-1")
+end
+
+function TestPlayerScoping:testOtherPermissionGrantDoesNotResolveCharacter()
+    self:seedCharacterAlert("tid-1", 1, "a", true)
+    self.identity.trackingId = "tid-1"
+    self.identity.displayName = "Alice"
+    self.source:Push("OptionalPermissionChanged", {
+        permissionName = "chatAccess",
+        enabled = true,
+    })
+    self.runtime:Update()
+    luaunit.assertEquals(self.loader.calls, {})
+    luaunit.assertNil(self.runtime._characterBucketKey)
+end
+
+function TestPlayerScoping:testTrackingGrantRetriesUntilIdReadable()
+    self:seedCharacterAlert("tid-1", 1, "a", true)
+    self.source:Push("OptionalPermissionChanged", {
+        permissionName = "trackingAccess",
+        enabled = true,
+    })
+    self.runtime:Update()
+    luaunit.assertEquals(#self.loader.calls, 0)
+
+    self.identity.trackingId = "tid-1"
+    self.identity.displayName = "Alice"
+    self.runtime:Update()
+    luaunit.assertEquals(self.loader.calls, { "tid-1" })
+end
+
+function TestPlayerScoping:testTrackingRevokeBeforeIdDoesNotLoad()
+    self:seedCharacterAlert("tid-1", 1, "a", true)
+    self.source:Push("OptionalPermissionChanged", {
+        permissionName = "trackingAccess",
+        enabled = true,
+    })
+    self.source:Push("OptionalPermissionChanged", {
+        permissionName = "trackingAccess",
+        enabled = false,
+    })
+    self.identity.trackingId = "tid-1"
+    self.identity.displayName = "Alice"
+    self.runtime:Update()
+    luaunit.assertEquals(self.loader.calls, {})
+    luaunit.assertNil(self.runtime._characterBucketKey)
+
+    self.source:Push("OptionalPermissionChanged", {
+        permissionName = "trackingAccess",
+        enabled = true,
+    })
+    self.runtime:Update()
+    luaunit.assertEquals(self.loader.calls, { "tid-1" })
+end
+
+function TestPlayerScoping:testTrackingRevokeDropsTheCharacterBucket()
+    local g, nid = self:seedCharacterAlert("tid-1", 1, "a", true)
+    self:login("tid-1", "Alice")
+    self.source:Push("Custom", "before")
+    luaunit.assertEquals(g:GetLastValue(nid, "payload"), "before")
+
+    self.source:Push("OptionalPermissionChanged", {
+        permissionName = "trackingAccess",
+        enabled = false,
+    })
+    local name, key = self.runtime:GetActiveCharacter()
+    luaunit.assertNil(name)
+    luaunit.assertNil(key)
+    luaunit.assertNil(self.runtime.buckets["player_tid-1"])
+    self.source:Push("Custom", "after")
+    luaunit.assertEquals(g:GetLastValue(nid, "payload"), "before")
+end
+
+function TestPlayerScoping:testTrackingGrantWhileResidentDoesNotReload()
+    local g, nid = self:seedCharacterAlert("tid-1", 1, "a", true)
+    self:login("tid-1", "Alice")
+    luaunit.assertEquals(self.loader.calls, { "tid-1" })
+    self.source:Push("OptionalPermissionChanged", {
+        permissionName = "trackingAccess",
+        enabled = true,
+    })
+    self.runtime:Update()
+    luaunit.assertEquals(self.loader.calls, { "tid-1" })
+    self.source:Push("Custom", "still-armed")
+    luaunit.assertEquals(g:GetLastValue(nid, "payload"), "still-armed")
+end
+
 function TestPlayerScoping:testColdStartResolvesInWorldOnConstruction()
     -- A plugin reload mid-session gets no GameStateChanged: construction must poll once and, if
     -- in-world, raise the same pending flag - one code path, drained on the first Update tick.

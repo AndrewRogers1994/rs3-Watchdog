@@ -260,7 +260,7 @@ function TestContentLayer:testDependencyChangeBeforeThePanelDoesNotSubscribe()
 end
 
 function TestContentLayer:testSettingsLayerDoesNotShowRestricted()
-    _G.PluginPermissions = { chatAccess = "chatAccess", httpAccess = "httpAccess" }
+    _G.PluginPermissions = { chatAccess = "chatAccess", trackingAccess = "trackingAccess" }
     _G.Plugin = {
         HasPermission = function()
             return true
@@ -284,7 +284,7 @@ function TestContentLayer:testSettingsLayerDoesNotShowRestricted()
     luaunit.assertEquals(contents, {
         "Open Watchdog with the shell toggle (F8).",
         "Chat permission: granted",
-        "HTTP permission: granted",
+        "Tracking permission: granted",
     })
 end
 

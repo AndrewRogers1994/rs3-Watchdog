@@ -149,7 +149,8 @@ local function fillSettings(parent)
 
     addLine(root, INTRO_Y, INTRO_H, "Open Watchdog with the shell toggle (F8).", 2)
     addLine(root, STATUS_Y, STATUS_H, permissionLine("Chat", PluginPermissions.chatAccess), 1)
-    addLine(root, STATUS_Y + STATUS_GAP, STATUS_H, permissionLine("HTTP", PluginPermissions.httpAccess), 1)
+    addLine(root, STATUS_Y + STATUS_GAP, STATUS_H, permissionLine("Tracking", PluginPermissions.trackingAccess), 1)
+    -- addLine(root, STATUS_Y + STATUS_GAP, STATUS_H, permissionLine("HTTP", PluginPermissions.httpAccess), 1)
 end
 
 ---@param parent ui.ComponentCollection

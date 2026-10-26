@@ -461,8 +461,8 @@ loaded in memory. **Armed** = eligible to fire: the global Scope is armed at plu
 disarmed; a character Scope arms on the `GAME` transition when its Tracking ID is unchanged (a
 world-hop/reconnect re-arms *in place* — no reload, so `pollEdgeState` and `pollSeedKey` survive and no `Enter` is
 replayed), disarms but stays resident on leaving `GAME`, and is discarded and reloaded only when the
-Tracking ID changes. A rename keeps the same Bucket. Identity has no switch event, so it's resolved by a **pending-resolve flag drained on
-Logic ticks** (which also covers a plugin reload mid-session). The Runtime fires from armed Scopes. **Fire predicate: armed Scope AND
+Tracking ID changes. Revoking `trackingAccess` discards the character bucket. A rename keeps the same Bucket. Identity has no switch event. A **pending-resolve flag drained on
+Logic ticks** covers a plugin reload mid-session and a `trackingAccess` grant (`OptionalPermissionChanged`) while already in game. The Runtime fires from armed Scopes. **Fire predicate: armed Scope AND
 enabled-chain true — nothing else** (editor state and the Manager's selected Scope never gate
 firing) (#77, #89). Entity Spawn and the Game Message trigger also stay silent while the player
 is Restricted; that silence is those triggers' own rule, not this predicate.
