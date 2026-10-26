@@ -35,7 +35,7 @@ local Resize = require("src/ui/window_resize")
 ---@field minWidth number|nil
 ---@field minHeight number|nil
 ---@field scrollable boolean|nil            # default false
----@field onHide (fun())|nil                # ribbon sync etc. after hide
+---@field onHide (fun())|nil                # after hide, for example dismiss dialogs
 ---@field window Watchdog.MuxWindow|nil     # headless: pre-bound window (skips prettyui in Mount)
 ---@field overlay any|nil                   # headless: overlay parent (default {})
 ---@field useParentAsRoot boolean|nil       # Mount: treat parent as rootLayer instead of creating one

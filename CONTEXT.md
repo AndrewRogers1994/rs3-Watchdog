@@ -36,10 +36,10 @@ _Avoid_: Options menu, config screen, the Alert Manager
 
 **Content layer**:
 The in-game panel for this plugin. The player places it, including beside the inventory, and it stays on screen while playing. Watchdog's panel has one button, labeled Toggle, that performs the shell toggle. While the player is Restricted, a line under that button reads In Restricted Area, in red, and a description under it says spawn and game-message alerts stay quiet while other alerts still run. Otherwise the panel is only the button. The panel reads the current answer when it is shown, and then follows Restricted changes.
-_Avoid_: PrettyUI ribbon (that is a separate button with the same toggle), Settings layer (the manage-tab page)
+_Avoid_: Settings layer (the manage-tab page)
 
 **Shell toggle**:
-The gesture that shows or hides the Watchdog shell. F8, the PrettyUI ribbon, and the content-layer Toggle all perform it. While an Object Marker capture is armed, the gesture cancels the capture and leaves the shell where it is.
+The gesture that shows or hides the Watchdog shell. F8 and the content-layer Toggle both perform it. While an Object Marker capture is armed, the gesture cancels the capture and leaves the shell where it is.
 _Avoid_: Open, launch
 
 ## Packs

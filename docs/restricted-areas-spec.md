@@ -30,11 +30,10 @@ Watchdog asks RestrictedAreas. While that plugin reports Restricted, the Entity 
 18. As a player whose tile cannot be read, I want those two triggers quiet and the line shown, because RestrictedAreas reports Restricted.
 19. As a player who moves from one Restricted Area to another without becoming unrestricted, I want the line to stay, with no flicker off.
 20. As a player, I want the Settings layer left unchanged, so that permissions stay where they are and the status lives on the content panel.
-21. As a player, I want the PrettyUI ribbon left unchanged, so that it remains a separate shell toggle.
-22. As Watchdog, when RestrictedAreas reloads and comes back, I want to read `IsRestricted()` again and subscribe again, so that the line matches the new instance of that plugin.
-23. As Watchdog, I want to drop the Restricted change listener when the content panel subscription ends, so that a closed panel does not keep that plugin ticking.
-24. As Watchdog, on plugin shutdown I want the client to destroy the content panel, and I want Watchdog not to destroy that panel itself.
-25. As an alert author, I want a graph that already contains those triggers to keep them, so that Restricted does not delete or unregister node types.
+21. As Watchdog, when RestrictedAreas reloads and comes back, I want to read `IsRestricted()` again and subscribe again, so that the line matches the new instance of that plugin.
+22. As Watchdog, I want to drop the Restricted change listener when the content panel subscription ends, so that a closed panel does not keep that plugin ticking.
+23. As Watchdog, on plugin shutdown I want the client to destroy the content panel, and I want Watchdog not to destroy that panel itself.
+24. As an alert author, I want a graph that already contains those triggers to keep them, so that Restricted does not delete or unregister node types.
 
 ## Implementation Decisions
 
@@ -61,7 +60,7 @@ Watchdog asks RestrictedAreas. While that plugin reports Restricted, the Entity 
 - Implementing RestrictedAreas, editing its lists, or copying its predicate into Watchdog.
 - Authoring Jagex coordinates, and confirming the source-tile return value in the client.
 - Silencing any trigger other than Entity Spawn and the Game Message trigger.
-- Changing the Game Message action, already-showing effects, the Settings layer, the PrettyUI ribbon, or the Toggle label.
+- Changing the Game Message action, already-showing effects, the Settings layer, or the Toggle label.
 - Making the nodes Unavailable.
 - A reason on the line, a toast when Restricted begins, and a change to the armed-bucket fire rule.
 

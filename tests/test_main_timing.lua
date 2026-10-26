@@ -21,7 +21,7 @@ local Toast = require("src/toast")
 
 local globals = { "LibNodeGraph", "LibNodeGraphStd", "Event", "Plugin", "PluginPermissions",
     "prettyui", "id", "config", "PersistentDB", "Player", "Mouse", "LibPluginMenu",
-    "shortestpath", "Watchdog", "PluginShutdown", "log", "print", "ui", "ribbon", "Vector4" }
+    "shortestpath", "Watchdog", "PluginShutdown", "log", "print", "ui", "Vector4" }
 local mainPath = debug.getinfo(1, "S").source:sub(2):match("(.*[/\\])") .. "../main.lua"
 
 TestMainTiming = {}
@@ -47,7 +47,7 @@ function TestMainTiming:setUp()
     Event = self.events.source
     Plugin = { HasPermission = function() return false end }
     PluginPermissions = { httpAccess = 1, trackingAccess = 2 }
-    prettyui = { RibbonBar = { Register = function() return {} end } }
+    prettyui = nil
     id = { Sprite = {}, Component = {}, Sound = { TOWN_CRIER_BELL_RING_1 = 2608 } }
     config = { Inv = { INV = { id = 93 }, BANK = { id = 95 } } }
     PersistentDB, Mouse, LibPluginMenu, shortestpath = nil, nil, nil, nil

@@ -6,7 +6,6 @@
 -- shell toggle. While RestrictedAreas reports Restricted, a line under that
 -- button reads "In Restricted Area" in red, with a description under it.
 -- Otherwise the panel is only the button.
--- The PrettyUI ribbon stays a separate entry point.
 --
 -- Neither event is in the stubs yet. The payload field is component: the page
 -- parent the client passes in.

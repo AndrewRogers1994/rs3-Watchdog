@@ -13,7 +13,7 @@ local ChatTypes = require("src/chat_types")
 
 local globals = { "LibNodeGraph", "LibNodeGraphStd", "Event", "Plugin", "PluginPermissions",
     "prettyui", "id", "config", "PersistentDB", "Player", "Mouse", "LibPluginMenu",
-    "shortestpath", "Watchdog", "PluginShutdown", "log", "print", "ui", "ribbon", "Vector4" }
+    "shortestpath", "Watchdog", "PluginShutdown", "log", "print", "ui", "Vector4" }
 local mainPath = debug.getinfo(1, "S").source:sub(2):match("(.*[/\\])") .. "../main.lua"
 
 TestStarterAlerts = {}
@@ -39,7 +39,7 @@ function TestStarterAlerts:setUp()
     Event = self.events.source
     Plugin = { HasPermission = function() return false end }
     PluginPermissions = { httpAccess = 1, trackingAccess = 2, chatAccess = 3 }
-    prettyui = { RibbonBar = { Register = function() return { Destroy = function() end } end } }
+    prettyui = nil
     id = {
         Sprite = {
             RS3_ICON_CHECK_MARK_24PX_0 = 17127,

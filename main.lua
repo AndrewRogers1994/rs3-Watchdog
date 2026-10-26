@@ -494,12 +494,6 @@ manager = Manager.new({
     end,
 })
 
-local function syncRibbon()
-    if ribbon ~= nil and mux ~= nil then
-        pcall(function() ribbon:SetActive(mux:IsVisible()) end)
-    end
-end
-
 mux = Multiplexer.new({
     x = -math.floor(Theme.WINDOW_W / 2),
     y = -math.floor(Theme.WINDOW_H / 2),
@@ -512,9 +506,6 @@ mux = Multiplexer.new({
     scrollable = false,
     onHide = function()
         pcall(function() manager:DismissDialogs() end)
-        if ribbon ~= nil then
-            pcall(function() ribbon:SetActive(false) end)
-        end
     end,
 })
 editor.onAlertNameChanged = function()
@@ -528,7 +519,6 @@ runtime.objectMarkerCapture.onArmedChange = function(armed)
     else
         mux:RestoreFromCapture()
     end
-    syncRibbon()
 end
 
 managerSurface = {
@@ -754,7 +744,6 @@ function api.Toggle()
         return
     end
     mux:Toggle()
-    syncRibbon()
 end
 
 api.editor = editor
@@ -791,20 +780,10 @@ Event.KeyDown.Subscribe(Events.KeyDown, function(keyEvent)
     end
 end)
 
--- F8 and this button share api.Toggle. The PrettyUI ribbon stays registered
--- below and syncRibbon follows shell visibility, including after this Toggle.
+-- F8 and the content-layer Toggle share api.Toggle.
 HubLayers.Bind(function()
     api.Toggle()
 end)
-
-ribbon = prettyui.RibbonBar.Register({
-    id = "watchdog-ribbon",
-    icon = id.Sprite.RS3_ICON_CALENDAR_NEW_CONTENT,
-    tooltip = "Open Watchdog",
-    onClick = function(handle, active)
-        if mux ~= nil then mux:SetVisible(active) end
-    end,
-})
 
 Watchdog = api
 print("Watchdog editor loaded")
@@ -814,7 +793,6 @@ function PluginShutdown()
     pcall(persistNow)
     -- Unsubscribe only. Destroying the settings page here is the shutdown crash.
     HubLayers.Unbind()
-    ribbon:Destroy()
 end
 
 return Watchdog

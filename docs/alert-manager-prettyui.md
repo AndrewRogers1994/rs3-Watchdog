@@ -6,7 +6,7 @@
 
 ## Summary
 
-Watchdog already depends on PrettyUI for **window chrome** (`prettyui.Window` via `ui/multiplexer.lua`, `RibbonBar` in `main.lua`). The Alert Manager (`ui/manager.lua`) still builds **all content** with native `ui.*` on a `ui.Panel`.
+Watchdog already depends on PrettyUI for **window chrome** (`prettyui.Window` via `ui/multiplexer.lua`). The Alert Manager (`ui/manager.lua`) still builds **all content** with native `ui.*` on a `ui.Panel`.
 
 After reviewing PrettyUI v0.5.x, the recommended path is **Option A (hybrid)**:
 
