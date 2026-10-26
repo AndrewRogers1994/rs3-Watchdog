@@ -482,17 +482,18 @@ replaced (scope switch, collapse); preserved across export and hide/show (#82).
 _Avoid_: Checked set, marked rows; "multi-select" (that names the gesture, not the resulting set)
 
 **Import / Export dialog**:
-A Dialog wrapper with two recipes: **Import** (paste a JSON envelope) and **Export** (copy one
+A Dialog wrapper with two recipes: **Import** (paste an export) and **Export** (copy one
 out). Envelope is `{ schemaVersion, pluginVersion, entries }`; there is no clipboard API, and
-save-to-file is designed but disabled until a filesystem API exists (#79) — Export still shows that
+save-to-file is designed but disabled until a filesystem API exists (#79). Export still shows that
 dead footer action. Import is **append, never merge-by-name**. The wrapper does not import: it asks
 the caller to apply the pasted text. A failed apply leaves Import mounted and stacks a message
 Dialog on top (closing the error reveals the paste field intact). A successful apply just dismisses
-Import — no success notice; the Manager tree is the feedback. Every export shape (whole scope,
-single row, multi-select) passes a uniform **9,999-byte pre-flight guard**: serialize the envelope,
-measure its UTF-8 byte length, and refuse the entire export — exporting nothing — if it exceeds
-9,999 (the `InputField` hard cap); no chunking or compaction (#84). Export preflight failure
-is a message Dialog and never opens Export.
+Import. There is no success notice; the Manager tree is the feedback. Every export shape (whole scope,
+single row, multi-select) passes a uniform **9,999-byte pre-flight guard** on the paste string.
+JSON that fits in 9,999 UTF-8 bytes is the paste. JSON over that cap is deflated and wrapped as a
+`WD1` token (unpadded URL-safe base64). The guard measures the token and refuses the entire export,
+exporting nothing, if the token is still over 9,999 (the `InputField` hard cap). Import accepts a
+`WD1` token or the older raw JSON. Export preflight failure is a message Dialog and never opens Export.
 _Avoid_: Transfer; Backup; "sync" (import is append, not sync); clipboard (no API); "serialize"
 (engine's word); Export / Import (Import comes first); an Import-success Dialog
 

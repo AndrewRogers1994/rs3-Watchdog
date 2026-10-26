@@ -567,7 +567,7 @@ function Manager:OpenImport()
     local scopeKey = self:ActiveScopeKey()
     if scopeKey == nil or self.onImportJson == nil then return end
     ImportExport.mountImport(parent, {
-        message = "Paste the export JSON you copied from Watchdog.",
+        message = "Paste the export you copied from Watchdog.",
         maxLength = Export.MAX_BYTES,
         onImport = function(text)
             local okCall, ok, report = pcall(function()

@@ -51,6 +51,18 @@ end
 ---@param message string|nil
 ---@param fieldOpts table
 ---@return any|nil
+local function showEveryLine(field)
+    if field == nil then return end
+    local roots = { field.root }
+    if field.dock ~= nil then roots[#roots + 1] = field.dock.root end
+    if field.overlay ~= nil then roots[#roots + 1] = field.overlay.root end
+    for _, root in ipairs(roots) do
+        if root ~= nil and root.text ~= nil then
+            root.text.maxLines = 3000
+        end
+    end
+end
+
 local function addBody(win, message, fieldOpts)
     if message ~= nil and message ~= "" then
         pcall(function() win:AddText(message) end)
@@ -58,9 +70,7 @@ local function addBody(win, message, fieldOpts)
     local field
     pcall(function()
         field = win:AddTextField(fieldOpts)
-        if field ~= nil and field.root ~= nil and field.root.text ~= nil then
-            field.root.text.maxLines = 100
-        end
+        showEveryLine(field)
     end)
     return field
 end
@@ -93,7 +103,7 @@ function ImportExport.mountImport(parent, opts)
         content = function(win)
             field = addBody(win, opts.message, {
                 text = opts.text or "",
-                placeholder = "Paste export JSON here",
+                placeholder = "Paste an export here",
                 maxLength = maxLength,
                 height = 280,
             })

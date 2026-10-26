@@ -1,8 +1,14 @@
 -- export.lua - copy-paste transfer envelope `{ schemaVersion, pluginVersion, entries }`.
 -- TreeEntry `id` is omitted on export. Import is append-only (never merge-by-name):
--- decode → reject a forward schemaVersion → mint ids → migrate → append at scope root.
+-- decode, reject a forward schemaVersion, mint ids, migrate, append at scope root.
+--
+-- The paste field holds 9,999 bytes. JSON that fits is the paste: it stays readable,
+-- and a noisy payload's WD1 token can be longer than the JSON (base64 expands a
+-- block that did not shrink). JSON over the cap is deflated to a WD1 token. Import
+-- accepts either form, so older raw-JSON pastes still load.
 
 local Store = require("src/store")
+local Compress = require("src/compress")
 
 local Export = {}
 
@@ -10,7 +16,7 @@ local Export = {}
 Export.SCHEMA_VERSION = 1
 
 -- Written on every export; never read, never branched on.
-Export.PLUGIN_VERSION = "0.3.1"
+Export.PLUGIN_VERSION = "1.0.0"
 
 -- ui.InputField hard cap. Guarded as UTF-8 bytes with no margin.
 Export.MAX_BYTES = 9999
@@ -98,10 +104,17 @@ function Export.Encode(entries)
     if not ok or type(text) ~= "string" then
         return false, "failed to encode export envelope"
     end
-    if #text > Export.MAX_BYTES then
-        return false, oversizeMessage(#text)
+    if #text <= Export.MAX_BYTES then
+        return true, text
     end
-    return true, text
+    local compressedOk, token = pcall(Compress.compress, text)
+    if not compressedOk or type(token) ~= "string" then
+        return false, "failed to compress export: " .. tostring(token)
+    end
+    if #token <= Export.MAX_BYTES then
+        return true, token
+    end
+    return false, oversizeMessage(math.min(#text, #token))
 end
 
 ---@param value any
@@ -119,16 +132,26 @@ end
 ---@return boolean ok
 ---@return Watchdog.ExportEnvelope|string envelopeOrErr
 function Export.Decode(text)
-    if type(text) ~= "string" or text == "" then
-        return false, "Paste export JSON first."
+    if type(text) ~= "string" or text:match("%S") == nil then
+        return false, "Paste an export first."
     end
     local c = codec()
     if c == nil then
         return false, "Watchdog could not read or create export JSON. Check that LibNodeGraph is enabled."
     end
-    local ok, value = pcall(function() return c.decode(text) end)
+    local payload = text
+    local trimmed = text:match("^%s*(.-)%s*$")
+    if trimmed:sub(1, #Compress.PREFIX) == Compress.PREFIX then
+        local inflatedOk, json = pcall(Compress.decompress, text)
+        if not inflatedOk or type(json) ~= "string" then
+            return false, "This compressed export is not valid (" .. tostring(json)
+                .. "). Copy the full export from Watchdog and try again."
+        end
+        payload = json
+    end
+    local ok, value = pcall(function() return c.decode(payload) end)
     if not ok or not isEnvelope(value) then
-        return false, "This export JSON is not valid. Copy the full JSON from Watchdog and try again."
+        return false, "This export is not valid. Copy the full export from Watchdog and try again."
     end
     ---@cast value Watchdog.ExportEnvelope
     return true, value
@@ -235,7 +258,7 @@ function Export.Import(doc, text, opts)
     local envelope = envelopeOrErr
 
     if envelope.schemaVersion > Export.SCHEMA_VERSION then
-        return false, "This export JSON needs a newer version of Watchdog. Update the plugin, then try again."
+        return false, "This export needs a newer version of Watchdog. Update the plugin, then try again."
     end
 
     local used = {}

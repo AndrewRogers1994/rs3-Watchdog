@@ -1,7 +1,8 @@
--- export.lua copy-paste envelope (#94 / #79 / #84 / #115): Encode strips Entry ids and
--- accepts 9,999 bytes. An envelope of 10,000 bytes exports nothing. Import rejects a
--- forward schemaVersion, mints ids, appends at the doc root (never merge-by-name).
--- Graph node ids inside an alert are left untouched.
+-- export.lua copy-paste envelope (#94 / #79 / #84 / #115): Encode strips Entry ids.
+-- JSON that fits in 9,999 bytes is the paste. JSON over that cap is a WD1 token when
+-- the token fits, and exports nothing when the token is still over the cap. Import
+-- accepts both forms, rejects a forward schemaVersion, mints ids, and appends at the
+-- doc root (never merge-by-name). Graph node ids inside an alert are left untouched.
 
 local luaunit = require("luaunit")
 
@@ -17,6 +18,7 @@ LibNodeGraph = {
 
 local Store = require("src/store")
 local Export = require("src/export")
+local Compress = require("src/compress")
 local Registry = require("registry")
 
 TestExport = {}
@@ -84,7 +86,21 @@ function TestExport:testEncodeGroupIncludesGroupAndChildrenWithoutIds()
     luaunit.assertEquals(g.children[1].name, "task")
 end
 
-function TestExport:testEncodeRefusesOverCapAndReturnsByteCount()
+-- Printable ASCII that is not `"` or `\`, so the JSON encoder copies it one byte
+-- per character and deflate has nothing repeated to point at.
+local function noise(n)
+    local parts = {}
+    local x = 123456789
+    for i = 1, n do
+        x = (1103515245 * x + 12345) % 2147483648
+        local c = 33 + (x % 94)
+        if c == 34 or c == 92 then c = 65 end
+        parts[i] = string.char(c)
+    end
+    return table.concat(parts)
+end
+
+function TestExport:testEncodeCompressesRepeatedPayloadThatExceedsTheCap()
     local entries = {}
     local fat = string.rep("x", 600)
     for i = 1, 20 do
@@ -96,14 +112,20 @@ function TestExport:testEncodeRefusesOverCapAndReturnsByteCount()
             layout = { { id = 1, x = 0, y = 0 } },
         }
     end
-    local ok, err = Export.Encode(entries)
-    luaunit.assertFalse(ok)
-    luaunit.assertStrContains(err, "Too large to export by copy-paste")
-    luaunit.assertStrContains(err, "of 9,999 characters")
-    luaunit.assertStrContains(err, "A file-based export is planned.")
-    -- N in the message is the measured byte length, not the cap.
-    local n = tonumber(err:match("%((%d+) of 9,999"))
-    luaunit.assertTrue(n ~= nil and n > 9999)
+    local json = LibNodeGraph.Json.Default.encode(Export.BuildEnvelope(entries))
+    luaunit.assertTrue(#json > Export.MAX_BYTES)
+
+    local ok, token = Export.Encode(entries)
+    luaunit.assertTrue(ok)
+    luaunit.assertEquals(token:sub(1, 3), Compress.PREFIX)
+    luaunit.assertTrue(#token <= Export.MAX_BYTES)
+
+    local doc = Store.Empty()
+    local importedOk, report = Export.Import(doc, "\n" .. token .. "\n")
+    luaunit.assertTrue(importedOk)
+    luaunit.assertEquals(report.entryCount, 20)
+    luaunit.assertEquals(doc.entries[1].name, entries[1].name)
+    luaunit.assertEquals(doc.entries[20].name, entries[20].name)
 end
 
 -- One ASCII name character is one UTF-8 byte, so pad length is target minus the empty envelope.
@@ -131,16 +153,41 @@ local function nameForEnvelopeBytes(target)
     return pad
 end
 
-function TestExport:testEncodeAccepts9999BytesAndExportsNothingAt10000()
+function TestExport:testEncodeRefusesWhenCompressedTokenStillExceedsTheCap()
+    local entries = { alertNamed(noise(12000)) }
+    local json = LibNodeGraph.Json.Default.encode(Export.BuildEnvelope(entries))
+    local token = Compress.compress(json)
+    luaunit.assertTrue(#json > Export.MAX_BYTES)
+    luaunit.assertTrue(#token > Export.MAX_BYTES)
+
+    local ok, err = Export.Encode(entries)
+    luaunit.assertFalse(ok)
+    luaunit.assertStrContains(err, "Too large to export by copy-paste")
+    luaunit.assertStrContains(err, "of 9,999 characters")
+    luaunit.assertStrContains(err, "A file-based export is planned.")
+    -- N is the shorter candidate. The token can be longer than the JSON.
+    local n = tonumber(err:match("%((%d+) of 9,999"))
+    luaunit.assertEquals(n, math.min(#json, #token))
+end
+
+function TestExport:testEncodeKeepsJsonAtTheCapAndCompressesOneByteOver()
     luaunit.assertEquals(Export.MAX_BYTES, 9999)
 
     local ok, json = Export.Encode({ alertNamed(nameForEnvelopeBytes(9999)) })
     luaunit.assertTrue(ok)
     luaunit.assertEquals(#json, 9999)
+    luaunit.assertEquals(json:sub(1, 1), "{")
 
-    local refused, err = Export.Encode({ alertNamed(nameForEnvelopeBytes(10000)) })
-    luaunit.assertFalse(refused)
-    luaunit.assertTrue(type(err) == "string" and #err > 0)
+    local name = nameForEnvelopeBytes(10000)
+    local compressedOk, token = Export.Encode({ alertNamed(name) })
+    luaunit.assertTrue(compressedOk)
+    luaunit.assertEquals(token:sub(1, 3), Compress.PREFIX)
+    luaunit.assertTrue(#token <= Export.MAX_BYTES)
+
+    local doc = Store.Empty()
+    local importedOk = Export.Import(doc, token)
+    luaunit.assertTrue(importedOk)
+    luaunit.assertEquals(doc.entries[1].name, name)
 end
 
 function TestExport:testEncodeAcceptsExactlyMaxBytes()
@@ -156,6 +203,30 @@ function TestExport:testDecodeRejectsNonJson()
     local ok, err = Export.Decode("not json {")
     luaunit.assertFalse(ok)
     luaunit.assertTrue(type(err) == "string" and #err > 0)
+end
+
+function TestExport:testDecodeRejectsBrokenCompressedToken()
+    local ok, err = Export.Decode("WD1!!!!")
+    luaunit.assertFalse(ok)
+    luaunit.assertStrContains(err, "compressed export")
+end
+
+function TestExport:testImportAcceptsCompressedTokenSplitAcrossLines()
+    local payload = LibNodeGraph.Json.Default.encode({
+        schemaVersion = Export.SCHEMA_VERSION,
+        pluginVersion = Export.PLUGIN_VERSION,
+        entries = { alertNamed("alpha") },
+    })
+    local token = Compress.compress(payload)
+    local lines = {}
+    for i = 1, #token, 60 do
+        lines[#lines + 1] = token:sub(i, i + 59)
+    end
+    local doc = Store.Empty()
+    local ok, report = Export.Import(doc, table.concat(lines, "\n"))
+    luaunit.assertTrue(ok)
+    luaunit.assertEquals(report.entryCount, 1)
+    luaunit.assertEquals(doc.entries[1].name, "alpha")
 end
 
 function TestExport:testDecodeRejectsWrongShape()
