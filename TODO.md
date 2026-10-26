@@ -24,7 +24,7 @@
 - [x] 19. consolidate the math nodes like we did for the compare node ([#154](https://github.com/adamk33n3r/rs3-Watchdog/issues/154)) _(Palette node is `std.math`. The seven old arithmetic types stay registered and hidden.)_
 - [x] 20. the new compare node should only accept numbers and also should have a number field when the pin is not connected just like the old ones ([#154](https://github.com/adamk33n3r/rs3-Watchdog/issues/154)) _(`std.compare` inputs are numbers defaulting to 0. A new string, bool, or any wire is refused. A wire already saved still loads.)_
 - [x] 21. bundle some good example presets and alerts ([#154](https://github.com/adamk33n3r/rs3-Watchdog/issues/154)) _(Pack Watchdog: Friend login, Idle XP, Tick Counter, Low life points, Low prayer. Copies are ordinary Alerts. A missing global Bucket stays empty.)_
-- [ ] 22. close palette when opening dialog
+- [x] 22. close palette when opening dialog _(A toolbar button press closes the Palette before that button runs.)_
 - [ ] 23. add chat picker
 
 ## Node port backlog (mirroring runelite-watchdog)

@@ -2131,11 +2131,18 @@ function Editor:mountToolbar(overlayParent)
     end
 
     local bs = Theme.TOOLBAR_BTN
-    self.resetViewButton = prettyui.SpriteButton.new(overlayParent, "GRID_LAYOUT", function()
-        self:onResetView()
-    end, { size = bs, tooltip = "Reset view" })
+    -- Buttons sit above the capture, so a click never reaches handlePaletteClick.
+    local function button(sprite, tooltip, action)
+        return prettyui.SpriteButton.new(overlayParent, sprite, function()
+            if self.palette.open then self:closePalette() end
+            action()
+        end, { size = bs, tooltip = tooltip })
+    end
 
-    self.infoButton = prettyui.SpriteButton.new(overlayParent, "INFO", function()
+    self.resetViewButton = button("GRID_LAYOUT", "Reset view", function()
+        self:onResetView()
+    end)
+    self.infoButton = button("INFO", "Tutorial", function()
         Dialog.mount(overlayParent, {
             title = "Tutorial", width = 480, height = 420,
             rowBackgroundColours = { 0x24211EFF, 0x2E2825FF },
@@ -2146,20 +2153,19 @@ function Editor:mountToolbar(overlayParent)
                 { label = "Close" },
             },
         })
-    end, { size = bs, tooltip = "Tutorial" })
-
-    self.plusButton = prettyui.SpriteButton.new(overlayParent, "PLUS", function()
+    end)
+    self.plusButton = button("PLUS", "Add alert node", function()
         self:openPaletteFromPlus()
-    end, { size = bs, tooltip = "Add alert node" })
-    self.backButton = prettyui.SpriteButton.new(overlayParent, "BACK", function()
+    end)
+    self.backButton = button("BACK", "Back to alerts", function()
         self:goBack()
-    end, { size = bs, tooltip = "Back to alerts" })
-    self.renameButton = prettyui.SpriteButton.new(overlayParent, "PENCIL", function()
+    end)
+    self.renameButton = button("PENCIL", "Rename", function()
         if self.onRename ~= nil then self.onRename() end
-    end, { size = bs, tooltip = "Rename" })
-    self.savePresetButton = prettyui.SpriteButton.new(overlayParent, "STAR", function()
+    end)
+    self.savePresetButton = button("STAR", "Save as preset", function()
         if self.onSavePreset ~= nil then self.onSavePreset() end
-    end, { size = bs, tooltip = "Save as preset" })
+    end)
     self:layoutToolbar()
 end
 

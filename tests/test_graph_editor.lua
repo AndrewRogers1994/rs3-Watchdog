@@ -352,6 +352,63 @@ function TestGraphEditor:testApplyZoomIndexClosesPaletteThenZooms()
     luaunit.assertEquals(editor.view.zoom, 2.0)
 end
 
+function TestGraphEditor:testToolbarButtonsClosePaletteBeforeTheirAction()
+    local savedUi, savedPretty = _G.ui, _G.prettyui
+    local buttons = {}
+    local function root()
+        return {
+            SetPos = function() end,
+            SetSize = function() end,
+            MoveToFront = function() end,
+        }
+    end
+    _G.ui = nil
+    _G.prettyui = {
+        SpriteButton = {
+            new = function(_, _, action, opts)
+                local btn = { action = action, tooltip = opts.tooltip, root = root() }
+                buttons[#buttons + 1] = btn
+                return btn
+            end,
+        },
+    }
+    local editor = Editor.new(self.registry, nil)
+    editor:mountToolbar({})
+    editor.onRename = function()
+        luaunit.assertFalse(editor.palette.open)
+    end
+    editor.onSavePreset = function()
+        luaunit.assertFalse(editor.palette.open)
+    end
+    editor.onBack = function()
+        luaunit.assertFalse(editor.palette.open)
+    end
+
+    local saw = {}
+    for _, btn in ipairs(buttons) do
+        editor.palette.open = true
+        local closedDuring = false
+        editor.closePalette = function(self)
+            closedDuring = true
+            Editor.closePalette(self)
+        end
+        btn.action()
+        luaunit.assertTrue(closedDuring, btn.tooltip)
+        if btn.tooltip == "Add alert node" then
+            luaunit.assertTrue(editor.palette.open)
+        else
+            luaunit.assertFalse(editor.palette.open)
+        end
+        saw[btn.tooltip] = true
+    end
+
+    luaunit.assertTrue(saw["Rename"])
+    luaunit.assertTrue(saw["Save as preset"])
+    luaunit.assertTrue(saw["Tutorial"])
+    luaunit.assertTrue(saw["Add alert node"])
+    _G.ui, _G.prettyui = savedUi, savedPretty
+end
+
 function TestGraphEditor:testOnResetViewClosesPaletteThenResets()
     local editor = Editor.new(self.registry, nil)
     editor.palette.open = true
