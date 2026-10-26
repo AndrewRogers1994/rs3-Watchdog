@@ -1,4 +1,4 @@
--- Alert Presets on the Pack named Watchdog.
+-- Alert Presets on the Pack named Watchdog Starter Pack.
 
 local StarterAlerts = {}
 

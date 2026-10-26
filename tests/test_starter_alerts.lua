@@ -1,4 +1,4 @@
--- Starter Alert Presets on the Pack Watchdog registers at startup.
+-- Starter Alert Presets on the Watchdog Starter Pack, registered at startup.
 -- Loaded the way the timing tests load main.lua. No PrettyUI, and no New alert widget tree.
 -- A copy is checked through PresetCopy, the same seam as the Pack alert tests.
 
@@ -130,7 +130,7 @@ local function loginGroup(key)
     return nil
 end
 
--- Startup registers Pack Watchdog. Friend login copies as an ordinary Alert:
+-- Startup registers the Watchdog Starter Pack. Friend login copies as an ordinary Alert:
 -- Login/Logout (chat type id 5), the chat line on a mint star Toast held for
 -- 5 seconds, and builtin sound 885. The contains matcher stays empty, so
 -- every login line matches. The copy drops the author id. Nothing is
@@ -140,11 +140,11 @@ function TestStarterAlerts:testFriendLoginCopiesAnOrdinaryAlert()
     local groups = PackRows.AlertPresetGroups(self.packs)
     local watchdog = nil
     for _, group in ipairs(groups) do
-        if group.packName == "Watchdog" then watchdog = group end
+        if group.packName == "Watchdog Starter Pack" then watchdog = group end
     end
     luaunit.assertNotNil(watchdog)
 
-    local friend = self.packs:GetAlertPreset("Watchdog", "friend-login")
+    local friend = self.packs:GetAlertPreset("Watchdog Starter Pack", "friend-login")
     luaunit.assertNotNil(friend)
     luaunit.assertEquals(friend.name, "Friend login")
     luaunit.assertEquals(friend.authorId, "friend-login")
@@ -165,7 +165,7 @@ function TestStarterAlerts:testFriendLoginCopiesAnOrdinaryAlert()
     luaunit.assertEquals(Watchdog.document.entries, {})
     luaunit.assertNil(PersistentDB.data.global)
     luaunit.assertEquals(PersistentDB.data.presets, self.presetsSentinel)
-    luaunit.assertEquals(self.packs:GetAlertPreset("Watchdog", "friend-login").authorId, "friend-login")
+    luaunit.assertEquals(self.packs:GetAlertPreset("Watchdog Starter Pack", "friend-login").authorId, "friend-login")
 
     luaunit.assertEquals(#live:GetNodes(), 3)
     local message = onlyNode(live, "trigger.game_message")
@@ -232,7 +232,7 @@ function TestStarterAlerts:testIdleXpCopiesAnOrdinaryAlert()
     luaunit.assertNotNil(self.packs)
     local groups = PackRows.AlertPresetGroups(self.packs)
     luaunit.assertEquals(#groups, 1)
-    luaunit.assertEquals(groups[1].packName, "Watchdog")
+    luaunit.assertEquals(groups[1].packName, "Watchdog Starter Pack")
     local authorIds = {}
     for _, preset in ipairs(groups[1].presets) do
         authorIds[#authorIds + 1] = preset.authorId
@@ -242,7 +242,7 @@ function TestStarterAlerts:testIdleXpCopiesAnOrdinaryAlert()
         "friend-login", "idle-xp", "low-life-points", "low-on-food", "low-prayer", "tick-counter",
     })
 
-    local idle = self.packs:GetAlertPreset("Watchdog", "idle-xp")
+    local idle = self.packs:GetAlertPreset("Watchdog Starter Pack", "idle-xp")
     luaunit.assertNotNil(idle)
     luaunit.assertEquals(idle.name, "Idle XP")
     luaunit.assertEquals(idle.authorId, "idle-xp")
@@ -331,7 +331,7 @@ end
 -- counter. The icon and that number are the Variables. The global Scope stays
 -- empty.
 function TestStarterAlerts:testTickCounterCopiesAnOrdinaryAlert()
-    local preset = self.packs:GetAlertPreset("Watchdog", "tick-counter")
+    local preset = self.packs:GetAlertPreset("Watchdog Starter Pack", "tick-counter")
     luaunit.assertNotNil(preset)
     luaunit.assertEquals(preset.name, "Tick Counter")
     luaunit.assertEquals(preset.authorId, "tick-counter")
@@ -400,7 +400,7 @@ end
 -- marked number, default 5, and the stack just got smaller. The inventory
 -- execution output is wired into the branch so the sound can play.
 function TestStarterAlerts:testLowOnFoodCopiesAnOrdinaryAlert()
-    local preset = self.packs:GetAlertPreset("Watchdog", "low-on-food")
+    local preset = self.packs:GetAlertPreset("Watchdog Starter Pack", "low-on-food")
     luaunit.assertNotNil(preset)
     luaunit.assertEquals(preset.name, "Low on food")
     luaunit.assertEquals(preset.authorId, "low-on-food")
@@ -509,7 +509,7 @@ end
 -- flash and the klaxon. dismissOn is both.
 function TestStarterAlerts:testLowResourceCopiesAnOrdinaryAlert()
     for _, spec in ipairs(LOW_RESOURCES) do
-        local preset = self.packs:GetAlertPreset("Watchdog", spec.authorId)
+        local preset = self.packs:GetAlertPreset("Watchdog Starter Pack", spec.authorId)
         luaunit.assertNotNil(preset)
         luaunit.assertEquals(preset.name, spec.name)
         luaunit.assertEquals(preset.authorId, spec.authorId)
@@ -624,7 +624,7 @@ function TestStarterAlerts:testLowResourceAlarmsOnceUntilThePoolRecovers()
         plays = {}
         pool.current = 249
         pool.max = 1000
-        local preset = self.packs:GetAlertPreset("Watchdog", spec.authorId)
+        local preset = self.packs:GetAlertPreset("Watchdog Starter Pack", spec.authorId)
         local bucket = Store.Empty()
         local _, live = PresetCopy.InstantiateSnapshot(bucket, preset, self.registry, { 4 })
         runtime:SetGraph(live)

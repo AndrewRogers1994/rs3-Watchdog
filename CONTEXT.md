@@ -45,7 +45,7 @@ _Avoid_: Open, launch
 ## Packs
 
 **Pack**:
-A named registration of pack sound effects, pack audio files, and Alert Presets. Another plugin can hold one. Watchdog holds one named Watchdog for the starter Alert Presets.
+A named registration of pack sound effects, pack audio files, and Alert Presets. Another plugin can hold one. Watchdog holds one named Watchdog Starter Pack for the starter Alert Presets.
 _Avoid_: Addon, Catalog
 
 **Pack name**:
