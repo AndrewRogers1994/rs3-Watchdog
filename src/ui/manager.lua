@@ -1389,26 +1389,26 @@ function Manager:_rebuild()
     bindWheel(self.treePanel, onWheel)
 
     local treeParent = self.treePanel
-    -- All row controls are PrettyUI components on the native scrolling row.
     local baseNameW, headerNameW, headerMoveW, headerActionsW = managerColumnWidths(rowW, 0, self.moveMode)
-    pcall(function()
-        local header = ui.Panel.new(self.contentParent)
-        header.isVertical = false
-        header.spacing = Theme.MANAGER_ROW_GAP
-        header.clickthrough = true
-        header:SetPos(Theme.MANAGER_PAGE_PAD, treeTop)
-        header:SetSize(rowW, Theme.MANAGER_HEADER_H)
-        header:MoveToFront()
-        mountHeaderCell(header, Theme.MANAGER_ENABLE_W, Theme.MANAGER_HEADER_H, "Enabled", true)
-        if self.moveMode then mountHeaderCell(header, headerMoveW, Theme.MANAGER_HEADER_H, "Move", true) end
-        mountHeaderCell(header, headerNameW, Theme.MANAGER_HEADER_H, "Alert", false)
-        mountHeaderCell(header, Theme.MANAGER_SELECT_W, Theme.MANAGER_HEADER_H, "Select", true)
-        mountHeaderCell(header, headerActionsW, Theme.MANAGER_HEADER_H, "Actions", true)
-        bindWheel(header, onWheel)
-        self.headerPanel = header
-    end)
     if #rows == 0 then
-        mountHeaderCell(treeParent, rowW, 40, "No alerts yet. Select + New alert to create one.", false)
+        mountHeaderCell(treeParent, rowW, Theme.MANAGER_HEADER_H, "Create your first alert by clicking + New alert. Get started with a preset!", false)
+    else
+        pcall(function()
+            local header = ui.Panel.new(self.contentParent)
+            header.isVertical = false
+            header.spacing = Theme.MANAGER_ROW_GAP
+            header.clickthrough = true
+            header:SetPos(Theme.MANAGER_PAGE_PAD, treeTop)
+            header:SetSize(rowW, Theme.MANAGER_HEADER_H)
+            header:MoveToFront()
+            mountHeaderCell(header, Theme.MANAGER_ENABLE_W, Theme.MANAGER_HEADER_H, "Enabled", true)
+            if self.moveMode then mountHeaderCell(header, headerMoveW, Theme.MANAGER_HEADER_H, "Move", true) end
+            mountHeaderCell(header, headerNameW, Theme.MANAGER_HEADER_H, "Alert", false)
+            mountHeaderCell(header, Theme.MANAGER_SELECT_W, Theme.MANAGER_HEADER_H, "Select", true)
+            mountHeaderCell(header, headerActionsW, Theme.MANAGER_HEADER_H, "Actions", true)
+            bindWheel(header, onWheel)
+            self.headerPanel = header
+        end)
     end
     for _, row in ipairs(rows) do
         local capturedRow = row
