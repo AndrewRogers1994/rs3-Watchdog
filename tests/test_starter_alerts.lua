@@ -60,6 +60,7 @@ function TestStarterAlerts:setUp()
             DEVCOM_MINIGAME_ALERT = 885,
             FISHCOMP_KLAXON = 15659,
             CHOSEN_HAM_BASE_ALARM = 32376,
+            ARTISAN_METAL_DROP_05 = 263,
         },
     }
     config = { Inv = { INV = { id = 93 }, BANK = { id = 95 } } }
@@ -238,7 +239,7 @@ function TestStarterAlerts:testIdleXpCopiesAnOrdinaryAlert()
     end
     table.sort(authorIds)
     luaunit.assertEquals(authorIds, {
-        "friend-login", "idle-xp", "low-life-points", "low-prayer", "tick-counter",
+        "friend-login", "idle-xp", "low-life-points", "low-on-food", "low-prayer", "tick-counter",
     })
 
     local idle = self.packs:GetAlertPreset("Watchdog", "idle-xp")
@@ -392,6 +393,91 @@ function TestStarterAlerts:testTickCounterCopiesAnOrdinaryAlert()
     luaunit.assertEquals(layout[box], { x = 611, y = 11 })
     luaunit.assertEquals(layout[compare], { x = 50, y = 221 })
     luaunit.assertEquals(layout[branch], { x = 348, y = 225 })
+end
+
+-- Low on food copies as an ordinary Alert. Backpack changes count an unnoted
+-- name, default Shark. The sound plays when that count is at or under the
+-- marked number, default 5, and the stack just got smaller. The inventory
+-- execution output is wired into the branch so the sound can play.
+function TestStarterAlerts:testLowOnFoodCopiesAnOrdinaryAlert()
+    local preset = self.packs:GetAlertPreset("Watchdog", "low-on-food")
+    luaunit.assertNotNil(preset)
+    luaunit.assertEquals(preset.name, "Low on food")
+    luaunit.assertEquals(preset.authorId, "low-on-food")
+    luaunit.assertEquals(#preset.variables, 2)
+    luaunit.assertEquals(preset.variables[1].pinName, "b")
+    luaunit.assertEquals(preset.variables[2].pinName, "nameMatch")
+
+    local bucket = Store.Empty()
+    local entry, live, layout, err = PresetCopy.InstantiateSnapshot(
+        bucket, preset, self.registry, { 5, "Shark" })
+    luaunit.assertNil(err)
+    luaunit.assertNotNil(entry)
+    luaunit.assertEquals(entry.name, "Low on food")
+    luaunit.assertEquals(entry.kind, "alert")
+    luaunit.assertEquals(entry.enabled, true)
+    luaunit.assertEquals(Watchdog.document.entries, {})
+    luaunit.assertEquals(PersistentDB.data.presets, self.presetsSentinel)
+
+    luaunit.assertEquals(sortedTypeKeys(live), {
+        "action.sound",
+        "inventory.item_count_changed",
+        "std.and",
+        "std.branch",
+        "std.compare",
+        "std.compare",
+        "trigger.inventory",
+    })
+    local inventory = onlyNode(live, "trigger.inventory")
+    local count = onlyNode(live, "inventory.item_count_changed")
+    local sound = onlyNode(live, "action.sound")
+    local both = onlyNode(live, "std.and")
+    local branch = onlyNode(live, "std.branch")
+    local compares = {}
+    for _, node in ipairs(live:GetNodes()) do
+        if node.typeKey == "std.compare" then
+            compares[#compares + 1] = node.id
+        end
+    end
+    table.sort(compares)
+    local removed, low = compares[1], compares[2]
+    if live:GetControl(compares[1], "operation") ~= "<" then
+        removed, low = compares[2], compares[1]
+    end
+
+    luaunit.assertEquals(preset.variables[1].nodeId, low)
+    luaunit.assertEquals(preset.variables[2].nodeId, count)
+    luaunit.assertEquals(live:GetControl(inventory, "container"), config.Inv.INV)
+    luaunit.assertEquals(live:GetControl(count, "noteFilter"), "unnoted")
+    luaunit.assertEquals(live:GetControl(count, "nameMatch"), { needle = "Shark", mode = "substring" })
+    luaunit.assertEquals(live:GetControl(removed, "operation"), "<")
+    luaunit.assertEquals(live:GetControl(low, "operation"), "<=")
+    luaunit.assertEquals(live:GetControl(low, "b"), 5)
+    luaunit.assertEquals(live:GetControl(sound, "soundId"), 263)
+
+    local expectedWires = {
+        string.format("%d.prevSnapshot->%d.prevSnapshot", inventory, count),
+        string.format("%d.snapshot->%d.snapshot", inventory, count),
+        string.format("%d.out->%d.in", inventory, branch),
+        string.format("%d.count->%d.a", count, removed),
+        string.format("%d.prevCount->%d.b", count, removed),
+        string.format("%d.count->%d.a", count, low),
+        string.format("%d.result->%d.a", removed, both),
+        string.format("%d.result->%d.b", low, both),
+        string.format("%d.result->%d.condition", both, branch),
+        string.format("%d.true->%d.in", branch, sound),
+    }
+    table.sort(expectedWires)
+    luaunit.assertEquals(sortedWires(live), expectedWires)
+
+    luaunit.assertEquals(#entry.layout, 7)
+    luaunit.assertEquals(layout[inventory], { x = 9, y = 11 })
+    luaunit.assertEquals(layout[count], { x = 295, y = 11 })
+    luaunit.assertEquals(layout[removed], { x = 298, y = 188 })
+    luaunit.assertEquals(layout[low], { x = 298, y = 338 })
+    luaunit.assertEquals(layout[branch], { x = 606, y = 192 })
+    luaunit.assertEquals(layout[sound], { x = 608, y = 19 })
+    luaunit.assertEquals(layout[both], { x = 602, y = 330 })
 end
 
 local LOW_RESOURCES = {

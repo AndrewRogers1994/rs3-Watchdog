@@ -137,7 +137,6 @@ local function lowResource(registry, resource, authorId, name, soundId, flashCol
         authorId = authorId,
         name = name,
         graph = LibNodeGraph.Serialize(graph),
-        -- Positions from the saved preset. Sound and flash share a column.
         layout = layoutArray({
             [trigger] = { x = 9, y = 9 },
             [divide] = { x = 281, y = 17 },
@@ -155,10 +154,6 @@ end
 ---@return Watchdog.PackAlertPreset
 local function tickCounter(registry)
     local graph = LibNodeGraph.NewGraph(registry)
-    -- Taken from the saved preset "Tick Counter". Server Tick interval 1 is
-    -- every server tick. The count is shown in the infobox. At or above the
-    -- marked number, the branch resets the counter. The infobox icon and that
-    -- number are the Variables.
     local tick = graph:AddNode("trigger.server_logic", { interval = 1 }, { name = "Each tick" })
     local counter = graph:AddNode("std.counter", { step = 1, start = 0 }, { name = "Tick Counter" })
     local box = graph:AddNode("action.infobox", {
@@ -194,17 +189,68 @@ local function tickCounter(registry)
     }
 end
 
+---@param registry LibNodeGraph.Registry
+---@return Watchdog.PackAlertPreset
+local function lowOnFood(registry)
+    local graph = LibNodeGraph.NewGraph(registry)
+    local inventory = graph:AddNode("trigger.inventory", {
+        container = config.Inv.INV,
+    }, { name = "Inventory" })
+    local count = graph:AddNode("inventory.item_count_changed", {
+        noteFilter = "unnoted",
+        nameMatch = { needle = "Shark", mode = "substring" },
+    }, { name = "Item Count Changed" })
+    local removed = graph:AddNode("std.compare", {
+        operation = "<", a = 0, b = 0,
+    }, { name = "only check if item is removed" })
+    local low = graph:AddNode("std.compare", {
+        operation = "<=", a = 0, b = 5,
+    }, { name = "count <= x" })
+    local both = graph:AddNode("std.and", { a = false, b = false }, { name = "And1" })
+    local branch = graph:AddNode("std.branch", { condition = false }, { name = "Alert if true" })
+    local sound = graph:AddNode("action.sound", { soundId = id.Sound.ARTISAN_METAL_DROP_05 })
+    connect(graph, "Low on food", inventory, "prevSnapshot", count, "prevSnapshot")
+    connect(graph, "Low on food", inventory, "snapshot", count, "snapshot")
+    connect(graph, "Low on food", inventory, "out", branch, "in")
+    connect(graph, "Low on food", count, "count", removed, "a")
+    connect(graph, "Low on food", count, "prevCount", removed, "b")
+    connect(graph, "Low on food", count, "count", low, "a")
+    connect(graph, "Low on food", removed, "result", both, "a")
+    connect(graph, "Low on food", low, "result", both, "b")
+    connect(graph, "Low on food", both, "result", branch, "condition")
+    connect(graph, "Low on food", branch, "true", sound, "in")
+    return {
+        authorId = "low-on-food",
+        name = "Low on food",
+        graph = LibNodeGraph.Serialize(graph),
+        layout = layoutArray({
+            [inventory] = { x = 9, y = 11 },
+            [count] = { x = 295, y = 11 },
+            [removed] = { x = 298, y = 188 },
+            [low] = { x = 298, y = 338 },
+            [branch] = { x = 606, y = 192 },
+            [sound] = { x = 608, y = 19 },
+            [both] = { x = 602, y = 330 },
+        }),
+        variables = {
+            { nodeId = low, pinName = "b" },
+            { nodeId = count, pinName = "nameMatch" },
+        },
+    }
+end
+
 ---@param api { RegisterDataPack: fun(self, name: string, contributions: table|nil) }
 ---@param registry LibNodeGraph.Registry
 function StarterAlerts.register(api, registry)
     local horn = id.Sound.FISHCOMP_KLAXON
     local alertBells = id.Sound.CHOSEN_HAM_BASE_ALARM
     local alertBellsLong = id.Sound.MAH3_HEIST_ALARM
-    api:RegisterDataPack("Watchdog", {
+    api:RegisterDataPack("Watchdog Starter Pack", {
         alertPresets = {
             friendLogin(registry),
             idleXp(registry),
             tickCounter(registry),
+            lowOnFood(registry),
             lowResource(registry, "life", "low-life-points", "Low life points", alertBells, FLASH_RED, "Life"),
             lowResource(registry, "prayer", "low-prayer", "Low prayer", horn, FLASH_PRAYER, "Prayer"),
         },
