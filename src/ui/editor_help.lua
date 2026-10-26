@@ -41,7 +41,7 @@ function EditorHelp.fill(win)
         "Pins are the sockets on the sides. Left receives. Right sends. Start the drag from either pin.",
         "White triangles are exec pins and define the flow. The wire leaves the right side of one node and arrives on the left side of the next.",
         "One exec out can feed several nodes. They run in the same step. Watchdog does not pick which one goes first. Several wires can arrive at the same exec in.",
-        "Colored squares carry values. Green is a number. Pink is text. Red is true or false. Gold is a coordinate. Unmapped are magenta.",
+        "Colored squares carry values. Cyan is a number. Orange is text. Green is true or false. Gold is a coordinate. Unmapped are magenta.",
         "Same colors connect. Grey pins mean anything can connect.",
         "A triangle will not connect to a square. A node will not connect to itself.",
         "The editor refuses a wire that loops back to an earlier node. Reset and Close are exceptions, because those pins end the chain.",
