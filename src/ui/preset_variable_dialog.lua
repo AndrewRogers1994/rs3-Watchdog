@@ -10,6 +10,7 @@ local NumberField = require("src/ui/widgets/number_field")
 local SoundEffect = require("src/ui/controls/sound_effect")
 local SoundEffectValue = require("src/sound_effect_value")
 local PresetForm = require("src/ui/preset_form")
+local Text = require("src/text")
 
 local PresetVariableDialog = {}
 
@@ -242,7 +243,10 @@ function PresetVariableDialog.mountVariables(parent, opts)
         local ok, decoded = pcall(function()
             return LibNodeGraph.Deserialize(preset.graph, opts.registry, { onUnknown = "placeholder" })
         end)
-        if ok then graph = decoded end
+        if ok then
+            graph = decoded
+            Text.StripGraphText(graph)
+        end
     end
 
     ---@type PresetDialogs.VariableSlot[]

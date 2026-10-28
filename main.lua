@@ -16,6 +16,7 @@ local Theme = require("src/ui/theme")
 local Dialog = require("src/ui/dialog")
 local PresetDialogs = require("src/ui/preset_dialogs")
 local HubLayers = require("src/ui/hub_layers")
+local Text = require("src/text")
 
 local Events = {
     Logic = "logic",
@@ -342,7 +343,7 @@ editor.onRename = function()
         actions = {
             { label = "Cancel" },
             { label = "Save", variant = "positive", onClick = function()
-                local name = field:GetText():match("^%s*(.-)%s*$")
+                local name = Text.StripTags(field:GetText() or ""):match("^%s*(.-)%s*$")
                 if name == "" then feedback.content = "Enter an alert name."; return false end
                 local result, ok = edits:Rename(scopeKey, entryId, name, openAlert())
                 if not ok then

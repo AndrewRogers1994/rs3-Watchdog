@@ -142,6 +142,37 @@ function TestPresets:testBadDocumentRefusesAWrite()
     luaunit.assertEquals(PersistentDB:GetString("presets"), rawBroken)
 end
 
+function TestPresets:testLoadStripsTagsFromSavedNames()
+    local raw = LibNodeGraph.Json.Default.encode({
+        version = 1,
+        presets = { {
+            id = 1,
+            name = "<col=ff0000>Alpha",
+            graph = { version = 1, nodes = {}, connections = {} },
+            layout = {},
+            variables = {},
+        } },
+    })
+    PersistentDB:SetString("presets", raw)
+    local doc, err = Presets.Load()
+    luaunit.assertNil(err)
+    luaunit.assertEquals(doc.presets[1].name, "Alpha")
+end
+
+function TestPresets:testSaveStripsClientTextTagsFromTheName()
+    local graph = LibNodeGraph.NewGraph(self.registry)
+    graph:AddNode("fixture.trigger", {}, { name = "<col=00ff00>Ping" })
+    local preset, err = Presets.Add("  <col=ff0000>Alpha</col>  ", graph, {})
+    luaunit.assertNil(err)
+    luaunit.assertEquals(preset.name, "Alpha")
+    luaunit.assertEquals(preset.graph.nodes[1].name, "Ping")
+    luaunit.assertEquals(graph.nodes[preset.graph.nodes[1].id].name, "Ping")
+
+    local refused, refuseErr = Presets.Add("<col=ff0000>", graph, {})
+    luaunit.assertNil(refused)
+    luaunit.assertEquals(refuseErr, "Enter a preset name.")
+end
+
 function TestPresets:testSaveTrimsNameAndMintsOneOnAnEmptyLibrary()
     local graph = LibNodeGraph.NewGraph(self.registry)
     local nodeId = graph:AddNode("fixture.trigger")

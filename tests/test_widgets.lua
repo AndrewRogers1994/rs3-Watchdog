@@ -97,6 +97,11 @@ function TestTextFieldParse:testParsesTextVerbatim()
     luaunit.assertEquals(TextField.Parse("zulrah", nil), "zulrah")
 end
 
+function TestTextFieldParse:testStripsClientTextTags()
+    luaunit.assertEquals(TextField.Parse("<col=ff0000>zulrah</col>", nil), "zulrah")
+    luaunit.assertEquals(TextField.Parse("<col=ff0000>", nil), "")
+end
+
 function TestTextFieldParse:testEmptyStringIsAMeaningfulValue()
     -- Unlike the number codec (empty -> nil "leave alone"), an empty text box is how the user
     -- clears a field, so it commits verbatim as "" rather than guarding.

@@ -154,22 +154,24 @@ function ScopeEdits:Rename(scopeKey, id, name, open)
     if doc == nil or key == nil then return leave(), false end
     local entryBefore = self.store.FindById(doc, id)
     local oldName = entryBefore and entryBefore.name
-    if not self.store.SetName(doc, id, name) then return leave(), false end
+    if entryBefore == nil or not self.store.SetName(doc, id, name) then return leave(), false end
+    -- SetName drops client text tags. The runtime and the editor title use that stored name.
+    local storedName = entryBefore.name
     if not self.store.SaveTo(key, doc) then
-        self.store.SetName(doc, id, oldName)
+        entryBefore.name = oldName
         return leave(), false
     end
     local entry = self.store.FindById(doc, id)
     if entry ~= nil and entry.kind == "alert" then
-        self.runtime:RenameAlert(id, name, key)
+        self.runtime:RenameAlert(id, storedName, key)
         if list ~= nil then
             for _, alert in ipairs(list) do
-                if alert.id == id then alert.name = name end
+                if alert.id == id then alert.name = storedName end
             end
         end
     end
     if open ~= nil and open.alertId == id and open.scopeKey == key then
-        return { kind = "rename", name = name }, true
+        return { kind = "rename", name = storedName }, true
     end
     return leave(), true
 end

@@ -640,6 +640,39 @@ end
 
 --- SetName by id (#91) -------------------------------------------------------------------
 
+function TestStore:testLoadStripsTagsFromSavedNames()
+    local doc = Store.Empty()
+    doc.entries = { {
+        id = 1,
+        kind = "group",
+        name = "<col=ff0000>Folder",
+        enabled = true,
+        children = { {
+            id = 2,
+            kind = "alert",
+            name = "<col=00ff00>",
+            enabled = true,
+            graph = { version = 1, nodes = {}, connections = {} },
+            layout = {},
+        } },
+    } }
+    luaunit.assertTrue(Store.Save(doc))
+    local loaded = Store.Load()
+    luaunit.assertEquals(loaded.entries[1].name, "Folder")
+    luaunit.assertEquals(loaded.entries[1].children[1].name, "Alert")
+end
+
+function TestStore:testSetNameStripsClientTextTags()
+    local doc = Store.Empty()
+    local id = seedAlert(self, doc, "<col=ff0000>alpha", true)
+    luaunit.assertEquals(Store.FindById(doc, id).name, "alpha")
+    luaunit.assertTrue(Store.SetName(doc, id, "be<col=00ff00>ta"))
+    luaunit.assertEquals(Store.FindById(doc, id).name, "beta")
+    luaunit.assertFalse(Store.SetName(doc, id, "<col=ff0000>"))
+    luaunit.assertEquals(Store.FindById(doc, id).name, "beta")
+    luaunit.assertEquals(Store.NewGroupEntry(9, "<shad=0>Folder", true).name, "Folder")
+end
+
 function TestStore:testSetNameRenamesById()
     local doc = Store.Empty()
     local id = seedAlert(self, doc, "alpha", true)
@@ -925,6 +958,68 @@ function TestStore:testUnsetNodeNameIsOmittedFromTheSavedGraph()
     luaunit.assertNil(reloaded.entries[1].graph.nodes[1].name)
     local restored = Store.RestoreAll(reloaded, self.registry)
     luaunit.assertNil(restored[1].graph.nodes[nodeId].name)
+end
+
+function TestStore:testRestoreStripsTagsFromNodeNamesAndControlText()
+    self.registry:RegisterNodeType("fixture.toast", {
+        category = "action",
+        pins = {
+            { name = "text", kind = "data", direction = "in", dataType = "string" },
+        },
+        run = function() end,
+    })
+    local restored = Store.RestoreAll({
+        version = 2,
+        entries = { {
+            id = 1,
+            kind = "alert",
+            name = "alpha",
+            enabled = true,
+            layout = {},
+            graph = {
+                version = 1,
+                nodes = { {
+                    id = 1,
+                    type = "fixture.toast",
+                    name = "<col=00ff00>Callout",
+                    controls = { text = "<col=ff0000>hello" },
+                } },
+                connections = {},
+            },
+        } },
+    }, self.registry)
+    luaunit.assertEquals(restored[1].graph.nodes[1].name, "Callout")
+    luaunit.assertEquals(restored[1].graph:GetControl(1, "text"), "hello")
+end
+
+function TestStore:testUpdateAlertGraphStripsTagsFromNamesAndControlText()
+    self.registry:RegisterNodeType("fixture.toast", {
+        category = "action",
+        pins = {
+            { name = "text", kind = "data", direction = "in", dataType = "string" },
+            { name = "contains", kind = "data", direction = "in", dataType = "matcher" },
+        },
+        run = function() end,
+    })
+    local doc = Store.Empty()
+    local id = seedAlert(self, doc, "alpha", true)
+    local graph = LibNodeGraph.NewGraph(self.registry)
+    local nodeId = graph:AddNode("fixture.toast", {
+        text = "<col=ff0000>hello",
+        contains = { needle = "<shad=0>boss", mode = "substring" },
+    }, { name = "<col=00ff00>Callout" })
+    luaunit.assertTrue(Store.UpdateAlertGraph(doc, id, graph, {}))
+
+    luaunit.assertEquals(graph.nodes[nodeId].name, "Callout")
+    luaunit.assertEquals(graph:GetControl(nodeId, "text"), "hello")
+    luaunit.assertEquals(graph:GetControl(nodeId, "contains").needle, "boss")
+    luaunit.assertEquals(graph:GetControl(nodeId, "contains").mode, "substring")
+
+    local reloaded = saveAndReload(doc)
+    local saved = reloaded.entries[1].graph.nodes[1]
+    luaunit.assertEquals(saved.name, "Callout")
+    luaunit.assertEquals(saved.controls.text, "hello")
+    luaunit.assertEquals(saved.controls.contains.needle, "boss")
 end
 
 function TestStore:testRenamedNodeNameRoundTripsThroughTheAlertGraph()

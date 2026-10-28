@@ -220,6 +220,32 @@ function TestScopeEdits:testDisablingAGroupReleasesChildVisualsWithoutDisablingT
     luaunit.assertEquals(loaded.entries[1].children[1].enabled, true)
 end
 
+function TestScopeEdits:testRenameStripsClientTextTagsBeforeSaving()
+    local id = self:seedAlert("Gate", true)
+    local open = { alertId = id, scopeKey = "global" }
+
+    local result, ok = self.edits:Rename("global", id, "<col=ff0000>Gatehouse</col>", open)
+
+    luaunit.assertEquals(ok, true)
+    luaunit.assertEquals(result.kind, "rename")
+    luaunit.assertEquals(result.name, "Gatehouse")
+    luaunit.assertEquals(Store.FindById(self.doc, id).name, "Gatehouse")
+    luaunit.assertEquals(self.list[1].name, "Gatehouse")
+    luaunit.assertEquals(self.runtime.alerts[1].name, "Gatehouse")
+    luaunit.assertEquals(Store.LoadKey("global").entries[1].name, "Gatehouse")
+end
+
+function TestScopeEdits:testRenameOfOnlyATagKeepsTheOldName()
+    local id = self:seedAlert("Gate", true)
+
+    local result, ok = self.edits:Rename("global", id, "<col=ff0000>", nil)
+
+    luaunit.assertEquals(ok, false)
+    luaunit.assertEquals(result.kind, "leave")
+    luaunit.assertEquals(Store.FindById(self.doc, id).name, "Gate")
+    luaunit.assertEquals(self.runtime.alerts[1].name, "Gate")
+end
+
 function TestScopeEdits:testRenameSavesTheBucketAndRenamesTheRuntimeAlert()
     local id = self:seedAlert("Gate", true)
 

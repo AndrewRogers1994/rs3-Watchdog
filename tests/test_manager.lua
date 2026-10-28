@@ -247,6 +247,19 @@ function TestManager:testToggleEnabledReportsActiveScopeAndId()
     luaunit.assertNotEquals(mgr:_signature(), before)
 end
 
+function TestManager:testRenameStripsClientTextTagsBeforeReporting()
+    local calls = {}
+    local doc = bucket({ alert(3, "old") })
+    local mgr = self:makeManager(
+        { { key = "global", label = "Global", doc = doc } },
+        { onRename = function(scopeKey, id, name) calls[#calls + 1] = { scopeKey, id, name } end }
+    )
+    mgr:Rename(3, "<col=ff0000>new</col>")
+    luaunit.assertEquals(calls, { { "global", 3, "new" } })
+    mgr:Rename(3, "<col=ff0000>")
+    luaunit.assertEquals(calls, { { "global", 3, "new" } })
+end
+
 function TestManager:testRenameReportsActiveScopeIdAndName()
     local calls = {}
     local doc = bucket({ alert(3, "old") })

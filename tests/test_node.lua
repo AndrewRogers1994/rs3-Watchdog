@@ -377,6 +377,14 @@ function TestNodeRename:testCommitTrimsAndStoresTheName()
     luaunit.assertEquals(node.name, "Enrage callout")
 end
 
+function TestNodeRename:testCommitStripsClientTextTags()
+    local node = { name = nil }
+    luaunit.assertTrue(Node.CommitRename(node, "  <col=ff0000>Enrage callout</col>  "))
+    luaunit.assertEquals(node.name, "Enrage callout")
+    luaunit.assertFalse(Node.CommitRename(node, "<col=ff0000>"))
+    luaunit.assertEquals(node.name, "Enrage callout")
+end
+
 function TestNodeRename:testBlankAndWhitespaceLeaveTheStoredName()
     local node = { name = "Enrage callout" }
     luaunit.assertFalse(Node.CommitRename(node, ""))

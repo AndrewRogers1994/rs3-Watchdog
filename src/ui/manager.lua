@@ -10,6 +10,7 @@
 -- then the window double-frees after Show).
 
 local Theme = require("src/ui/theme")
+local Text = require("src/text")
 local Export = require("src/export")
 local Dialog = require("src/ui/dialog")
 local PrimaryButton = require("src/ui/primary_button")
@@ -296,7 +297,8 @@ end
 ---@param name string
 function Manager:Rename(id, name)
     local scopeKey = self:ActiveScopeKey()
-    if scopeKey == nil or self.onRename == nil then return end
+    name = Text.StripTags(name)
+    if scopeKey == nil or self.onRename == nil or name == "" then return end
     pcall(self.onRename, scopeKey, id, name)
     bumpMutate(self)
 end

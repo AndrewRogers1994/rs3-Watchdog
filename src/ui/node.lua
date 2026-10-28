@@ -2,6 +2,7 @@ local Theme    = require("src/ui/theme")
 local Controls = require("src/ui/controls")
 local Box      = require("src/ui/widgets/box")
 local Dropdown = require("src/ui/widgets/dropdown")
+local Text     = require("src/text")
 
 local Node = {}
 
@@ -25,13 +26,12 @@ function Node.HeaderTitle(typeLabel, storedName)
     return typeLabel .. " - " .. Node.DisplayName(typeLabel, storedName)
 end
 
---- Trim a rename field. Blank or whitespace is not a name, so Rename stays disabled
---- and a stored name cannot be cleared back to omitted.
+--- Trim a rename field and drop text tags. Blank or whitespace is not valid, so Rename stays disabled.
 ---@param raw string|nil
 ---@return string|nil
 function Node.TrimName(raw)
     if type(raw) ~= "string" then return nil end
-    local trimmed = raw:match("^%s*(.-)%s*$")
+    local trimmed = Text.StripTags(raw):match("^%s*(.-)%s*$")
     if trimmed == nil or trimmed == "" then return nil end
     return trimmed
 end

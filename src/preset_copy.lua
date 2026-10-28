@@ -4,6 +4,7 @@
 local Store = require("src/store")
 local Presets = require("src/presets")
 local ControlKinds = require("src/ui/control_kinds")
+local Text = require("src/text")
 local NumberField = require("src/ui/widgets/number_field")
 local SoundEffectValue = require("src/sound_effect_value")
 
@@ -94,7 +95,7 @@ local function bake(graph, variables, answers)
             if type(answer) ~= "string" then
                 return "A marked control is missing."
             end
-            graph:SetControl(mark.nodeId, mark.pinName, answer)
+            graph:SetControl(mark.nodeId, mark.pinName, Text.StripTags(answer))
         elseif widget == "enum" then
             graph:SetControl(mark.nodeId, mark.pinName, answer)
         elseif widget == "matcher" then
@@ -106,7 +107,7 @@ local function bake(graph, variables, answers)
             if type(existing) == "table" and (existing.mode == "pattern" or existing.mode == "substring") then
                 mode = existing.mode
             end
-            graph:SetControl(mark.nodeId, mark.pinName, { needle = answer, mode = mode })
+            graph:SetControl(mark.nodeId, mark.pinName, { needle = Text.StripTags(answer), mode = mode })
         else
             return "A marked control is missing."
         end
