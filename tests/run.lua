@@ -22,6 +22,20 @@ package.path = rootDir .. "../LibNodeGraphStd/?.lua;"
     .. rootDir .. "../../../LibNodeGraphStd/?.lua;"
     .. package.path
 
+-- chat_types.lua names client ChatType enum members. The stub file is valid Lua.
+local function existingFile(path)
+    local handle = io.open(path, "r")
+    if handle == nil then return nil end
+    handle:close()
+    return path
+end
+local chatStub = existingFile(rootDir .. "../runescape-api-stubs/generated/game/chat.lua")
+    or existingFile(rootDir .. "../../../runescape-api-stubs/generated/game/chat.lua")
+if chatStub == nil then
+    error("ChatType stub not found next to this plugin")
+end
+dofile(chatStub)
+
 local luaunit = require("luaunit")
 
 require("test_text")
