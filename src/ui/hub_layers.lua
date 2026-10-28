@@ -1,7 +1,7 @@
 -- Plugin Hub surfaces.
--- SettingsLayerReady fills a status page: how to open Watchdog (the shell toggle,
--- F8) and whether chat and HTTP permission are granted. No per-alert settings
--- and no key-capture control.
+-- SettingsLayerReady fills a status page: the shell key, the overlay lock, what
+-- stays quiet in a restricted area, and whether chat and tracking permission
+-- are granted. No per-alert settings.
 -- ContentLayerReady registers one button, labeled Toggle, that performs the
 -- shell toggle. While RestrictedAreas reports Restricted, a line under that
 -- button reads "In Restricted Area" in red, with a description under it.
@@ -26,22 +26,166 @@ local RESTRICTED_DETAIL = "Spawn and game-message triggers stay quiet. Other tri
 local RESTRICTED_RGBA = 255 * 0x1000000 + 48 * 0x10000 + 48 * 0x100 + 255
 local RESTRICTED_DETAIL_H = 60
 
-local INTRO_Y = 12
-local INTRO_H = 40
-local STATUS_Y = 60
+local SHELL_LABEL_Y = 12
+local SHELL_FIELD_Y = 36
+local SHELL_HINT_Y = 70
+local SHELL_HINT_H = 40
+local LOCK_Y = 114
+local DETAIL_Y = 144
+local DETAIL_H = 48
+local STATUS_Y = 200
 local STATUS_H = 24
 local STATUS_GAP = 28
 local INSET_X = 12
 local BUTTON_H = 30
+local FIELD_W = 240
+local SHELL_KEY_DB = "watchdog_shell_key"
+local LOCK_DB = "watchdog_position_lock"
+local SHELL_HINT = "Clear the shell key to leave that key free. The content panel Toggle still opens Watchdog."
 
 local HubLayers = {}
 
 local settingsRoot = nil
 local settingsParent = nil
+local keybindField = nil
+local lockBox = nil
+local shellKeys = nil
+local positionsLocked = false
+local prefsLoaded = false
 local contentButton = nil
 local contentLine = nil
 local contentDetail = nil
 local contentParent = nil
+
+local function copyKeys(keys)
+    local out = {}
+    if type(keys) ~= "table" then return out end
+    for _, key in ipairs(keys) do
+        if type(key) == "number" then
+            out[#out + 1] = key
+        end
+    end
+    return out
+end
+
+local function defaultShellKeys()
+    if GameKey ~= nil and type(GameKey.F8) == "number" then
+        return { GameKey.F8 }
+    end
+    return {}
+end
+
+local function readString(key)
+    if PersistentDB == nil then return nil end
+    local text
+    local ok = pcall(function()
+        text = PersistentDB:GetString(key)
+    end)
+    if ok and type(text) == "string" then return text end
+    return nil
+end
+
+local function writeString(key, value)
+    if PersistentDB == nil then return end
+    pcall(function()
+        PersistentDB:SetString(key, value)
+    end)
+end
+
+-- Missing shell-key text means F8. A saved empty list means the shell key is off.
+function HubLayers.LoadPrefs(force)
+    if prefsLoaded and force ~= true then return end
+    prefsLoaded = true
+    shellKeys = defaultShellKeys()
+    positionsLocked = false
+    local text = readString(SHELL_KEY_DB)
+    if text ~= nil and text ~= "" and LibNodeGraph ~= nil and LibNodeGraph.Json ~= nil then
+        local ok, decoded = pcall(function()
+            return LibNodeGraph.Json.Default.decode(text)
+        end)
+        if ok and type(decoded) == "table" then
+            shellKeys = copyKeys(decoded)
+        end
+    end
+    positionsLocked = readString(LOCK_DB) == "1"
+end
+
+function HubLayers.ShellKeys()
+    HubLayers.LoadPrefs()
+    return copyKeys(shellKeys)
+end
+
+function HubLayers.SetShellKeys(keys)
+    HubLayers.LoadPrefs()
+    shellKeys = copyKeys(keys)
+    if LibNodeGraph == nil or LibNodeGraph.Json == nil then return end
+    local ok, text = pcall(function()
+        return LibNodeGraph.Json.Default.encode(shellKeys)
+    end)
+    if ok and type(text) == "string" then
+        writeString(SHELL_KEY_DB, text)
+    end
+end
+
+function HubLayers.PositionsLocked()
+    HubLayers.LoadPrefs()
+    return positionsLocked == true
+end
+
+function HubLayers.SetPositionsLocked(locked)
+    HubLayers.LoadPrefs()
+    positionsLocked = locked == true
+    writeString(LOCK_DB, positionsLocked and "1" or "0")
+end
+
+local function releaseSettingsWidgets()
+    if keybindField ~= nil and keybindField.Destroy ~= nil then
+        pcall(function() keybindField:Destroy() end)
+    end
+    keybindField = nil
+    if lockBox ~= nil and lockBox.Destroy ~= nil then
+        pcall(function() lockBox:Destroy() end)
+    end
+    lockBox = nil
+end
+
+local function mountShellKey(root)
+    if prettyui == nil or prettyui.KeybindField == nil then return end
+    local defaultKeys = defaultShellKeys()
+    local options = {
+        x = INSET_X,
+        y = SHELL_FIELD_Y,
+        width = FIELD_W,
+        value = HubLayers.ShellKeys(),
+        onChange = function(_, value)
+            HubLayers.SetShellKeys(value)
+        end,
+    }
+    if #defaultKeys > 0 then
+        options.defaultValue = defaultKeys
+    end
+    local ok, field = pcall(function()
+        return prettyui.KeybindField.new(root, options)
+    end)
+    if ok then keybindField = field end
+end
+
+local function mountLock(root)
+    if prettyui == nil or prettyui.CheckboxButton == nil then return end
+    local ok, box = pcall(function()
+        return prettyui.CheckboxButton.new(root, {
+            { text = "Lock infobox and toasts", value = "lock", selected = HubLayers.PositionsLocked() },
+        }, {
+            x = INSET_X,
+            y = LOCK_Y,
+            width = FIELD_W,
+            onChange = function(_, _, _, selected)
+                HubLayers.SetPositionsLocked(selected == true)
+            end,
+        })
+    end)
+    if ok then lockBox = box end
+end
 
 local function granted(permission)
     return Plugin.HasPermission(permission) == true
@@ -136,6 +280,7 @@ end
 
 ---@param parent ui.ComponentCollection
 local function fillSettings(parent)
+    releaseSettingsWidgets()
     if settingsRoot ~= nil and settingsParent == parent then
         destroyOwned(settingsRoot)
     end
@@ -146,10 +291,15 @@ local function fillSettings(parent)
     root:SetSize(0, 0, 1, 1)
     settingsRoot = root
 
-    addLine(root, INTRO_Y, INTRO_H, "Open Watchdog with the shell toggle (F8).", 2)
+    addLine(root, SHELL_LABEL_Y, STATUS_H, "Shell key", 1)
+    mountShellKey(root)
+    local hint = addLine(root, SHELL_HINT_Y, SHELL_HINT_H, SHELL_HINT, 2)
+    hint.alignVertical = ui.AlignMode.TOPLEFT
+    mountLock(root)
+    local detail = addLine(root, DETAIL_Y, DETAIL_H, RESTRICTED_DETAIL, 3)
+    detail.alignVertical = ui.AlignMode.TOPLEFT
     addLine(root, STATUS_Y, STATUS_H, permissionLine("Chat", PluginPermissions.chatAccess), 1)
     addLine(root, STATUS_Y + STATUS_GAP, STATUS_H, permissionLine("Tracking", PluginPermissions.trackingAccess), 1)
-    -- addLine(root, STATUS_Y + STATUS_GAP, STATUS_H, permissionLine("HTTP", PluginPermissions.httpAccess), 1)
 end
 
 ---@param parent ui.ComponentCollection
@@ -209,6 +359,12 @@ function HubLayers.Unbind()
     Event.OptionalDependencyChanged.Unsubscribe(DEPENDENCY_EVENT)
     -- Clear the parent before Unsubscribe so a callback cannot Destroy the
     -- line. PluginShutdown must not Destroy this page; the client does.
+    -- Cancel key capture without Destroy. Destroying the settings page here crashes.
+    if keybindField ~= nil and keybindField.CancelListening ~= nil then
+        pcall(function() keybindField:CancelListening() end)
+    end
+    keybindField = nil
+    lockBox = nil
     contentParent = nil
     unsubscribeRestricted()
     settingsRoot = nil
@@ -221,6 +377,7 @@ end
 -- Live re-exec only. PluginShutdown must not Destroy these; the client tears
 -- the page down itself and crashes if they are already gone.
 function HubLayers.Stop()
+    releaseSettingsWidgets()
     destroyOwned(settingsRoot)
     destroyOwned(contentButton)
     destroyOwned(contentLine)

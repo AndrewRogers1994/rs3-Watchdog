@@ -153,6 +153,19 @@ function TestToast:testDragToWithoutBeginIsANoOp()
     luaunit.assertEquals(self.toast:GetAnchorOffset(), { dx = 0, dy = 0 })
 end
 
+function TestToast:testLockedStackDoesNotDrag()
+    local HubLayers = require("src/ui/hub_layers")
+    HubLayers.SetPositionsLocked(true)
+    self.toast:BeginDrag({ x = 100, y = 100 })
+    self.toast:DragTo({ x = 130, y = 90 })
+    luaunit.assertEquals(self.toast:GetAnchorOffset(), { dx = 0, dy = 0 })
+    HubLayers.SetPositionsLocked(false)
+end
+
+function TestToast:tearDown()
+    require("src/ui/hub_layers").SetPositionsLocked(false)
+end
+
 function TestToast:testEndDragPersistsFinalPosition()
     local persistence = newFakePersistence()
     local toast = Toast.new(self.effects, persistence)

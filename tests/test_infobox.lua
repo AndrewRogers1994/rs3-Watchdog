@@ -204,12 +204,23 @@ function TestDrag:setUp()
     self.area:Set("a", { text = "1" })
 end
 
+function TestDrag:tearDown()
+    require("src/ui/hub_layers").SetPositionsLocked(false)
+end
+
 function TestDrag:testBeginDragInsideBoundsGrabs()
     luaunit.assertTrue(self.area:BeginDrag(105, 105))
 end
 
 function TestDrag:testBeginDragOutsideBoundsDoesNotGrab()
     luaunit.assertFalse(self.area:BeginDrag(500, 500))
+end
+
+function TestDrag:testLockedStripDoesNotDrag()
+    local HubLayers = require("src/ui/hub_layers")
+    HubLayers.SetPositionsLocked(true)
+    luaunit.assertFalse(self.area:BeginDrag(105, 105))
+    HubLayers.SetPositionsLocked(false)
 end
 
 function TestDrag:testDragMovesAnchorByDelta()

@@ -24,14 +24,6 @@ local Events = {
     KeyDown = "key",
 }
 
-local TOGGLE_KEY = "F8"
-
-if Plugin.HasPermission(PluginPermissions.httpAccess) then
-    log("Watchdog: plugin has HTTP access")
-else
-    log("Watchdog: plugin does NOT have HTTP access")
-end
-
 if Plugin.HasPermission(PluginPermissions.trackingAccess) then
     log("Watchdog: plugin has tracking access")
 else
@@ -117,29 +109,6 @@ require("src/nodes/actions/toast").Register(registry, runtime)
 require("src/nodes/actions/alert_toggle").Register(registry, runtime)
 require("src/nodes/actions/game_message").Register(registry)
 require("src/nodes/actions/shortest_path").Register(registry)
-
-local function RegisterToPluginMenu()
-    LibPluginMenu.Unregister("watchdog")
-    LibPluginMenu.Register({
-        id = "watchdog",
-        name = "Watchdog",
-        icon = "W",
-        onClick = function()
-            pcall(function() Watchdog.Toggle() end)
-        end
-    })
-end
-Event.OptionalDependencyChanged.Subscribe('opdepchanged', function(dep)
-    if dep.pluginIdentifier == "LibPluginMenu" and LibPluginMenu ~= nil then
-        if dep.enabled then
-            RegisterToPluginMenu()
-        end
-    end
-end)
-
-if LibPluginMenu ~= nil then
-    RegisterToPluginMenu()
-end
 
 runtime:SetRegistry(registry)
 
@@ -536,7 +505,7 @@ editorSurface = {
         return "Watchdog - " .. name
     end,
     SetVisible = function(_, v) editor:SetVisible(v) end,
-    -- Dismiss gestures without resetting pan and zoom on F8.
+    -- Dismiss gestures without resetting pan and zoom on the shell key.
     OnShellHide = function() editor:OnShellHide() end,
     FrontOverlayPopups = function() editor:FrontOverlayPopups() end,
 }
@@ -775,13 +744,25 @@ Event.KeyDown.Subscribe(Events.KeyDown, function(keyEvent)
         -- end
         return
     end
-    local target = GameKey[TOGGLE_KEY]
-    if target ~= nil and keyEvent.gameKey == target then
+    local keys = HubLayers.ShellKeys()
+    local pressed = keyEvent.gameKey
+    local bound = false
+    for _, key in ipairs(keys) do
+        if key == pressed then
+            bound = true
+            break
+        end
+    end
+    -- IsDown is false while the settings field is capturing, so choosing a key
+    -- does not also toggle. An extra key held with the chord does not match.
+    if bound and prettyui ~= nil and prettyui.KeybindField ~= nil
+        and prettyui.KeybindField.IsDown(keys) then
         api.Toggle()
     end
 end)
 
--- F8 and the content-layer Toggle share api.Toggle.
+-- The shell key and the content-layer Toggle share api.Toggle.
+HubLayers.LoadPrefs()
 HubLayers.Bind(function()
     api.Toggle()
 end)

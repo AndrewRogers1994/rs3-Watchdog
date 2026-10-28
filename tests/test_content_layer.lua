@@ -24,6 +24,10 @@ function TestContentLayer:setUp()
         RestrictedAreas = _G.RestrictedAreas,
         Plugin = _G.Plugin,
         PluginPermissions = _G.PluginPermissions,
+        prettyui = _G.prettyui,
+        GameKey = _G.GameKey,
+        PersistentDB = _G.PersistentDB,
+        LibNodeGraph = _G.LibNodeGraph,
     }
     self.toggled = 0
     self.parent = { children = {} }
@@ -87,6 +91,11 @@ function TestContentLayer:tearDown()
     _G.RestrictedAreas = self.saved.RestrictedAreas
     _G.Plugin = self.saved.Plugin
     _G.PluginPermissions = self.saved.PluginPermissions
+    _G.prettyui = self.saved.prettyui
+    _G.GameKey = self.saved.GameKey
+    _G.PersistentDB = self.saved.PersistentDB
+    _G.LibNodeGraph = self.saved.LibNodeGraph
+    HubLayers.LoadPrefs(true)
 end
 
 function TestContentLayer:installAreas(answer)
@@ -266,6 +275,22 @@ function TestContentLayer:testSettingsLayerDoesNotShowRestricted()
             return true
         end,
     }
+    _G.GameKey = { F8 = 66 }
+    _G.prettyui = {
+        KeybindField = {
+            new = function(_, options)
+                self.keybindOptions = options
+                return { Destroy = function() end, CancelListening = function() end }
+            end,
+        },
+        CheckboxButton = {
+            new = function(_, choices)
+                self.checkboxChoices = choices
+                return { Destroy = function() end }
+            end,
+        },
+    }
+    HubLayers.LoadPrefs(true)
     self:installAreas(true)
     local settingsParent = { children = {} }
     self.onSettings({ component = settingsParent })
@@ -282,10 +307,34 @@ function TestContentLayer:testSettingsLayerDoesNotShowRestricted()
         walk(child)
     end
     luaunit.assertEquals(contents, {
-        "Open Watchdog with the shell toggle (F8).",
+        "Shell key",
+        "Clear the shell key to leave that key free. The content panel Toggle still opens Watchdog.",
+        "Spawn and game-message triggers stay quiet. Other triggers still run.",
         "Chat permission: granted",
         "Tracking permission: granted",
     })
+    luaunit.assertEquals(self.keybindOptions.value, { 66 })
+    luaunit.assertEquals(self.keybindOptions.defaultValue, { 66 })
+    luaunit.assertEquals(self.checkboxChoices[1].text, "Lock infobox and toasts")
+    luaunit.assertFalse(self.checkboxChoices[1].selected)
+end
+
+function TestContentLayer:testEmptyShellKeyStaysEmpty()
+    local store = {}
+    _G.GameKey = { F8 = 66 }
+    _G.PersistentDB = {
+        GetString = function(_, key) return store[key] end,
+        SetString = function(_, key, value) store[key] = value end,
+    }
+    _G.LibNodeGraph = { Json = require("json") }
+    HubLayers.LoadPrefs(true)
+    luaunit.assertEquals(HubLayers.ShellKeys(), { 66 })
+    HubLayers.SetShellKeys({})
+    HubLayers.LoadPrefs(true)
+    luaunit.assertEquals(HubLayers.ShellKeys(), {})
+    HubLayers.SetPositionsLocked(true)
+    HubLayers.LoadPrefs(true)
+    luaunit.assertTrue(HubLayers.PositionsLocked())
 end
 
 function TestContentLayer:testRestrictedAreasIsARequiredDependency()

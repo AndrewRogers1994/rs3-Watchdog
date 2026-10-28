@@ -1,5 +1,6 @@
 local Util = require("src/util")
 local Theme = require("src/ui/theme")
+local HubLayers = require("src/ui/hub_layers")
 
 local function callOrLog(context, fn, ...)
     return Util.CallOrLog("toast", context, fn, ...)
@@ -57,6 +58,7 @@ end
 --- Drag ---------------------------------------------------------------------------------
 
 function Toast:BeginDrag(mousePos)
+    if HubLayers.PositionsLocked() then return end
     self.drag = {
         startMouse = { x = mousePos.x, y = mousePos.y },
         startAnchor = { dx = self.anchor.dx, dy = self.anchor.dy },

@@ -31,7 +31,7 @@ The name a plugin is declared under in a dependency map — the same string the 
 _Avoid_: Folder, mod id, plugin name (those can differ from this)
 
 **Settings layer**:
-The Plugin Hub manage-tab page for this plugin. Watchdog's page says how to open the shell, and whether the chat and HTTP permissions are granted. It holds no per-alert settings.
+The Plugin Hub manage-tab page for this plugin. Watchdog's page holds the shell key, a lock for the infobox and toasts, what stays quiet while the player is Restricted, and whether the chat and tracking permissions are granted. It holds no per-alert settings.
 _Avoid_: Options menu, config screen, the Alert Manager
 
 **Content layer**:
@@ -39,7 +39,7 @@ The in-game panel for this plugin. The player places it, including beside the in
 _Avoid_: Settings layer (the manage-tab page)
 
 **Shell toggle**:
-The gesture that shows or hides the Watchdog shell. F8 and the content-layer Toggle both perform it. While an Object Marker capture is armed, the gesture cancels the capture and leaves the shell where it is.
+The gesture that shows or hides the Watchdog shell. The shell key and the content-layer Toggle both perform it. The shell key defaults to F8. Clearing it on the settings page leaves that key free, and the Toggle button still performs the gesture. While an Object Marker capture is armed, the gesture cancels the capture and leaves the shell where it is.
 _Avoid_: Open, launch
 
 ## Packs
@@ -339,7 +339,7 @@ through a **Confirm dialog**, not a two-click armed label. This vocabulary was s
 the Alert Manager wayfinder map (#73); each term points at the ticket that fixed it.
 
 **Alert Manager**:
-The single management surface the shell toggle and the LibPluginMenu button open (`ui/manager.lua`):
+The single management surface the shell toggle opens (`ui/manager.lua`):
 a **tab bar** of Scopes over a tree of Entries. “All characters” and the character tab explain
 scope through tooltips. Clicking an alert name opens the Editor; clicking a group expands it.
 Rows have centered enable/select checkboxes, left-aligned names, and rename/export/delete actions.
@@ -522,8 +522,8 @@ A top-of-screen instruction strip shown while a Screen or Object Marker capture 
 input (drag a region / Select Object on a Loc). Non-interactive — cancel is Esc or re-click of the same
 Capture Control. Screen Marker also dims the screen behind it (Snipping-Tool hole while dragging).
 Object Marker select additionally hides the Watchdog window (and its overlay capture) so Loc MiniMenu
-hover is not covered; Esc or F8 cancels and brings the window back. The shell is restored on a
-successful Select Object. If Watchdog was already F8-hidden, it stays hidden.
+hover is not covered; Esc or the shell key cancels and brings the window back. The shell is restored on a
+successful Select Object. If Watchdog was already hidden by the shell key, it stays hidden.
 _Avoid_: toast, notification, armed banner, overlay prompt
 
 **Chat Trigger**:

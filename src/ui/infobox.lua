@@ -1,4 +1,5 @@
 local Theme = require("src/ui/theme")
+local HubLayers = require("src/ui/hub_layers")
 
 local InfoBox = {}
 InfoBox.__index = InfoBox
@@ -165,6 +166,7 @@ end
 --- Drag-as-unit ----------------------------------------------------------------------------
 
 function InfoBox:BeginDrag(px, py)
+    if HubLayers.PositionsLocked() then return false end
     local b = self:Bounds()
     if b == nil or not inRect(b, px, py) then return false end
     self._drag = { dx = px - self.anchor.x, dy = py - self.anchor.y }
