@@ -2,6 +2,7 @@
 -- against a real EffectRegistry (in-memory, no Canvas needed - mirrors test_effects.lua) plus
 -- the anchor drag/persistence math. Canvas drawing (_drawHandle) and the client-only capture
 -- mount are intentionally not asserted here, same convention as effects.lua's own Mount/Draw.
+-- Update's clickthrough sync is asserted with a stand-in panel.
 
 local luaunit = require("luaunit")
 local EffectRegistry = require("src/effects")
@@ -162,8 +163,69 @@ function TestToast:testLockedStackDoesNotDrag()
     HubLayers.SetPositionsLocked(false)
 end
 
+-- Stand-in for the client panel Update resizes. Mount itself is not under test.
+local function fakeCapture()
+    local cap = { clickthrough = false, w = -1, h = -1 }
+    function cap:SetPos(x, y)
+        self.x, self.y = x, y
+    end
+    function cap:SetSize(w, h)
+        self.w, self.h = w, h
+    end
+    return cap
+end
+
+function TestToast:testLockedStackLetsClicksThrough()
+    local HubLayers = require("src/ui/hub_layers")
+    HubLayers.SetPositionsLocked(true)
+    self.toast:Show("nodeA", { text = "hi" })
+    self.toast.capture = fakeCapture()
+    self.toast:Update()
+    luaunit.assertTrue(self.toast.capture.clickthrough)
+    luaunit.assertEquals(self.toast.capture.w, 240)
+    luaunit.assertEquals(self.toast.capture.h, 48)
+end
+
+function TestToast:testUnlockedStackCapturesClicks()
+    self.toast:Show("nodeA", { text = "hi" })
+    self.toast.capture = fakeCapture()
+    self.toast:Update()
+    luaunit.assertFalse(self.toast.capture.clickthrough)
+    luaunit.assertEquals(self.toast.capture.w, 240)
+    luaunit.assertEquals(self.toast.capture.h, 48)
+end
+
+function TestToast:testEmptyStackCollapsesCapture()
+    self.toast.capture = fakeCapture()
+    self.toast.capture.w = 240
+    self.toast.capture.h = 48
+    self.toast:Update()
+    luaunit.assertEquals(self.toast.capture.w, 0)
+    luaunit.assertEquals(self.toast.capture.h, 0)
+end
+
+function TestToast:testLockDuringDragEndsTheGesture()
+    local persistence = newFakePersistence()
+    local toast = Toast.new(self.effects, persistence)
+    toast:Show("nodeA", { text = "hi" })
+    toast.capture = fakeCapture()
+    toast:BeginDrag({ x = 0, y = 0 })
+    toast._pressed = true
+    self._savedMouse = Mouse
+    self._restoreMouse = true
+    Mouse = { GetPosition = function() return { x = 40, y = 5 } end }
+    require("src/ui/hub_layers").SetPositionsLocked(true)
+    toast:Update()
+    luaunit.assertEquals(toast:GetAnchorOffset(), { dx = 0, dy = 0 })
+    luaunit.assertEquals(persistence.saves, 1)
+    luaunit.assertTrue(toast.capture.clickthrough)
+end
+
 function TestToast:tearDown()
     require("src/ui/hub_layers").SetPositionsLocked(false)
+    if self._restoreMouse then
+        Mouse = self._savedMouse
+    end
 end
 
 function TestToast:testEndDragPersistsFinalPosition()

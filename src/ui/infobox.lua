@@ -212,7 +212,7 @@ function InfoBox:Mount(rootParent)
     local ok, capture = pcall(function()
         local c = ui.Button.new(rootParent)
         c.alpha = 0
-        c.clickthrough = false
+        c.clickthrough = HubLayers.PositionsLocked()
         c:Subscribe(ui.Hook.ONCLICK, function()
             local mx, my = mousePos()
             if mx ~= nil and area:BeginDrag(mx, my) then
@@ -268,9 +268,13 @@ function InfoBox:Reposition()
     if self._capture == nil then
         return
     end
-    -- While a drag is live the capture is deliberately grown to full-screen (see
-    -- _expandCapture); the per-tick reposition must not shrink it back mid-drag or a fast
-    -- cursor would leave the hit area and drop the grab.
+    local locked = HubLayers.PositionsLocked()
+    if locked and self:IsDragging() then
+        self:EndDrag()
+    end
+    pcall(function()
+        self._capture.clickthrough = locked
+    end)
     if self:IsDragging() then
         return
     end

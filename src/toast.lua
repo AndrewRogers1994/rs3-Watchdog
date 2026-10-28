@@ -21,11 +21,11 @@ function Toast.new(effects, persistence)
     local self = setmetatable({
         effects = effects,
         persistence = persistence,
-        live = {},      -- ordered list of live toast handles, oldest first
-        byOwner = {},   -- nodeKey -> { handle, ... }, oldest first
+        live = {},        -- ordered list of live toast handles, oldest first
+        byOwner = {},     -- nodeKey -> { handle, ... }, oldest first
         anchor = { dx = 0, dy = 0 },
-        drag = nil,     -- { startMouse = {x,y}, startAnchor = {dx,dy} } while a drag is live
-        capture = nil,  -- client-only NON-clickthrough drag-capture component, see Mount
+        drag = nil,       -- { startMouse = {x,y}, startAnchor = {dx,dy} } while a drag is live
+        capture = nil,    -- client-only drag-capture panel, see Mount
         rootParent = nil, -- client root component, kept for screen width (see _screenWidth)
     }, Toast)
     self:_loadAnchor()
@@ -240,7 +240,8 @@ end
 
 --- Drag capture mount (client-only; untested under the standalone Lua test harness) -------
 
--- Overlay canvas is clickthrough; drag needs a separate NON-clickthrough capture.
+-- Overlay canvas is clickthrough; drag needs a separate capture panel.
+-- Update refreshes clickthrough after Mount, because the hub lock can change.
 function Toast:Mount(rootParent)
     self.rootParent = rootParent
     if self.capture ~= nil then
@@ -248,7 +249,7 @@ function Toast:Mount(rootParent)
     end
     local ok, capture = pcall(function()
         local c = ui.Panel.new(rootParent)
-        c.clickthrough = false
+        c.clickthrough = HubLayers.PositionsLocked()
         local self_ = self
         c:Subscribe(ui.Hook.ONCLICK, function()
             local pos = (Mouse ~= nil and Mouse.GetPosition ~= nil) and Mouse.GetPosition() or nil
@@ -279,13 +280,27 @@ end
 
 -- Reposition capture over the live stack so it only intercepts toast clicks.
 function Toast:Update()
+    local locked = HubLayers.PositionsLocked()
+    if locked and (self._pressed or self.drag ~= nil) then
+        self._pressed = false
+        self:EndDrag()
+    end
     if self._pressed and Mouse ~= nil and Mouse.GetPosition ~= nil then
         local ok, pos = pcall(Mouse.GetPosition)
         if ok and pos ~= nil then
             self:DragTo(pos)
         end
     end
-    if self.capture == nil or #self.live == 0 then
+    if self.capture == nil then
+        return
+    end
+    pcall(function()
+        self.capture.clickthrough = locked
+    end)
+    if #self.live == 0 then
+        pcall(function()
+            self.capture:SetSize(0, 0)
+        end)
         return
     end
     local anchor = self:_anchorPoint()

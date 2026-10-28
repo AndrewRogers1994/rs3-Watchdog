@@ -31,7 +31,7 @@ The name a plugin is declared under in a dependency map — the same string the 
 _Avoid_: Folder, mod id, plugin name (those can differ from this)
 
 **Settings layer**:
-The Plugin Hub manage-tab page for this plugin. Watchdog's page holds the manager key, a lock for the infobox and toasts, a note on what a restricted area changes, and whether the chat and tracking permissions are granted. It holds no per-alert settings. The player-facing name for the window is manager.
+The Plugin Hub manage-tab page for this plugin. Watchdog's page holds the manager key, a lock for the infobox and toasts, a note on what a restricted area changes, and whether the chat and tracking permissions are granted. It holds no per-alert settings. The lock keeps the infobox and toasts from being dragged, and clicks on them reach the game. The player-facing name for the window is manager.
 _Avoid_: Options menu, config screen, the Alert Manager
 
 **Content layer**:
