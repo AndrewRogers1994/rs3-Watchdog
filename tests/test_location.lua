@@ -19,6 +19,13 @@ Player = {
 TestLocation = {}
 
 function TestLocation:setUp()
+    self.savedAreas = _G.RestrictedAreas
+    _G.RestrictedAreas = {
+        IsRestricted = function()
+            return false
+        end,
+    }
+
     self.registry = Registry.new()
     self.source = newFakeEventSource()
     self.runtime = Runtime.new(self.source.source)
@@ -42,6 +49,18 @@ function TestLocation:setUp()
 
     Player.available = true
     Player.coord = { x = 0, z = 0, level = 0 }
+end
+
+function TestLocation:tearDown()
+    _G.RestrictedAreas = self.savedAreas
+end
+
+function TestLocation:setRestricted(answer)
+    _G.RestrictedAreas = {
+        IsRestricted = function()
+            return answer
+        end,
+    }
 end
 
 function TestLocation:addLocation(target, radius)
@@ -264,6 +283,58 @@ function TestLocation:testEachNodeKeepsItsOwnEdgeState()
     self:moveTo(5, 0) -- distance 5: inside far (10), outside near (2)
     luaunit.assertEquals(hits.near, 0)
     luaunit.assertEquals(hits.far, 1)
+end
+
+--- Restricted freezes the poll; the first live sample reseeds with no edge ---------------
+
+function TestLocation:testRestrictedDoesNotLeave()
+    self:addLocation({ x = 0, z = 0, level = 0 }, 5)
+    self:primeOutside()
+    self:moveTo(0, 0)
+    self:setRestricted(true)
+    self:moveTo(50, 50)
+    luaunit.assertEquals(self.counts.enter, 1)
+    luaunit.assertEquals(self.counts.leave, 0)
+end
+
+function TestLocation:testEntryWhileRestrictedDoesNotEnterOnTheWayOut()
+    self:addLocation({ x = 100, z = 100, level = 0 }, 5)
+    self:primeOutside()
+    self:setRestricted(true)
+    self:moveTo(100, 100)
+    luaunit.assertEquals(self.counts.enter, 0)
+    self:setRestricted(false)
+    self:moveTo(100, 100)
+    luaunit.assertEquals(self.counts.enter, 0)
+    luaunit.assertEquals(self.counts.leave, 0)
+    self:moveTo(200, 200)
+    luaunit.assertEquals(self.counts.leave, 1)
+    self:moveTo(100, 100)
+    luaunit.assertEquals(self.counts.enter, 1)
+end
+
+function TestLocation:testExitWhileRestrictedDoesNotLeaveOnTheWayOut()
+    self:addLocation({ x = 0, z = 0, level = 0 }, 5)
+    self:primeOutside()
+    self:moveTo(0, 0)
+    self:setRestricted(true)
+    self:moveTo(50, 50)
+    self:setRestricted(false)
+    self:moveTo(50, 50)
+    luaunit.assertEquals(self.counts.enter, 1)
+    luaunit.assertEquals(self.counts.leave, 0)
+    self:moveTo(0, 0)
+    luaunit.assertEquals(self.counts.enter, 2)
+end
+
+function TestLocation:testLogoutDoesNotReseedLikeRestriction()
+    self:addLocation({ x = 0, z = 0, level = 0 }, 5)
+    self:primeOutside()
+    self:moveTo(0, 0)
+    self:logOutTick()
+    self:moveTo(50, 50)
+    luaunit.assertEquals(self.counts.enter, 1)
+    luaunit.assertEquals(self.counts.leave, 1)
 end
 
 return TestLocation

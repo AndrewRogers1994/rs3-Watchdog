@@ -134,7 +134,7 @@ end
 -- 0xRRGGBBAA red. Matches the restricted title in hub_layers.lua.
 local RESTRICTED_RGBA = 255 * 0x1000000 + 48 * 0x10000 + 48 * 0x100 + 255
 local TEXT_RGBA = 220 * 0x1000000 + 222 * 0x10000 + 230 * 0x100 + 255
-local RESTRICTED_DETAIL = "Spawn and game-message triggers stay quiet. Other triggers still run."
+local RESTRICTED_DETAIL = "Spawn, game-message, and location triggers stay quiet. Other triggers still run."
 
 function TestContentLayer:assertRestrictedLine(line)
     luaunit.assertEquals(line.content, "In Restricted Area")
@@ -309,7 +309,7 @@ function TestContentLayer:testSettingsLayerDoesNotShowRestricted()
     luaunit.assertEquals(contents, {
         "Shell key",
         "Clear the shell key to leave that key free. The content panel Toggle still opens Watchdog.",
-        "Spawn and game-message triggers stay quiet. Other triggers still run.",
+        "Spawn, game-message, and location triggers stay quiet. Other triggers still run.",
         "Chat permission: granted",
         "Tracking permission: granted",
     })

@@ -20,8 +20,8 @@ local RESTRICTED_LISTENER = "watchdog.restricted"
 -- Alert Manager header labels (0xRRGGBBAA).
 local TEXT_RGBA = 220 * 0x1000000 + 222 * 0x10000 + 230 * 0x100 + 255
 local RESTRICTED_LINE = "In Restricted Area"
--- What Restricted means on this panel: those two triggers stay quiet, the rest do not.
-local RESTRICTED_DETAIL = "Spawn and game-message triggers stay quiet. Other triggers still run."
+-- What Restricted means on this panel: those triggers stay quiet, the rest do not.
+local RESTRICTED_DETAIL = "Spawn, game-message, and location triggers stay quiet. Other triggers still run."
 -- Red, packed 0xRRGGBBAA like TEXT_RGBA. Only the restricted title uses it.
 local RESTRICTED_RGBA = 255 * 0x1000000 + 48 * 0x10000 + 48 * 0x100 + 255
 local RESTRICTED_DETAIL_H = 60

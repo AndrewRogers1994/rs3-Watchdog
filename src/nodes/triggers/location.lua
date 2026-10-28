@@ -1,3 +1,5 @@
+local Util = require("src/util")
+
 local Location = {}
 
 ---@class Watchdog.Payload.Location
@@ -27,6 +29,12 @@ end
 ---@param registry LibNodeGraph.Registry
 ---@param runtime Watchdog.Runtime
 function Location.Register(registry, runtime)
+    -- Per registration, not per node. Restriction is one world fact, so every
+    -- Location node must reseed together. A fresh Register (tests, reload)
+    -- starts this at zero.
+    local restrictionGeneration = 0
+    local sawRestriction = false
+
     registry:RegisterNodeType("trigger.location", {
         category = "trigger",
         displayName = "Location",
@@ -55,21 +63,34 @@ function Location.Register(registry, runtime)
             kind = "poll",
             event = "Logic",
             -- Logged out => nil: dispatcher freezes edge state (no Leave on logout / Enter on relog).
+            -- Restricted => nil too, but that is not logout. A false filter would emit Leave/Enter,
+            -- so the freeze stays in the transform. The next live sample bumps restrictionGeneration
+            -- and the seed key changes, which reseeds with no edge for a crossing that happened
+            -- while the player was quiet.
             transform = function()
                 if not Player.IsAvailable() then
                     return nil
+                end
+                if Util.PlayerIsRestricted() then
+                    sawRestriction = true
+                    return nil
+                end
+                if sawRestriction then
+                    sawRestriction = false
+                    restrictionGeneration = restrictionGeneration + 1
                 end
                 local c = Player.GetEntity().coordGrid
                 return { coord = { x = c.x, z = c.z, level = c.level } }
             end,
             -- Target/radius identity: load and a Control rewrite reseed without Enter/Leave (#72).
+            -- The generation is the restriction reseed, shared by every node from this Register.
             seedKey = function(node)
                 local target = validTarget(node.GetControl("target"))
                 if target == nil then
                     return nil
                 end
-                return string.format("%s:%s:%s:%s", target.x, target.z, target.level,
-                    normalizeRadius(node.GetControl("radius")))
+                return string.format("%s:%s:%s:%s:%s", target.x, target.z, target.level,
+                    normalizeRadius(node.GetControl("radius")), restrictionGeneration)
             end,
             filter = function(payload, node)
                 local target = validTarget(node.GetControl("target"))
