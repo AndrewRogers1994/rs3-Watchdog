@@ -134,7 +134,7 @@ end
 -- 0xRRGGBBAA red. Matches the restricted title in hub_layers.lua.
 local RESTRICTED_RGBA = 255 * 0x1000000 + 48 * 0x10000 + 48 * 0x100 + 255
 local TEXT_RGBA = 220 * 0x1000000 + 222 * 0x10000 + 230 * 0x100 + 255
-local RESTRICTED_DETAIL = "Spawn, game-message, and location triggers stay quiet. Other triggers still run."
+local RESTRICTED_DETAIL = "Nearby spawns, game messages, and spots you chose will not alert you. Other alerts still work."
 
 function TestContentLayer:assertRestrictedLine(line)
     luaunit.assertEquals(line.content, "In Restricted Area")
@@ -276,17 +276,29 @@ function TestContentLayer:testSettingsLayerDoesNotShowRestricted()
         end,
     }
     _G.GameKey = { F8 = 66 }
+    local test = self
     _G.prettyui = {
-        KeybindField = {
-            new = function(_, options)
-                self.keybindOptions = options
-                return { Destroy = function() end, CancelListening = function() end }
-            end,
-        },
-        CheckboxButton = {
-            new = function(_, choices)
-                self.checkboxChoices = choices
-                return { Destroy = function() end }
+        SimpleView = {
+            new = function(parent)
+                local view = { Destroy = function() end }
+                function view:AddText(value)
+                    local text = type(value) == "table" and value.text or value
+                    parent.children[#parent.children + 1] = {
+                        kind = "text", content = text, destroyed = false, children = {},
+                    }
+                end
+                function view:AddTitle(value)
+                    self:AddText(value)
+                end
+                function view:AddKeybindField(options)
+                    test.keybindOptions = options
+                    return { Destroy = function() end, CancelListening = function() end }
+                end
+                function view:AddCheckboxButton(choices)
+                    test.checkboxChoices = choices
+                    return { Destroy = function() end }
+                end
+                return view
             end,
         },
     }
@@ -307,9 +319,9 @@ function TestContentLayer:testSettingsLayerDoesNotShowRestricted()
         walk(child)
     end
     luaunit.assertEquals(contents, {
-        "Shell key",
-        "Clear the shell key to leave that key free. The content panel Toggle still opens Watchdog.",
-        "Spawn, game-message, and location triggers stay quiet. Other triggers still run.",
+        "Manager key",
+        "Restricted areas",
+        "While you are in a restricted area, Watchdog will not alert you about nearby spawns, game messages, or walking into or out of a spot you chose. Other alerts still work.",
         "Chat permission: granted",
         "Tracking permission: granted",
     })

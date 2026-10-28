@@ -1,9 +1,10 @@
 -- Plugin Hub surfaces.
--- SettingsLayerReady fills a status page: the shell key, the overlay lock, what
--- stays quiet in a restricted area, and whether chat and tracking permission
--- are granted. No per-alert settings.
--- ContentLayerReady registers one button, labeled Toggle, that performs the
--- shell toggle. While RestrictedAreas reports Restricted, a line under that
+-- SettingsLayerReady fills a prettyui SimpleView: the manager key, the overlay
+-- lock, what a restricted area changes, and whether chat and tracking
+-- permission are granted. Rows stack in that flow, so removing one reflows
+-- the rest. No per-alert settings.
+-- ContentLayerReady registers one button, labeled Toggle, that opens the
+-- manager. While RestrictedAreas reports Restricted, a line under that
 -- button reads "In Restricted Area" in red, with a description under it.
 -- Otherwise the panel is only the button.
 --
@@ -20,28 +21,22 @@ local RESTRICTED_LISTENER = "watchdog.restricted"
 -- Alert Manager header labels (0xRRGGBBAA).
 local TEXT_RGBA = 220 * 0x1000000 + 222 * 0x10000 + 230 * 0x100 + 255
 local RESTRICTED_LINE = "In Restricted Area"
--- What Restricted means on this panel: those triggers stay quiet, the rest do not.
-local RESTRICTED_DETAIL = "Spawn, game-message, and location triggers stay quiet. Other triggers still run."
+-- Shown under the red "In Restricted Area" title on the content panel.
+local RESTRICTED_DETAIL =
+"Nearby spawns, game messages, and spots you chose will not alert you. Other alerts still work."
+-- Settings has no red title, so this block has to say what a restricted area is.
+local SETTINGS_RESTRICTED_TITLE = "Restricted areas"
+local SETTINGS_RESTRICTED_BODY =
+"While you are in a restricted area, Watchdog will not alert you about nearby spawns, game messages, or walking into or out of a spot you chose. Other alerts still work."
 -- Red, packed 0xRRGGBBAA like TEXT_RGBA. Only the restricted title uses it.
 local RESTRICTED_RGBA = 255 * 0x1000000 + 48 * 0x10000 + 48 * 0x100 + 255
-local RESTRICTED_DETAIL_H = 60
+local RESTRICTED_DETAIL_H = 72
 
-local SHELL_LABEL_Y = 12
-local SHELL_FIELD_Y = 36
-local SHELL_HINT_Y = 70
-local SHELL_HINT_H = 40
-local LOCK_Y = 114
-local DETAIL_Y = 144
-local DETAIL_H = 48
-local STATUS_Y = 200
 local STATUS_H = 24
-local STATUS_GAP = 28
 local INSET_X = 12
 local BUTTON_H = 30
-local FIELD_W = 240
 local SHELL_KEY_DB = "watchdog_shell_key"
 local LOCK_DB = "watchdog_position_lock"
-local SHELL_HINT = "Clear the shell key to leave that key free. The content panel Toggle still opens Watchdog."
 
 local HubLayers = {}
 
@@ -149,44 +144,6 @@ local function releaseSettingsWidgets()
     lockBox = nil
 end
 
-local function mountShellKey(root)
-    if prettyui == nil or prettyui.KeybindField == nil then return end
-    local defaultKeys = defaultShellKeys()
-    local options = {
-        x = INSET_X,
-        y = SHELL_FIELD_Y,
-        width = FIELD_W,
-        value = HubLayers.ShellKeys(),
-        onChange = function(_, value)
-            HubLayers.SetShellKeys(value)
-        end,
-    }
-    if #defaultKeys > 0 then
-        options.defaultValue = defaultKeys
-    end
-    local ok, field = pcall(function()
-        return prettyui.KeybindField.new(root, options)
-    end)
-    if ok then keybindField = field end
-end
-
-local function mountLock(root)
-    if prettyui == nil or prettyui.CheckboxButton == nil then return end
-    local ok, box = pcall(function()
-        return prettyui.CheckboxButton.new(root, {
-            { text = "Lock infobox and toasts", value = "lock", selected = HubLayers.PositionsLocked() },
-        }, {
-            x = INSET_X,
-            y = LOCK_Y,
-            width = FIELD_W,
-            onChange = function(_, _, _, selected)
-                HubLayers.SetPositionsLocked(selected == true)
-            end,
-        })
-    end)
-    if ok then lockBox = box end
-end
-
 local function granted(permission)
     return Plugin.HasPermission(permission) == true
 end
@@ -287,19 +244,59 @@ local function fillSettings(parent)
     settingsRoot = nil
     settingsParent = parent
 
-    local root = ui.Layer.new(parent)
-    root:SetSize(0, 0, 1, 1)
-    settingsRoot = root
+    -- The client parent is a raw component. SimpleView is the prettyui flow
+    -- host for that parent: each Add stacks under the last, and removing one
+    -- reflows the rest. A y on an Add pins that row and it will not move.
+    if prettyui == nil or prettyui.SimpleView == nil then return end
+    local view = prettyui.SimpleView.new(parent, {
+        width = 0,
+        height = 0,
+        widthAnchor = 1,
+        heightAnchor = 1,
+        layout = {
+            startY = 12,
+            paddingLeft = INSET_X,
+            paddingRight = INSET_X,
+            rowGap = 8,
+        },
+    })
+    settingsRoot = view
 
-    addLine(root, SHELL_LABEL_Y, STATUS_H, "Shell key", 1)
-    mountShellKey(root)
-    local hint = addLine(root, SHELL_HINT_Y, SHELL_HINT_H, SHELL_HINT, 2)
-    hint.alignVertical = ui.AlignMode.TOPLEFT
-    mountLock(root)
-    local detail = addLine(root, DETAIL_Y, DETAIL_H, RESTRICTED_DETAIL, 3)
-    detail.alignVertical = ui.AlignMode.TOPLEFT
-    addLine(root, STATUS_Y, STATUS_H, permissionLine("Chat", PluginPermissions.chatAccess), 1)
-    addLine(root, STATUS_Y + STATUS_GAP, STATUS_H, permissionLine("Tracking", PluginPermissions.trackingAccess), 1)
+    view:AddText("Manager key")
+    local defaultKeys = defaultShellKeys()
+    local keyOptions = {
+        value = HubLayers.ShellKeys(),
+        onChange = function(_, value)
+            HubLayers.SetShellKeys(value)
+        end,
+    }
+    if #defaultKeys > 0 then
+        keyOptions.defaultValue = defaultKeys
+    end
+    local ok, field = pcall(function()
+        return view:AddKeybindField(keyOptions)
+    end)
+    if ok then keybindField = field end
+
+    local lockOk, box = pcall(function()
+        return view:AddCheckboxButton({
+            { text = "Lock infobox and toasts", value = "lock", selected = HubLayers.PositionsLocked() },
+        }, {
+            onChange = function(_, _, _, selected)
+                HubLayers.SetPositionsLocked(selected == true)
+            end,
+        })
+    end)
+    if lockOk then lockBox = box end
+
+    view:AddTitle(SETTINGS_RESTRICTED_TITLE)
+    view:AddText({
+        text = SETTINGS_RESTRICTED_BODY,
+        maxLines = 4,
+        alignVertical = ui.AlignMode.TOPLEFT,
+    })
+    view:AddText(permissionLine("Chat", PluginPermissions.chatAccess))
+    view:AddText(permissionLine("Tracking", PluginPermissions.trackingAccess))
 end
 
 ---@param parent ui.ComponentCollection
