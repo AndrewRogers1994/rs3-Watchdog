@@ -1,6 +1,7 @@
 {
   "name": "Watchdog",
   "version": "1.0.0",
+  "contactEmailAddress": "rs3plugins@grynjolf.dev",
   "hasSettingsIcon": true,
   "hasRibbonIcon": true,
   "requiredDependencies": {
