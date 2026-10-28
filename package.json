@@ -1,6 +1,7 @@
 {
   "scripts": {
     "bundle": "powershell -NoProfile -ExecutionPolicy Bypass -File bundle.ps1",
+    "bundle-min": "powershell -NoProfile -ExecutionPolicy Bypass -File bundle.ps1 -Minify",
     "modio": "powershell -NoProfile -ExecutionPolicy Bypass -File bundle.ps1 -Modio",
     "sandcastle": "npx tsx .sandcastle/main.mts",
     "test": "lua tests/run.lua",

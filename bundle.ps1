@@ -9,7 +9,7 @@
     Lua files are naively stripped: drop whole-line -- comments (including simple
     --[[ ... ]] blocks) and inline trailing -- comments; -- inside quoted/long
     strings is preserved. With -Minify, that stripper is skipped for a whitelist of
-    plugins (Watchdog, LibNodeGraph, LibNodeGraphStd) and those Lua files are
+    plugins (Watchdog, LibNodeGraph, LibNodeGraphStd, RestrictedAreas) and those Lua files are
     rewritten by scripts/minify.lua instead. prettyui is never minified.
 
     Default (dev) layout mirrors the live client: one top-level folder per plugin
@@ -28,7 +28,7 @@
 
 .PARAMETER Minify
     Minify staged Lua via scripts/minify.lua instead of naive comment stripping,
-    but only for Watchdog, LibNodeGraph, and LibNodeGraphStd.
+    but only for Watchdog, LibNodeGraph, LibNodeGraphStd, and RestrictedAreas.
 
 .PARAMETER Modio
     Produce a mod.io zip: Watchdog-only, flat layout, plugin.modio.json as plugin.json.
@@ -51,7 +51,7 @@ $watchdogDir = $PSScriptRoot
 $rs3Root = Split-Path -Parent $watchdogDir
 $pluginName = 'Watchdog'
 $pruneSegments = @('tests', 'docs', '.git', '.vscode', 'staging', 'scripts', '.worktrees')
-$minifyPlugins = @('Watchdog', 'LibNodeGraph', 'LibNodeGraphStd')
+$minifyPlugins = @('Watchdog', 'LibNodeGraph', 'LibNodeGraphStd', 'RestrictedAreas')
 
 function Test-Pruned {
     param([string]$RelativePath)
