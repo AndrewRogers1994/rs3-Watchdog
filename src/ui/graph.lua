@@ -1475,7 +1475,7 @@ end
 ---@param pinControl table
 ---@param nodeId integer
 ---@param ctrl table
----@param opts { labels: string[]|nil, initial: string|nil, number: number|nil, onNumber: (fun(raw: string, quantity: number|nil))|nil, openLayout: (fun(x: number, y: number, w: number, h: number): { x: number, y: number, w: number, h: number }|nil, { x: number, y: number, w: number, h: number })|nil }
+---@param opts { labels: string[]|nil, ids: integer[]|nil, initial: string|nil, number: number|nil, onNumber: (fun(raw: string, quantity: number|nil))|nil, openLayout: (fun(x: number, y: number, w: number, h: number): { x: number, y: number, w: number, h: number }|nil, { x: number, y: number, w: number, h: number })|nil }
 ---@param onSelect fun(label: string)
 function Editor:mountControlDropdown(pinControl, nodeId, ctrl, opts, onSelect)
     if self.editing ~= nil then
@@ -1527,11 +1527,32 @@ function Editor:mountControlDropdown(pinControl, nodeId, ctrl, opts, onSelect)
         field.clickthrough = false
         field:SetPos(ax, ay)
         field:SetSize(listRect.w, listRect.h)
-        -- ComboField reorders entries and reassigns IDs; select by label.
+        -- ComboField reorders entries and may replace the id Add was given.
+        -- Callers that pass opts.ids still want that id on the entry (sound ids
+        -- are unique). Selection below uses whatever id the combo kept.
         for i, label in ipairs(opts.labels or {}) do
-            field:Add(label, i)
+            local entryId = i
+            if type(opts.ids) == "table" and opts.ids[i] ~= nil then
+                entryId = opts.ids[i]
+            end
+            field:Add(label, entryId)
         end
-        if opts.openLayout ~= nil and opts.initial == nil then
+        if type(opts.ids) == "table" then
+            local selId = nil
+            if opts.initial ~= nil then
+                for _, entry in ipairs(field.entries) do
+                    if entry.text == opts.initial then
+                        selId = entry.id
+                        break
+                    end
+                end
+            end
+            if selId ~= nil then
+                field:Select(selId, false)
+            else
+                pcall(function() field:UnselectAll() end)
+            end
+        elseif opts.openLayout ~= nil and opts.initial == nil then
             -- A raw number must not land on the first row.
             pcall(function() field:UnselectAll() end)
         else

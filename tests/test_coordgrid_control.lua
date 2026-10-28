@@ -147,6 +147,12 @@ function TestCoordgridGeometryDelegation:testLayoutProducesThreeFieldsAndOneActi
     end
     luaunit.assertTrue(axes.x and axes.z and axes.level)
     luaunit.assertEquals(actions, 1)
+    local fields = {}
+    for _, r in ipairs(rects) do
+        if r.kind == "field" then fields[#fields + 1] = r.axis end
+    end
+    luaunit.assertEquals(fields, { "level", "x", "z" })
+    luaunit.assertTrue(rects[1].x < rects[2].x and rects[2].x < rects[3].x)
 end
 
 return {}

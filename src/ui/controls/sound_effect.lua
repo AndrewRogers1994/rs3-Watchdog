@@ -13,7 +13,41 @@ local SoundEffect = {}
 
 -- The pack row stays in the layout either way. Dropping it when a pack loads
 -- would grow the node and overlap whatever is placed underneath.
-SoundEffect.EMPTY_PACK = "No pack sounds"
+SoundEffect.EMPTY_PACK = "Another plugin can register sounds"
+SoundEffect.BUILTIN_PLACEHOLDER = "Sound name"
+
+-- id.Sound names are unique table keys. Built once per table so a draw does
+-- not walk all 59852 names. A new table (tests, a stub reload) rebuilds it.
+local catalogSource = nil
+local catalog = nil
+
+local function soundCatalog()
+    local source = nil
+    if id ~= nil then source = id.Sound end
+    if catalog ~= nil and catalogSource == source then return catalog end
+    catalogSource = source
+    local byName = {}
+    local byId = {}
+    local labels = {}
+    local ids = {}
+    if type(source) == "table" then
+        local rows = {}
+        for name, soundId in pairs(source) do
+            if type(name) == "string" and type(soundId) == "number" then
+                rows[#rows + 1] = { name = name, id = soundId }
+            end
+        end
+        table.sort(rows, function(a, b) return a.name < b.name end)
+        for i, row in ipairs(rows) do
+            labels[i] = row.name
+            ids[i] = row.id
+            byName[row.name] = row.id
+            byId[row.id] = row.name
+        end
+    end
+    catalog = { labels = labels, ids = ids, byName = byName, byId = byId }
+    return catalog
+end
 
 ---@param _pin table|nil
 ---@return number
@@ -27,18 +61,21 @@ function SoundEffect.HasPackRows()
     return #PackRows.SoundEffectRows(packs) > 0
 end
 
---- Number row, then the pack row, inside the band under the pin. The pack row
+--- Number row, then every builtin sound name, then the pack row. The pack row
 --- is always reserved. With no offers it is a message, not a dropdown.
 ---@param band { x: number, y: number, w: number, h: number }
 ---@return table[]
 function SoundEffect.Layout(band)
     local y = band.y + Theme.SOUND_TOP_GAP
     local rowH = Theme.SOUND_ROW_H
+    local step = rowH + Theme.SOUND_ROW_GAP
     local packPlaceholder = SoundEffect.HasPackRows() and "None" or SoundEffect.EMPTY_PACK
     return {
         { kind = "number", x = band.x, y = y, w = band.w, h = rowH },
+        { kind = "builtin", placeholder = SoundEffect.BUILTIN_PLACEHOLDER,
+          x = band.x, y = y + step, w = band.w, h = rowH },
         { kind = "pack", placeholder = packPlaceholder,
-          x = band.x, y = y + rowH + Theme.SOUND_ROW_GAP, w = band.w, h = rowH },
+          x = band.x, y = y + step * 2, w = band.w, h = rowH },
     }
 end
 
@@ -48,6 +85,11 @@ function SoundEffect.Display(ctrl)
     local packs = Packs.live() or Packs.new()
     if ctrl.kind == "number" then
         return NumberField.Format(packs:ResolveSoundEffect(ctrl.value))
+    end
+    if ctrl.kind == "builtin" then
+        local current = packs:ResolveSoundEffect(ctrl.value)
+        if type(current) ~= "number" then return "" end
+        return soundCatalog().byId[current] or ""
     end
     -- A raw builtin id has no pack offer. The number row already shows it.
     if type(ctrl.value) == "number" then return "" end
@@ -62,9 +104,35 @@ end
 function SoundEffect.Press(host, ctrl)
     if ctrl.kind == "number" then
         SoundEffect.EditNumber(host, ctrl)
+    elseif ctrl.kind == "builtin" then
+        SoundEffect.EditBuiltin(host, ctrl)
     else
         SoundEffect.EditPack(host, ctrl)
     end
+end
+
+-- One filtering combo of every id.Sound name. The entry id is the sound id.
+-- The pick comes back as a label because the combo may reorder; names are
+-- unique, so the label is the id. The number row stays for a raw id.
+---@param host ControlHost
+---@param ctrl table
+function SoundEffect.EditBuiltin(host, ctrl)
+    local names = soundCatalog()
+    if #names.labels == 0 then return end
+    local packs = Packs.live() or Packs.new()
+    local current = packs:ResolveSoundEffect(ctrl.value)
+    local initial = nil
+    if type(current) == "number" then initial = names.byId[current] end
+    host:MountDropdown(ctrl, {
+        labels = names.labels,
+        ids = names.ids,
+        initial = initial,
+    }, function(label)
+        local soundId = names.byName[label]
+        if soundId == nil then return end
+        local stored = host:GetControl()
+        host:Commit(SoundEffectValue.apply(stored, "number", soundId))
+    end)
 end
 
 ---@param host ControlHost
@@ -116,6 +184,14 @@ end
 function SoundEffect.Draw(canvas, rect, ctrl, dctx)
     -- No caret when there is nothing to open. A stored pack record still draws
     -- its closed label through the same plain box.
+    if ctrl.kind == "builtin" then
+        if #soundCatalog().labels == 0 then
+            NumberField.Draw(canvas, rect, ctrl, dctx)
+        else
+            Dropdown:Draw(canvas, rect, ctrl, dctx)
+        end
+        return
+    end
     if ctrl.kind == "number" or not SoundEffect.HasPackRows() then
         NumberField.Draw(canvas, rect, ctrl, dctx)
     else

@@ -21,6 +21,8 @@ function Util.NormalizePlayerName(name)
     return name:lower()
 end
 
+-- Shallow. Nested tables stay shared with `tbl`. Callers pass a flat axis
+-- value (a number or a boolean), so a shared nested table would be a surprise.
 ---@param tbl table|nil
 ---@param key any
 ---@param value any

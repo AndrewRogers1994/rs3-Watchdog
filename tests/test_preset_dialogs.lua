@@ -256,7 +256,7 @@ function TestPresetVariableSound:testNoPackSoundsLeavesTheMessageInsteadOfADropd
     self:mount(self:preset(50))
     local sawMessage = false
     for _, text in ipairs(self.texts) do
-        if text.content == "No pack sounds" then sawMessage = true end
+        if text.content == "Another plugin can register sounds" then sawMessage = true end
     end
     luaunit.assertTrue(sawMessage)
     luaunit.assertEquals(#self.combos, 0)
