@@ -382,8 +382,10 @@ editor.onSavePreset = function()
     })
 end
 
+-- Shell, effects, infobox, and toasts share this parent. Saved anchors are
+-- plain offsets, so a different origin moves existing positions.
 local function getRootParent()
-    local candidates = { "TOPLEVEL_V2__GAME_AREA" }
+    local candidates = { "TOPLEVEL_V2__PLUGIN_BUILD_LAYER_TOP" }
     for _, key in ipairs(candidates) do
         local componentID = id.Component[key]
         if componentID ~= nil then
