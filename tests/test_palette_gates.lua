@@ -1,6 +1,8 @@
--- Palette gates (#116). Game Message and Shortest Path each appear once. A closed
--- gate is an Unavailable row and cannot be placed, including from a filtered open.
--- Opening the gate makes that same row placeable. The permanent list is unchanged.
+-- Palette gates (#116). Game Message (trigger and action), Player Chat, and Shortest
+-- Path each appear once. A closed gate is an Unavailable row and cannot be placed,
+-- including from a filtered open. Opening the gate makes that same row placeable.
+-- The permanent list is unchanged. Both chat triggers use the Game Message action's
+-- "needs chat permission" reason.
 
 _G.Vector4 = _G.Vector4 or { new = function(r, g, b, a) return { r, g, b, a } end }
 _G.id = _G.id or { Font = setmetatable({}, { __index = function() return 1 end }) }
@@ -11,6 +13,8 @@ end }) }
 local luaunit = require("luaunit")
 local Palette = require("src/ui/palette")
 local Registry = require("registry")
+local GameMessageTrigger = require("src/nodes/triggers/game_message")
+local PlayerChat = require("src/nodes/triggers/player_chat")
 local GameMessage = require("src/nodes/actions/game_message")
 local ShortestPath = require("src/nodes/actions/shortest_path")
 
@@ -61,6 +65,9 @@ function TestPaletteGates:setUp()
         },
     }
     self.registry = Registry.new()
+    self.runtime = { BindTrigger = function() end }
+    GameMessageTrigger.Register(self.registry, self.runtime)
+    PlayerChat.Register(self.registry, self.runtime)
     GameMessage.Register(self.registry)
     ShortestPath.Register(self.registry)
     self.palette = Palette.new()
@@ -73,9 +80,11 @@ function TestPaletteGates:tearDown()
     _G.shortestpath = self.saved.shortestpath
 end
 
-function TestPaletteGates:rowNamed(name)
+function TestPaletteGates:rowNamed(name, category)
     for _, row in ipairs(itemRows(self.palette.rows)) do
-        if row.displayName == name then return row end
+        if row.displayName == name and (category == nil or row.category == category) then
+            return row
+        end
     end
     return nil
 end
@@ -88,11 +97,11 @@ function TestPaletteGates:countNamed(name)
     return n
 end
 
-function TestPaletteGates:rowAtName(name)
+function TestPaletteGates:rowAtName(name, category)
     self.palette:Draw(mockCanvas(), 0, 0, 800, 600, -1, -1)
     local r = self.palette.rect
     for i, row in ipairs(self.palette.rows) do
-        if row.displayName == name then
+        if row.displayName == name and (category == nil or row.category == category) then
             local y = r.y + r.pad + (i - 1) * r.rowH + math.floor(r.rowH / 2)
             return self.palette:RowAt(r.x + 20, y)
         end
@@ -103,27 +112,41 @@ end
 function TestPaletteGates:testClosedGatesAreUnavailableOnceAndCannotBePlaced()
     self.palette:Open(self.registry, nil, OPTS)
 
-    luaunit.assertEquals(self:countNamed("Game Message"), 1)
+    luaunit.assertEquals(self:countNamed("Game Message"), 2)
+    luaunit.assertEquals(self:countNamed("Player Chat"), 1)
     luaunit.assertEquals(self:countNamed("Shortest Path"), 1)
 
-    local game = self:rowNamed("Game Message")
+    local gameTrigger = self:rowNamed("Game Message", "trigger")
+    local gameAction = self:rowNamed("Game Message", "action")
+    local player = self:rowNamed("Player Chat")
     local path = self:rowNamed("Shortest Path")
-    luaunit.assertTrue(game.unavailable)
-    luaunit.assertEquals(game.description, "needs chat permission")
-    luaunit.assertIsNil(game.typeKey)
+    luaunit.assertTrue(gameTrigger.unavailable)
+    luaunit.assertEquals(gameTrigger.description, "needs chat permission")
+    luaunit.assertIsNil(gameTrigger.typeKey)
+    luaunit.assertTrue(gameAction.unavailable)
+    luaunit.assertEquals(gameAction.description, "needs chat permission")
+    luaunit.assertIsNil(gameAction.typeKey)
+    luaunit.assertTrue(player.unavailable)
+    luaunit.assertEquals(player.description, "needs chat permission")
+    luaunit.assertIsNil(player.typeKey)
     luaunit.assertTrue(path.unavailable)
     luaunit.assertEquals(path.description, "needs Shortest Path")
     luaunit.assertIsNil(path.typeKey)
 
     -- The type stays registered, so a node already on a graph still has a type.
+    luaunit.assertNotNil(self.registry:GetNodeType("trigger.game_message"))
+    luaunit.assertNotNil(self.registry:GetNodeType("trigger.player_chat"))
     luaunit.assertNotNil(self.registry:GetNodeType("action.game_message"))
     luaunit.assertNotNil(self.registry:GetNodeType("action.shortest_path"))
 
-    luaunit.assertIsNil(self:rowAtName("Game Message"))
+    luaunit.assertIsNil(self:rowAtName("Game Message", "trigger"))
+    luaunit.assertIsNil(self:rowAtName("Game Message", "action"))
+    luaunit.assertIsNil(self:rowAtName("Player Chat"))
     luaunit.assertIsNil(self:rowAtName("Shortest Path"))
 
     self.palette:Open(self.registry, function() return "in" end, OPTS)
     luaunit.assertEquals(self:countNamed("Game Message"), 0)
+    luaunit.assertEquals(self:countNamed("Player Chat"), 0)
     luaunit.assertEquals(self:countNamed("Shortest Path"), 0)
 
     -- Permanent rows stay on the unfiltered list only, and the old chat-injection row is gone.
@@ -143,25 +166,40 @@ function TestPaletteGates:testOpeningTheGatesMakesTheSameRowsPlaceable()
     self.onDependency({ pluginIdentifier = "shortestpath", enabled = true })
 
     self.palette:Open(self.registry, nil, OPTS)
-    luaunit.assertEquals(self:countNamed("Game Message"), 1)
+    luaunit.assertEquals(self:countNamed("Game Message"), 2)
+    luaunit.assertEquals(self:countNamed("Player Chat"), 1)
     luaunit.assertEquals(self:countNamed("Shortest Path"), 1)
 
-    local game = self:rowNamed("Game Message")
+    local gameTrigger = self:rowNamed("Game Message", "trigger")
+    local gameAction = self:rowNamed("Game Message", "action")
+    local player = self:rowNamed("Player Chat")
     local path = self:rowNamed("Shortest Path")
-    luaunit.assertNil(game.unavailable)
-    luaunit.assertEquals(game.typeKey, "action.game_message")
+    luaunit.assertNil(gameTrigger.unavailable)
+    luaunit.assertEquals(gameTrigger.typeKey, "trigger.game_message")
+    luaunit.assertNil(gameAction.unavailable)
+    luaunit.assertEquals(gameAction.typeKey, "action.game_message")
+    luaunit.assertNil(player.unavailable)
+    luaunit.assertEquals(player.typeKey, "trigger.player_chat")
     luaunit.assertNil(path.unavailable)
     luaunit.assertEquals(path.typeKey, "action.shortest_path")
 
-    local hitGame = self:rowAtName("Game Message")
-    luaunit.assertNotNil(hitGame)
-    luaunit.assertEquals(hitGame.typeKey, "action.game_message")
+    local hitTrigger = self:rowAtName("Game Message", "trigger")
+    luaunit.assertNotNil(hitTrigger)
+    luaunit.assertEquals(hitTrigger.typeKey, "trigger.game_message")
+    local hitAction = self:rowAtName("Game Message", "action")
+    luaunit.assertNotNil(hitAction)
+    luaunit.assertEquals(hitAction.typeKey, "action.game_message")
+    local hitPlayer = self:rowAtName("Player Chat")
+    luaunit.assertNotNil(hitPlayer)
+    luaunit.assertEquals(hitPlayer.typeKey, "trigger.player_chat")
     local hitPath = self:rowAtName("Shortest Path")
     luaunit.assertNotNil(hitPath)
     luaunit.assertEquals(hitPath.typeKey, "action.shortest_path")
 
     self.palette:Open(self.registry, function() return "in" end, OPTS)
-    luaunit.assertEquals(self:rowNamed("Game Message").typeKey, "action.game_message")
+    luaunit.assertEquals(self:rowNamed("Game Message", "trigger").typeKey, "trigger.game_message")
+    luaunit.assertEquals(self:rowNamed("Game Message", "action").typeKey, "action.game_message")
+    luaunit.assertEquals(self:rowNamed("Player Chat").typeKey, "trigger.player_chat")
     luaunit.assertEquals(self:rowNamed("Shortest Path").typeKey, "action.shortest_path")
     luaunit.assertEquals(self:countNamed("Overhead Text"), 0)
 end

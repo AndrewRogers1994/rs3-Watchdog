@@ -4,7 +4,7 @@ local Unavailable = require("src/nodes/unavailable")
 TestUnavailable = {}
 
 -- Overhead Text, Sound Fired, Overhead, Request Focus, and Text to Speech stay
--- permanently Unavailable. Game Message is a gated action, not one of these rows.
+-- permanently Unavailable. Game Message and Player Chat are gated types, not these rows.
 function TestUnavailable:testPermanentListIsTheFiveMissingApis()
     local names = {}
     for _, entry in ipairs(Unavailable) do

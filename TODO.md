@@ -34,10 +34,10 @@ Target: mirror the trigger/notification list from https://github.com/adamk33n3r/
 
 ### Triggers
 
-- [x] Game Message — `trigger.chat`
-  - `Event.ChatMessage` → payload `chatMessage` (String), `chatType` (ChatType), `timestamp`. Filter `chatType` to the game/engine types (GENERAL=0, ENGINE=4, SPAM=109, broadcasts, etc.).
-- [x] Player Chat Message — `trigger.chat` (same node, chat-type-aware)
-  - `Event.ChatMessage` (same event) → filter `chatType` to player-typed lines: PUBLIC=2, FRIEND_CHAT=9, CLANCHANNEL\_\*, GROUP\_\*, PRIVATE_INCOMING/OUTGOING, and their QUICKCHAT variants.
+- [x] Game Message — `trigger.game_message`
+  - `Event.ChatMessage` → payload `chatMessage` (String), `chatType` (ChatType), `timestamp`. Filter `chatType` to the game/engine types (GENERAL=0, ENGINE=4, SPAM=109, broadcasts, etc.). Palette Unavailable with "needs chat permission" until `chatAccess` is granted, same gate as the Game Message action. The type stays registered.
+- [x] Player Chat Message — `trigger.player_chat`
+  - `Event.ChatMessage` (same event) → filter `chatType` to player-typed lines: PUBLIC=2, FRIEND_CHAT=9, CLANCHANNEL\_\*, GROUP\_\*, PRIVATE_INCOMING/OUTGOING, and their QUICKCHAT variants. Same Palette gate and reason as Game Message.
 - [ ] Overhead Text
   - NO EVENT. The API has no overhead-text event and `PlayerEntity`/`NPCEntity` expose no overhead/chat-text field (only uid, displayName, position, coordGrid, facing). Not achievable with the current API — needs a Jagex-side event.
 - [x] Stat Changed — boosts/drains

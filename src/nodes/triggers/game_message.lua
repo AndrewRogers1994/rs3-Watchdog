@@ -1,3 +1,4 @@
+local ChatPermission = require("src/nodes/chat_permission")
 local ChatTypes = require("src/chat_types")
 local Matcher = require("src/matcher")
 local Text = require("src/text")
@@ -34,6 +35,10 @@ end
 ---@param registry LibNodeGraph.Registry
 ---@param runtime Watchdog.Runtime
 function GameMessage.Register(registry, runtime)
+    -- Same Palette reason as the Game Message action. ChatMessage is withheld
+    -- without chatAccess, and the type stays registered.
+    ChatPermission.Bind("trigger.game_message")
+
     pcall(function()
         local Controls = require("src/ui/controls")
         Controls.Register("gameMessageType",
