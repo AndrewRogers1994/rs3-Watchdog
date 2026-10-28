@@ -107,7 +107,8 @@ function Remove-InlineLuaComment {
                 if ($ch -eq '\' -and ($i + 1) -lt $len) {
                     $i++
                     [void]$sb.Append($Line[$i])
-                } elseif ($ch -eq $quote) {
+                }
+                elseif ($ch -eq $quote) {
                     break
                 }
                 $i++
@@ -157,39 +158,6 @@ function Remove-InlineLuaComment {
     }
 
     return $sb.ToString().TrimEnd()
-}
-
-function Remove-NaiveLuaComments {
-    param([string]$Text)
-
-    $normalized = $Text -replace "`r`n", "`n" -replace "`r", "`n"
-    $out = New-Object System.Collections.Generic.List[string]
-    $inBlock = $false
-
-    foreach ($line in ($normalized -split "`n", -1)) {
-        if ($inBlock) {
-            if ($line -match '\]\]') { $inBlock = $false }
-            continue
-        }
-
-        $trimmed = $line.TrimStart()
-        if ($trimmed.StartsWith('--')) {
-            if ($trimmed.StartsWith('--[[') -and $trimmed -notmatch '\]\]') {
-                $inBlock = $true
-            }
-            continue
-        }
-
-        $stripped = Remove-InlineLuaComment $line
-        if ($stripped.Length -gt 0) {
-            $out.Add($stripped.TrimEnd("`r"))
-        }
-    }
-
-    if ($out.Count -eq 0) {
-        return ""
-    }
-    return ($out -join "`n") + "`n"
 }
 
 function Invoke-MinifyLua {
@@ -258,9 +226,8 @@ function Copy-BundledFile {
         }
 
         $text = [System.IO.File]::ReadAllText($Src)
-        $stripped = Remove-NaiveLuaComments $text
         $utf8 = New-Object System.Text.UTF8Encoding $false
-        [System.IO.File]::WriteAllText($Dst, $stripped, $utf8)
+        [System.IO.File]::WriteAllText($Dst, $text, $utf8)
         return
     }
 
