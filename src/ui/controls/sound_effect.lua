@@ -5,45 +5,38 @@ local Packs = require("src/packs")
 local PackRows = require("src/pack_rows")
 local SoundEffectValue = require("src/sound_effect_value")
 
--- Sound Effect's pin stays dataType "number" so a number output can still wire
--- in. This module is registered for that pin only. The builtin id and the pack
--- list are separate rows: changing one must not cover the other.
-
 local SoundEffect = {}
 
--- The pack row stays in the layout either way. Dropping it when a pack loads
--- would grow the node and overlap whatever is placed underneath.
 SoundEffect.EMPTY_PACK = "Another plugin can register sounds"
 SoundEffect.BUILTIN_PLACEHOLDER = "Sound name"
 
--- id.Sound names are unique table keys. Built once per table so a draw does
--- not walk all 59852 names. A new table (tests, a stub reload) rebuilds it.
+-- id.Sound is userdata in the client and a table in tests. pairs sees the
+-- names either way. Built once per source so a draw does not walk them again.
 local catalogSource = nil
 local catalog = nil
 
 local function soundCatalog()
-    local source = nil
-    if id ~= nil then source = id.Sound end
+    local source = id.Sound
     if catalog ~= nil and catalogSource == source then return catalog end
     catalogSource = source
-    local byName = {}
-    local byId = {}
-    local labels = {}
-    local ids = {}
-    if type(source) == "table" then
-        local rows = {}
+    local rows = {}
+    if type(source) == "table" or type(source) == "userdata" then
         for name, soundId in pairs(source) do
             if type(name) == "string" and type(soundId) == "number" then
                 rows[#rows + 1] = { name = name, id = soundId }
             end
         end
-        table.sort(rows, function(a, b) return a.name < b.name end)
-        for i, row in ipairs(rows) do
-            labels[i] = row.name
-            ids[i] = row.id
-            byName[row.name] = row.id
-            byId[row.id] = row.name
-        end
+    end
+    table.sort(rows, function(a, b) return a.name < b.name end)
+    local byName = {}
+    local byId = {}
+    local labels = {}
+    local ids = {}
+    for i, row in ipairs(rows) do
+        labels[i] = row.name
+        ids[i] = row.id
+        byName[row.name] = row.id
+        byId[row.id] = row.name
     end
     catalog = { labels = labels, ids = ids, byName = byName, byId = byId }
     return catalog
@@ -61,8 +54,7 @@ function SoundEffect.HasPackRows()
     return #PackRows.SoundEffectRows(packs) > 0
 end
 
---- Number row, then every builtin sound name, then the pack row. The pack row
---- is always reserved. With no offers it is a message, not a dropdown.
+--- Number row, then every builtin sound name, then the pack row
 ---@param band { x: number, y: number, w: number, h: number }
 ---@return table[]
 function SoundEffect.Layout(band)

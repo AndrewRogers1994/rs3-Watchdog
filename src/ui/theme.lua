@@ -52,7 +52,8 @@ Theme.SOUND_ROW_GAP      = 4
 Theme.SOUND_BOTTOM_GAP   = 4
 Theme.SOUND_BAND_H       = Theme.SOUND_TOP_GAP + Theme.SOUND_ROW_H
     + Theme.SOUND_ROW_GAP + Theme.SOUND_ROW_H
-    + Theme.SOUND_ROW_GAP + Theme.SOUND_ROW_H + Theme.SOUND_BOTTOM_GAP
+    + Theme.SOUND_ROW_GAP + Theme.SOUND_ROW_H
+    + Theme.SOUND_BOTTOM_GAP
 
 Theme.MATCHER_TOP_GAP    = 4
 Theme.MATCHER_FIELD_H    = 16
