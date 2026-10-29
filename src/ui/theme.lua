@@ -24,15 +24,11 @@ Theme.MODE_STRIP_PAD       = 4
 Theme.MODE_STRIP_H         = Theme.MODE_STRIP_PAD + Theme.CONTROL_H + Theme.MODE_STRIP_PAD
 Theme.CONTROL_LABEL_CHAR_W = 7     -- approx per-char width when Theme.TextWidth is unavailable
 Theme.CONTROL_LABEL_GAP    = 8
-Theme.CONTROL_OUT_RESERVE  = 52    -- space for an output pin+label sharing the row
 Theme.CONTROL_PAD_X        = 5
 Theme.CONTROL_MIN_W        = 12
 Theme.CONTROL_MIN_ZOOM     = 0.45  -- below this the box/text is unreadable, so it isn't drawn
--- The transient editor is a real component with a native, fixed-pixel font that does NOT
--- scale with the View, so it's sized in screen pixels independent of zoom (height fixed;
--- width tracks the box but never below the min). Sizing it to view:Scale(box) made the text
--- unreadable at zoom 1 - the box was 16px tall but the native font needs more.
-Theme.CONTROL_EDIT_MIN_W   = 60
+-- Native editor font does not scale with the View. Height stays fixed (a 16px box
+-- was too short). Width is the laid-out box, so it does not run into the output label.
 Theme.CONTROL_EDIT_H       = 24
 
 Theme.COORDGRID_TOP_GAP    = 4

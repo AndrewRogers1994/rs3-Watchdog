@@ -223,21 +223,32 @@ function Node.BuildGeometry(pins, x, y, width, opts)
     -- a BAND control (coordgrid, matcher, mode) lays its Widgets out in the full-width band reserved
     -- beneath the row (rowTop[i+1] - extraH .. rowTop[i+1]).
     local labelStart = Theme.PIN_MARGIN_X + Theme.PIN_GLYPH * 0.5 + Theme.PIN_LABEL_GAP
+    -- Zoom-1 metrics. Draw scales the box. TextWidth is nil outside the client.
+    local function labelWidth(text)
+        text = text or ""
+        return Theme.TextWidth(12, text) or (#text * Theme.CONTROL_LABEL_CHAR_W)
+    end
     for i, pin in ipairs(placeholder and {} or inputs) do
         local pinControl = pinControlFor(pin, connected, typeKey)
         if pinControl ~= nil then
             local rects
             if pinControl.Inline then
-                -- Start the box past the label instead of at a fixed reserve, so it can't cover long
-                -- labels like "contains"/"soundId". Measured with real font metrics (Theme.TextWidth)
-                -- at the zoom-1 label size - geometry is Graph-space at zoom 1 - falling back to a
-                -- per-char estimate when unavailable.
+                -- Past the input label, and short of the output label on this row. That label
+                -- is right-aligned against the glyph: half a glyph, the pin gap, then the text.
                 local label = pin.label or pin.name or ""
-                local labelW = Theme.TextWidth(12, label) or (#label * Theme.CONTROL_LABEL_CHAR_W)
-                local left = labelStart + labelW + Theme.CONTROL_LABEL_GAP
-                local rightInset = (outputs[i] ~= nil) and Theme.CONTROL_OUT_RESERVE or Theme.CONTROL_PAD_X
+                local left = labelStart + labelWidth(label) + Theme.CONTROL_LABEL_GAP
+                local rightInset = Theme.CONTROL_PAD_X
+                local outPin = outputs[i]
+                if outPin ~= nil then
+                    local outLabel = outPin.label or outPin.name or ""
+                    rightInset = Theme.PIN_GLYPH * 0.5 + Theme.PIN_LABEL_GAP
+                        + labelWidth(outLabel) + Theme.CONTROL_LABEL_GAP
+                end
                 local right = width - Theme.PIN_MARGIN_X - rightInset
-                if right < left + Theme.CONTROL_MIN_W then right = left + Theme.CONTROL_MIN_W end
+                if outPin == nil and right < left + Theme.CONTROL_MIN_W then
+                    right = left + Theme.CONTROL_MIN_W
+                end
+                if right < left then right = left end
                 local cy = rowTop[i] + Theme.PIN_ROW_HEIGHT * 0.5
                 rects = pinControl.Layout({
                     x = left, y = cy - Theme.CONTROL_H * 0.5, w = right - left, h = Theme.CONTROL_H,

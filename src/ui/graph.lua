@@ -1390,7 +1390,7 @@ end
 function Editor:controlEditRect(geom, ctrl)
     local sx, sy = self.view:ToScreen(geom.x + ctrl.x, geom.y + ctrl.y)
     local boxH = self.view:Scale(ctrl.h)
-    local sw = math.max(self.view:Scale(ctrl.w), Theme.CONTROL_EDIT_MIN_W)
+    local sw = self.view:Scale(ctrl.w)
     local sh = Theme.CONTROL_EDIT_H
     return sx, sy + (boxH - sh) * 0.5, sw, sh
 end

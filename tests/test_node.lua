@@ -455,6 +455,66 @@ function TestNodeHeader:testPlaceholderKeepsTheOriginalTypeKey()
         "Unknown: action.popup - Enrage callout")
 end
 
+TestInlineControlClearsOutputLabel = {}
+
+local function zoom1LabelWidth(text)
+    text = text or ""
+    return Theme.TextWidth(12, text) or (#text * Theme.CONTROL_LABEL_CHAR_W)
+end
+
+local function outputLabelLeft(nodeW, label)
+    local cx = nodeW - Theme.PIN_MARGIN_X
+    return cx - Theme.PIN_GLYPH * 0.5 - Theme.PIN_LABEL_GAP - zoom1LabelWidth(label)
+end
+
+local function fieldControl(geom, pinName)
+    for _, ctrl in ipairs(geom.controls) do
+        if ctrl.pinName == pinName and ctrl.kind == "field" then return ctrl end
+    end
+end
+
+function TestInlineControlClearsOutputLabel:testEntitySpawnRowsStopBeforeOutputLabels()
+    -- kind/Spawned and mineOnly/entityKind, with the matcher band between them.
+    local pins = {
+        { name = "kind", kind = "data", direction = "in", dataType = "string", label = "kind" },
+        { name = "nameMatch", kind = "data", direction = "in", dataType = "matcher", label = "nameMatch" },
+        { name = "mineOnly", kind = "data", direction = "in", dataType = "bool", label = "Mine only" },
+        { name = "Spawned", kind = "exec", direction = "out", label = "Spawned" },
+        { name = "Despawned", kind = "exec", direction = "out", label = "Despawned" },
+        { name = "entityKind", kind = "data", direction = "out", dataType = "string", label = "entityKind" },
+    }
+    local geom = Node.BuildGeometry(pins, 0, 0, Theme.NODE_WIDTH)
+    local cases = {
+        { pin = "kind", outLabel = "Spawned" },
+        { pin = "mineOnly", outLabel = "entityKind" },
+    }
+    for _, row in ipairs(cases) do
+        local ctrl = fieldControl(geom, row.pin)
+        luaunit.assertNotNil(ctrl)
+        local limit = outputLabelLeft(Theme.NODE_WIDTH, row.outLabel) - Theme.CONTROL_LABEL_GAP
+        luaunit.assertTrue(ctrl.x + ctrl.w <= limit + 1e-6)
+    end
+end
+
+function TestInlineControlClearsOutputLabel:testLongerOutputLabelMakesANarrowerControl()
+    local function widthFor(outLabel)
+        local geom = Node.BuildGeometry({
+            { name = "v", kind = "data", direction = "in", dataType = "string", label = "v" },
+            { name = "o", kind = "exec", direction = "out", label = outLabel },
+        }, 0, 0, Theme.NODE_WIDTH)
+        return geom.controls[1].w
+    end
+    luaunit.assertTrue(widthFor("Go") > widthFor("Spawned"))
+end
+
+function TestInlineControlClearsOutputLabel:testRowWithoutOutputUsesTheRightPad()
+    local geom = Node.BuildGeometry({
+        { name = "v", kind = "data", direction = "in", dataType = "string", label = "v" },
+    }, 0, 0, Theme.NODE_WIDTH)
+    local right = Theme.NODE_WIDTH - Theme.PIN_MARGIN_X - Theme.CONTROL_PAD_X
+    luaunit.assertAlmostEquals(geom.controls[1].x + geom.controls[1].w, right, 1e-6)
+end
+
 function TestNodeModes:testModeDropdownChoicesDisambiguatesDuplicateLabels()
     local nt = {
         modes = {
