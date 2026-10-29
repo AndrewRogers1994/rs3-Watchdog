@@ -357,6 +357,22 @@ function TestHeaderPencil:testPencilSitsJustLeftOfCloseAtTitleZoom()
     luaunit.assertFalse(Node.HitClose(geom, view, px, ccy))
 end
 
+function TestHeaderPencil:testPencilRightEdgeDoesNotLightTheCloseBox()
+    local geom = Node.BuildGeometry({}, 40, 50, Theme.NODE_WIDTH)
+    for _, zoom in ipairs({ 1, Theme.TITLE_MIN_ZOOM }) do
+        local view = View.new()
+        view.zoom = zoom
+        local ccx, ccy = closeScreenCenter(geom, view)
+        local pcx = ccx - view:Scale(Theme.RENAME_ICON_SIZE)
+        local pencilRight = pcx + view:Scale(Theme.RENAME_ICON_SIZE) * 0.5 - 0.05
+        luaunit.assertTrue(Node.HitPencil(geom, view, pencilRight, ccy))
+        luaunit.assertFalse(Node.HitClose(geom, view, pencilRight, ccy))
+        local closeLeft = ccx - view:Scale(Theme.CLOSE_SIZE) * 0.5 + 0.05
+        luaunit.assertTrue(Node.HitClose(geom, view, closeLeft, ccy))
+        luaunit.assertFalse(Node.HitPencil(geom, view, closeLeft, ccy))
+    end
+end
+
 function TestHeaderPencil:testPencilAbsentWhenCloseIsAbsent()
     local geom = Node.BuildGeometry({}, 0, 0, Theme.NODE_WIDTH)
     local view = View.new()

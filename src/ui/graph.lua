@@ -756,8 +756,8 @@ function Editor:beginPress()
     self.pressed = true
     self:expandCapture()
 
-    -- Pencil before the X: their hit pads can overlap when zoomed out, and a pencil
-    -- click must rename rather than delete or start a node drag.
+    -- Pencil before the X, so a point on the boundary renames instead of deleting
+    -- or starting a node drag.
     local hitRename = self:renameAt(lx, ly)
     if hitRename ~= nil then
         self.pressed = false

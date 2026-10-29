@@ -471,20 +471,24 @@ function Node.ControlAt(geom, view, sx, sy)
     return nil
 end
 
+local function headerBoxHit(cx, cy, half, sx, sy)
+    return sx >= cx - half and sx <= cx + half
+        and sy >= cy - half and sy <= cy + half
+end
+
 function Node.HitClose(geom, view, sx, sy)
     if geom.close == nil or view.zoom < Theme.TITLE_MIN_ZOOM then return false end
     local ccx, ccy = view:ToScreen(geom.x + geom.close.cx, geom.y + geom.close.cy)
-    local half = view:Scale(Theme.CLOSE_SIZE) * 0.5 + Theme.PIN_HIT_PAD
-    return sx >= ccx - half and sx <= ccx + half
-        and sy >= ccy - half and sy <= ccy + half
+    local half = view:Scale(Theme.CLOSE_SIZE) * 0.5
+    if not headerBoxHit(ccx, ccy, half, sx, sy) then return false end
+    return not Node.HitPencil(geom, view, sx, sy)
 end
 
 function Node.HitPencil(geom, view, sx, sy)
     if geom.pencil == nil or view.zoom < Theme.TITLE_MIN_ZOOM then return false end
     local pcx, pcy = view:ToScreen(geom.x + geom.pencil.cx, geom.y + geom.pencil.cy)
-    local half = view:Scale(Theme.RENAME_ICON_SIZE) * 0.5 + Theme.PIN_HIT_PAD
-    return sx >= pcx - half and sx <= pcx + half
-        and sy >= pcy - half and sy <= pcy + half
+    local half = view:Scale(Theme.RENAME_ICON_SIZE) * 0.5
+    return headerBoxHit(pcx, pcy, half, sx, sy)
 end
 
 function Node.HitModeStrip(geom, view, sx, sy)
