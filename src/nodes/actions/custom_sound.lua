@@ -1,5 +1,5 @@
+local AudioBus = require("src/audio_bus")
 local Packs = require("src/packs")
-local Controls = require("src/ui/controls")
 local CustomSoundControl = require("src/ui/controls/custom_sound")
 
 local CustomSound = {}
@@ -33,33 +33,6 @@ local function preloadResource(resource)
     loaded[resource] = true
 end
 
--- Keys match `audio.AudioBus` field names. Stored as strings so the dropdown does not
--- depend on the client enum existing at load; `run` resolves them to the live values.
--- Curated subset: the mixer has many sub-buses that are not useful as a user choice.
-local DEFAULT_BUS = "SFX"
-local BUS_CHOICES = {
-    { value = "MASTER",    label = "Master" },
-    { value = "SFX",       label = "SFX" },
-    { value = "MUSIC",     label = "Music" },
-    { value = "AMBIENT",   label = "Ambient" },
-    { value = "VOICEOVER", label = "Voiceover" },
-}
-
----@return { value: string, label: string }[]
-function CustomSound.BusChoices()
-    return BUS_CHOICES
-end
-
----@param name any
----@return any
-local function resolveBus(name)
-    local buses = audio.AudioBus
-    if type(name) == "string" and buses[name] ~= nil then
-        return buses[name]
-    end
-    return buses[DEFAULT_BUS]
-end
-
 --- The open-list rows. None, then Watchdog file names, then pack audio files.
 ---@return Watchdog.AudioChoiceRow[]
 function CustomSound.ResourceChoices()
@@ -69,20 +42,15 @@ end
 ---@param registry LibNodeGraph.Registry
 function CustomSound.Register(registry)
     CustomSoundControl.install()
-    Controls.Register("customSoundBus", {
-        widget = "enum",
-        choices = CustomSound.BusChoices(),
-    })
 
     registry:RegisterNodeType("action.custom_sound", {
         category = "action",
         displayName = "Custom Sound",
         pins = {
             { name = "in", kind = "exec", direction = "in" },
+            AudioBus.Pin(),
             { name = "resource", kind = "data", direction = "in", dataType = "customSoundResource",
               default = nil },
-            { name = "bus", kind = "data", direction = "in", dataType = "customSoundBus",
-              default = DEFAULT_BUS, label = "Bus" },
             { name = "volume", kind = "data", direction = "in", dataType = "number", default = 100 },
             { name = "loops", kind = "data", direction = "in", dataType = "number", default = 0 },
         },
@@ -116,7 +84,7 @@ function CustomSound.Register(registry)
             local params = audio.SoundPlaybackParams.new()
             params.volume = volume / 100
             params.numLoops = loops
-            params.audioBus = resolveBus(ctx:In("bus"))
+            params.audioBus = AudioBus.Resolve(ctx:In("bus"))
             local instance = audio.Play(resource, params)
             if packs ~= nil then
                 packs:NoteAudioPlay(instance)

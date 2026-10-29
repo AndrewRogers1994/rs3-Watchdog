@@ -2,6 +2,8 @@
 -- No LibNodeGraph: run/preload only touch ctx:In / ctx:GetControl.
 
 local luaunit = require("luaunit")
+local AudioBus = require("src/audio_bus")
+local ControlKinds = require("src/ui/control_kinds")
 local CustomSound = require("src/nodes/actions/custom_sound")
 local Packs = require("src/packs")
 local Controls = require("src/ui/controls")
@@ -70,7 +72,7 @@ function TestCustomSoundRegistration:testRegistersActionCustomSoundPins()
     for _, pin in ipairs(self.desc.pins) do byName[pin.name] = pin end
     luaunit.assertEquals(byName["in"].kind, "exec")
     luaunit.assertEquals(byName.resource.dataType, "customSoundResource")
-    luaunit.assertEquals(byName.bus.dataType, "customSoundBus")
+    luaunit.assertEquals(byName.bus.dataType, "audioBus")
     luaunit.assertEquals(byName.bus.default, "SFX")
     luaunit.assertEquals(byName.bus.label, "Bus")
     luaunit.assertEquals(byName.volume.dataType, "number")
@@ -89,7 +91,7 @@ function TestCustomSoundRegistration:testResourceChoicesEnumeratesPluginResource
 end
 
 function TestCustomSoundRegistration:testBusChoicesAreTheCuratedSetDefaultingToSfx()
-    local choices = CustomSound.BusChoices()
+    local choices = AudioBus.Choices()
     local byLabel = {}
     for _, c in ipairs(choices) do byLabel[c.label] = c.value end
     luaunit.assertEquals(byLabel["Master"], "MASTER")
@@ -98,6 +100,8 @@ function TestCustomSoundRegistration:testBusChoicesAreTheCuratedSetDefaultingToS
     luaunit.assertEquals(byLabel["Ambient"], "AMBIENT")
     luaunit.assertEquals(byLabel["Voiceover"], "VOICEOVER")
     luaunit.assertEquals(#choices, 5)
+    luaunit.assertEquals(ControlKinds.Widget(AudioBus.TAG), "enum")
+    luaunit.assertEquals(ControlKinds.Choices(AudioBus.TAG), choices)
 end
 
 function TestCustomSoundRegistration:testResourceChoicesIsJustNoneWithoutPlugin()
