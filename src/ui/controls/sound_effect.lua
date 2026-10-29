@@ -21,7 +21,7 @@ local function soundCatalog()
     catalogSource = source
     local rows = {}
     if type(source) == "table" or type(source) == "userdata" then
-        for name, soundId in pairs(source) do
+        for soundId, name in pairs(source) do
             if type(name) == "string" and type(soundId) == "number" then
                 rows[#rows + 1] = { name = name, id = soundId }
             end
