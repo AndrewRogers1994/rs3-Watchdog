@@ -18,6 +18,9 @@ Theme.PIN_HIT_PAD      = 4
 Theme.CLOSE_SIZE       = 14
 Theme.CLOSE_MARGIN     = 14
 Theme.RENAME_ICON_SIZE = 18
+Theme.NODE_TITLE_PT     = 14
+Theme.NODE_TITLE_CHAR_W = 7    -- approx per-char width when Theme.TextWidth is unavailable
+Theme.HEADER_TITLE_GAP  = 8    -- between the title and the pencil
 
 Theme.CONTROL_H            = 16
 Theme.MODE_STRIP_PAD       = 4

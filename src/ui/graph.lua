@@ -586,6 +586,7 @@ function Editor:buildGeoms()
                 opts.extraBodyW = extra.extraBodyW
             end
         end
+        opts.title = self:meta(n.id, n.typeKey).title
         local geom = Node.BuildGeometry(pins, pos.x, pos.y, Theme.NODE_WIDTH, opts)
         geom.typeKey = n.typeKey
         for _, ctrl in ipairs(geom.controls) do
@@ -1060,6 +1061,7 @@ function Editor:placeFromPalette(row)
         if nt ~= nil and nt.modes ~= nil then
             opts.modeLabel = modeLabelOf(nt, self.graph:GetMode(newId))
         end
+        opts.title = self:meta(newId, row.typeKey).title
         local geom = Node.BuildGeometry(pins, 0, 0, Theme.NODE_WIDTH, opts)
         x = anchorGX - geom.w * 0.5
         y = anchorGY - geom.h * 0.5

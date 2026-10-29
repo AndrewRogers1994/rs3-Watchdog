@@ -536,3 +536,44 @@ function TestNodeModes:testModeDropdownChoicesDisambiguatesDuplicateLabels()
     luaunit.assertEquals(choices[2].key, "zebra")
     luaunit.assertEquals(choices[2].display, "Same (zebra)")
 end
+
+-- Header title drives width. The floor stays NODE_WIDTH; a long `{Type} - {Name}` grows
+-- the node so the string ends before the pencil.
+TestNodeTitleWidth = {}
+
+function TestNodeTitleWidth:testLongHeaderClearsThePencil()
+    local title = "Game Message - New Game Message"
+    local geom = Node.BuildGeometry({}, 0, 0, Theme.NODE_WIDTH, { title = title })
+    luaunit.assertTrue(geom.w > Theme.NODE_WIDTH)
+    local textW = Theme.TextWidth(Theme.NODE_TITLE_PT, title)
+        or (#title * Theme.NODE_TITLE_CHAR_W)
+    local pencilLeft = geom.pencil.cx - Theme.RENAME_ICON_SIZE * 0.5
+    luaunit.assertTrue(Theme.PIN_MARGIN_X + textW < pencilLeft)
+end
+
+function TestNodeTitleWidth:testShortHeaderKeepsTheMinimumWidth()
+    local geom = Node.BuildGeometry({}, 0, 0, Theme.NODE_WIDTH, { title = "Popup - New Popup" })
+    luaunit.assertEquals(geom.w, Theme.NODE_WIDTH)
+end
+
+function TestNodeTitleWidth:testMissingTitleKeepsThePassedWidth()
+    local geom = Node.BuildGeometry({}, 0, 0, Theme.NODE_WIDTH, {})
+    luaunit.assertEquals(geom.w, Theme.NODE_WIDTH)
+end
+
+function TestNodeTitleWidth:testWiderBodyBeatsTheTitle()
+    local geom = Node.BuildGeometry({}, 0, 0, Theme.NODE_WIDTH, {
+        title = "Game Message - New Game Message",
+        extraBodyW = 400,
+    })
+    luaunit.assertEquals(geom.w, 400)
+end
+
+function TestNodeTitleWidth:testOutputPinStaysOnTheRightEdge()
+    local title = "Game Message - New Game Message"
+    local geom = Node.BuildGeometry({
+        { name = "out", kind = "exec", direction = "out" },
+    }, 0, 0, Theme.NODE_WIDTH, { title = title })
+    luaunit.assertTrue(geom.w > Theme.NODE_WIDTH)
+    luaunit.assertAlmostEquals(geom.byName.out.cx, geom.w - Theme.PIN_MARGIN_X, 1e-9)
+end

@@ -105,6 +105,18 @@ function Node.BuildGeometry(pins, x, y, width, opts)
     if extraBodyW > width then
         width = extraBodyW
     end
+    -- Zoom-1 title size, same face Node.Draw uses. Width already includes extraBodyW.
+    local title = opts and opts.title
+    if title ~= nil and title ~= "" then
+        local textW = Theme.TextWidth(Theme.NODE_TITLE_PT, title)
+            or (#title * Theme.NODE_TITLE_CHAR_W)
+        local pencilLeftInset = Theme.CLOSE_MARGIN
+            + Theme.RENAME_ICON_SIZE + Theme.RENAME_ICON_SIZE * 0.5
+        local needed = math.ceil(Theme.PIN_MARGIN_X + textW + Theme.HEADER_TITLE_GAP + pencilLeftInset)
+        if needed > width then
+            width = needed
+        end
+    end
     local connected = (opts and opts.connected) or {}
     local typeKey = opts and opts.typeKey or nil
     -- A placeholder node (#53) renders its reconstructed stubs as pins, but offers none of the
@@ -308,9 +320,10 @@ function Node.Draw(canvas, view, geom, meta, opts)
     local showLabels = view.zoom >= Theme.LABEL_MIN_ZOOM
 
     if showTitle and meta.title then
-        local font = Theme.Font(14 * view.zoom)
+        local font = Theme.Font(Theme.NODE_TITLE_PT * view.zoom)
         if font ~= nil then
-            local tw = Theme.TextWidth(14 * view.zoom, meta.title) or (#meta.title * view:Scale(7))
+            local tw = Theme.TextWidth(Theme.NODE_TITLE_PT * view.zoom, meta.title)
+                or (#meta.title * view:Scale(Theme.NODE_TITLE_CHAR_W))
             local textData = createTextDataConfig(font, Theme.Vec4(Theme.COL_TITLE))
             canvas:AddText(sx + view:Scale(Theme.PIN_MARGIN_X),
                 sy + headerH * 0.5 - view:Scale(8),

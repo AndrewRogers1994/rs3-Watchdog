@@ -24,6 +24,7 @@ function TestGraphEditor:setUp()
 
     self.registry:RegisterNodeType("fixture.trigger", {
         category = "trigger",
+        displayName = "Trigger",
         pins = { { name = "out", kind = "exec", direction = "out" } },
         run = function(ctx) ctx:Fire("out") end,
     })
@@ -863,6 +864,51 @@ function TestGraphEditor:testApplyNodeModeGeometryMatchesGetPins()
     luaunit.assertEquals(geom.modeStrip.label, "Count")
     luaunit.assertAlmostEquals(geom.h, Node.BuildGeometry(
         self.graph:GetPins(id), 0, 0, Theme.NODE_WIDTH, { modeLabel = "Count" }).h, 1e-9)
+end
+
+function TestGraphEditor:testLongHeaderTitleWidensTheNode()
+    local Theme = require("src/ui/theme")
+    self.registry:RegisterNodeType("fixture.gameMessage", {
+        category = "trigger",
+        displayName = "Game Message",
+        pins = { { name = "out", kind = "exec", direction = "out" } },
+        run = function() end,
+    })
+    local editor = Editor.new(self.registry, nil)
+    editor:BindEntry(1, self.graph, {})
+    local id = self.graph:AddNode("fixture.gameMessage")
+    editor.layout[id] = { x = 0, y = 0 }
+
+    editor:buildGeoms()
+    luaunit.assertTrue(editor.geoms[id].w > Theme.NODE_WIDTH)
+end
+
+function TestGraphEditor:testPlaceFromPaletteCentersTheWidenedBody()
+    local Util = require("src/util")
+    local Theme = require("src/ui/theme")
+    self.registry:RegisterNodeType("fixture.gameMessage", {
+        category = "trigger",
+        displayName = "Game Message",
+        pins = { { name = "out", kind = "exec", direction = "out" } },
+        run = function() end,
+    })
+    local editor = Editor.new(self.registry, nil)
+    editor:BindEntry(1, self.graph, {})
+    editor.expandCapture = function() end
+    editor.closeColorPopup = function() end
+    editor.positionCapture = function() end
+    editor.palette.anchorGX = 200
+    editor.palette.anchorGY = 100
+    editor.palette.centerOnAnchor = true
+
+    editor:placeFromPalette({ typeKey = "fixture.gameMessage" })
+    editor:buildGeoms()
+
+    local geom = editor.geoms[editor.selected]
+    local pos = editor.layout[editor.selected]
+    luaunit.assertTrue(geom.w > Theme.NODE_WIDTH)
+    luaunit.assertEquals(pos.x, Util.RoundHalfAway(200 - geom.w * 0.5))
+    luaunit.assertEquals(pos.y, Util.RoundHalfAway(100 - geom.h * 0.5))
 end
 
 function TestGraphEditor:testApplyNodeModeKeepsSurvivingPinEditor()
