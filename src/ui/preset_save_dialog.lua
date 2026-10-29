@@ -34,7 +34,7 @@ local function valueText(graph, nodeId, pinName)
     if widget == "number" then
         return PresetLabels.NumberVariableText(Packs.live() or Packs.new(), value)
     end
-    if widget == "enum" then
+    if ControlKinds.IsChoiceWidget(widget) then
         local choices = ControlKinds.Choices(pin.dataType) or {}
         local index = PackRows.MatchingChoice(choices, value)
         if index ~= nil then return choices[index].label end

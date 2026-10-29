@@ -14,14 +14,14 @@ function Checkbox.Draw(canvas, rect, ctrl, dctx)
     local labelCol = disabled and Theme.COL_CONTROL_EMPTY or Theme.COL_CONTROL_TEXT
     local pad = scale(Theme.CONTROL_PAD_X)
     local boxSz = rect.h * 0.72
-    local boxX = rect.x + rect.w - pad - boxSz
+    local boxX = rect.x + pad
     local boxY = rect.y + (rect.h - boxSz) * 0.5
     if dctx.font ~= nil then
-        -- Clip to the leftover left of the tick; measured string width ellipsizes early.
-        local textX = rect.x + pad
+        -- Label sits to the right of the tick. Clip to that gap; measured width ellipsizes early.
+        local textX = boxX + boxSz + pad
         local text = ctrl.display or ""
         canvas:AddText(textX, rect.y + rect.h * 0.5 - scale(6),
-            boxX - pad - textX, rect.h, text, Box.TextData(dctx.font, Theme.Vec4(labelCol)))
+            rect.x + rect.w - pad - textX, rect.h, text, Box.TextData(dctx.font, Theme.Vec4(labelCol)))
     end
     canvas:AddRectangle(boxX, boxY, boxSz, boxSz, Theme.Vec4(Theme.COL_CHECK_BOX_BG))
     Box.Outline(canvas, boxX, boxY, boxSz, boxSz, scale, dctx.hot and not disabled)

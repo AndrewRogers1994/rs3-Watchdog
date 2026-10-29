@@ -8,12 +8,13 @@ local Text = require("src/text")
 
 local Presets = {}
 
--- A Variable is one text, number, enum, or Matcher needle. Widget kind is the source of
--- truth, looked up from the tag recorded at Controls.Register.
+-- A Variable is one text, number, enum, checkbox, or Matcher needle. Widget kind is
+-- the source of truth, looked up from the tag recorded at Controls.Register.
 local MARKABLE_WIDGET = {
     text = true,
     number = true,
     enum = true,
+    checkbox = true,
     matcher = true,
 }
 

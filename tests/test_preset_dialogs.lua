@@ -17,6 +17,7 @@ LibNodeGraph = {
 
 local Packs = require("src/packs")
 local Presets = require("src/presets")
+local PresetLabels = require("src/ui/preset_labels")
 local Dialog = require("src/ui/dialog")
 local PresetDialogs = require("src/ui/preset_dialogs")
 local Registry = require("registry")
@@ -50,8 +51,9 @@ function TestPresetVariableSound:setUp()
     self.texts = {}
     self.fields = {}
     self.combos = {}
+    self.checks = {}
     self.buttons = {}
-    local texts, fields, combos, buttons = self.texts, self.fields, self.combos, self.buttons
+    local texts, fields, combos, checks, buttons = self.texts, self.fields, self.combos, self.checks, self.buttons
     local body = {}
     function body:AddText(text)
         local widget = { content = text }
@@ -86,6 +88,11 @@ function TestPresetVariableSound:setUp()
         end
         combos[#combos + 1] = combo
         return combo
+    end
+    function body:AddCheckboxButton(choices, opts)
+        local box = { choices = choices, opts = opts }
+        checks[#checks + 1] = box
+        return box
     end
     local function component()
         return {
@@ -136,6 +143,14 @@ function TestPresetVariableSound:setUp()
         },
         run = function() end,
     })
+    self.registry:RegisterNodeType("fixture.flag", {
+        category = "action",
+        displayName = "Flag",
+        pins = {
+            { name = "sticky", label = "Sticky", kind = "data", direction = "in", dataType = "bool", default = true },
+        },
+        run = function() end,
+    })
 end
 
 function TestPresetVariableSound:tearDown()
@@ -168,6 +183,61 @@ function TestPresetVariableSound:mount(preset, onCreate)
         registry = self.registry,
         onCreate = onCreate or function() return 1 end,
     })
+end
+
+---@param stored boolean|nil
+---@return Watchdog.Preset
+---@return string
+function TestPresetVariableSound:flagPreset(stored)
+    local graph = LibNodeGraph.NewGraph(self.registry)
+    local controls = {}
+    if stored ~= nil then controls.sticky = stored end
+    local nodeId = graph:AddNode("fixture.flag", controls)
+    if stored == nil then
+        graph:SetControl(nodeId, "sticky", nil)
+    end
+    return {
+        name = "Flag",
+        graph = LibNodeGraph.Serialize(graph),
+        variables = { { nodeId = nodeId, pinName = "sticky" } },
+    }, PresetLabels.MarkLabel(graph, nodeId, "sticky")
+end
+
+function TestPresetVariableSound:testACheckedBoolPinMountsACheckedBox()
+    local preset, label = self:flagPreset(true)
+    local answers
+    self:mount(preset, function(got)
+        answers = got
+        return 1
+    end)
+    luaunit.assertEquals(#self.checks, 1)
+    luaunit.assertEquals(#self.combos, 0)
+    luaunit.assertEquals(#self.fields, 0)
+    luaunit.assertEquals(self.checks[1].choices[1].text, label)
+    luaunit.assertEquals(self.checks[1].choices[1].selected, true)
+    click(self.buttons, "Create")
+    luaunit.assertEquals(answers[1], true)
+end
+
+function TestPresetVariableSound:testClearingTheBoxSubmitsFalse()
+    local answers
+    self:mount(self:flagPreset(true), function(got)
+        answers = got
+        return 1
+    end)
+    self.checks[1].opts.onChange(self.checks[1], {}, "on", false)
+    click(self.buttons, "Create")
+    luaunit.assertEquals(answers[1], false)
+end
+
+function TestPresetVariableSound:testAClearBoolPinMountsAnEmptyBox()
+    self:mount(self:flagPreset(false))
+    luaunit.assertEquals(self.checks[1].choices[1].selected, false)
+end
+
+function TestPresetVariableSound:testAMissingBoolUsesThePinDefault()
+    self:mount(self:flagPreset(nil))
+    luaunit.assertEquals(self.checks[1].choices[1].selected, true)
 end
 
 function TestPresetVariableSound:testSoundIdOffersEveryPackSoundAndAPlainNumberDoesNot()

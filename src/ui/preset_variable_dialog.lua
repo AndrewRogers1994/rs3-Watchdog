@@ -143,6 +143,9 @@ local function slotFor(graph, mark)
         if type(value) == "table" and type(value.needle) == "string" then
             slot.raw = value.needle
         end
+    elseif widget == "checkbox" then
+        if value == nil then value = pin.default end
+        slot.value = value == true
     elseif widget == "enum" then
         local label = nil
         if type(value) == "table" then
@@ -272,7 +275,7 @@ function PresetVariableDialog.mountVariables(parent, opts)
                     else
                         answers[i] = { raw = slot.raw, quantity = slot.quantity }
                     end
-                elseif slot.widget == "enum" then
+                elseif ControlKinds.IsChoiceWidget(slot.widget) then
                     answers[i] = slot.value
                 else
                     answers[i] = slot.raw
@@ -308,45 +311,55 @@ function PresetVariableDialog.mountVariables(parent, opts)
                 for index, mark in ipairs(variables) do
                     local slot = slots[index]
                     local label = PresetLabels.MarkLabel(graph, mark.nodeId, mark.pinName) or mark.pinName
-                    body:AddText(label)
-                    if slot.widget == "enum" then
-                        local choices = slot.choices or {}
-                        local selected = PackRows.MatchingChoice(choices, slot.value) or 1
-                        local entries = {}
-                        for i, choice in ipairs(choices) do
-                            entries[i] = { label = choice.label, id = i, order = i }
-                        end
-                        body:AddComboBox({
-                            entries = entries,
-                            selectedID = selected,
-                            onChange = function(_, entryID, labelText)
-                                local choice = choices[entryID]
-                                if choice == nil or choice.label ~= labelText then
-                                    choice = nil
-                                    for _, candidate in ipairs(choices) do
-                                        if candidate.label == labelText then
-                                            choice = candidate
-                                            break
-                                        end
-                                    end
-                                end
-                                if choice ~= nil then slot.value = choice.value end
+                    if slot.widget == "checkbox" then
+                        body:AddCheckboxButton({
+                            { text = label, value = "on", selected = slot.value == true },
+                        }, {
+                            onChange = function(_, _, _, selected)
+                                slot.value = selected == true
                             end,
                         })
                     else
-                        local field = body:AddTextField({
-                            text = slot.raw,
-                            height = 30,
-                            maxLength = 128,
-                            filter = slot.widget == "number" and numericFilter() or nil,
-                            onChange = function(f)
-                                slot.raw, slot.quantity = readField(f)
-                                syncSoundText(slot)
-                                refreshCreate(createAction, slots)
-                            end,
-                        })
-                        if slot.soundRows ~= nil then
-                            mountSoundPack(body, slot, field, slots, createAction)
+                        body:AddText(label)
+                        if slot.widget == "enum" then
+                            local choices = slot.choices or {}
+                            local selected = PackRows.MatchingChoice(choices, slot.value) or 1
+                            local entries = {}
+                            for i, choice in ipairs(choices) do
+                                entries[i] = { label = choice.label, id = i, order = i }
+                            end
+                            body:AddComboBox({
+                                entries = entries,
+                                selectedID = selected,
+                                onChange = function(_, entryID, labelText)
+                                    local choice = choices[entryID]
+                                    if choice == nil or choice.label ~= labelText then
+                                        choice = nil
+                                        for _, candidate in ipairs(choices) do
+                                            if candidate.label == labelText then
+                                                choice = candidate
+                                                break
+                                            end
+                                        end
+                                    end
+                                    if choice ~= nil then slot.value = choice.value end
+                                end,
+                            })
+                        else
+                            local field = body:AddTextField({
+                                text = slot.raw,
+                                height = 30,
+                                maxLength = 128,
+                                filter = slot.widget == "number" and numericFilter() or nil,
+                                onChange = function(f)
+                                    slot.raw, slot.quantity = readField(f)
+                                    syncSoundText(slot)
+                                    refreshCreate(createAction, slots)
+                                end,
+                            })
+                            if slot.soundRows ~= nil then
+                                mountSoundPack(body, slot, field, slots, createAction)
+                            end
                         end
                     end
                 end

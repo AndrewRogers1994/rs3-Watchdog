@@ -243,10 +243,18 @@ end
 
 function TestMigratedControlRouting:testEnumPinCarriesAPinControl()
     -- Dropdown caret is the Widget's own draw (#63), not a "widget" hint on the sub-rect.
-    local geom = Node.BuildGeometry({ inPin("flag", "bool") }, 0, 0, Theme.NODE_WIDTH)
+    local geom = Node.BuildGeometry({ inPin("icon", "toastIcon") }, 0, 0, Theme.NODE_WIDTH)
     luaunit.assertEquals(#geom.controls, 1)
     luaunit.assertNotNil(geom.controls[1].pinControl)
     luaunit.assertEquals(geom.controls[1].kind, "field")
+end
+
+function TestMigratedControlRouting:testBoolPinCarriesACheckbox()
+    local geom = Node.BuildGeometry({ inPin("flag", "bool") }, 0, 0, Theme.NODE_WIDTH)
+    luaunit.assertEquals(#geom.controls, 1)
+    luaunit.assertNotNil(geom.controls[1].pinControl)
+    luaunit.assertEquals(geom.controls[1].kind, "checkbox")
+    luaunit.assertEquals(geom.controls[1].enabled, true)
 end
 
 function TestMigratedControlRouting:testMatcherPinCarriesAPinControlBand()
@@ -467,9 +475,9 @@ local function outputLabelLeft(nodeW, label)
     return cx - Theme.PIN_GLYPH * 0.5 - Theme.PIN_LABEL_GAP - zoom1LabelWidth(label)
 end
 
-local function fieldControl(geom, pinName)
+local function controlForPin(geom, pinName)
     for _, ctrl in ipairs(geom.controls) do
-        if ctrl.pinName == pinName and ctrl.kind == "field" then return ctrl end
+        if ctrl.pinName == pinName then return ctrl end
     end
 end
 
@@ -489,7 +497,7 @@ function TestInlineControlClearsOutputLabel:testEntitySpawnRowsStopBeforeOutputL
         { pin = "mineOnly", outLabel = "entityKind" },
     }
     for _, row in ipairs(cases) do
-        local ctrl = fieldControl(geom, row.pin)
+        local ctrl = controlForPin(geom, row.pin)
         luaunit.assertNotNil(ctrl)
         local limit = outputLabelLeft(Theme.NODE_WIDTH, row.outLabel) - Theme.CONTROL_LABEL_GAP
         luaunit.assertTrue(ctrl.x + ctrl.w <= limit + 1e-6)

@@ -367,8 +367,8 @@ function TestPresets:testUnreadableJsonIsLeftOnDisk()
     luaunit.assertEquals(PersistentDB:GetString("presets"), raw)
 end
 
--- Text, number, enum, and a Matcher needle. Widget kind decides, including a tag registered
--- only by a node file (`skill`) and one registered in this test (`fixture.laterEnum`).
+-- Text, number, enum, checkbox, and a Matcher needle. Widget kind decides, including a tag
+-- registered only by a node file (`skill`) and one registered in this test (`fixture.laterEnum`).
 -- Swatch, coordgrid, capture, mode, exec, and data-out pins are absent. The node name is not a mark.
 function TestPresets:testUnconnectedTextNumberEnumAndMatcherNeedleCanBeMarked()
     local graph = LibNodeGraph.NewGraph(self.registry)

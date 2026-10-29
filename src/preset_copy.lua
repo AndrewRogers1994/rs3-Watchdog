@@ -96,7 +96,7 @@ local function bake(graph, variables, answers)
                 return "A marked control is missing."
             end
             graph:SetControl(mark.nodeId, mark.pinName, Text.StripTags(answer))
-        elseif widget == "enum" then
+        elseif ControlKinds.IsChoiceWidget(widget) then
             graph:SetControl(mark.nodeId, mark.pinName, answer)
         elseif widget == "matcher" then
             if type(answer) ~= "string" then
