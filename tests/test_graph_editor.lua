@@ -48,6 +48,10 @@ end
 
 function TestGraphEditor:tearDown()
     _G.Mouse = nil
+    if self._restoreGame then
+        rawset(_G, "game", self._savedGame)
+        self._restoreGame = nil
+    end
 end
 
 -- #3: re-committing the identical exec wire removes it (toggle off), rather than stacking a
@@ -664,6 +668,55 @@ function TestGraphEditor:testDragFollowsTheCursorUntilReleaseRoundsTheLayout()
     editor:endPress()
     luaunit.assertEquals(editor.layout[id].x, 2)
     luaunit.assertEquals(editor.layout[id].y, -1)
+end
+
+-- beginPress expands the capture before the queued hold, whose offsets stay in the old space.
+-- Window and click are proportional so a live origin still yields a scale Measure accepts.
+function TestGraphEditor:testHeldClickDoesNotFlingTheNodeWhenCaptureExpands()
+    self._savedGame = rawget(_G, "game")
+    self._restoreGame = true
+    rawset(_G, "game", { options = { InterfaceScale = { setting = 100 } } })
+    local editor = Editor.new(self.registry, nil)
+    local id = self.graph:AddNode("fixture.trigger")
+    editor:BindEntry(1, self.graph, { [id] = { x = 10, y = 20 } })
+    editor.visible = true
+    editor.window.x, editor.window.y = 270, 108
+    editor:buildGeoms()
+
+    local hookX, hookY = 135, 54
+    local absoluteX, absoluteY = 405, 162
+    local capture = { x = 0, y = 0 }
+    function capture:SetPos(x, y)
+        self.x, self.y = x, y
+    end
+    function capture:SetSize() end
+    editor.capture = capture
+    _G.Mouse = {
+        GetPosition = function()
+            return { x = absoluteX, y = absoluteY }
+        end,
+    }
+
+    editor:update()
+    editor:noteScreenScale(capture, hookX, hookY)
+    editor:beginPress()
+    luaunit.assertEquals(editor.mode, "dragnode")
+    editor:noteScreenScale(capture, hookX, hookY)
+    editor:update()
+    local mx, my = editor:mousePos()
+    luaunit.assertEquals(mx, absoluteX)
+    luaunit.assertEquals(my, absoluteY)
+    luaunit.assertEquals(editor.layout[id].x, 10)
+    luaunit.assertEquals(editor.layout[id].y, 20)
+
+    -- Next pass, hook offsets are relative to the expanded capture.
+    editor:noteScreenScale(capture, absoluteX, absoluteY)
+    editor:update()
+    mx, my = editor:mousePos()
+    luaunit.assertEquals(mx, absoluteX)
+    luaunit.assertEquals(my, absoluteY)
+    luaunit.assertEquals(editor.layout[id].x, 10)
+    luaunit.assertEquals(editor.layout[id].y, 20)
 end
 
 local function registerModeFixture(registry)

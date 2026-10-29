@@ -33,6 +33,8 @@ function Editor.new(registry, runtime)
         mouse = { x = 0, y = 0 },
         screenScale = nil,         -- pixels per interface unit, including OS scale
         screenScaleIface = nil,    -- InterfaceScale factor the sample was taken under
+        captureOriginX = nil,      -- hook-batch origin; hold runs after expandCapture
+        captureOriginY = nil,
         pressed = false,
         mode = "idle",             -- idle | pan | dragnode | wire | colordrag | palettescroll
         editing = nil,             -- {nodeId,pinName,spec,widget,field}
@@ -274,13 +276,18 @@ function Editor:layoutTransientEditors()
     end
 end
 
--- Hook x/y are interface units, so raw mouse / that position includes OS scale.
+-- Hook x/y are interface units against the snapshotted capture origin, so raw
+-- mouse / that position includes OS scale.
 function Editor:noteScreenScale(component, x, y)
     if Mouse == nil or Mouse.GetPosition == nil then return end
     local ok, pos = pcall(function() return Mouse.GetPosition() end)
     if not ok or pos == nil then return end
-    local originX = component.x or 0
-    local originY = component.y or 0
+    local originX = self.captureOriginX
+    local originY = self.captureOriginY
+    if originX == nil or originY == nil then
+        originX = component.x or 0
+        originY = component.y or 0
+    end
     local measured = IfaceScale.Measure(pos.x, pos.y, originX + x, originY + y)
     if measured == nil then return end
     self.screenScale = measured
@@ -862,7 +869,10 @@ function Editor:update()
     if self.visible and not self.pressed and not self.palette.open then
         self:positionCapture()
     end
-    local mx, my = self:mousePos()   -- absolute; converted to local per-branch below
+    if self.capture ~= nil then
+        self.captureOriginX, self.captureOriginY = self.capture.x, self.capture.y
+    end
+    local mx, my = self:mousePos() -- absolute; converted to local per-branch below
     if mx == nil then return end
 
     if self.pressed then
