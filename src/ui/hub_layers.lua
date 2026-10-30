@@ -3,13 +3,12 @@
 -- lock, what a restricted area changes, and whether chat and tracking
 -- permission are granted. Rows stack in that flow, so removing one reflows
 -- the rest. No per-alert settings.
--- ContentLayerReady registers one button, labeled Toggle, that opens the
--- manager. While RestrictedAreas reports Restricted, a line under that
--- button reads "In Restricted Area" in red, with a description under it.
--- Otherwise the panel is only the button.
---
--- Neither event is in the stubs yet. The payload field is component: the page
--- parent the client passes in.
+-- ContentLayerReady registers Toggle, which opens the manager, and Reset All
+-- Popups, which clears one-shot notices. While RestrictedAreas reports
+-- Restricted, a line under the buttons reads "In Restricted Area" in red,
+-- with a description under it. Otherwise the panel is only the buttons.
+
+local Notices = require("src/notices")
 
 local SETTINGS_EVENT = "watchdog.settings_layer"
 local CONTENT_EVENT = "watchdog.content_layer"
@@ -47,7 +46,7 @@ local lockBox = nil
 local shellKeys = nil
 local positionsLocked = false
 local prefsLoaded = false
-local contentButton = nil
+local contentToggleButton = nil
 local contentLine = nil
 local contentDetail = nil
 local contentParent = nil
@@ -155,9 +154,6 @@ local function permissionLine(name, permission)
     return name .. " permission: not granted"
 end
 
--- The client may already have destroyed the previous page. A Lua error here
--- must not skip filling the new one; a dead component's Destroy is the case
--- that throws.
 local function destroyOwned(node)
     if node == nil then return end
     pcall(function() node:Destroy() end)
@@ -302,8 +298,8 @@ end
 ---@param parent ui.ComponentCollection
 ---@param onToggle fun()
 local function fillContent(parent, onToggle)
-    if contentButton ~= nil and contentParent == parent then
-        destroyOwned(contentButton)
+    if contentToggleButton ~= nil and contentParent == parent then
+        destroyOwned(contentToggleButton)
     end
     if contentLine ~= nil and contentParent == parent then
         destroyOwned(contentLine)
@@ -311,20 +307,30 @@ local function fillContent(parent, onToggle)
     if contentDetail ~= nil and contentParent == parent then
         destroyOwned(contentDetail)
     end
-    contentButton = nil
+    contentToggleButton = nil
     contentLine = nil
     contentDetail = nil
     contentParent = parent
 
-    local button = ui.Button.new(parent)
-    button:SetPos(INSET_X, INSET_X)
-    button:SetSize(-INSET_X * 2, BUTTON_H, 1)
-    button.stylesheetID = id.StyleSheet.BUTTON_DEFAULT
-    button.label = "Toggle"
-    button:Subscribe(ui.Hook.ONBUTTONPRESSED, function()
-        onToggle()
-    end)
-    contentButton = button
+
+    local function onResetPopups()
+        Notices.shared:ResetAllPopups()
+    end
+    local buttonY = INSET_X
+    local function makeButton(label, onPress)
+        local button = ui.Button.new(parent)
+        button:SetPos(INSET_X, buttonY)
+        button:SetSize(-INSET_X * 2, BUTTON_H, 1)
+        button.stylesheetID = id.StyleSheet.BUTTON_DEFAULT
+        button.label = label
+        button:Subscribe(ui.Hook.ONBUTTONPRESSED, onPress)
+        buttonY = buttonY + BUTTON_H + 4
+        return button
+    end
+    local button = makeButton("Toggle", onToggle)
+    button.canToggle = true
+    local button2 = makeButton("Reset All Popups", onResetPopups)
+
     -- IsRestricted() first: Subscribe does not replay the current answer.
     syncRestricted()
 end
@@ -366,7 +372,7 @@ function HubLayers.Unbind()
     unsubscribeRestricted()
     settingsRoot = nil
     settingsParent = nil
-    contentButton = nil
+    contentToggleButton = nil
     contentLine = nil
     contentDetail = nil
 end
@@ -376,7 +382,7 @@ end
 function HubLayers.Stop()
     releaseSettingsWidgets()
     destroyOwned(settingsRoot)
-    destroyOwned(contentButton)
+    destroyOwned(contentToggleButton)
     destroyOwned(contentLine)
     destroyOwned(contentDetail)
     HubLayers.Unbind()

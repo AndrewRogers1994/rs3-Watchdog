@@ -38,6 +38,11 @@ dofile(chatStub)
 
 local luaunit = require("luaunit")
 
+-- Client global. notices.lua logs at file scope, and the hub panel requires it.
+if type(log) ~= "function" then
+    function log() end
+end
+
 require("test_text")
 require("test_util")
 require("test_iface_scale")
@@ -95,6 +100,7 @@ require("test_scope_edits")
 require("test_dialog")
 require("test_import_export")
 require("test_multiplexer")
+require("test_notices")
 require("test_effects")
 require("test_screen_flash")
 require("test_popup")

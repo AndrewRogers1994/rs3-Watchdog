@@ -123,8 +123,10 @@ end
 
 function TestContentLayer:button()
     local buttons = live(self.parent, "button")
-    luaunit.assertEquals(#buttons, 1)
-    return buttons[1]
+    for _, button in ipairs(buttons) do
+        if button.label == "Toggle" then return button end
+    end
+    error("Toggle button missing")
 end
 
 function TestContentLayer:texts()
@@ -157,6 +159,9 @@ end
 function TestContentLayer:testFillWhileRestrictedShowsRestrictedUnderToggle()
     self:installAreas(true)
     self:showContent()
+    local buttons = live(self.parent, "button")
+    luaunit.assertEquals(#buttons, 2)
+    luaunit.assertEquals(buttons[2].label, "Reset All Popups")
     local button = self:button()
     luaunit.assertEquals(button.label, "Toggle")
     button.hooks["ONBUTTONPRESSED"]()
@@ -165,7 +170,7 @@ function TestContentLayer:testFillWhileRestrictedShowsRestrictedUnderToggle()
     self:assertRestrictedCopy(texts)
 end
 
-function TestContentLayer:testFillWhileNotRestrictedIsOnlyTheToggleButton()
+function TestContentLayer:testFillWhileNotRestrictedShowsNoRestrictedCopy()
     self:installAreas(false)
     self:showContent()
     luaunit.assertEquals(self:button().label, "Toggle")

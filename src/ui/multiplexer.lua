@@ -35,12 +35,14 @@ local Resize = require("src/ui/window_resize")
 ---@field minWidth number|nil
 ---@field minHeight number|nil
 ---@field scrollable boolean|nil            # default false
+---@field onShow (fun())|nil                # after show; capture restore skips this
 ---@field onHide (fun())|nil                # after hide, for example dismiss dialogs
 ---@field window Watchdog.MuxWindow|nil     # headless: pre-bound window (skips prettyui in Mount)
 ---@field overlay any|nil                   # headless: overlay parent (default {})
 ---@field useParentAsRoot boolean|nil       # Mount: treat parent as rootLayer instead of creating one
 
 ---@class Watchdog.Multiplexer
+---@field onShow (fun())|nil
 ---@field onHide (fun())|nil
 ---@field window Watchdog.MuxWindow|nil
 ---@field rootLayer any|nil
@@ -54,6 +56,7 @@ local Resize = require("src/ui/window_resize")
 ---@field _inCloseCallback boolean
 ---@field _useParentAsRoot boolean
 ---@field _hiddenForCapture boolean         # shell tucked for Object Marker select (#14)
+---@field _skipOnShow boolean               # set before a show that is not a window open
 local Multiplexer = {}
 Multiplexer.__index = Multiplexer
 
@@ -73,6 +76,7 @@ end
 function Multiplexer.new(opts)
     opts = opts or {}
     local self = setmetatable({
+        onShow = opts.onShow,
         onHide = opts.onHide,
         window = nil,
         rootLayer = nil,
@@ -95,6 +99,7 @@ function Multiplexer.new(opts)
         _ownsOverlay = false,
         _inCloseCallback = false,
         _hiddenForCapture = false,
+        _skipOnShow = false,
         _useParentAsRoot = opts.useParentAsRoot == true,
     }, Multiplexer)
 
@@ -341,6 +346,11 @@ function Multiplexer:SetVisible(v)
         self:RaiseToFront()
         applySurfaceVisibility(self, true)
         applyTitle(self)
+        local skip = self._skipOnShow
+        self._skipOnShow = false
+        if not skip and self.onShow ~= nil then
+            self.onShow()
+        end
     else
         -- Dismiss gestures without resetting the editor state on F8.
         local top = self._stack[#self._stack]
@@ -380,8 +390,12 @@ function Multiplexer:RestoreFromCapture()
     if not self._hiddenForCapture then
         return
     end
+    -- Before SetVisible, or onShow treats capture restore as a window open.
+    -- The clear after covers a show that returns without consuming the flag.
+    self._skipOnShow = true
     self._hiddenForCapture = false
     self:SetVisible(true)
+    self._skipOnShow = false
 end
 
 ---@return boolean

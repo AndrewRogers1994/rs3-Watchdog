@@ -1,24 +1,26 @@
-local Editor = require("src/ui/graph")
-local Manager = require("src/ui/manager")
-local Multiplexer = require("src/ui/multiplexer")
-local Store  = require("src/store")
-local ScopeEdits = require("src/scope_edits")
-local Presets = require("src/presets")
-local Packs = require("src/packs")
+local Editor              = require("src/ui/graph")
+local Manager             = require("src/ui/manager")
+local Multiplexer         = require("src/ui/multiplexer")
+local Store               = require("src/store")
+local ScopeEdits          = require("src/scope_edits")
+local Presets             = require("src/presets")
+local Packs               = require("src/packs")
 ---@type Watchdog.Runtime
-local Runtime = require("src/runtime")
-local Effects = require("src/effects")
-local InfoBoxArea = require("src/ui/infobox")
+local Runtime             = require("src/runtime")
+local Effects             = require("src/effects")
+local InfoBoxArea         = require("src/ui/infobox")
 local ScreenMarkerCapture = require("src/ui/screen_marker_capture")
 local ObjectMarkerCapture = require("src/ui/object_marker_capture")
-local ToastStack = require("src/toast")
-local Theme = require("src/ui/theme")
-local Dialog = require("src/ui/dialog")
-local PresetDialogs = require("src/ui/preset_dialogs")
-local HubLayers = require("src/ui/hub_layers")
-local Text = require("src/text")
+local ToastStack          = require("src/toast")
+local Theme               = require("src/ui/theme")
+local Dialog              = require("src/ui/dialog")
+local Notices             = require("src/notices")
+local NoticeDialog        = require("src/ui/notice_dialog")
+local PresetDialogs       = require("src/ui/preset_dialogs")
+local HubLayers           = require("src/ui/hub_layers")
+local Text                = require("src/text")
 
-local Events = {
+local Events              = {
     Logic = "logic",
     Draw = "draw",
     KeyDown = "key",
@@ -226,6 +228,39 @@ local managerSurface ---@type Watchdog.MuxSurface
 local editorSurface ---@type Watchdog.MuxSurface
 local manager
 
+local notices = Notices.shared
+
+-- Any dialog already on the shell overlay blocks another until the next trigger.
+local function overlayHasDialog()
+    if mux == nil then return true end
+    local parent = mux:Overlay()
+    if parent == nil then return true end
+    return Dialog.depth(parent) > 0
+end
+
+---@param offer Watchdog.NoticeOffer|nil
+local function presentNotice(offer)
+    if offer == nil or mux == nil then return end
+    local parent = mux:Overlay()
+    if parent == nil or Dialog.depth(parent) > 0 then return end
+    local function onSeen()
+        notices:MarkSeen(offer.ids)
+    end
+    if offer.kind == "whats-new" then
+        NoticeDialog.mountWhatsNew(parent, offer.entries, onSeen)
+    elseif offer.kind == "getting-started" then
+        NoticeDialog.mountGettingStarted(parent, onSeen)
+    end
+end
+
+local function onShellShow()
+    if mux == nil then return end
+    presentNotice(notices:OnWindowOpen({
+        editorTop = mux:IsTop("editor"),
+        dialogOpen = overlayHasDialog(),
+    }))
+end
+
 ---@param scopeKey string
 ---@param entryId integer
 local function navOpenAlert(scopeKey, entryId)
@@ -236,8 +271,13 @@ local function navOpenAlert(scopeKey, entryId)
     boundScope = { doc = a.doc, key = a.key }
     edits:NoteSaved(a.key)
     if mux ~= nil and editorSurface ~= nil then
+        -- Hidden: SetVisible is the window open. Already visible: the push is the editor entry.
+        local shellWasVisible = mux:IsVisible()
         mux:Push(editorSurface)
         mux:SetVisible(true)
+        presentNotice(notices:OnOpenAlert(shellWasVisible, {
+            dialogOpen = overlayHasDialog(),
+        }))
     end
 end
 
@@ -246,6 +286,7 @@ local function navBack()
     editor:Unbind()
     boundScope = nil
     if mux ~= nil then mux:Pop() end
+    notices:OnNavBack()
 end
 
 editor.onBack = navBack
@@ -303,7 +344,9 @@ editor.onRename = function()
     local scopeKey, entryId = boundScope.key, editor.boundId
     local field, feedback
     Dialog.mount(mux:Overlay(), {
-        title = "Rename alert", width = 380, height = 200,
+        title = "Rename alert",
+        width = 380,
+        height = 200,
         content = function(win)
             win:AddText("Alert name")
             field = win:AddTextField({ text = editor.alertName, maxLength = 80, height = 30 })
@@ -311,17 +354,23 @@ editor.onRename = function()
         end,
         actions = {
             { label = "Cancel" },
-            { label = "Save", variant = "positive", onClick = function()
-                local name = Text.StripTags(field:GetText() or ""):match("^%s*(.-)%s*$")
-                if name == "" then feedback.content = "Enter an alert name."; return false end
-                local result, ok = edits:Rename(scopeKey, entryId, name, openAlert())
-                if not ok then
-                    feedback.content = "Could not save the name. Try again."
-                    return false
+            {
+                label = "Save",
+                variant = "positive",
+                onClick = function()
+                    local name = Text.StripTags(field:GetText() or ""):match("^%s*(.-)%s*$")
+                    if name == "" then
+                        feedback.content = "Enter an alert name."; return false
+                    end
+                    local result, ok = edits:Rename(scopeKey, entryId, name, openAlert())
+                    if not ok then
+                        feedback.content = "Could not save the name. Try again."
+                        return false
+                    end
+                    applyEditor(result)
+                    return true
                 end
-                applyEditor(result)
-                return true
-            end },
+            },
         },
     })
 end
@@ -476,6 +525,7 @@ mux = Multiplexer.new({
     minWidth = 720,
     minHeight = 320,
     scrollable = false,
+    onShow = onShellShow,
     onHide = function()
         pcall(function() manager:DismissDialogs() end)
     end,
@@ -715,13 +765,14 @@ function api.Toggle()
         runtime.objectMarkerCapture:Cancel()
         return
     end
+    log("toggling, notices seen:", notices.seen)
     mux:Toggle()
 end
 
 api.editor = editor
 api.manager = manager
 api.mux = mux
-api.document = document  -- the persisted `global` Bucket, exposed for inspection
+api.document = document -- the persisted `global` Bucket, exposed for inspection
 
 Event.Logic.Subscribe(Events.Logic, onLogic)
 Event.Draw.Subscribe(Events.Draw, onDraw)
