@@ -6,13 +6,23 @@
 
 local ReleaseNotes = require("src/release_notes")
 
+---@class Watchdog.ReleaseNoteImage
+---@field image string path under resources/images, without the extension
+---@field width integer source width in pixels
+---@field height integer source height in pixels
+
+---@class Watchdog.ReleaseNoteTitle
+---@field title string
+
+---@alias Watchdog.ReleaseNoteParagraph string|Watchdog.ReleaseNoteImage|Watchdog.ReleaseNoteTitle
+
 ---@class Watchdog.ReleaseNote
 ---@field version string
----@field paragraphs string[]
+---@field paragraphs Watchdog.ReleaseNoteParagraph[]
 
 ---@class Watchdog.ReleaseNoteView
 ---@field version string
----@field paragraphs string[]
+---@field paragraphs Watchdog.ReleaseNoteParagraph[]
 ---@field id string
 
 ---@class Watchdog.NoticeOffer
@@ -28,7 +38,6 @@ local ReleaseNotes = require("src/release_notes")
 ---@field canWrite boolean
 local Notices = {}
 Notices.__index = Notices
-log("LOAD NOTICES")
 
 Notices.KEY = "watchdog_seen_notices"
 Notices.TIPS_ID = "editor-tips"
@@ -99,7 +108,6 @@ end
 -- Missing key is an empty list and may be written. Unreadable text stays as
 -- stored: canWrite stays false so a later dismiss cannot replace it.
 function Notices:Load()
-    log("notices load")
     if self.loaded then return end
     self.loaded = true
     self.seen = {}
@@ -142,8 +150,6 @@ function Notices:Load()
     for _, id in ipairs(ids) do
         self.seen[id] = true
     end
-    log("load, notices seen:", self.seen)
-    log("can write true")
     self.canWrite = true
 end
 
@@ -151,7 +157,6 @@ end
 ---@return any err
 function Notices:Save()
     if not self.canWrite then
-        log("can write not true")
         return false, "seen notices were not written"
     end
     if PersistentDB == nil then
@@ -193,7 +198,6 @@ end
 -- would read the old ids back.
 function Notices:ResetAllPopups()
     self:Load()
-    log("notices seen:", self.seen)
     self.seen = {}
     local ok, err = self:Save()
     if not ok then

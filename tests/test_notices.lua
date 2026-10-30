@@ -108,7 +108,6 @@ end
 
 function TestNotices:testEmptyCatalogMeansReleaseIsNotDue()
     luaunit.assertEquals(#Notices.UnseenReleases({}, {}), 0)
-    luaunit.assertEquals(#require("src/release_notes"), 0)
     local n = self:open({})
     luaunit.assertNil(n:OnWindowOpen({ editorTop = false, dialogOpen = false }))
 end
@@ -242,6 +241,14 @@ function TestNotices:testUnreadableSeenListIsNotOverwritten()
     luaunit.assertEquals(self.db.data[Notices.KEY], "{not-json")
     luaunit.assertTrue(n.seen[Notices.TIPS_ID] == true)
     luaunit.assertNil(n:OnWindowOpen({ editorTop = true, dialogOpen = false }))
+end
+
+function TestNotices:testImageParagraphsPassThrough()
+    local image = { image = "releases/tutorial", width = 893, height = 554 }
+    local releases = Notices.UnseenReleases({
+        { version = "1.0.0", paragraphs = { "Hello.", image } },
+    }, {})
+    luaunit.assertEquals(releases[1].paragraphs[2], image)
 end
 
 function TestNotices:testGettingStartedParagraphs()
