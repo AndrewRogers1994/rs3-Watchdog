@@ -86,6 +86,45 @@ function TestReleaseNoteBody:testPlanIncludesATitle()
     luaunit.assertEquals(plan[3].text, "After.")
 end
 
+function TestReleaseNoteBody:testPlanIncludesBullets()
+    local plan = ReleaseNoteBody.plan({
+        { bullets = { "One.", "Two." } },
+    }, nil, 100)
+    luaunit.assertEquals(#plan, 1)
+    luaunit.assertEquals(plan[1].kind, "bullets")
+    luaunit.assertEquals(plan[1].items, { "One.", "Two." })
+end
+
+function TestReleaseNoteBody:testBadBulletsAreLeftOut()
+    local logged = {}
+    local previous = log
+    _G.log = function(message) logged[#logged + 1] = message end
+    local plan = ReleaseNoteBody.plan({
+        { bullets = {} },
+        { bullets = { "Ok.", 3 } },
+        "Still here.",
+    }, nil, 100)
+    _G.log = previous
+    luaunit.assertEquals(#plan, 1)
+    luaunit.assertEquals(plan[1].text, "Still here.")
+    luaunit.assertTrue(#logged >= 2)
+end
+
+function TestReleaseNoteBody:testMountBulletsIndentsEachLine()
+    local rows = {}
+    local block = {
+        AddText = function(_, value)
+            rows[#rows + 1] = value
+        end,
+    }
+    ReleaseNoteBody.mountBullets(block, { "Alpha.", "Beta." })
+    luaunit.assertEquals(rows[1].text, "• Alpha.")
+    luaunit.assertEquals(rows[1].x, 16)
+    luaunit.assertEquals(rows[1].width, -16)
+    luaunit.assertEquals(rows[2].text, "• Beta.")
+    luaunit.assertNil(rows[3])
+end
+
 function TestReleaseNoteBody:testMountTitleUsesAddTitleWhenTheSectionHasIt()
     local block = {
         called = nil,

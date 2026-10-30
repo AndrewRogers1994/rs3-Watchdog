@@ -771,7 +771,6 @@ function api.Toggle()
         runtime.objectMarkerCapture:Cancel()
         return
     end
-    log("toggling, notices seen:", notices.seen)
     mux:Toggle()
 end
 

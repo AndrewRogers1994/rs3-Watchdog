@@ -58,6 +58,8 @@ local function fillWhatsNew(win, entries)
                 block:AddText(item.text)
             elseif item.kind == "title" then
                 ReleaseNoteBody.mountTitle(block, item.text)
+            elseif item.kind == "bullets" then
+                ReleaseNoteBody.mountBullets(block, item.items)
             else
                 ReleaseNoteBody.mountImage(block, item.resource, item.width, item.height)
             end

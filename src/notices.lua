@@ -14,7 +14,10 @@ local ReleaseNotes = require("src/release_notes")
 ---@class Watchdog.ReleaseNoteTitle
 ---@field title string
 
----@alias Watchdog.ReleaseNoteParagraph string|Watchdog.ReleaseNoteImage|Watchdog.ReleaseNoteTitle
+---@class Watchdog.ReleaseNoteBullets
+---@field bullets string[]
+
+---@alias Watchdog.ReleaseNoteParagraph string|Watchdog.ReleaseNoteImage|Watchdog.ReleaseNoteTitle|Watchdog.ReleaseNoteBullets
 
 ---@class Watchdog.ReleaseNote
 ---@field version string
