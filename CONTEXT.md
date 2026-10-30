@@ -366,7 +366,8 @@ click handler dismisses. Titlebar X fires `onDismiss()` (optional, no args) and 
 close hook and does not also run an action `onClick`. Footer actions left-to-right in table order,
 last is primary (rightmost), group at the bottom-right. Dialogs on one parent Layer **stack**: mount
 pushes, dismiss pops; one visual dim for the stack; a blocker under the top Dialog so buried Dialogs
-stay mounted and inert. Not dismissed by Esc — the client would also open the pause menu. Distinct
+stay mounted and inert. While a dialog is open, Maximize and the resize grip are not brought
+forward, so they stay under the dim and do not take clicks. Not dismissed by Esc — the client would also open the pause menu. Distinct
 from Palette and Color Popup (Canvas editor chrome) and from Widget (Canvas input primitives).
 _Avoid_: Window (the PrettyUI primitive it wraps), transfer, popup, Widget, onClose (that's PrettyUI's)
 

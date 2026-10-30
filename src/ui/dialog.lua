@@ -171,6 +171,16 @@ local function syncChrome(parent)
     end)
 end
 
+--- The shell overlay is raised every frame, which covers dialogs parented to the
+--- shell root. Re-apply stack order so that dim stays above the overlay.
+---@param parent any
+function Dialog.front(parent)
+    if parent == nil then return end
+    local s = stacks[parent]
+    if s == nil or #s == 0 then return end
+    syncChrome(parent)
+end
+
 local pop
 
 ---@param frame Watchdog.DialogFrame

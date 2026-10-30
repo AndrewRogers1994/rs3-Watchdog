@@ -117,8 +117,27 @@ function TestWindowChrome:setUp()
     self.mux.resizeHandle = self.resize
     self.mux:SyncChrome()
 end
+local function childIndex(parent)
+    local positions = {}
+    for i, c in ipairs(parent.children) do
+        positions[c] = i
+    end
+    return positions
+end
+
+local function modalDim(parent)
+    for _, c in ipairs(parent.children) do
+        local rect = c.children and c.children[1]
+        local colour = rect and rect.colour
+        if colour and colour[4] == Dialog.DIM_ALPHA then
+            return c
+        end
+    end
+end
+
 function TestWindowChrome:tearDown()
     Dialog.dismissAll(self.overlay)
+    Dialog.dismissAll(self.parent)
     self.resize:Destroy()
     ui, prettyui, Mouse, game, Vector4 = self.saved.ui, self.saved.prettyui, self.saved.Mouse, self.saved.game, self.saved.Vector4
 end
@@ -215,6 +234,44 @@ function TestWindowChrome:testModalBlocksEditorInput()
     win.actions.Save()
     luaunit.assertEquals(Dialog.depth(self.overlay), 0)
 end
+function TestWindowChrome:testSyncChromeKeepsOverlayModalAboveMaximizeAndGrip()
+    local win = Dialog.mount(self.overlay, { title = "Rename" })
+    self.mux:SyncChrome()
+    self.mux:SyncChrome()
+    local positions = childIndex(self.overlay)
+    local dim = modalDim(self.overlay)
+    luaunit.assertNotNil(dim)
+    luaunit.assertTrue(positions[self.resize.maxHit] < positions[dim])
+    luaunit.assertTrue(positions[self.resize.grip] < positions[dim])
+    luaunit.assertTrue(positions[dim] < positions[win.root])
+end
+
+function TestWindowChrome:testGripClickDuringModalDoesNotRaiseChrome()
+    local win = Dialog.mount(self.overlay, { title = "Rename" })
+    self.resize.grip.click()
+    self.resize.grip.release()
+    local positions = childIndex(self.overlay)
+    local dim = modalDim(self.overlay)
+    luaunit.assertNil(self.resize.start)
+    luaunit.assertEquals(self.resize.grip.width, 20)
+    luaunit.assertTrue(self.resize.grip.clickthrough)
+    luaunit.assertTrue(self.resize.maxHit.clickthrough)
+    luaunit.assertTrue(positions[self.resize.maxHit] < positions[dim])
+    luaunit.assertTrue(positions[self.resize.grip] < positions[dim])
+    luaunit.assertTrue(positions[dim] < positions[win.root])
+end
+
+function TestWindowChrome:testSyncChromeKeepsRootModalAboveOverlay()
+    self.mux.rootLayer = self.parent
+    local win = Dialog.mount(self.parent, { title = "Delete" })
+    self.mux:SyncChrome()
+    local positions = childIndex(self.parent)
+    local dim = modalDim(self.parent)
+    luaunit.assertNotNil(dim)
+    luaunit.assertTrue(positions[self.overlay] < positions[dim])
+    luaunit.assertTrue(positions[dim] < positions[win.root])
+end
+
 function TestWindowChrome:testSyncChromeRaisesOverlayTooltipAboveMaximize()
     local tipRoot = component(self.overlay)
     tipRoot.hidden = false

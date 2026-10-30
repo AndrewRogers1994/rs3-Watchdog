@@ -1,4 +1,5 @@
 local Resize = require("src/ui/window_resize")
+local Dialog = require("src/ui/dialog")
 
 ---@class Watchdog.MuxSurface
 ---@field id string                         # stable id for debugging / IsTop
@@ -427,16 +428,20 @@ function Multiplexer:RaiseToFront()
 end
 
 -- Raise popups after the resize handle so it cannot cover them or intercept clicks.
+-- Maximize and the grip stay put while a dialog is open, same as the toolbar.
+-- Root-parented dialogs are raised last: the overlay itself sits above them.
 function Multiplexer:SyncChrome()
     if self.window == nil or not self._visible then return end
     if self._overlay ~= nil and self._overlay.MoveToFront ~= nil then
         self._overlay:MoveToFront()
     end
-    if self.resizeHandle ~= nil then self.resizeHandle:Sync(true) end
+    local dialogOpen = Dialog.depth(self._overlay) > 0 or Dialog.depth(self.rootLayer) > 0
+    if self.resizeHandle ~= nil then self.resizeHandle:Sync(true, not dialogOpen) end
     local top = self._stack[#self._stack]
     if top ~= nil and top.FrontOverlayPopups ~= nil then
         top:FrontOverlayPopups()
     end
+    Dialog.front(self.rootLayer)
 end
 
 function Multiplexer:SyncTitle()

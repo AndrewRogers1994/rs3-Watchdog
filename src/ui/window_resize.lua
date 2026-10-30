@@ -1,5 +1,6 @@
 local IfaceScale = require("src/ui/iface_scale")
 local Theme = require("src/ui/theme")
+local Dialog = require("src/ui/dialog")
 
 local Resize = {}
 Resize.__index = Resize
@@ -35,7 +36,7 @@ end
 
 function Resize.new(window, viewport, chrome)
     chrome = chrome or viewport
-    local self = setmetatable({ window = window, parent = viewport }, Resize)
+    local self = setmetatable({ window = window, parent = viewport, chrome = chrome }, Resize)
     self.grip = ui.Layer.new(chrome)
     self.grip.clickthrough = false
     self.label = ui.Canvas.new(self.grip)
@@ -125,8 +126,13 @@ function Resize:layoutTitleDrag()
     title:SetSize(root.width - CLOSE - MAX, TITLE_H)
 end
 
+-- Clicks reach these controls even when the dim is painted over them.
+function Resize:dialogOpen()
+    return Dialog.depth(self.chrome) > 0 or Dialog.depth(self.parent) > 0
+end
+
 function Resize:ToggleMaximize()
-    if not self.visible then
+    if not self.visible or self:dialogOpen() then
         return
     end
     self:Finish()
@@ -149,11 +155,11 @@ function Resize:ToggleMaximize()
     end
     self:paintMax()
     self:layoutTitleDrag()
-    self:Sync(self.visible)
+    self:Sync(self.visible, not self:dialogOpen())
 end
 
 function Resize:Begin()
-    if not self.visible or self.normalBounds ~= nil then
+    if self:dialogOpen() or not self.visible or self.normalBounds ~= nil then
         return
     end
     local mouse = Mouse.GetPosition()
@@ -169,6 +175,10 @@ function Resize:Begin()
 end
 
 function Resize:Drag()
+    if self:dialogOpen() then
+        self:Finish()
+        return
+    end
     if self.start == nil then
         return
     end
@@ -185,13 +195,20 @@ end
 function Resize:Finish()
     self.start = nil
     self.label.hidden = false
-    self:Sync(self.visible)
+    self:Sync(self.visible, not self:dialogOpen())
 end
 
-function Resize:Sync(visible)
+---@param visible boolean
+---@param raise boolean|nil  # default true; false while a dialog is open, matching the toolbar
+function Resize:Sync(visible, raise)
+    if raise == nil then raise = true end
     self.visible = visible
     self.grip.hidden = not visible or self.normalBounds ~= nil
     self.maxHit.hidden = not visible
+    -- A covered control still receives the click unless it opts out of hit testing.
+    local blocked = not raise
+    self.grip.clickthrough = blocked or self.grip.hidden
+    self.maxHit.clickthrough = blocked or self.maxHit.hidden
     if not visible then
         self.start = nil
         self.label.hidden = false
@@ -209,14 +226,14 @@ function Resize:Sync(visible)
     end
     self.maxHit:SetPos(root.x + root.width - CLOSE - MAX, root.y + TITLE_ICON_Y)
     self.maxHit:SetSize(MAX, MAX)
-    self.maxHit:MoveToFront()
+    if raise then self.maxHit:MoveToFront() end
     self:layoutTitleDrag()
     if self.start == nil then
         self.grip:SetPos(root.x + root.width - GRIP, root.y + root.height - GRIP)
         self.grip:SetSize(GRIP, GRIP)
     end
-    self.grip:MoveToFront()
-    if titleDragExpanded(self.window.titleDrag) then
+    if raise then self.grip:MoveToFront() end
+    if raise and titleDragExpanded(self.window.titleDrag) then
         self.window.titleDrag:MoveToFront()
     end
     local tooltip = self.maxButton.tooltip
