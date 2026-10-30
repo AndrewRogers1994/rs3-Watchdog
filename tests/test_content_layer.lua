@@ -170,6 +170,39 @@ function TestContentLayer:testFillWhileRestrictedShowsRestrictedUnderToggle()
     self:assertRestrictedCopy(texts)
 end
 
+function TestContentLayer:testShellOpenPressesAndReleasesToggle()
+    self:showContent()
+    local button = self:button()
+    luaunit.assertFalse(button.isToggled)
+    HubLayers.SetShellOpen(true)
+    luaunit.assertTrue(button.isToggled)
+    HubLayers.SetShellOpen(false)
+    luaunit.assertFalse(button.isToggled)
+end
+
+function TestContentLayer:testPanelShownWhileOpenStartsPressed()
+    HubLayers.SetShellOpen(true)
+    self:showContent()
+    luaunit.assertTrue(self:button().isToggled)
+end
+
+function TestContentLayer:testButtonPressDoesNotWriteIsToggled()
+    HubLayers.Unbind()
+    local presses = 0
+    HubLayers.Bind(function()
+        presses = presses + 1
+        HubLayers.SetShellOpen(true)
+    end)
+    self:showContent()
+    local button = self:button()
+    button.isToggled = false
+    button.hooks["ONBUTTONPRESSED"]()
+    luaunit.assertEquals(presses, 1)
+    luaunit.assertFalse(button.isToggled)
+    HubLayers.SetShellOpen(false)
+    luaunit.assertFalse(button.isToggled)
+end
+
 function TestContentLayer:testFillWhileNotRestrictedShowsNoRestrictedCopy()
     self:installAreas(false)
     self:showContent()

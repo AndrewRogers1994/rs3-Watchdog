@@ -525,9 +525,15 @@ mux = Multiplexer.new({
     minWidth = 720,
     minHeight = 320,
     scrollable = false,
-    onShow = onShellShow,
+    onShow = function()
+        onShellShow()
+        HubLayers.SetShellOpen(true)
+    end,
     onHide = function()
         pcall(function() manager:DismissDialogs() end)
+        -- Capture hides the window and restores it. Leave the button pressed.
+        if mux ~= nil and mux:IsHiddenForCapture() then return end
+        HubLayers.SetShellOpen(false)
     end,
 })
 editor.onAlertNameChanged = function()

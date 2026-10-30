@@ -47,6 +47,10 @@ local shellKeys = nil
 local positionsLocked = false
 local prefsLoaded = false
 local contentToggleButton = nil
+local shellOpen = false
+-- The click flips isToggled itself. Writing it again from that click lands on
+-- the wrong side of the client's flip.
+local toggleFromButton = false
 local contentLine = nil
 local contentDetail = nil
 local contentParent = nil
@@ -157,6 +161,18 @@ end
 local function destroyOwned(node)
     if node == nil then return end
     pcall(function() node:Destroy() end)
+end
+
+local function applyShellOpen()
+    if contentToggleButton == nil then return end
+    contentToggleButton.isToggled = shellOpen
+end
+
+---@param open boolean
+function HubLayers.SetShellOpen(open)
+    shellOpen = not not open
+    if toggleFromButton then return end
+    applyShellOpen()
 end
 
 local function addLine(parent, y, h, text, maxLines)
@@ -329,7 +345,9 @@ local function fillContent(parent, onToggle)
     end
     local button = makeButton("Toggle", onToggle)
     button.canToggle = true
-    local button2 = makeButton("Reset All Popups", onResetPopups)
+    contentToggleButton = button
+    applyShellOpen()
+    makeButton("Reset All Popups", onResetPopups)
 
     -- IsRestricted() first: Subscribe does not replay the current answer.
     syncRestricted()
@@ -343,7 +361,11 @@ function HubLayers.Bind(onToggle)
     end)
     Event.ContentLayerReady.Subscribe(CONTENT_EVENT, function(event)
         if event == nil or event.component == nil then return end
-        fillContent(event.component, onToggle)
+        fillContent(event.component, function()
+            toggleFromButton = true
+            onToggle()
+            toggleFromButton = false
+        end)
     end)
     -- Reload of an optional dependency swaps the global. Only the open panel
     -- follows it; a closed panel must not subscribe and keep that plugin ticking.
@@ -375,6 +397,8 @@ function HubLayers.Unbind()
     contentToggleButton = nil
     contentLine = nil
     contentDetail = nil
+    shellOpen = false
+    toggleFromButton = false
 end
 
 -- Live re-exec only. PluginShutdown must not Destroy these; the client tears

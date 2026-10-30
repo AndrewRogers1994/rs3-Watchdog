@@ -35,7 +35,7 @@ The Plugin Hub manage-tab page for this plugin. Watchdog's page holds the manage
 _Avoid_: Options menu, config screen, the Alert Manager
 
 **Content layer**:
-The in-game panel for this plugin. The player places it, including beside the inventory, and it stays on screen while playing. Watchdog's panel has one button, labeled Toggle, that opens the manager. While the player is Restricted, a line under that button reads In Restricted Area, in red, and a description under it says nearby spawns, game messages, and spots you chose will not alert you, while other alerts still work. Otherwise the panel is only the button. The panel reads the current answer when it is shown, and then follows Restricted changes.
+The in-game panel for this plugin. The player places it, including beside the inventory, and it stays on screen while playing. Watchdog's panel has a button labeled Toggle that opens and closes the manager. The button stays pressed while the manager is open. Closing it from the title bar or with the manager key releases the button, and opening it with the manager key presses the button. An Object Marker capture tucks the window and leaves the button pressed. While the player is Restricted, a line under that button reads In Restricted Area, in red, and a description under it says nearby spawns, game messages, and spots you chose will not alert you, while other alerts still work. Otherwise the panel is only the button. The panel reads the current answer when it is shown, and then follows Restricted changes.
 _Avoid_: Settings layer (the manage-tab page)
 
 **Manager**:
