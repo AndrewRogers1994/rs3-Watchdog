@@ -365,8 +365,8 @@ and a modal dim by default. A footer action can dismiss it or leave it open; an 
 click handler dismisses. Titlebar X fires `onDismiss()` (optional, no args) and pops — it is not a generic
 close hook and does not also run an action `onClick`. Footer actions left-to-right in table order,
 last is primary (rightmost), group at the bottom-right. Dialogs on one parent Layer **stack**: mount
-pushes, dismiss pops; one visual dim for the stack; a blocker under the top Dialog so buried Dialogs
-stay mounted and inert. While a dialog is open, Maximize and the resize grip are not brought
+pushes, dismiss pops; one visual dim directly under the topmost modal, so dialogs below it
+are dimmed and stay mounted but inert. While a dialog is open, Maximize and the resize grip are not brought
 forward, so they stay under the dim and do not take clicks. Not dismissed by Esc — the client would also open the pause menu. Distinct
 from Palette and Color Popup (Canvas editor chrome) and from Widget (Canvas input primitives).
 _Avoid_: Window (the PrettyUI primitive it wraps), transfer, popup, Widget, onClose (that's PrettyUI's)

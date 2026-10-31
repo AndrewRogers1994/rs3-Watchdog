@@ -293,6 +293,33 @@ function TestWindowChrome:testSyncChromeKeepsRootModalAboveOverlay()
     luaunit.assertTrue(positions[dim] < positions[win.root])
 end
 
+function TestWindowChrome:testModalDimSitsUnderTopmostDialog()
+    local bottom = Dialog.mount(self.overlay, { title = "Bottom" })
+    local top = Dialog.mount(self.overlay, { title = "Top" })
+    local positions = childIndex(self.overlay)
+    local dim = modalDim(self.overlay)
+    luaunit.assertNotNil(dim)
+    luaunit.assertTrue(positions[bottom.root] < positions[dim])
+    luaunit.assertTrue(positions[dim] < positions[top.root])
+    top:Close()
+    positions = childIndex(self.overlay)
+    dim = modalDim(self.overlay)
+    luaunit.assertNotNil(dim)
+    luaunit.assertTrue(positions[dim] < positions[bottom.root])
+end
+
+function TestWindowChrome:testModalDimStaysUnderHighestModal()
+    local under = Dialog.mount(self.overlay, { title = "Under", modal = false })
+    local modal = Dialog.mount(self.overlay, { title = "Modal" })
+    local over = Dialog.mount(self.overlay, { title = "Over", modal = false })
+    local positions = childIndex(self.overlay)
+    local dim = modalDim(self.overlay)
+    luaunit.assertNotNil(dim)
+    luaunit.assertTrue(positions[under.root] < positions[dim])
+    luaunit.assertTrue(positions[dim] < positions[modal.root])
+    luaunit.assertTrue(positions[modal.root] < positions[over.root])
+end
+
 function TestWindowChrome:testSyncChromeRaisesOverlayTooltipAboveMaximize()
     local tipRoot = component(self.overlay)
     tipRoot.hidden = false
