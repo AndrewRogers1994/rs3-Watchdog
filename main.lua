@@ -1,6 +1,6 @@
 local Editor              = require("src/ui/graph")
 local Manager             = require("src/ui/manager")
-local Multiplexer         = require("src/ui/multiplexer")
+local Shell               = require("src/ui/shell")
 local Store               = require("src/store")
 local ScopeEdits          = require("src/scope_edits")
 local Presets             = require("src/presets")
@@ -223,7 +223,7 @@ local boundScope = nil
 local persistNow -- assigned below
 local edits ---@type Watchdog.ScopeEdits
 
-local mux ---@type Watchdog.Multiplexer
+local mux ---@type Watchdog.Shell
 local managerSurface ---@type Watchdog.MuxSurface
 local editorSurface ---@type Watchdog.MuxSurface
 local manager
@@ -515,7 +515,7 @@ manager = Manager.new({
     end,
 })
 
-mux = Multiplexer.new({
+mux = Shell.new({
     x = -math.floor(Theme.WINDOW_W / 2),
     y = -math.floor(Theme.WINDOW_H / 2),
     xAnchor = 0.5,

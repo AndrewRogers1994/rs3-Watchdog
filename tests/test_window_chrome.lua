@@ -1,6 +1,6 @@
 local luaunit = require("luaunit")
 local Resize = require("src/ui/window_resize")
-local Multiplexer = require("src/ui/multiplexer")
+local Shell = require("src/ui/shell")
 local Dialog = require("src/ui/dialog")
 local Editor = require("src/ui/graph")
 
@@ -112,7 +112,7 @@ function TestWindowChrome:setUp()
     end
     self.overlay = component(self.parent)
     self.resize = Resize.new(self.window, self.parent, self.overlay)
-    self.mux = Multiplexer.new({ window = self.window, overlay = self.overlay })
+    self.mux = Shell.new({ window = self.window, overlay = self.overlay })
     self.mux._visible = true
     self.mux.resizeHandle = self.resize
     self.mux:SyncChrome()

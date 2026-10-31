@@ -78,6 +78,18 @@ _Avoid_: Import (that is the paste-an-export dialog); a second template type; a 
 
 ## Language
 
+**Shell**:
+The Watchdog window. Its Multiplexer swaps the Manager and the Editor, and only one of those is visible.
+_Avoid_: Multiplexer (that names the stack, not the window), hub
+
+**Multiplexer**:
+A stack of surfaces in one window. Only the top surface is visible, and the window stays mounted while surfaces are pushed and popped.
+_Avoid_: Shell, Dialog, tab bar
+
+**Surface**:
+One layer on a Multiplexer. The top surface is the one on screen.
+_Avoid_: Page, view, screen, tab
+
 **Editor**:
 The Watchdog graph-editor as a whole: the Canvas, its View, the input Capture Layer, and
 the interaction logic that binds them to a Graph.
@@ -151,6 +163,10 @@ _Avoid_: Title bar, caption, banner
 The player-chosen name of one node, separate from the node type's display name. A node has no
 name until the player renames it, and the header shows `New {Type}` until then.
 _Avoid_: Title (that is the Header text), display name (that is the type), label
+
+**Pin label**:
+The text shown for a Pin on a node. When a Pin has none, that text is the Pin's name.
+_Avoid_: Pin name (that is the key on the node)
 
 **Mode**:
 A named pin-set on a Node Type (LibNodeGraph ADR-0011). A live Node stores `mode` as instance
@@ -330,8 +346,8 @@ _Avoid_: Run button, play button, trigger button
 ## Alert Manager
 
 The management surface for **multiple** saved alerts and their player scoping — the layer above
-the single-alert Editor. Window chrome uses PrettyUI (`prettyui.Window` via the Multiplexer);
-content is a **hybrid**: PrettyUI for scope tabs and form controls, native `ui.Panel` rows for
+the single-alert Editor. Window chrome is a PrettyUI window on the Shell, and the Shell's Multiplexer swaps the Manager and the Editor inside it.
+Content is a **hybrid**: PrettyUI for scope tabs and form controls, native `ui.Panel` rows for
 the tree strip (ADR-0007) — see [`docs/alert-manager-prettyui.md`](docs/alert-manager-prettyui.md).
 Not the Editor's Canvas. Row **name** is a labeled PrettyUI SimpleButton; row **actions** and
 reorder are PrettyUI SpriteButtons (pencil / export / trash, arrows). Destructive delete goes

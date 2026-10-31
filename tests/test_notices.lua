@@ -2,7 +2,7 @@
 
 local luaunit = require("luaunit")
 local Notices = require("src/notices")
-local Multiplexer = require("src/ui/multiplexer")
+local Shell = require("src/ui/shell")
 
 local Json = require("json")
 if LibNodeGraph == nil then
@@ -262,7 +262,7 @@ function TestNotices:testGettingStartedParagraphs()
 end
 
 -- Capture restore must not look like a window open. The policy has no capture
--- event; Multiplexer:RestoreFromCapture skips onShow.
+-- event; Shell:RestoreFromCapture skips onShow.
 function TestNotices:testCaptureRestoreDoesNotCallOnShow()
     local shows = 0
     local win = {
@@ -275,7 +275,7 @@ function TestNotices:testCaptureRestoreDoesNotCallOnShow()
         MoveToFront = function() end,
         onClose = nil,
     }
-    local mux = Multiplexer.new({
+    local mux = Shell.new({
         window = win,
         overlay = {},
         onShow = function() shows = shows + 1 end,

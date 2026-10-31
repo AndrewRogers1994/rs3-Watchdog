@@ -356,4 +356,27 @@ function Dialog.mount(parent, opts)
     return win
 end
 
+-- A center anchor keeps the window center fixed, so SetSize slides the title bar.
+-- Put the top back, then remember that point. SetSize remembered the slid one.
+---@param win any
+---@param width number
+---@param height number
+function Dialog.resizeKeepingTop(win, width, height)
+    local root = win.root
+    local topX = root.x or 0
+    local topY = root.y or 0
+    win.minWidth = width
+    win.maxWidth = width
+    win.minHeight = height
+    win.maxHeight = height
+    win:SetSize(width, height)
+    root:SetPos(topX, topY)
+    if win.titleDrag ~= nil then
+        win.titleDrag:SetPos(topX, topY)
+    end
+    if win.dragBounds ~= nil then
+        win.dragBounds:RememberPosition()
+    end
+end
+
 return Dialog
