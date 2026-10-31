@@ -234,6 +234,27 @@ function TestWindowChrome:testModalBlocksEditorInput()
     win.actions.Save()
     luaunit.assertEquals(Dialog.depth(self.overlay), 0)
 end
+function TestWindowChrome:testSyncChromeKeepsDialogListScroll()
+    local win = Dialog.mount(self.overlay, { title = "Variables" })
+    local dropdown = component(self.overlay)
+    local scrollY = 48
+    win.overlays = {
+        [dropdown] = {
+            isVisible = function() return true end,
+            layout = function() scrollY = 0 end,
+        },
+    }
+    function win:Show()
+        self.root:MoveToFront()
+        self.titleDrag:MoveToFront()
+        for _, overlay in pairs(self.overlays) do overlay.layout() end
+    end
+    self.mux:SyncChrome()
+    luaunit.assertEquals(scrollY, 48)
+    local positions = childIndex(self.overlay)
+    luaunit.assertTrue(positions[win.root] < positions[dropdown])
+    luaunit.assertTrue(positions[win.titleDrag] < positions[dropdown])
+end
 function TestWindowChrome:testSyncChromeKeepsOverlayModalAboveMaximizeAndGrip()
     local win = Dialog.mount(self.overlay, { title = "Rename" })
     self.mux:SyncChrome()

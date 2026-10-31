@@ -127,16 +127,36 @@ local function ensureChrome(parent)
     return dim, blocker
 end
 
+--- Bring prettyui window to the front without triggering overlay layout.
+---@param win any
+---@return boolean
+local function frontWindow(win)
+    local root = win.root
+    if root == nil or root.MoveToFront == nil then return false end
+    root.hidden = false
+    root:MoveToFront()
+    if win.titleDrag ~= nil and win.titleDrag.MoveToFront ~= nil then
+        win.titleDrag.hidden = false
+        win.titleDrag:MoveToFront()
+    end
+    if win.overlays == nil then return true end
+    for component, overlay in pairs(win.overlays) do
+        if component.hidden ~= true and overlay.isVisible() then
+            component:MoveToFront()
+        end
+    end
+    return true
+end
+
 ---@param component any|nil
 local function raise(component)
     if component == nil then return end
     pcall(function()
+        if frontWindow(component) then return end
         if component.MoveToFront ~= nil then
             component:MoveToFront()
         elseif component.Show ~= nil then
             component:Show()
-        elseif component.root ~= nil and component.root.MoveToFront ~= nil then
-            component.root:MoveToFront()
         end
     end)
 end
@@ -166,9 +186,6 @@ local function syncChrome(parent)
     end
     if top.opts.modal then raise(blocker) end
     raise(top.win)
-    pcall(function()
-        if top.win.Show ~= nil then top.win:Show() end
-    end)
 end
 
 --- The shell overlay is raised every frame, which covers dialogs parented to the
