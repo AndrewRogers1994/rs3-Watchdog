@@ -21,7 +21,7 @@ local catalog = {
 
             { title = "Using the Alert Editor" },
             "If the editor feels unfamiliar, hit the info button in the top right. That opens the Tutorial, and it is worth a look before you build anything.",
-            { image = "releases/tutorial",     width = 893, height = 554 },
+            { image = "releases/tutorial", width = 893, height = 554 },
             "Double-click empty space, or click +, to add a node. Then drag from one pin to another.",
             "You can create a new alert from scratch, or you can start with a Preset. There is a starter pack with a few ready to go, including low life points, low prayer, and low food.",
             "When you have a graph you like, the star in the title bar saves it as your own Preset that you can use later.",
@@ -37,7 +37,7 @@ local catalog = {
                     "Interactive tutorial.",
                     "Area select, copy/paste, delete operations in editor.",
                     "Display current state of nodes.",
-                    "Chat piker for chat nodes.",
+                    "Chat picker for chat nodes.",
                     "More nodes!",
                 }
             },

@@ -1,54 +1,72 @@
--- Exercises action.screen_flash's pure shaping/dismiss-on math (#37) in isolation, the same
--- way ui/color.lua's math is tested without a client - ScreenFlash.AlphaAt/ShouldAutoDismiss
--- take/return plain values, no Canvas/Graph/Registry involved. The Register/run wiring against
--- a real LibNodeGraph Graph is exercised only in-client (LibNodeGraph is an external sibling
--- dependency not present under this standalone harness -- see CLAUDE.md and the other
--- Registry/Graph-backed test files, which hit the same gap).
+-- Exercises action.screen_flash's shaping and dismiss-on math (#37), plus the draw-delta
+-- clock on BuildHandle. No Canvas. Register/run stays with the graph tests.
 
 local luaunit = require("luaunit")
 local ScreenFlash = require("src/nodes/actions/screen_flash")
 
 TestScreenFlashAlphaAt = {}
 
--- Rise is ticks 0-49 and fall is 50-99 (50 ticks each, 100-tick cycle), matching
--- ScreenFlash's SEGMENT_TICKS. Fade steps are peak/50, so tick 0 is one step up
--- and the last rise tick lands on peak.
+-- Rise is [0, 1) and fall is [1, 2). Fade is the fraction through that half.
 
 function TestScreenFlashAlphaAt:testInstantRiseHoldsPeakForWholeRiseSegment()
-    for tick = 0, 49 do
-        luaunit.assertEquals(ScreenFlash.AlphaAt(tick, 200, "instant", "instant"), 200)
-    end
+    luaunit.assertEquals(ScreenFlash.AlphaAt(0, 200, "instant", "instant"), 200)
+    luaunit.assertEquals(ScreenFlash.AlphaAt(0.5, 200, "instant", "instant"), 200)
+    luaunit.assertEquals(ScreenFlash.AlphaAt(0.999, 200, "instant", "instant"), 200)
 end
 
 function TestScreenFlashAlphaAt:testInstantFallDropsToZeroForWholeFallSegment()
-    for tick = 50, 99 do
-        luaunit.assertEquals(ScreenFlash.AlphaAt(tick, 200, "instant", "instant"), 0)
-    end
+    luaunit.assertEquals(ScreenFlash.AlphaAt(1, 200, "instant", "instant"), 0)
+    luaunit.assertEquals(ScreenFlash.AlphaAt(1.5, 200, "instant", "instant"), 0)
+    luaunit.assertEquals(ScreenFlash.AlphaAt(1.999, 200, "instant", "instant"), 0)
 end
 
 function TestScreenFlashAlphaAt:testInstantInstantIsASquareWaveAcrossCycles()
     luaunit.assertEquals(ScreenFlash.AlphaAt(0, 255, "instant", "instant"), 255)
-    luaunit.assertEquals(ScreenFlash.AlphaAt(99, 255, "instant", "instant"), 0)
+    luaunit.assertEquals(ScreenFlash.AlphaAt(1.5, 255, "instant", "instant"), 0)
     -- Second cycle repeats identically -- this is a repeating pulse, not a one-shot.
-    luaunit.assertEquals(ScreenFlash.AlphaAt(100, 255, "instant", "instant"), 255)
-    luaunit.assertEquals(ScreenFlash.AlphaAt(199, 255, "instant", "instant"), 0)
+    luaunit.assertEquals(ScreenFlash.AlphaAt(2, 255, "instant", "instant"), 255)
+    luaunit.assertEquals(ScreenFlash.AlphaAt(3.5, 255, "instant", "instant"), 0)
 end
 
-function TestScreenFlashAlphaAt:testFadeRiseRampsLinearlyAndHitsPeakOnLastRiseTick()
-    luaunit.assertAlmostEquals(ScreenFlash.AlphaAt(0, 250, "fade", "instant"), 5, 1e-9)
-    luaunit.assertAlmostEquals(ScreenFlash.AlphaAt(49, 250, "fade", "instant"), 250, 1e-9)
+function TestScreenFlashAlphaAt:testFadeRiseRampsLinearlyAndMeetsTheFallBoundary()
+    luaunit.assertEquals(ScreenFlash.AlphaAt(0, 250, "fade", "instant"), 0)
+    luaunit.assertEquals(ScreenFlash.AlphaAt(0.5, 250, "fade", "instant"), 125)
+    luaunit.assertEquals(ScreenFlash.AlphaAt(1, 250, "fade", "instant"), 0)
 end
 
-function TestScreenFlashAlphaAt:testFadeFallRampsLinearlyAndHitsZeroOnLastFallTick()
-    luaunit.assertAlmostEquals(ScreenFlash.AlphaAt(50, 250, "instant", "fade"), 245, 1e-9)
-    luaunit.assertAlmostEquals(ScreenFlash.AlphaAt(99, 250, "instant", "fade"), 0, 1e-9)
+function TestScreenFlashAlphaAt:testFadeFallRampsLinearlyFromPeakToTheNextRise()
+    luaunit.assertEquals(ScreenFlash.AlphaAt(1, 250, "instant", "fade"), 250)
+    luaunit.assertEquals(ScreenFlash.AlphaAt(1.5, 250, "instant", "fade"), 125)
+    luaunit.assertEquals(ScreenFlash.AlphaAt(2, 250, "instant", "fade"), 250)
 end
 
-function TestScreenFlashAlphaAt:testIndependentShapesPerSegment()
-    -- fade in, instant out: rise ramps, fall snaps to zero immediately.
-    -- Tick 25 is 26/50 of the way up (52); tick 50 is the first fall tick.
-    luaunit.assertAlmostEquals(ScreenFlash.AlphaAt(25, 100, "fade", "instant"), 52, 1e-9)
-    luaunit.assertEquals(ScreenFlash.AlphaAt(50, 100, "fade", "instant"), 0)
+TestScreenFlashClock = {}
+
+local function pulse(inShape, outShape)
+    return ScreenFlash.BuildHandle(
+        { r = 255, g = 0, b = 0, a = 200 },
+        inShape, outShape, "none",
+        { mouse = 0, keyboard = 0 },
+        { mouseActivityTick = 0, keyboardActivityTick = 0 })
+end
+
+function TestScreenFlashClock:testSameWallTimeFromDifferentFrameSplits()
+    local fine = pulse("fade", "instant")
+    fine.update(0.25)
+    fine.update(0.25)
+    local coarse = pulse("fade", "instant")
+    coarse.update(0.5)
+    luaunit.assertEquals(fine.state.elapsed, 0.5)
+    luaunit.assertEquals(coarse.state.elapsed, 0.5)
+    luaunit.assertEquals(fine.state.alpha, 100)
+    luaunit.assertEquals(coarse.state.alpha, 100)
+end
+
+function TestScreenFlashClock:testLargeDeltaLandsOnTheSamePhaseAsElapsedTime()
+    local handle = pulse("fade", "fade")
+    handle.update(2.5)
+    luaunit.assertEquals(handle.state.elapsed, 2.5)
+    luaunit.assertEquals(handle.state.alpha, 100)
 end
 
 TestScreenFlashAutoDismiss = {}
