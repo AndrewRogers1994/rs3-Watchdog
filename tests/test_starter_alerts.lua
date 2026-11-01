@@ -502,11 +502,12 @@ local function serializedNode(graph, id)
 end
 
 -- Low life points and Low prayer copy as ordinary Alerts. Current is compared,
--- less-than-or-equal, with max divided by the marked pin. That pin defaults to
--- 4 and is the only Variable. True goes through Do Once (startClosed false)
--- to the sound and Screen Flash. False resets Do Once and stops there.
--- Life flashes red and plays the ham-base alarm. Prayer keeps the saved blue
--- flash and the klaxon. dismissOn is both.
+-- less-than-or-equal, with max * percent / 100. The marked pin is "Percent" pin b.
+-- It defaults to 25 and is the only Variable. "Percentify" stays at / 100.
+-- True goes through Do Once (startClosed false) to the sound and Screen Flash.
+-- False resets Do Once and stops there. Life flashes red and plays the
+-- ham-base alarm. Prayer keeps the saved blue flash and the klaxon.
+-- dismissOn is both.
 function TestStarterAlerts:testLowResourceCopiesAnOrdinaryAlert()
     for _, spec in ipairs(LOW_RESOURCES) do
         local preset = self.packs:GetAlertPreset("Watchdog Starter Pack", spec.authorId)
@@ -519,12 +520,25 @@ function TestStarterAlerts:testLowResourceCopiesAnOrdinaryAlert()
         local marked = serializedNode(preset.graph, mark.nodeId)
         luaunit.assertNotNil(marked)
         luaunit.assertEquals(marked.type, "std.math")
-        luaunit.assertEquals(marked.controls.operation, "/")
-        luaunit.assertEquals(marked.controls.b, 4)
+        luaunit.assertEquals(marked.name, "Percent")
+        luaunit.assertEquals(marked.controls.operation, "*")
+        luaunit.assertEquals(marked.controls.b, 25)
+        ---@type LibNodeGraph.SerializedNode|nil
+        local percentNode = nil
+        for _, node in ipairs(preset.graph.nodes) do
+            if node.type == "std.math" and node.id ~= mark.nodeId then
+                luaunit.assertNil(percentNode)
+                percentNode = node
+            end
+        end
+        luaunit.assertNotNil(percentNode)
+        luaunit.assertEquals(percentNode.name, "Percentify")
+        luaunit.assertEquals(percentNode.controls.operation, "/")
+        luaunit.assertEquals(percentNode.controls.b, 100)
 
         local bucket = Store.Empty()
         local entry, live, layout, err = PresetCopy.InstantiateSnapshot(
-            bucket, preset, self.registry, { 4 })
+            bucket, preset, self.registry, { 25 })
         luaunit.assertNil(err)
         luaunit.assertNotNil(entry)
         luaunit.assertEquals(entry.name, spec.name)
@@ -542,6 +556,7 @@ function TestStarterAlerts:testLowResourceCopiesAnOrdinaryAlert()
             "std.compare",
             "std.doonce",
             "std.math",
+            "std.math",
             "trigger.resource_changed",
         })
         local resource = onlyNode(live, "trigger.resource_changed")
@@ -552,8 +567,10 @@ function TestStarterAlerts:testLowResourceCopiesAnOrdinaryAlert()
         local flash = onlyNode(live, "action.screen_flash")
 
         luaunit.assertEquals(live:GetControl(resource, "resource"), spec.resource)
-        luaunit.assertEquals(live:GetControl(mark.nodeId, "operation"), "/")
-        luaunit.assertEquals(live:GetControl(mark.nodeId, "b"), 4)
+        luaunit.assertEquals(live:GetControl(mark.nodeId, "operation"), "*")
+        luaunit.assertEquals(live:GetControl(mark.nodeId, "b"), 25)
+        luaunit.assertEquals(live:GetControl(percentNode.id, "operation"), "/")
+        luaunit.assertEquals(live:GetControl(percentNode.id, "b"), 100)
         luaunit.assertEquals(live:GetControl(compare, "operation"), "<=")
         luaunit.assertEquals(live:GetControl(once, "startClosed"), false)
         luaunit.assertEquals(live:GetControl(sound, "soundId"), spec.soundId)
@@ -566,7 +583,8 @@ function TestStarterAlerts:testLowResourceCopiesAnOrdinaryAlert()
         local expectedWires = {
             string.format("%d.current->%d.a", resource, compare),
             string.format("%d.max->%d.a", resource, mark.nodeId),
-            string.format("%d.result->%d.b", mark.nodeId, compare),
+            string.format("%d.result->%d.a", mark.nodeId, percentNode.id),
+            string.format("%d.result->%d.b", percentNode.id, compare),
             string.format("%d.out->%d.in", resource, branch),
             string.format("%d.result->%d.condition", compare, branch),
             string.format("%d.true->%d.in", branch, once),
@@ -577,7 +595,7 @@ function TestStarterAlerts:testLowResourceCopiesAnOrdinaryAlert()
         table.sort(expectedWires)
         luaunit.assertEquals(sortedWires(live), expectedWires)
 
-        luaunit.assertEquals(#entry.layout, 7)
+        luaunit.assertEquals(#entry.layout, 8)
         local seen = {}
         for _, pos in ipairs(entry.layout) do
             luaunit.assertNil(seen[pos.id])
@@ -586,19 +604,20 @@ function TestStarterAlerts:testLowResourceCopiesAnOrdinaryAlert()
             luaunit.assertEquals(layout[pos.id].y, pos.y)
         end
         luaunit.assertEquals(layout[resource], { x = 9, y = 9 })
-        luaunit.assertEquals(layout[mark.nodeId], { x = 281, y = 17 })
-        luaunit.assertEquals(layout[compare], { x = 581, y = 18 })
-        luaunit.assertEquals(layout[branch], { x = 61, y = 238 })
-        luaunit.assertEquals(layout[once], { x = 336, y = 238 })
-        luaunit.assertEquals(layout[sound], { x = 615, y = 165 })
-        luaunit.assertEquals(layout[flash], { x = 615, y = 314 })
-        for _, id in ipairs({ resource, mark.nodeId, compare, branch, once, sound, flash }) do
+        luaunit.assertEquals(layout[mark.nodeId], { x = 280, y = 17 })
+        luaunit.assertEquals(layout[percentNode.id], { x = 279, y = 156 })
+        luaunit.assertEquals(layout[compare], { x = 565, y = 2 })
+        luaunit.assertEquals(layout[branch], { x = 37, y = 379 })
+        luaunit.assertEquals(layout[once], { x = 326, y = 328 })
+        luaunit.assertEquals(layout[sound], { x = 605, y = 143 })
+        luaunit.assertEquals(layout[flash], { x = 605, y = 328 })
+        for _, id in ipairs({ resource, mark.nodeId, percentNode.id, compare, branch, once, sound, flash }) do
             luaunit.assertEquals(seen[id], true)
         end
     end
 end
 
--- Worked pool: max 1000 and divisor 4 meet at current 250.
+-- Worked pool: max 1000 and percent 25 meet at current 250.
 -- 250 is still on the line, because the compare is <=. 251 recovers.
 -- 0 <= 0, so an empty pool alarms. The first sample stays silent.
 local function transmitVar(events, id)
@@ -626,7 +645,7 @@ function TestStarterAlerts:testLowResourceAlarmsOnceUntilThePoolRecovers()
         pool.max = 1000
         local preset = self.packs:GetAlertPreset("Watchdog Starter Pack", spec.authorId)
         local bucket = Store.Empty()
-        local _, live = PresetCopy.InstantiateSnapshot(bucket, preset, self.registry, { 4 })
+        local _, live = PresetCopy.InstantiateSnapshot(bucket, preset, self.registry, { 25 })
         runtime:SetGraph(live)
         local flash = onlyNode(live, "action.screen_flash")
         local soundId = spec.soundId

@@ -93,12 +93,12 @@ local function idleXp(registry)
         }),
         variables = {
             { nodeId = compare, pinName = "b" },
-            { nodeId = xp, pinName = "skillFilter" },
+            { nodeId = xp,      pinName = "skillFilter" },
         },
     }
 end
 
-local THRESHOLD_DEFAULT = 4
+local PERCENT_DEFAULT = 25
 local FLASH_RED = { r = 255, g = 0, b = 0, a = 127 }
 local FLASH_PRAYER = { r = 89, g = 0, b = 255, a = 127 }
 
@@ -113,7 +113,8 @@ local FLASH_PRAYER = { r = 89, g = 0, b = 255, a = 127 }
 local function lowResource(registry, resource, authorId, name, soundId, flashColor, triggerName)
     local graph = LibNodeGraph.NewGraph(registry)
     local trigger = graph:AddNode("trigger.resource_changed", { resource = resource }, { name = triggerName })
-    local divide = graph:AddNode("std.math", { operation = "/", a = 0, b = THRESHOLD_DEFAULT }, { name = "25%" })
+    local quarter = graph:AddNode("std.math", { operation = "*", a = 0, b = PERCENT_DEFAULT }, { name = "Percent" })
+    local percent = graph:AddNode("std.math", { operation = "/", a = 0, b = 100 }, { name = "Percentify" })
     local compare = graph:AddNode("std.compare", { operation = "<=", a = 0, b = 0 }, { name = "Less than or equal" })
     local branch = graph:AddNode("std.branch", { condition = false }, { name = "Condition branch" })
     local once = graph:AddNode("std.doonce", { startClosed = false }, { name = "Only alert once" })
@@ -125,8 +126,9 @@ local function lowResource(registry, resource, authorId, name, soundId, flashCol
         dismissOn = "both",
     })
     connect(graph, name, trigger, "current", compare, "a")
-    connect(graph, name, trigger, "max", divide, "a")
-    connect(graph, name, divide, "result", compare, "b")
+    connect(graph, name, trigger, "max", quarter, "a")
+    connect(graph, name, quarter, "result", percent, "a")
+    connect(graph, name, percent, "result", compare, "b")
     connect(graph, name, trigger, "out", branch, "in")
     connect(graph, name, compare, "result", branch, "condition")
     connect(graph, name, branch, "true", once, "in")
@@ -139,14 +141,15 @@ local function lowResource(registry, resource, authorId, name, soundId, flashCol
         graph = LibNodeGraph.Serialize(graph),
         layout = layoutArray({
             [trigger] = { x = 9, y = 9 },
-            [divide] = { x = 281, y = 17 },
-            [compare] = { x = 581, y = 18 },
-            [branch] = { x = 61, y = 238 },
-            [once] = { x = 336, y = 238 },
-            [sound] = { x = 615, y = 165 },
-            [flash] = { x = 615, y = 314 },
+            [quarter] = { x = 280, y = 17 },
+            [compare] = { x = 565, y = 2 },
+            [branch] = { x = 37, y = 379 },
+            [once] = { x = 326, y = 328 },
+            [sound] = { x = 605, y = 143 },
+            [flash] = { x = 605, y = 328 },
+            [percent] = { x = 279, y = 156 },
         }),
-        variables = { { nodeId = divide, pinName = "b" } },
+        variables = { { nodeId = quarter, pinName = "b" } },
     }
 end
 
@@ -183,7 +186,7 @@ local function tickCounter(registry)
             [branch] = { x = 348, y = 225 },
         }),
         variables = {
-            { nodeId = box, pinName = "icon" },
+            { nodeId = box,     pinName = "icon" },
             { nodeId = compare, pinName = "b" },
         },
     }
@@ -233,7 +236,7 @@ local function lowOnFood(registry)
             [both] = { x = 602, y = 330 },
         }),
         variables = {
-            { nodeId = low, pinName = "b" },
+            { nodeId = low,   pinName = "b" },
             { nodeId = count, pinName = "nameMatch" },
         },
     }

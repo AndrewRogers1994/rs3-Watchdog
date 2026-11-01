@@ -47,7 +47,7 @@ function Resize.new(window, viewport, chrome)
         width = MAX,
         height = MAX,
         tooltip = { text = "Maximize window" },
-        hoverCursor = config.Cursor.CURSOR_BLANK,
+        hoverCursor = -1,
     })
     self.maxHit = self.maxButton.root
     self.maxButton.content.hidden = true
