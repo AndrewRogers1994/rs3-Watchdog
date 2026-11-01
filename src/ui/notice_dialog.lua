@@ -92,7 +92,7 @@ function NoticeDialog.mountGettingStarted(parent, onSeen)
     return mount(parent, {
         title = "Getting started",
         width = 480,
-        height = 280,
+        height = 480,
         content = function(win)
             EditorTips.fill(win)
         end,

@@ -251,14 +251,34 @@ function TestNotices:testImageParagraphsPassThrough()
     luaunit.assertEquals(releases[1].paragraphs[2], image)
 end
 
-function TestNotices:testGettingStartedParagraphs()
+function TestNotices:testGettingStartedRendersHeadingsAndText()
     local tips = require("src/ui/editor_tips")
-    luaunit.assertEquals(tips.paragraphs, {
-        "An alert is a trigger wired to an action.",
-        "Double-click empty space, or click +, to add a node.",
-        "The alert runs only while it is enabled in the alert list.",
-        "The info button opens the full Tutorial.",
+    local rows = {}
+    local refreshed = false
+    tips.fill({
+        AddTitle = function(_, title)
+            rows[#rows + 1] = { kind = "title", text = title }
+        end,
+        AddText = function(_, text)
+            rows[#rows + 1] = { kind = "text", text = text }
+        end,
+        RefreshRowBackgrounds = function() refreshed = true end,
     })
+    luaunit.assertEquals(rows[1], { kind = "title", text = "How Alerts work" })
+    luaunit.assertEquals(rows[3], { kind = "title", text = "Build your first Alert" })
+    luaunit.assertEquals(rows[5], { kind = "title", text = "Try it out" })
+    luaunit.assertStrContains(rows[2].text, "A trigger watches the game.")
+    luaunit.assertStrContains(rows[4].text, "white triangle pins")
+    luaunit.assertStrContains(rows[6].text, "preview it")
+    luaunit.assertStrContains(rows[6].text, "enabled in the alert list")
+    luaunit.assertStrContains(rows[7].text, "Tutorial")
+    for i = 1, 7 do
+        luaunit.assertIsString(rows[i].text)
+        luaunit.assertNil(rows[i].text:find("\n", 1, true))
+    end
+    luaunit.assertEquals(rows[8].text, { text = "", height = 24, rowBackground = false })
+    luaunit.assertEquals(#rows, 8)
+    luaunit.assertTrue(refreshed)
 end
 
 -- Capture restore must not look like a window open. The policy has no capture
