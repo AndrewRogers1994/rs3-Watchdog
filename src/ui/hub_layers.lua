@@ -20,20 +20,19 @@ local RESTRICTED_LISTENER = "watchdog.restricted"
 -- Alert Manager header labels (0xRRGGBBAA).
 local TEXT_RGBA = 220 * 0x1000000 + 222 * 0x10000 + 230 * 0x100 + 255
 local RESTRICTED_LINE = "In Restricted Area"
--- Shown under the red "In Restricted Area" title on the content panel.
 local RESTRICTED_DETAIL =
-"Nearby spawns, game messages, and spots you chose will not alert you. Other alerts still work."
+"In a restricted area, Watchdog will not trigger Spawn, Game Message, or Location triggers."
 -- Settings has no red title, so this block has to say what a restricted area is.
 local SETTINGS_RESTRICTED_TITLE = "Restricted areas"
 local SETTINGS_RESTRICTED_BODY =
-"While you are in a restricted area, Watchdog will not alert you about nearby spawns, game messages, or walking into or out of a spot you chose. Other alerts still work."
+"While you are in a restricted area, Watchdog will not trigger Spawn, Game Message, or Location triggers."
 -- Red, packed 0xRRGGBBAA like TEXT_RGBA. Only the restricted title uses it.
 local RESTRICTED_RGBA = 255 * 0x1000000 + 48 * 0x10000 + 48 * 0x100 + 255
-local RESTRICTED_DETAIL_H = 72
 
 local STATUS_H = 24
 local INSET_X = 12
 local BUTTON_H = 30
+local RESTRICTED_DETAIL_H = STATUS_H * 4
 local SHELL_KEY_DB = "watchdog_shell_key"
 local LOCK_DB = "watchdog_position_lock"
 
@@ -54,6 +53,8 @@ local toggleFromButton = false
 local contentLine = nil
 local contentDetail = nil
 local contentParent = nil
+-- fillContent's buttonY is gone by the time the restricted state changes.
+local contentButtonY = INSET_X
 
 local function copyKeys(keys)
     local out = {}
@@ -212,12 +213,12 @@ local function paintRestricted(restricted)
             destroyOwned(contentDetail)
             contentDetail = nil
         end
-        local titleY = INSET_X + BUTTON_H + 4
+        local titleY = contentButtonY
         contentLine = addLine(contentParent, titleY, STATUS_H, RESTRICTED_LINE, 1)
         contentLine.rgb = RESTRICTED_RGBA
         contentLine.rgba = RESTRICTED_RGBA
         -- Top-aligned so the paragraph starts under the title instead of centering in its box.
-        contentDetail = addLine(contentParent, titleY + STATUS_H + 2, RESTRICTED_DETAIL_H, RESTRICTED_DETAIL, 3)
+        contentDetail = addLine(contentParent, titleY + STATUS_H + 2, RESTRICTED_DETAIL_H, RESTRICTED_DETAIL, 4)
         contentDetail.alignVertical = ui.AlignMode.TOPLEFT
         return
     end
@@ -348,6 +349,7 @@ local function fillContent(parent, onToggle)
     contentToggleButton = button
     applyShellOpen()
     makeButton("Reset All Popups", onResetPopups)
+    contentButtonY = buttonY
 
     -- IsRestricted() first: Subscribe does not replay the current answer.
     syncRestricted()

@@ -110,7 +110,7 @@ require("src/nodes/actions/object_marker").Register(registry, runtime)
 require("src/nodes/actions/toast").Register(registry, runtime)
 require("src/nodes/actions/alert_toggle").Register(registry, runtime)
 require("src/nodes/actions/game_message").Register(registry)
-require("src/nodes/actions/shortest_path").Register(registry)
+-- require("src/nodes/actions/shortest_path").Register(registry)
 
 runtime:SetRegistry(registry)
 

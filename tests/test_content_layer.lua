@@ -1,5 +1,6 @@
 -- Content panel text. Drives the panel fill and, later, the RestrictedAreas
--- callback. Asserts the words on the panel, not how the line was laid out.
+-- callback. Asserts the words on the panel, and that the restricted line
+-- starts under every button.
 
 local luaunit = require("luaunit")
 local HubLayers = require("src/ui/hub_layers")
@@ -38,8 +39,14 @@ function TestContentLayer:setUp()
     local test = self
     local function component(kind, parent)
         local node = { kind = kind, parent = parent, hooks = {}, destroyed = false, children = {} }
-        function node:SetPos() end
-        function node:SetSize() end
+        function node:SetPos(x, y)
+            self.x = x
+            self.y = y
+        end
+        function node:SetSize(w, h)
+            self.w = w
+            self.h = h
+        end
         function node:Subscribe(hook, fn)
             self.hooks[hook] = fn
         end
@@ -136,7 +143,7 @@ end
 -- 0xRRGGBBAA red. Matches the restricted title in hub_layers.lua.
 local RESTRICTED_RGBA = 255 * 0x1000000 + 48 * 0x10000 + 48 * 0x100 + 255
 local TEXT_RGBA = 220 * 0x1000000 + 222 * 0x10000 + 230 * 0x100 + 255
-local RESTRICTED_DETAIL = "Nearby spawns, game messages, and spots you chose will not alert you. Other alerts still work."
+local RESTRICTED_DETAIL = "In a restricted area, Watchdog will not trigger Spawn, Game Message, or Location triggers."
 
 function TestContentLayer:assertRestrictedLine(line)
     luaunit.assertEquals(line.content, "In Restricted Area")
@@ -154,6 +161,15 @@ function TestContentLayer:assertRestrictedCopy(texts)
     luaunit.assertEquals(#texts, 2)
     self:assertRestrictedLine(texts[1])
     self:assertRestrictedDetail(texts[2])
+    local floor = 0
+    for _, button in ipairs(live(self.parent, "button")) do
+        local bottom = button.y + button.h
+        if bottom > floor then floor = bottom end
+    end
+    luaunit.assertTrue(texts[1].y >= floor)
+    luaunit.assertTrue(texts[2].y >= texts[1].y + texts[1].h)
+    luaunit.assertEquals(texts[2].maxLines, 4)
+    luaunit.assertTrue(texts[2].h >= texts[1].h * texts[2].maxLines)
 end
 
 function TestContentLayer:testFillWhileRestrictedShowsRestrictedUnderToggle()
@@ -359,7 +375,7 @@ function TestContentLayer:testSettingsLayerDoesNotShowRestricted()
     luaunit.assertEquals(contents, {
         "Manager key",
         "Restricted areas",
-        "While you are in a restricted area, Watchdog will not alert you about nearby spawns, game messages, or walking into or out of a spot you chose. Other alerts still work.",
+        "While you are in a restricted area, Watchdog will not trigger Spawn, Game Message, or Location triggers.",
         "Chat permission: granted",
         "Tracking permission: granted",
     })
