@@ -34,6 +34,13 @@ function ControlKinds.Widget(tag)
     return recorded.widget
 end
 
+-- An enum value and a checkbox boolean are both stored as given.
+---@param widget string|nil
+---@return boolean
+function ControlKinds.IsChoiceWidget(widget)
+    return widget == "enum" or widget == "checkbox"
+end
+
 ---@param tag string|nil
 ---@return { value: any, label: string }[]|nil
 function ControlKinds.Choices(tag)

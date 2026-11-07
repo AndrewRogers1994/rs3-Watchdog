@@ -18,30 +18,31 @@ Theme.PIN_HIT_PAD      = 4
 Theme.CLOSE_SIZE       = 14
 Theme.CLOSE_MARGIN     = 14
 Theme.RENAME_ICON_SIZE = 18
+Theme.NODE_TITLE_PT     = 14
+Theme.NODE_TITLE_CHAR_W = 7    -- approx per-char width when Theme.TextWidth is unavailable
+Theme.HEADER_TITLE_GAP  = 8    -- between the title and the pencil
 
 Theme.CONTROL_H            = 16
 Theme.MODE_STRIP_PAD       = 4
 Theme.MODE_STRIP_H         = Theme.MODE_STRIP_PAD + Theme.CONTROL_H + Theme.MODE_STRIP_PAD
 Theme.CONTROL_LABEL_CHAR_W = 7     -- approx per-char width when Theme.TextWidth is unavailable
 Theme.CONTROL_LABEL_GAP    = 8
-Theme.CONTROL_OUT_RESERVE  = 52    -- space for an output pin+label sharing the row
 Theme.CONTROL_PAD_X        = 5
 Theme.CONTROL_MIN_W        = 12
 Theme.CONTROL_MIN_ZOOM     = 0.45  -- below this the box/text is unreadable, so it isn't drawn
--- The transient editor is a real component with a native, fixed-pixel font that does NOT
--- scale with the View, so it's sized in screen pixels independent of zoom (height fixed;
--- width tracks the box but never below the min). Sizing it to view:Scale(box) made the text
--- unreadable at zoom 1 - the box was 16px tall but the native font needs more.
-Theme.CONTROL_EDIT_MIN_W   = 60
+-- Native editor font does not scale with the View. Height stays fixed (a 16px box
+-- was too short). Width is the laid-out box, so it does not run into the output label.
 Theme.CONTROL_EDIT_H       = 24
 
 Theme.COORDGRID_TOP_GAP    = 4
+Theme.COORDGRID_CAPTION_H  = 12
 Theme.COORDGRID_FIELD_H    = 16
 Theme.COORDGRID_MID_GAP    = 4
 Theme.COORDGRID_BUTTON_H   = 16
 Theme.COORDGRID_BOTTOM_GAP = 4
 Theme.COORDGRID_FIELD_GAP  = 4
-Theme.COORDGRID_BAND_H     = Theme.COORDGRID_TOP_GAP + Theme.COORDGRID_FIELD_H
+Theme.COORDGRID_BAND_H     = Theme.COORDGRID_TOP_GAP + Theme.COORDGRID_CAPTION_H
+    + Theme.COORDGRID_FIELD_H
     + Theme.COORDGRID_MID_GAP + Theme.COORDGRID_BUTTON_H + Theme.COORDGRID_BOTTOM_GAP
 
 Theme.SOUND_TOP_GAP      = 4
@@ -49,7 +50,9 @@ Theme.SOUND_ROW_H        = Theme.CONTROL_H
 Theme.SOUND_ROW_GAP      = 4
 Theme.SOUND_BOTTOM_GAP   = 4
 Theme.SOUND_BAND_H       = Theme.SOUND_TOP_GAP + Theme.SOUND_ROW_H
-    + Theme.SOUND_ROW_GAP + Theme.SOUND_ROW_H + Theme.SOUND_BOTTOM_GAP
+    + Theme.SOUND_ROW_GAP + Theme.SOUND_ROW_H
+    + Theme.SOUND_ROW_GAP + Theme.SOUND_ROW_H
+    + Theme.SOUND_BOTTOM_GAP
 
 Theme.MATCHER_TOP_GAP    = 4
 Theme.MATCHER_FIELD_H    = 16

@@ -2,11 +2,14 @@ local Theme       = require("src/ui/theme")
 local Util        = require("src/util")
 local NumberField = require("src/ui/widgets/number_field")
 local Button      = require("src/ui/widgets/button")
+local Box         = require("src/ui/widgets/box")
 
 ---@class CoordGridPinControl
 local CoordGrid = {}
 
-local AXES = { "x", "z", "level" }
+-- Left to right: Level, X, Y. Y is the stored `z`. The table stays { x, z, level }.
+local AXES = { "level", "x", "z" }
+local CAPTION = { level = "Level", x = "X", z = "Y" }
 local grabButton = Button.new("Set to current position")
 
 ---@return number
@@ -17,7 +20,7 @@ end
 ---@param band { x: number, y: number, w: number, h: number }
 ---@return table[]
 function CoordGrid.Layout(band)
-    local fieldY = band.y + Theme.COORDGRID_TOP_GAP
+    local fieldY = band.y + Theme.COORDGRID_TOP_GAP + Theme.COORDGRID_CAPTION_H
     local buttonY = fieldY + Theme.COORDGRID_FIELD_H + Theme.COORDGRID_MID_GAP
     local gap = Theme.COORDGRID_FIELD_GAP
     local fieldW = (band.w - gap * 2) / 3
@@ -98,9 +101,16 @@ end
 function CoordGrid.Draw(canvas, rect, ctrl, dctx)
     if ctrl.kind == "action" then
         Button.Draw(canvas, rect, ctrl, dctx)
-    else
-        NumberField.Draw(canvas, rect, ctrl, dctx)
+        return
     end
+    local caption = CAPTION[ctrl.axis]
+    if caption ~= nil and dctx.font ~= nil then
+        local scale = dctx.scale
+        local tw = Theme.TextWidth(11 * dctx.zoom, caption) or (#caption * scale(7))
+        canvas:AddText(rect.x, rect.y - scale(Theme.COORDGRID_CAPTION_H), tw, 0, caption,
+            Box.TextData(dctx.font, Theme.Vec4(Theme.COL_PIN_LABEL)))
+    end
+    NumberField.Draw(canvas, rect, ctrl, dctx)
 end
 
 return CoordGrid

@@ -93,22 +93,31 @@ function TestCheckboxDraw:testDisabledRowNeverTicksEvenIfStoredTrue()
     luaunit.assertEquals(calls.lines, 0)
 end
 
-function TestCheckboxDraw:testLabelClipBoxIsTheGapBeforeTheTickNotMeasuredWidth()
-    -- areaWidth is the leftover left of the tick, not Theme.TextWidth of the label.
+function TestCheckboxDraw:testBoxSitsAtTheLeftAndTheLabelFillsTheRest()
+    -- areaWidth is the gap after the tick, not Theme.TextWidth of the label.
     local recorded = {}
     local canvas, calls = makeFakeCanvas()
-    canvas.AddText = function(_self, _x, _y, w, _h, text)
+    canvas.AddText = function(_self, x, _y, w, _h, text)
+        recorded.textX = x
         recorded.w = w
         recorded.text = text
         calls.texts = calls.texts + 1
     end
-    local rect = { x = 0, y = 0, w = 230, h = 16 }
+    canvas.AddRectangle = function(_self, x, _y, w, _h)
+        recorded.boxX = x
+        recorded.boxW = w
+        calls.rects = calls.rects + 1
+    end
+    local rect = { x = 10, y = 0, w = 230, h = 16 }
     Checkbox.Draw(canvas, rect,
         { enabled = false, axis = "hull", value = {}, display = "Hull - needs render API" },
         dctx(false, 1))
+    local pad = Theme.CONTROL_PAD_X
     local boxSz = rect.h * 0.72
-    local boxX = rect.w - Theme.CONTROL_PAD_X - boxSz
-    luaunit.assertEquals(recorded.w, boxX - Theme.CONTROL_PAD_X - Theme.CONTROL_PAD_X)
+    luaunit.assertEquals(recorded.boxX, rect.x + pad)
+    luaunit.assertEquals(recorded.boxW, boxSz)
+    luaunit.assertEquals(recorded.textX, rect.x + pad + boxSz + pad)
+    luaunit.assertEquals(recorded.w, rect.x + rect.w - pad - recorded.textX)
     luaunit.assertEquals(recorded.text, "Hull - needs render API")
 end
 

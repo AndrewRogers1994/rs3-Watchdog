@@ -38,6 +38,81 @@ function TestManager:makeManager(scopes, extras)
     return mgr, opened
 end
 
+function TestManager:tearDown()
+    if self._dialogMgr ~= nil then
+        self._dialogMgr:DismissDialogs()
+        self._dialogMgr = nil
+    end
+    if self._savedHost ~= nil then
+        ui = self._savedHost.ui
+        prettyui = self._savedHost.prettyui
+        self._savedHost = nil
+    end
+end
+
+local function installDialogHost(test)
+    test._savedHost = { ui = ui, prettyui = prettyui }
+    local windows = {}
+    ui = {
+        Layer = { new = function()
+            local layer = {}
+            function layer:SetPos() end
+            function layer:SetSize() end
+            function layer:MoveToFront() end
+            function layer:Destroy() end
+            return layer
+        end },
+        Rectangle = { new = function()
+            local rect = {}
+            function rect:SetPos() end
+            function rect:SetSize() end
+            return rect
+        end },
+    }
+    prettyui = {
+        FancyButton = { getSize = function() return 80, 27 end },
+        Window = { new = function(_parent, options)
+            local win = {
+                title = options.title,
+                onClose = options.onClose,
+                buttons = {},
+                texts = {},
+                fields = {},
+                destroyed = false,
+            }
+            function win:AddText(text)
+                local widget = { content = text }
+                self.texts[#self.texts + 1] = widget
+                return widget
+            end
+            function win:AddTextField(opts)
+                local field = { text = opts.text or "", opts = opts }
+                function field:GetText() return self.text end
+                self.fields[#self.fields + 1] = field
+                return field
+            end
+            function win:AddFancyButton(label, action, opts)
+                local button = { label = label, action = action, opts = opts }
+                self.buttons[#self.buttons + 1] = button
+                return button
+            end
+            function win:Show() end
+            function win:MoveToFront() end
+            function win:Destroy() self.destroyed = true end
+            windows[#windows + 1] = win
+            return win
+        end },
+    }
+    return windows
+end
+
+local function dialogButton(win, label)
+    for _, button in ipairs(win.buttons) do
+        if button.label == label then return button end
+    end
+    return nil
+end
+
 --- Scope resolution -----------------------------------------------------------------------
 
 function TestManager:testActiveScopeDefaultsToFirst()
@@ -247,6 +322,19 @@ function TestManager:testToggleEnabledReportsActiveScopeAndId()
     luaunit.assertNotEquals(mgr:_signature(), before)
 end
 
+function TestManager:testRenameStripsClientTextTagsBeforeReporting()
+    local calls = {}
+    local doc = bucket({ alert(3, "old") })
+    local mgr = self:makeManager(
+        { { key = "global", label = "Global", doc = doc } },
+        { onRename = function(scopeKey, id, name) calls[#calls + 1] = { scopeKey, id, name } end }
+    )
+    mgr:Rename(3, "<col=ff0000>new</col>")
+    luaunit.assertEquals(calls, { { "global", 3, "new" } })
+    mgr:Rename(3, "<col=ff0000>")
+    luaunit.assertEquals(calls, { { "global", 3, "new" } })
+end
+
 function TestManager:testRenameReportsActiveScopeIdAndName()
     local calls = {}
     local doc = bucket({ alert(3, "old") })
@@ -256,6 +344,98 @@ function TestManager:testRenameReportsActiveScopeIdAndName()
     )
     mgr:Rename(3, "new")
     luaunit.assertEquals(calls, { { "global", 3, "new" } })
+end
+
+function TestManager:testRenameLeavesTheSignatureWhenTheSaveFails()
+    local doc = bucket({ alert(3, "old") })
+    local mgr = self:makeManager(
+        { { key = "global", label = "Global", doc = doc } },
+        { onRename = function() return false end }
+    )
+    local before = mgr:_signature()
+    luaunit.assertFalse(mgr:Rename(3, "new"))
+    luaunit.assertEquals(mgr:_signature(), before)
+end
+
+function TestManager:testOpenRenameDoesNothingWithoutADialogParent()
+    local calls = {}
+    local mgr = self:makeManager(
+        { { key = "global", label = "Global", doc = bucket({ alert(3, "old") }) } },
+        { onRename = function() calls[#calls + 1] = true end }
+    )
+    mgr:_openRename(3)
+    mgr:_openRename(99)
+    luaunit.assertEquals(calls, {})
+end
+
+function TestManager:testOpenRenameUsesTheEditorDialog()
+    local windows = installDialogHost(self)
+    local parent = {}
+    local calls = {}
+    local doc = bucket({ alert(3, "Gatehouse"), group(9, "Pack", {}) })
+    local mgr = self:makeManager(
+        { { key = "global", label = "Global", doc = doc } },
+        {
+            windowParent = function() return parent end,
+            onRename = function(scopeKey, id, name)
+                calls[#calls + 1] = { scopeKey, id, name }
+                return true
+            end,
+        }
+    )
+    self._dialogMgr = mgr
+
+    mgr:_openRename(99)
+    luaunit.assertEquals(windows, {})
+
+    mgr:_openRename(3)
+    local alertDialog = windows[1]
+    luaunit.assertEquals(alertDialog.title, "Rename alert")
+    luaunit.assertEquals(alertDialog.texts[1].content, "Alert name")
+    luaunit.assertEquals(alertDialog.fields[1].text, "Gatehouse")
+    luaunit.assertEquals(alertDialog.fields[1].opts.maxLength, 80)
+
+    alertDialog.fields[1].text = "   "
+    dialogButton(alertDialog, "Save").action()
+    luaunit.assertEquals(calls, {})
+    luaunit.assertEquals(alertDialog.texts[2].content, "Enter an alert name.")
+    luaunit.assertFalse(alertDialog.destroyed)
+
+    alertDialog.fields[1].text = "  <col=ff0000>Horn</col>  "
+    dialogButton(alertDialog, "Save").action()
+    luaunit.assertEquals(calls, { { "global", 3, "Horn" } })
+    luaunit.assertTrue(alertDialog.destroyed)
+
+    mgr:_openRename(9)
+    local groupDialog = windows[2]
+    luaunit.assertEquals(groupDialog.title, "Rename group")
+    luaunit.assertEquals(groupDialog.texts[1].content, "Group name")
+    luaunit.assertEquals(groupDialog.fields[1].text, "Pack")
+    groupDialog.fields[1].text = ""
+    dialogButton(groupDialog, "Save").action()
+    luaunit.assertEquals(groupDialog.texts[2].content, "Enter a group name.")
+    dialogButton(groupDialog, "Cancel").action()
+    luaunit.assertTrue(groupDialog.destroyed)
+    luaunit.assertEquals(#calls, 1)
+end
+
+function TestManager:testOpenRenameStaysOpenWhenTheSaveFails()
+    local windows = installDialogHost(self)
+    local parent = {}
+    local mgr = self:makeManager(
+        { { key = "global", label = "Global", doc = bucket({ alert(3, "Gatehouse") }) } },
+        {
+            windowParent = function() return parent end,
+            onRename = function() return false end,
+        }
+    )
+    self._dialogMgr = mgr
+    mgr:_openRename(3)
+    local dialog = windows[1]
+    dialog.fields[1].text = "Horn"
+    dialogButton(dialog, "Save").action()
+    luaunit.assertEquals(dialog.texts[2].content, "Could not save the name. Try again.")
+    luaunit.assertFalse(dialog.destroyed)
 end
 
 function TestManager:testDeleteReportsActiveScopeAndId()

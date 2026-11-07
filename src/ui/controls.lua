@@ -100,13 +100,9 @@ ControlKinds.Record("compareOperation", "enum", compareOperation.choices)
 local mathOperation = require("src/ui/controls/math_operation")
 Controls.RegisterPinControl("mathOperation", mathOperation)
 ControlKinds.Record("mathOperation", "enum", mathOperation.choices)
-Controls.Register("bool", {
-    widget = "enum",
-    choices = {
-        { value = true,  label = "true"  },
-        { value = false, label = "false" },
-    },
-})
+local BoolControl = require("src/ui/controls/bool")
+Controls.RegisterPinControl("bool", BoolControl)
+ControlKinds.Record("bool", "checkbox")
 
 Controls.RegisterPinControl("coordgrid", require("src/ui/controls/coordgrid"))
 ControlKinds.Record("coordgrid", "coordgrid")

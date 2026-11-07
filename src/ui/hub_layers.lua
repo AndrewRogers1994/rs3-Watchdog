@@ -1,14 +1,14 @@
 -- Plugin Hub surfaces.
--- SettingsLayerReady fills a status page: how to open Watchdog (the shell toggle,
--- F8) and whether chat and HTTP permission are granted. No per-alert settings
--- and no key-capture control.
--- ContentLayerReady registers one button, labeled Toggle, that performs the
--- shell toggle. While RestrictedAreas reports Restricted, a line under that
--- button reads "In Restricted Area" in red, with a description under it.
--- Otherwise the panel is only the button.
---
--- Neither event is in the stubs yet. The payload field is component: the page
--- parent the client passes in.
+-- SettingsLayerReady fills a prettyui SimpleView: the manager key, the overlay
+-- lock, what a restricted area changes, and whether chat and tracking
+-- permission are granted. Rows stack in that flow, so removing one reflows
+-- the rest. No per-alert settings.
+-- ContentLayerReady registers Toggle, which opens the manager, and Reset All
+-- Popups, which clears one-shot notices. While RestrictedAreas reports
+-- Restricted, a line under the buttons reads "In Restricted Area" in red,
+-- with a description under it. Otherwise the panel is only the buttons.
+
+local Notices = require("src/notices")
 
 local SETTINGS_EVENT = "watchdog.settings_layer"
 local CONTENT_EVENT = "watchdog.content_layer"
@@ -20,28 +20,134 @@ local RESTRICTED_LISTENER = "watchdog.restricted"
 -- Alert Manager header labels (0xRRGGBBAA).
 local TEXT_RGBA = 220 * 0x1000000 + 222 * 0x10000 + 230 * 0x100 + 255
 local RESTRICTED_LINE = "In Restricted Area"
--- What Restricted means on this panel: those two triggers stay quiet, the rest do not.
-local RESTRICTED_DETAIL = "Spawn and game-message triggers stay quiet. Other triggers still run."
+local RESTRICTED_DETAIL =
+"In a restricted area, Watchdog will not trigger Spawn, Game Message, or Location triggers."
+-- Settings has no red title, so this block has to say what a restricted area is.
+local SETTINGS_RESTRICTED_TITLE = "Restricted areas"
+local SETTINGS_RESTRICTED_BODY =
+"While you are in a restricted area, Watchdog will not trigger Spawn, Game Message, or Location triggers."
 -- Red, packed 0xRRGGBBAA like TEXT_RGBA. Only the restricted title uses it.
 local RESTRICTED_RGBA = 255 * 0x1000000 + 48 * 0x10000 + 48 * 0x100 + 255
-local RESTRICTED_DETAIL_H = 60
 
-local INTRO_Y = 12
-local INTRO_H = 40
-local STATUS_Y = 60
 local STATUS_H = 24
-local STATUS_GAP = 28
 local INSET_X = 12
 local BUTTON_H = 30
+local RESTRICTED_DETAIL_H = STATUS_H * 4
+local SHELL_KEY_DB = "watchdog_shell_key"
+local LOCK_DB = "watchdog_position_lock"
 
 local HubLayers = {}
 
 local settingsRoot = nil
 local settingsParent = nil
-local contentButton = nil
+local keybindField = nil
+local lockBox = nil
+local shellKeys = nil
+local positionsLocked = false
+local prefsLoaded = false
+local contentToggleButton = nil
+local contentResetButton = nil
+local shellOpen = false
+-- The click flips isToggled itself. Writing it again from that click lands on
+-- the wrong side of the client's flip.
+local toggleFromButton = false
 local contentLine = nil
 local contentDetail = nil
 local contentParent = nil
+-- fillContent's buttonY is gone by the time the restricted state changes.
+local contentButtonY = INSET_X
+
+local function copyKeys(keys)
+    local out = {}
+    if type(keys) ~= "table" then return out end
+    for _, key in ipairs(keys) do
+        if type(key) == "number" then
+            out[#out + 1] = key
+        end
+    end
+    return out
+end
+
+local function defaultShellKeys()
+    if GameKey ~= nil and type(GameKey.F8) == "number" then
+        return { GameKey.F8 }
+    end
+    return {}
+end
+
+local function readString(key)
+    if PersistentDB == nil then return nil end
+    local text
+    local ok = pcall(function()
+        text = PersistentDB:GetString(key)
+    end)
+    if ok and type(text) == "string" then return text end
+    return nil
+end
+
+local function writeString(key, value)
+    if PersistentDB == nil then return end
+    pcall(function()
+        PersistentDB:SetString(key, value)
+    end)
+end
+
+-- Missing shell-key text means F8. A saved empty list means the shell key is off.
+function HubLayers.LoadPrefs(force)
+    if prefsLoaded and force ~= true then return end
+    prefsLoaded = true
+    shellKeys = defaultShellKeys()
+    positionsLocked = false
+    local text = readString(SHELL_KEY_DB)
+    if text ~= nil and text ~= "" and LibNodeGraph ~= nil and LibNodeGraph.Json ~= nil then
+        local ok, decoded = pcall(function()
+            return LibNodeGraph.Json.Default.decode(text)
+        end)
+        if ok and type(decoded) == "table" then
+            shellKeys = copyKeys(decoded)
+        end
+    end
+    positionsLocked = readString(LOCK_DB) == "1"
+end
+
+function HubLayers.ShellKeys()
+    HubLayers.LoadPrefs()
+    return copyKeys(shellKeys)
+end
+
+function HubLayers.SetShellKeys(keys)
+    HubLayers.LoadPrefs()
+    shellKeys = copyKeys(keys)
+    if LibNodeGraph == nil or LibNodeGraph.Json == nil then return end
+    local ok, text = pcall(function()
+        return LibNodeGraph.Json.Default.encode(shellKeys)
+    end)
+    if ok and type(text) == "string" then
+        writeString(SHELL_KEY_DB, text)
+    end
+end
+
+function HubLayers.PositionsLocked()
+    HubLayers.LoadPrefs()
+    return positionsLocked == true
+end
+
+function HubLayers.SetPositionsLocked(locked)
+    HubLayers.LoadPrefs()
+    positionsLocked = locked == true
+    writeString(LOCK_DB, positionsLocked and "1" or "0")
+end
+
+local function releaseSettingsWidgets()
+    if keybindField ~= nil and keybindField.Destroy ~= nil then
+        pcall(function() keybindField:Destroy() end)
+    end
+    keybindField = nil
+    if lockBox ~= nil and lockBox.Destroy ~= nil then
+        pcall(function() lockBox:Destroy() end)
+    end
+    lockBox = nil
+end
 
 local function granted(permission)
     return Plugin.HasPermission(permission) == true
@@ -54,12 +160,21 @@ local function permissionLine(name, permission)
     return name .. " permission: not granted"
 end
 
--- The client may already have destroyed the previous page. A Lua error here
--- must not skip filling the new one; a dead component's Destroy is the case
--- that throws.
 local function destroyOwned(node)
     if node == nil then return end
     pcall(function() node:Destroy() end)
+end
+
+local function applyShellOpen()
+    if contentToggleButton == nil then return end
+    contentToggleButton.isToggled = shellOpen
+end
+
+---@param open boolean
+function HubLayers.SetShellOpen(open)
+    shellOpen = not not open
+    if toggleFromButton then return end
+    applyShellOpen()
 end
 
 local function addLine(parent, y, h, text, maxLines)
@@ -99,12 +214,12 @@ local function paintRestricted(restricted)
             destroyOwned(contentDetail)
             contentDetail = nil
         end
-        local titleY = INSET_X + BUTTON_H + 4
+        local titleY = contentButtonY
         contentLine = addLine(contentParent, titleY, STATUS_H, RESTRICTED_LINE, 1)
         contentLine.rgb = RESTRICTED_RGBA
         contentLine.rgba = RESTRICTED_RGBA
         -- Top-aligned so the paragraph starts under the title instead of centering in its box.
-        contentDetail = addLine(contentParent, titleY + STATUS_H + 2, RESTRICTED_DETAIL_H, RESTRICTED_DETAIL, 3)
+        contentDetail = addLine(contentParent, titleY + STATUS_H + 2, RESTRICTED_DETAIL_H, RESTRICTED_DETAIL, 4)
         contentDetail.alignVertical = ui.AlignMode.TOPLEFT
         return
     end
@@ -136,27 +251,76 @@ end
 
 ---@param parent ui.ComponentCollection
 local function fillSettings(parent)
+    releaseSettingsWidgets()
     if settingsRoot ~= nil and settingsParent == parent then
         destroyOwned(settingsRoot)
     end
     settingsRoot = nil
     settingsParent = parent
 
-    local root = ui.Layer.new(parent)
-    root:SetSize(0, 0, 1, 1)
-    settingsRoot = root
+    -- The client parent is a raw component. SimpleView is the prettyui flow
+    -- host for that parent: each Add stacks under the last, and removing one
+    -- reflows the rest. A y on an Add pins that row and it will not move.
+    if prettyui == nil or prettyui.SimpleView == nil then return end
+    local view = prettyui.SimpleView.new(parent, {
+        width = 0,
+        height = 0,
+        widthAnchor = 1,
+        heightAnchor = 1,
+        layout = {
+            startY = 12,
+            paddingLeft = INSET_X,
+            paddingRight = INSET_X,
+            rowGap = 8,
+        },
+    })
+    settingsRoot = view
 
-    addLine(root, INTRO_Y, INTRO_H, "Open Watchdog with the shell toggle (F8).", 2)
-    addLine(root, STATUS_Y, STATUS_H, permissionLine("Chat", PluginPermissions.chatAccess), 1)
-    addLine(root, STATUS_Y + STATUS_GAP, STATUS_H, permissionLine("Tracking", PluginPermissions.trackingAccess), 1)
-    -- addLine(root, STATUS_Y + STATUS_GAP, STATUS_H, permissionLine("HTTP", PluginPermissions.httpAccess), 1)
+    view:AddText("Manager key")
+    local defaultKeys = defaultShellKeys()
+    local keyOptions = {
+        value = HubLayers.ShellKeys(),
+        onChange = function(_, value)
+            HubLayers.SetShellKeys(value)
+        end,
+    }
+    if #defaultKeys > 0 then
+        keyOptions.defaultValue = defaultKeys
+    end
+    local ok, field = pcall(function()
+        return view:AddKeybindField(keyOptions)
+    end)
+    if ok then keybindField = field end
+
+    local lockOk, box = pcall(function()
+        return view:AddCheckboxButton({
+            { text = "Lock infobox and toasts", value = "lock", selected = HubLayers.PositionsLocked() },
+        }, {
+            onChange = function(_, _, _, selected)
+                HubLayers.SetPositionsLocked(selected == true)
+            end,
+        })
+    end)
+    if lockOk then lockBox = box end
+
+    view:AddTitle(SETTINGS_RESTRICTED_TITLE)
+    view:AddText({
+        text = SETTINGS_RESTRICTED_BODY,
+        maxLines = 4,
+        alignVertical = ui.AlignMode.TOPLEFT,
+    })
+    view:AddText(permissionLine("Chat", PluginPermissions.chatAccess))
+    view:AddText(permissionLine("Tracking", PluginPermissions.trackingAccess))
 end
 
 ---@param parent ui.ComponentCollection
 ---@param onToggle fun()
 local function fillContent(parent, onToggle)
-    if contentButton ~= nil and contentParent == parent then
-        destroyOwned(contentButton)
+    if contentToggleButton ~= nil and contentParent == parent then
+        destroyOwned(contentToggleButton)
+    end
+    if contentResetButton ~= nil and contentParent == parent then
+        destroyOwned(contentResetButton)
     end
     if contentLine ~= nil and contentParent == parent then
         destroyOwned(contentLine)
@@ -164,20 +328,34 @@ local function fillContent(parent, onToggle)
     if contentDetail ~= nil and contentParent == parent then
         destroyOwned(contentDetail)
     end
-    contentButton = nil
+    contentToggleButton = nil
+    contentResetButton = nil
     contentLine = nil
     contentDetail = nil
     contentParent = parent
 
-    local button = ui.Button.new(parent)
-    button:SetPos(INSET_X, INSET_X)
-    button:SetSize(-INSET_X * 2, BUTTON_H, 1)
-    button.stylesheetID = id.StyleSheet.BUTTON_DEFAULT
-    button.label = "Toggle"
-    button:Subscribe(ui.Hook.ONBUTTONPRESSED, function()
-        onToggle()
-    end)
-    contentButton = button
+
+    local function onResetPopups()
+        Notices.shared:ResetAllPopups()
+    end
+    local buttonY = INSET_X
+    local function makeButton(label, onPress)
+        local button = ui.Button.new(parent)
+        button:SetPos(INSET_X, buttonY)
+        button:SetSize(-INSET_X * 2, BUTTON_H, 1)
+        button.stylesheetID = id.StyleSheet.BUTTON_DEFAULT
+        button.label = label
+        button:Subscribe(ui.Hook.ONBUTTONPRESSED, onPress)
+        buttonY = buttonY + BUTTON_H + 4
+        return button
+    end
+    local button = makeButton("Toggle", onToggle)
+    button.canToggle = true
+    contentToggleButton = button
+    applyShellOpen()
+    contentResetButton = makeButton("Reset All Popups", onResetPopups)
+    contentButtonY = buttonY
+
     -- IsRestricted() first: Subscribe does not replay the current answer.
     syncRestricted()
 end
@@ -190,7 +368,11 @@ function HubLayers.Bind(onToggle)
     end)
     Event.ContentLayerReady.Subscribe(CONTENT_EVENT, function(event)
         if event == nil or event.component == nil then return end
-        fillContent(event.component, onToggle)
+        fillContent(event.component, function()
+            toggleFromButton = true
+            onToggle()
+            toggleFromButton = false
+        end)
     end)
     -- Reload of an optional dependency swaps the global. Only the open panel
     -- follows it; a closed panel must not subscribe and keep that plugin ticking.
@@ -209,20 +391,31 @@ function HubLayers.Unbind()
     Event.OptionalDependencyChanged.Unsubscribe(DEPENDENCY_EVENT)
     -- Clear the parent before Unsubscribe so a callback cannot Destroy the
     -- line. PluginShutdown must not Destroy this page; the client does.
+    -- Cancel key capture without Destroy. Destroying the settings page here crashes.
+    if keybindField ~= nil and keybindField.CancelListening ~= nil then
+        pcall(function() keybindField:CancelListening() end)
+    end
+    keybindField = nil
+    lockBox = nil
     contentParent = nil
     unsubscribeRestricted()
     settingsRoot = nil
     settingsParent = nil
-    contentButton = nil
+    contentToggleButton = nil
+    contentResetButton = nil
     contentLine = nil
     contentDetail = nil
+    shellOpen = false
+    toggleFromButton = false
 end
 
 -- Live re-exec only. PluginShutdown must not Destroy these; the client tears
 -- the page down itself and crashes if they are already gone.
 function HubLayers.Stop()
+    releaseSettingsWidgets()
     destroyOwned(settingsRoot)
-    destroyOwned(contentButton)
+    destroyOwned(contentToggleButton)
+    destroyOwned(contentResetButton)
     destroyOwned(contentLine)
     destroyOwned(contentDetail)
     HubLayers.Unbind()

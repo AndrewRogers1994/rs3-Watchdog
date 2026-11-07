@@ -299,6 +299,48 @@ function TestExport:testImportMintsIdsAppendsAtRootNeverMergesByName()
     luaunit.assertEquals(child.layout[1].id, 7)
 end
 
+function TestExport:testImportStripsTagsFromNamesAndNodeText()
+    local doc = Store.Empty()
+    local ok, json = Export.Encode({ {
+        kind = "group",
+        name = "<col=ff0000>Slayer",
+        enabled = true,
+        children = { {
+            kind = "alert",
+            name = "<col=00ff00>alpha",
+            enabled = true,
+            layout = {},
+            graph = {
+                version = 1,
+                nodes = {
+                    {
+                        id = 1,
+                        type = "fixture.trigger",
+                        name = "<col=ff0000>Ping",
+                        controls = {
+                            message = "<col=ff0000>hi",
+                            contains = { needle = "<shad=0>boss", mode = "substring" },
+                        },
+                    },
+                },
+                connections = {},
+            },
+        } },
+    } })
+    luaunit.assertTrue(ok)
+
+    local importedOk = Export.Import(doc, json)
+    luaunit.assertTrue(importedOk)
+    local group = doc.entries[1]
+    luaunit.assertEquals(group.name, "Slayer")
+    local alert = group.children[1]
+    luaunit.assertEquals(alert.name, "alpha")
+    luaunit.assertEquals(alert.graph.nodes[1].name, "Ping")
+    luaunit.assertEquals(alert.graph.nodes[1].controls.message, "hi")
+    luaunit.assertEquals(alert.graph.nodes[1].controls.contains.needle, "boss")
+    luaunit.assertEquals(alert.graph.nodes[1].controls.contains.mode, "substring")
+end
+
 function TestExport:testRoundTripExportImportPreservesAlertPayload()
     local doc = Store.Empty()
     local id = seedAlert(doc, self.registry, "alpha", false)

@@ -31,16 +31,16 @@ The name a plugin is declared under in a dependency map — the same string the 
 _Avoid_: Folder, mod id, plugin name (those can differ from this)
 
 **Settings layer**:
-The Plugin Hub manage-tab page for this plugin. Watchdog's page says how to open the shell, and whether the chat and HTTP permissions are granted. It holds no per-alert settings.
+The Plugin Hub manage-tab page for this plugin. Watchdog's page holds the manager key, a lock for the infobox and toasts, a note on what a restricted area changes, and whether the chat and tracking permissions are granted. It holds no per-alert settings. The lock keeps the infobox and toasts from being dragged, and clicks on them reach the game. The player-facing name for the window is manager.
 _Avoid_: Options menu, config screen, the Alert Manager
 
 **Content layer**:
-The in-game panel for this plugin. The player places it, including beside the inventory, and it stays on screen while playing. Watchdog's panel has one button, labeled Toggle, that performs the shell toggle. While the player is Restricted, a line under that button reads In Restricted Area, in red, and a description under it says spawn and game-message alerts stay quiet while other alerts still run. Otherwise the panel is only the button. The panel reads the current answer when it is shown, and then follows Restricted changes.
+The in-game panel for this plugin. The player places it, including beside the inventory, and it stays on screen while playing. Watchdog's panel has a button labeled Toggle that opens and closes the manager. The button stays pressed while the manager is open. Closing it from the title bar or with the manager key releases the button, and opening it with the manager key presses the button. An Object Marker capture tucks the window and leaves the button pressed. While the player is Restricted, a line under that button reads In Restricted Area, in red, and a description under it says nearby spawns, game messages, and spots you chose will not alert you, while other alerts still work. Otherwise the panel is only the button. The panel reads the current answer when it is shown, and then follows Restricted changes.
 _Avoid_: Settings layer (the manage-tab page)
 
-**Shell toggle**:
-The gesture that shows or hides the Watchdog shell. F8 and the content-layer Toggle both perform it. While an Object Marker capture is armed, the gesture cancels the capture and leaves the shell where it is.
-_Avoid_: Open, launch
+**Manager**:
+The window the player opens to work with alerts. The settings page calls the key that opens it the manager key. That key and the content-layer Toggle both open it. The key defaults to F8. Clearing it on the settings page leaves that key free, and the Toggle button still opens the manager. While an Object Marker capture is armed, the gesture cancels the capture and leaves the manager where it is.
+_Avoid_: shell, Open, launch
 
 ## Packs
 
@@ -77,6 +77,18 @@ A Preset a Pack contributes, offered beside the Preset library while that Pack i
 _Avoid_: Import (that is the paste-an-export dialog); a second template type; a Preset library row
 
 ## Language
+
+**Shell**:
+The Watchdog window. Its Multiplexer swaps the Manager and the Editor, and only one of those is visible.
+_Avoid_: Multiplexer (that names the stack, not the window), hub
+
+**Multiplexer**:
+A stack of surfaces in one window. Only the top surface is visible, and the window stays mounted while surfaces are pushed and popped.
+_Avoid_: Shell, Dialog, tab bar
+
+**Surface**:
+One layer on a Multiplexer. The top surface is the one on screen.
+_Avoid_: Page, view, screen, tab
 
 **Editor**:
 The Watchdog graph-editor as a whole: the Canvas, its View, the input Capture Layer, and
@@ -152,6 +164,10 @@ The player-chosen name of one node, separate from the node type's display name. 
 name until the player renames it, and the header shows `New {Type}` until then.
 _Avoid_: Title (that is the Header text), display name (that is the type), label
 
+**Pin label**:
+The text shown for a Pin on a node. When a Pin has none, that text is the Pin's name.
+_Avoid_: Pin name (that is the key on the node)
+
 **Mode**:
 A named pin-set on a Node Type (LibNodeGraph ADR-0011). A live Node stores `mode` as instance
 metadata — not a Pin and not a Control. LibNodeGraph's Control glossary still says every
@@ -192,7 +208,7 @@ palette.
 _Avoid_: Catalog, menu, context menu, MiniMenu, node browser
 
 **Unavailable**:
-A Palette row that is shown and cannot be placed. It is dim, it does not highlight, and the reason is drawn after the name. Drag-to-Create does not list these rows. A gate can put a real node type into this state: Game Message while chat permission is off ("needs chat permission"), and Shortest Path while that plugin is absent ("needs Shortest Path"). The type stays registered, so a node already on a graph remains; a fire while the gate is closed does nothing. When the gate opens, the row can be placed again and the next fire runs. Rows whose API does not exist yet stay Unavailable permanently.
+A Palette row that is shown and cannot be placed. It is dim, it does not highlight, and the reason is drawn after the name. Drag-to-Create does not list these rows. A gate can put a real node type into this state. While chat permission is off, the Game Message trigger, the Player Chat trigger, and the Game Message action each show "needs chat permission". Shortest Path shows "needs Shortest Path" while that plugin is absent. The type stays registered, so a node already on a graph remains. A fire of the Game Message action or Shortest Path does nothing while its gate is closed. The client delivers ChatMessage only when chat permission is granted, so those two triggers stay quiet until then. When the gate opens, the row can be placed again and the next fire runs. Rows whose API does not exist yet stay Unavailable permanently.
 _Avoid_: Disabled, hidden, greyed out
 
 **Drag-to-Create**:
@@ -330,8 +346,8 @@ _Avoid_: Run button, play button, trigger button
 ## Alert Manager
 
 The management surface for **multiple** saved alerts and their player scoping — the layer above
-the single-alert Editor. Window chrome uses PrettyUI (`prettyui.Window` via the Multiplexer);
-content is a **hybrid**: PrettyUI for scope tabs and form controls, native `ui.Panel` rows for
+the single-alert Editor. Window chrome is a PrettyUI window on the Shell, and the Shell's Multiplexer swaps the Manager and the Editor inside it.
+Content is a **hybrid**: PrettyUI for scope tabs and form controls, native `ui.Panel` rows for
 the tree strip (ADR-0007) — see [`docs/alert-manager-prettyui.md`](docs/alert-manager-prettyui.md).
 Not the Editor's Canvas. Row **name** is a labeled PrettyUI SimpleButton; row **actions** and
 reorder are PrettyUI SpriteButtons (pencil / export / trash, arrows). Destructive delete goes
@@ -339,7 +355,7 @@ through a **Confirm dialog**, not a two-click armed label. This vocabulary was s
 the Alert Manager wayfinder map (#73); each term points at the ticket that fixed it.
 
 **Alert Manager**:
-The single management surface the shell toggle and the LibPluginMenu button open (`ui/manager.lua`):
+The single management surface the shell toggle opens (`ui/manager.lua`):
 a **tab bar** of Scopes over a tree of Entries. “All characters” and the character tab explain
 scope through tooltips. Clicking an alert name opens the Editor; clicking a group expands it.
 Rows have centered enable/select checkboxes, left-aligned names, and rename/export/delete actions.
@@ -365,8 +381,9 @@ and a modal dim by default. A footer action can dismiss it or leave it open; an 
 click handler dismisses. Titlebar X fires `onDismiss()` (optional, no args) and pops — it is not a generic
 close hook and does not also run an action `onClick`. Footer actions left-to-right in table order,
 last is primary (rightmost), group at the bottom-right. Dialogs on one parent Layer **stack**: mount
-pushes, dismiss pops; one visual dim for the stack; a blocker under the top Dialog so buried Dialogs
-stay mounted and inert. Not dismissed by Esc — the client would also open the pause menu. Distinct
+pushes, dismiss pops; one visual dim directly under the topmost modal, so dialogs below it
+are dimmed and stay mounted but inert. While a dialog is open, Maximize and the resize grip are not brought
+forward, so they stay under the dim and do not take clicks. Not dismissed by Esc — the client would also open the pause menu. Distinct
 from Palette and Color Popup (Canvas editor chrome) and from Widget (Canvas input primitives).
 _Avoid_: Window (the PrettyUI primitive it wraps), transfer, popup, Widget, onClose (that's PrettyUI's)
 
@@ -464,7 +481,7 @@ replayed), disarms but stays resident on leaving `GAME`, and is discarded and re
 Tracking ID changes. Revoking `trackingAccess` discards the character bucket. A rename keeps the same Bucket. Identity has no switch event. A **pending-resolve flag drained on
 Logic ticks** covers a plugin reload mid-session and a `trackingAccess` grant (`OptionalPermissionChanged`) while already in game. The Runtime fires from armed Scopes. **Fire predicate: armed Scope AND
 enabled-chain true — nothing else** (editor state and the Manager's selected Scope never gate
-firing) (#77, #89). Entity Spawn and the Game Message trigger also stay silent while the player
+firing) (#77, #89). Entity Spawn, the Game Message trigger, and the Location trigger also stay silent while the player
 is Restricted; that silence is those triggers' own rule, not this predicate.
 _Avoid_: Active / loaded (ambiguous between the two states), enabled (that is the per-Entry switch), Bucket (a Bucket is the saved key, and it is not armed)
 
@@ -522,8 +539,8 @@ A top-of-screen instruction strip shown while a Screen or Object Marker capture 
 input (drag a region / Select Object on a Loc). Non-interactive — cancel is Esc or re-click of the same
 Capture Control. Screen Marker also dims the screen behind it (Snipping-Tool hole while dragging).
 Object Marker select additionally hides the Watchdog window (and its overlay capture) so Loc MiniMenu
-hover is not covered; Esc or F8 cancels and brings the window back. The shell is restored on a
-successful Select Object. If Watchdog was already F8-hidden, it stays hidden.
+hover is not covered; Esc or the shell key cancels and brings the window back. The shell is restored on a
+successful Select Object. If Watchdog was already hidden by the shell key, it stays hidden.
 _Avoid_: toast, notification, armed banner, overlay prompt
 
 **Chat Trigger**:
@@ -557,7 +574,7 @@ An Entity Spawn control, default off. When on, ground-stack events the player do
 _Avoid_: Owned-only filter on NPCs, isOwner control
 
 **Restricted**:
-The local player is somewhere RestrictedAreas reports as Restricted. While Restricted, the Entity Spawn trigger and the Game Message trigger do not Fire. Player Chat, Location, Inventory, Skill, and Logic still Fire. The Game Message action still inserts a line. Effects already showing keep showing. Both triggers stay placeable. If the player's tile cannot be read, RestrictedAreas reports Restricted.
+The local player is somewhere RestrictedAreas reports as Restricted. While Restricted, the Entity Spawn trigger, the Game Message trigger, and the Location trigger do not Fire. A Location crossing that happens while Restricted does not emit Enter or Leave on the way out. Player Chat, Inventory, Skill, and Logic still Fire. The Game Message action still inserts a line. Effects already showing keep showing. Those triggers stay placeable. If the player's tile cannot be read, RestrictedAreas reports Restricted.
 _Avoid_: lite, restricted mode
 
 **Container**:

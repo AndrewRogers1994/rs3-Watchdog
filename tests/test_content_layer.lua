@@ -1,5 +1,6 @@
 -- Content panel text. Drives the panel fill and, later, the RestrictedAreas
--- callback. Asserts the words on the panel, not how the line was laid out.
+-- callback. Asserts the words on the panel, and that the restricted line
+-- starts under every button.
 
 local luaunit = require("luaunit")
 local HubLayers = require("src/ui/hub_layers")
@@ -24,6 +25,10 @@ function TestContentLayer:setUp()
         RestrictedAreas = _G.RestrictedAreas,
         Plugin = _G.Plugin,
         PluginPermissions = _G.PluginPermissions,
+        prettyui = _G.prettyui,
+        GameKey = _G.GameKey,
+        PersistentDB = _G.PersistentDB,
+        LibNodeGraph = _G.LibNodeGraph,
     }
     self.toggled = 0
     self.parent = { children = {} }
@@ -34,8 +39,14 @@ function TestContentLayer:setUp()
     local test = self
     local function component(kind, parent)
         local node = { kind = kind, parent = parent, hooks = {}, destroyed = false, children = {} }
-        function node:SetPos() end
-        function node:SetSize() end
+        function node:SetPos(x, y)
+            self.x = x
+            self.y = y
+        end
+        function node:SetSize(w, h)
+            self.w = w
+            self.h = h
+        end
         function node:Subscribe(hook, fn)
             self.hooks[hook] = fn
         end
@@ -87,6 +98,11 @@ function TestContentLayer:tearDown()
     _G.RestrictedAreas = self.saved.RestrictedAreas
     _G.Plugin = self.saved.Plugin
     _G.PluginPermissions = self.saved.PluginPermissions
+    _G.prettyui = self.saved.prettyui
+    _G.GameKey = self.saved.GameKey
+    _G.PersistentDB = self.saved.PersistentDB
+    _G.LibNodeGraph = self.saved.LibNodeGraph
+    HubLayers.LoadPrefs(true)
 end
 
 function TestContentLayer:installAreas(answer)
@@ -114,8 +130,10 @@ end
 
 function TestContentLayer:button()
     local buttons = live(self.parent, "button")
-    luaunit.assertEquals(#buttons, 1)
-    return buttons[1]
+    for _, button in ipairs(buttons) do
+        if button.label == "Toggle" then return button end
+    end
+    error("Toggle button missing")
 end
 
 function TestContentLayer:texts()
@@ -125,7 +143,7 @@ end
 -- 0xRRGGBBAA red. Matches the restricted title in hub_layers.lua.
 local RESTRICTED_RGBA = 255 * 0x1000000 + 48 * 0x10000 + 48 * 0x100 + 255
 local TEXT_RGBA = 220 * 0x1000000 + 222 * 0x10000 + 230 * 0x100 + 255
-local RESTRICTED_DETAIL = "Spawn and game-message triggers stay quiet. Other triggers still run."
+local RESTRICTED_DETAIL = "In a restricted area, Watchdog will not trigger Spawn, Game Message, or Location triggers."
 
 function TestContentLayer:assertRestrictedLine(line)
     luaunit.assertEquals(line.content, "In Restricted Area")
@@ -143,11 +161,23 @@ function TestContentLayer:assertRestrictedCopy(texts)
     luaunit.assertEquals(#texts, 2)
     self:assertRestrictedLine(texts[1])
     self:assertRestrictedDetail(texts[2])
+    local floor = 0
+    for _, button in ipairs(live(self.parent, "button")) do
+        local bottom = button.y + button.h
+        if bottom > floor then floor = bottom end
+    end
+    luaunit.assertTrue(texts[1].y >= floor)
+    luaunit.assertTrue(texts[2].y >= texts[1].y + texts[1].h)
+    luaunit.assertEquals(texts[2].maxLines, 4)
+    luaunit.assertTrue(texts[2].h >= texts[1].h * texts[2].maxLines)
 end
 
 function TestContentLayer:testFillWhileRestrictedShowsRestrictedUnderToggle()
     self:installAreas(true)
     self:showContent()
+    local buttons = live(self.parent, "button")
+    luaunit.assertEquals(#buttons, 2)
+    luaunit.assertEquals(buttons[2].label, "Reset All Popups")
     local button = self:button()
     luaunit.assertEquals(button.label, "Toggle")
     button.hooks["ONBUTTONPRESSED"]()
@@ -156,7 +186,63 @@ function TestContentLayer:testFillWhileRestrictedShowsRestrictedUnderToggle()
     self:assertRestrictedCopy(texts)
 end
 
-function TestContentLayer:testFillWhileNotRestrictedIsOnlyTheToggleButton()
+function TestContentLayer:testShellOpenPressesAndReleasesToggle()
+    self:showContent()
+    local button = self:button()
+    luaunit.assertFalse(button.isToggled)
+    HubLayers.SetShellOpen(true)
+    luaunit.assertTrue(button.isToggled)
+    HubLayers.SetShellOpen(false)
+    luaunit.assertFalse(button.isToggled)
+end
+
+function TestContentLayer:testPanelShownWhileOpenStartsPressed()
+    HubLayers.SetShellOpen(true)
+    self:showContent()
+    luaunit.assertTrue(self:button().isToggled)
+end
+
+function TestContentLayer:testButtonPressDoesNotWriteIsToggled()
+    HubLayers.Unbind()
+    local presses = 0
+    HubLayers.Bind(function()
+        presses = presses + 1
+        HubLayers.SetShellOpen(true)
+    end)
+    self:showContent()
+    local button = self:button()
+    button.isToggled = false
+    button.hooks["ONBUTTONPRESSED"]()
+    luaunit.assertEquals(presses, 1)
+    luaunit.assertFalse(button.isToggled)
+    HubLayers.SetShellOpen(false)
+    luaunit.assertFalse(button.isToggled)
+end
+
+function TestContentLayer:resetButton()
+    for _, button in ipairs(live(self.parent, "button")) do
+        if button.label == "Reset All Popups" then return button end
+    end
+    error("Reset All Popups button missing")
+end
+
+function TestContentLayer:testRefillReplacesTheResetButton()
+    self:showContent()
+    local first = self:resetButton()
+    self:showContent()
+    luaunit.assertTrue(first.destroyed)
+    luaunit.assertEquals(#live(self.parent, "button"), 2)
+    luaunit.assertFalse(self:resetButton().destroyed)
+end
+
+function TestContentLayer:testStopDestroysTheResetButton()
+    self:showContent()
+    local reset = self:resetButton()
+    HubLayers.Stop()
+    luaunit.assertTrue(reset.destroyed)
+end
+
+function TestContentLayer:testFillWhileNotRestrictedShowsNoRestrictedCopy()
     self:installAreas(false)
     self:showContent()
     luaunit.assertEquals(self:button().label, "Toggle")
@@ -266,6 +352,34 @@ function TestContentLayer:testSettingsLayerDoesNotShowRestricted()
             return true
         end,
     }
+    _G.GameKey = { F8 = 66 }
+    local test = self
+    _G.prettyui = {
+        SimpleView = {
+            new = function(parent)
+                local view = { Destroy = function() end }
+                function view:AddText(value)
+                    local text = type(value) == "table" and value.text or value
+                    parent.children[#parent.children + 1] = {
+                        kind = "text", content = text, destroyed = false, children = {},
+                    }
+                end
+                function view:AddTitle(value)
+                    self:AddText(value)
+                end
+                function view:AddKeybindField(options)
+                    test.keybindOptions = options
+                    return { Destroy = function() end, CancelListening = function() end }
+                end
+                function view:AddCheckboxButton(choices)
+                    test.checkboxChoices = choices
+                    return { Destroy = function() end }
+                end
+                return view
+            end,
+        },
+    }
+    HubLayers.LoadPrefs(true)
     self:installAreas(true)
     local settingsParent = { children = {} }
     self.onSettings({ component = settingsParent })
@@ -282,10 +396,34 @@ function TestContentLayer:testSettingsLayerDoesNotShowRestricted()
         walk(child)
     end
     luaunit.assertEquals(contents, {
-        "Open Watchdog with the shell toggle (F8).",
+        "Manager key",
+        "Restricted areas",
+        "While you are in a restricted area, Watchdog will not trigger Spawn, Game Message, or Location triggers.",
         "Chat permission: granted",
         "Tracking permission: granted",
     })
+    luaunit.assertEquals(self.keybindOptions.value, { 66 })
+    luaunit.assertEquals(self.keybindOptions.defaultValue, { 66 })
+    luaunit.assertEquals(self.checkboxChoices[1].text, "Lock infobox and toasts")
+    luaunit.assertFalse(self.checkboxChoices[1].selected)
+end
+
+function TestContentLayer:testEmptyShellKeyStaysEmpty()
+    local store = {}
+    _G.GameKey = { F8 = 66 }
+    _G.PersistentDB = {
+        GetString = function(_, key) return store[key] end,
+        SetString = function(_, key, value) store[key] = value end,
+    }
+    _G.LibNodeGraph = { Json = require("json") }
+    HubLayers.LoadPrefs(true)
+    luaunit.assertEquals(HubLayers.ShellKeys(), { 66 })
+    HubLayers.SetShellKeys({})
+    HubLayers.LoadPrefs(true)
+    luaunit.assertEquals(HubLayers.ShellKeys(), {})
+    HubLayers.SetPositionsLocked(true)
+    HubLayers.LoadPrefs(true)
+    luaunit.assertTrue(HubLayers.PositionsLocked())
 end
 
 function TestContentLayer:testRestrictedAreasIsARequiredDependency()

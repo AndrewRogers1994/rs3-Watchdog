@@ -1,35 +1,30 @@
-local Editor = require("src/ui/graph")
-local Manager = require("src/ui/manager")
-local Multiplexer = require("src/ui/multiplexer")
-local Store  = require("src/store")
-local ScopeEdits = require("src/scope_edits")
-local Presets = require("src/presets")
-local Packs = require("src/packs")
+local Editor              = require("src/ui/graph")
+local Manager             = require("src/ui/manager")
+local Shell               = require("src/ui/shell")
+local Store               = require("src/store")
+local ScopeEdits          = require("src/scope_edits")
+local Presets             = require("src/presets")
+local Packs               = require("src/packs")
 ---@type Watchdog.Runtime
-local Runtime = require("src/runtime")
-local Effects = require("src/effects")
-local InfoBoxArea = require("src/ui/infobox")
+local Runtime             = require("src/runtime")
+local Effects             = require("src/effects")
+local InfoBoxArea         = require("src/ui/infobox")
 local ScreenMarkerCapture = require("src/ui/screen_marker_capture")
 local ObjectMarkerCapture = require("src/ui/object_marker_capture")
-local ToastStack = require("src/toast")
-local Theme = require("src/ui/theme")
-local Dialog = require("src/ui/dialog")
-local PresetDialogs = require("src/ui/preset_dialogs")
-local HubLayers = require("src/ui/hub_layers")
+local ToastStack          = require("src/toast")
+local Theme               = require("src/ui/theme")
+local Dialog              = require("src/ui/dialog")
+local Notices             = require("src/notices")
+local NoticeDialog        = require("src/ui/notice_dialog")
+local PresetDialogs       = require("src/ui/preset_dialogs")
+local HubLayers           = require("src/ui/hub_layers")
+local Text                = require("src/text")
 
-local Events = {
+local Events              = {
     Logic = "logic",
     Draw = "draw",
     KeyDown = "key",
 }
-
-local TOGGLE_KEY = "F8"
-
-if Plugin.HasPermission(PluginPermissions.httpAccess) then
-    log("Watchdog: plugin has HTTP access")
-else
-    log("Watchdog: plugin does NOT have HTTP access")
-end
 
 if Plugin.HasPermission(PluginPermissions.trackingAccess) then
     log("Watchdog: plugin has tracking access")
@@ -115,30 +110,7 @@ require("src/nodes/actions/object_marker").Register(registry, runtime)
 require("src/nodes/actions/toast").Register(registry, runtime)
 require("src/nodes/actions/alert_toggle").Register(registry, runtime)
 require("src/nodes/actions/game_message").Register(registry)
-require("src/nodes/actions/shortest_path").Register(registry)
-
-local function RegisterToPluginMenu()
-    LibPluginMenu.Unregister("watchdog")
-    LibPluginMenu.Register({
-        id = "watchdog",
-        name = "Watchdog",
-        icon = "W",
-        onClick = function()
-            pcall(function() Watchdog.Toggle() end)
-        end
-    })
-end
-Event.OptionalDependencyChanged.Subscribe('opdepchanged', function(dep)
-    if dep.pluginIdentifier == "LibPluginMenu" and LibPluginMenu ~= nil then
-        if dep.enabled then
-            RegisterToPluginMenu()
-        end
-    end
-end)
-
-if LibPluginMenu ~= nil then
-    RegisterToPluginMenu()
-end
+-- require("src/nodes/actions/shortest_path").Register(registry)
 
 runtime:SetRegistry(registry)
 
@@ -251,10 +223,43 @@ local boundScope = nil
 local persistNow -- assigned below
 local edits ---@type Watchdog.ScopeEdits
 
-local mux ---@type Watchdog.Multiplexer
+local mux ---@type Watchdog.Shell
 local managerSurface ---@type Watchdog.MuxSurface
 local editorSurface ---@type Watchdog.MuxSurface
 local manager
+
+local notices = Notices.shared
+
+-- Any dialog already on the shell overlay blocks another until the next trigger.
+local function overlayHasDialog()
+    if mux == nil then return true end
+    local parent = mux:Overlay()
+    if parent == nil then return true end
+    return Dialog.depth(parent) > 0
+end
+
+---@param offer Watchdog.NoticeOffer|nil
+local function presentNotice(offer)
+    if offer == nil or mux == nil then return end
+    local parent = mux:Overlay()
+    if parent == nil or Dialog.depth(parent) > 0 then return end
+    local function onSeen()
+        notices:MarkSeen(offer.ids)
+    end
+    if offer.kind == "whats-new" then
+        NoticeDialog.mountWhatsNew(parent, offer.entries, onSeen)
+    elseif offer.kind == "getting-started" then
+        NoticeDialog.mountGettingStarted(parent, onSeen)
+    end
+end
+
+local function onShellShow()
+    if mux == nil then return end
+    presentNotice(notices:OnWindowOpen({
+        editorTop = mux:IsTop("editor"),
+        dialogOpen = overlayHasDialog(),
+    }))
+end
 
 ---@param scopeKey string
 ---@param entryId integer
@@ -266,8 +271,13 @@ local function navOpenAlert(scopeKey, entryId)
     boundScope = { doc = a.doc, key = a.key }
     edits:NoteSaved(a.key)
     if mux ~= nil and editorSurface ~= nil then
+        -- Hidden: SetVisible is the window open. Already visible: the push is the editor entry.
+        local shellWasVisible = mux:IsVisible()
         mux:Push(editorSurface)
         mux:SetVisible(true)
+        presentNotice(notices:OnOpenAlert(shellWasVisible, {
+            dialogOpen = overlayHasDialog(),
+        }))
     end
 end
 
@@ -276,6 +286,7 @@ local function navBack()
     editor:Unbind()
     boundScope = nil
     if mux ~= nil then mux:Pop() end
+    notices:OnNavBack()
 end
 
 editor.onBack = navBack
@@ -333,7 +344,9 @@ editor.onRename = function()
     local scopeKey, entryId = boundScope.key, editor.boundId
     local field, feedback
     Dialog.mount(mux:Overlay(), {
-        title = "Rename alert", width = 380, height = 200,
+        title = "Rename alert",
+        width = 380,
+        height = 200,
         content = function(win)
             win:AddText("Alert name")
             field = win:AddTextField({ text = editor.alertName, maxLength = 80, height = 30 })
@@ -341,17 +354,23 @@ editor.onRename = function()
         end,
         actions = {
             { label = "Cancel" },
-            { label = "Save", variant = "positive", onClick = function()
-                local name = field:GetText():match("^%s*(.-)%s*$")
-                if name == "" then feedback.content = "Enter an alert name."; return false end
-                local result, ok = edits:Rename(scopeKey, entryId, name, openAlert())
-                if not ok then
-                    feedback.content = "Could not save the name. Try again."
-                    return false
+            {
+                label = "Save",
+                variant = "positive",
+                onClick = function()
+                    local name = Text.StripTags(field:GetText() or ""):match("^%s*(.-)%s*$")
+                    if name == "" then
+                        feedback.content = "Enter an alert name."; return false
+                    end
+                    local result, ok = edits:Rename(scopeKey, entryId, name, openAlert())
+                    if not ok then
+                        feedback.content = "Could not save the name. Try again."
+                        return false
+                    end
+                    applyEditor(result)
+                    return true
                 end
-                applyEditor(result)
-                return true
-            end },
+            },
         },
     })
 end
@@ -412,8 +431,10 @@ editor.onSavePreset = function()
     })
 end
 
+-- Shell, effects, infobox, and toasts share this parent. Saved anchors are
+-- plain offsets, so a different origin moves existing positions.
 local function getRootParent()
-    local candidates = { "TOPLEVEL_V2__GAME_AREA" }
+    local candidates = { "TOPLEVEL_V2__PLUGIN_BUILD_LAYER_TOP" }
     for _, key in ipairs(candidates) do
         local componentID = id.Component[key]
         if componentID ~= nil then
@@ -494,7 +515,7 @@ manager = Manager.new({
     end,
 })
 
-mux = Multiplexer.new({
+mux = Shell.new({
     x = -math.floor(Theme.WINDOW_W / 2),
     y = -math.floor(Theme.WINDOW_H / 2),
     xAnchor = 0.5,
@@ -504,8 +525,15 @@ mux = Multiplexer.new({
     minWidth = 720,
     minHeight = 320,
     scrollable = false,
+    onShow = function()
+        onShellShow()
+        HubLayers.SetShellOpen(true)
+    end,
     onHide = function()
         pcall(function() manager:DismissDialogs() end)
+        -- Capture hides the window and restores it. Leave the button pressed.
+        if mux ~= nil and mux:IsHiddenForCapture() then return end
+        HubLayers.SetShellOpen(false)
     end,
 })
 editor.onAlertNameChanged = function()
@@ -535,7 +563,7 @@ editorSurface = {
         return "Watchdog - " .. name
     end,
     SetVisible = function(_, v) editor:SetVisible(v) end,
-    -- Dismiss gestures without resetting pan and zoom on F8.
+    -- Dismiss gestures without resetting pan and zoom on the shell key.
     OnShellHide = function() editor:OnShellHide() end,
     FrontOverlayPopups = function() editor:FrontOverlayPopups() end,
 }
@@ -749,7 +777,7 @@ end
 api.editor = editor
 api.manager = manager
 api.mux = mux
-api.document = document  -- the persisted `global` Bucket, exposed for inspection
+api.document = document -- the persisted `global` Bucket, exposed for inspection
 
 Event.Logic.Subscribe(Events.Logic, onLogic)
 Event.Draw.Subscribe(Events.Draw, onDraw)
@@ -774,13 +802,25 @@ Event.KeyDown.Subscribe(Events.KeyDown, function(keyEvent)
         -- end
         return
     end
-    local target = GameKey[TOGGLE_KEY]
-    if target ~= nil and keyEvent.gameKey == target then
+    local keys = HubLayers.ShellKeys()
+    local pressed = keyEvent.gameKey
+    local bound = false
+    for _, key in ipairs(keys) do
+        if key == pressed then
+            bound = true
+            break
+        end
+    end
+    -- IsDown is false while the settings field is capturing, so choosing a key
+    -- does not also toggle. An extra key held with the chord does not match.
+    if bound and prettyui ~= nil and prettyui.KeybindField ~= nil
+        and prettyui.KeybindField.IsDown(keys) then
         api.Toggle()
     end
 end)
 
--- F8 and the content-layer Toggle share api.Toggle.
+-- The shell key and the content-layer Toggle share api.Toggle.
+HubLayers.LoadPrefs()
 HubLayers.Bind(function()
     api.Toggle()
 end)

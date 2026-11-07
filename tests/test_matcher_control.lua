@@ -19,6 +19,13 @@ end
 
 TestMatcherNeedle = {}
 
+function TestMatcherNeedle:testEditingNeedleStripsClientTextTags()
+    local host = FakeHost.new({ needle = "", mode = "substring" })
+    Matcher.Press(host, needleCtrl({ needle = "", mode = "substring" }))
+    host:Type("<col=ff0000>boss</col>", nil)
+    luaunit.assertEquals(host.committed, { needle = "boss", mode = "substring" })
+end
+
 function TestMatcherNeedle:testEditingNeedlePreservesTheMode()
     local host = FakeHost.new({ needle = "", mode = "pattern" })
     Matcher.Press(host, needleCtrl({ needle = "", mode = "pattern" }))

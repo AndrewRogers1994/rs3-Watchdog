@@ -4,15 +4,17 @@
 
 local ControlKinds = require("src/ui/control_kinds")
 local Util = require("src/util")
+local Text = require("src/text")
 
 local Presets = {}
 
--- A Variable is one text, number, enum, or Matcher needle. Widget kind is the source of
--- truth, looked up from the tag recorded at Controls.Register.
+-- A Variable is one text, number, enum, checkbox, or Matcher needle. Widget kind is
+-- the source of truth, looked up from the tag recorded at Controls.Register.
 local MARKABLE_WIDGET = {
     text = true,
     number = true,
     enum = true,
+    checkbox = true,
     matcher = true,
 }
 
@@ -87,15 +89,21 @@ function Presets.Load()
         report("presets document version " .. tostring(doc.version) .. " is not supported, left on disk")
         return nil, "Presets could not be read."
     end
+    for _, preset in ipairs(doc.presets) do
+        if type(preset) == "table" and type(preset.name) == "string" then
+            local stripped = Text.StripTags(preset.name)
+            preset.name = stripped ~= "" and stripped or "Preset"
+        end
+    end
     return doc, nil
 end
 
---- Leading and trailing whitespace removed. A non-string is empty.
+--- Leading and trailing whitespace and client text tags are removed. A non-string is empty.
 ---@param name string|nil
 ---@return string
 function Presets.trim(name)
     if type(name) ~= "string" then return "" end
-    return (name:match("^%s*(.-)%s*$"))
+    return (Text.StripTags(name):match("^%s*(.-)%s*$"))
 end
 
 local trim = Presets.trim
@@ -223,6 +231,7 @@ function Presets.Add(name, graph, layout, variables)
     if doc == nil then
         return nil, err
     end
+    Text.StripGraphText(graph)
     local ok, serialized = pcall(LibNodeGraph.Serialize, graph)
     if not ok or type(serialized) ~= "table" then
         report("could not copy the alert graph - " .. tostring(serialized))

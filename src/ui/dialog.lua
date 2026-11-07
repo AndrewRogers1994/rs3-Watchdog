@@ -12,7 +12,7 @@ Dialog.ACTION_Y = -35
 Dialog.DIM_ALPHA = 0.4
 
 -- stacks[parent] = { frame, ... }  (bottom → top)
--- chrome[parent] = { dim, blocker }
+-- chrome[parent] = { dim }
 local stacks = {}
 local chrome = {}
 
@@ -29,7 +29,7 @@ local chrome = {}
 ---@field title string|nil
 ---@field width integer|nil
 ---@field height integer|nil
----@field modal boolean|nil  # default true; full-screen dim + click blocker
+---@field modal boolean|nil  # default true; full-screen dim under the topmost modal
 ---@field content (fun(win: any))|nil
 ---@field actions Watchdog.DialogAction[]|nil
 ---@field onDismiss (fun())|nil  # titlebar X only; no args; cannot veto
@@ -87,16 +87,15 @@ local function destroyChrome(parent)
     local ch = chrome[parent]
     if ch == nil then return end
     chrome[parent] = nil
-    destroyLayer(ch.blocker)
     destroyLayer(ch.dim)
 end
 
 ---@param parent any
----@return any, any  # dim, blocker
+---@return any dim
 local function ensureChrome(parent)
     local ch = chrome[parent]
-    if ch ~= nil then return ch.dim, ch.blocker end
-    local dim, blocker
+    if ch ~= nil then return ch.dim end
+    local dim
     pcall(function()
         dim = ui.Layer.new(parent)
         dim:SetPos(0, 0)
@@ -109,34 +108,40 @@ local function ensureChrome(parent)
         rect:SetSize(0, 0, 1.0, 1.0)
         rect.colour = Vector4.new(0, 0, 0, Dialog.DIM_ALPHA)
     end)
-    pcall(function()
-        -- Invisible click catcher: one visual dim (above), this sits under the top Window
-        -- so buried Dialogs stay visible but do not receive clicks.
-        blocker = ui.Layer.new(parent)
-        blocker:SetPos(0, 0)
-        blocker:SetSize(0, 0, 1.0, 1.0)
-        blocker.clickthrough = false
-        local hit = ui.Rectangle.new(blocker)
-        hit.fill = true
-        hit.clickthrough = false
-        hit:SetPos(0, 0)
-        hit:SetSize(0, 0, 1.0, 1.0)
-        hit.colour = Vector4.new(0, 0, 0, 0)
-    end)
-    chrome[parent] = { dim = dim, blocker = blocker }
-    return dim, blocker
+    chrome[parent] = { dim = dim }
+    return dim
+end
+
+--- Bring prettyui window to the front without triggering overlay layout.
+---@param win any
+---@return boolean
+local function frontWindow(win)
+    local root = win.root
+    if root == nil or root.MoveToFront == nil then return false end
+    root.hidden = false
+    root:MoveToFront()
+    if win.titleDrag ~= nil and win.titleDrag.MoveToFront ~= nil then
+        win.titleDrag.hidden = false
+        win.titleDrag:MoveToFront()
+    end
+    if win.overlays == nil then return true end
+    for component, overlay in pairs(win.overlays) do
+        if component.hidden ~= true and overlay.isVisible() then
+            component:MoveToFront()
+        end
+    end
+    return true
 end
 
 ---@param component any|nil
 local function raise(component)
     if component == nil then return end
     pcall(function()
+        if frontWindow(component) then return end
         if component.MoveToFront ~= nil then
             component:MoveToFront()
         elseif component.Show ~= nil then
             component:Show()
-        elseif component.root ~= nil and component.root.MoveToFront ~= nil then
-            component.root:MoveToFront()
         end
     end)
 end
@@ -149,26 +154,39 @@ local function syncChrome(parent)
         destroyChrome(parent)
         return
     end
-    local anyModal = false
-    for _, frame in ipairs(s) do
-        if frame.opts.modal then anyModal = true break end
+    local modalAt
+    for i = #s, 1, -1 do
+        if s[i].opts.modal then
+            modalAt = i
+            break
+        end
     end
-    local top = s[#s]
-    local dim, blocker
-    if anyModal then
-        dim, blocker = ensureChrome(parent)
+    local dim
+    if modalAt ~= nil then
+        dim = ensureChrome(parent)
     else
         destroyChrome(parent)
     end
-    raise(dim)
-    for i = 1, #s - 1 do
+    -- Below the topmost modal, then the dim, then the rest. No modal: the last window stays in front.
+    local split = modalAt or #s
+    for i = 1, split - 1 do
         raise(s[i].win)
     end
-    if top.opts.modal then raise(blocker) end
-    raise(top.win)
-    pcall(function()
-        if top.win.Show ~= nil then top.win:Show() end
-    end)
+    raise(dim)
+    for i = split, #s - 1 do
+        raise(s[i].win)
+    end
+    raise(s[#s].win)
+end
+
+--- The shell overlay is raised every frame, which covers dialogs parented to the
+--- shell root. Re-apply stack order so that dim stays above the overlay.
+---@param parent any
+function Dialog.front(parent)
+    if parent == nil then return end
+    local s = stacks[parent]
+    if s == nil or #s == 0 then return end
+    syncChrome(parent)
 end
 
 local pop
@@ -336,6 +354,29 @@ function Dialog.mount(parent, opts)
     mountActions(win, frame, opts.actions)
     syncChrome(parent)
     return win
+end
+
+-- A center anchor keeps the window center fixed, so SetSize slides the title bar.
+-- Put the top back, then remember that point. SetSize remembered the slid one.
+---@param win any
+---@param width number
+---@param height number
+function Dialog.resizeKeepingTop(win, width, height)
+    local root = win.root
+    local topX = root.x or 0
+    local topY = root.y or 0
+    win.minWidth = width
+    win.maxWidth = width
+    win.minHeight = height
+    win.maxHeight = height
+    win:SetSize(width, height)
+    root:SetPos(topX, topY)
+    if win.titleDrag ~= nil then
+        win.titleDrag:SetPos(topX, topY)
+    end
+    if win.dragBounds ~= nil then
+        win.dragBounds:RememberPosition()
+    end
 end
 
 return Dialog

@@ -6,7 +6,7 @@
 - [x] 1. consolidate the comparison nodes into one with a dropdown selector for the operation. it's clutter to have 6 different nodes to just change the operation between two numbers. ([#64](https://github.com/adamk33n3r/rs3-Watchdog/issues/64)) _(Palette node is `std.compare` with an operation dropdown. The six old types stay registered and hidden so saved graphs still load.)_
 - [ ] 2. By default, exec IN pins allow more than one connection but can be configured to only allow a single connection ([#65](https://github.com/adamk33n3r/rs3-Watchdog/issues/65))
 - [x] 3. Right now you can create multiple duplicate connections. If you try to create a connection that already exists, treat that as the user wanting to remove that existing connection. _(Engine: `Connect` now returns `id` or `nil, reason` — uniform result contract, no asserts — and rejects exact-duplicate edges (`"duplicate"`, checked before `"data_input_occupied"`); new `Graph:FindConnection`. Editor `linkPins`: identical wire → toggle off (uniform exec+data); different-source data occupant → replace.)_
-- [ ] 4. checkbox control for booleans ([#66](https://github.com/adamk33n3r/rs3-Watchdog/issues/66) — combined with #11)
+- [x] 4. checkbox control for booleans ([#112](https://github.com/adamk33n3r/rs3-Watchdog/issues/112)) _(A bool pin is a checkbox, and so is that pin in the Preset variable dialog. A click stores the flipped boolean.)_
 - [ ] 5. add prefix config to Log ([#67](https://github.com/adamk33n3r/rs3-Watchdog/issues/67))
 - [ ] 6. when drag-and-dropping a connection line and it opens the palette, can we keep rendering the connection line until the palette is closed either by dismissing or selecting a node? ([#68](https://github.com/adamk33n3r/rs3-Watchdog/issues/68))
 - [ ] 7. stateful nodes should display what state they are in. counter should display the current number, flipflop should display what side it will fire next, doonce and gate should display if it is open or closed ([#69](https://github.com/adamk33n3r/rs3-Watchdog/issues/69))
@@ -34,10 +34,10 @@ Target: mirror the trigger/notification list from https://github.com/adamk33n3r/
 
 ### Triggers
 
-- [x] Game Message — `trigger.chat`
-  - `Event.ChatMessage` → payload `chatMessage` (String), `chatType` (ChatType), `timestamp`. Filter `chatType` to the game/engine types (GENERAL=0, ENGINE=4, SPAM=109, broadcasts, etc.).
-- [x] Player Chat Message — `trigger.chat` (same node, chat-type-aware)
-  - `Event.ChatMessage` (same event) → filter `chatType` to player-typed lines: PUBLIC=2, FRIEND_CHAT=9, CLANCHANNEL\_\*, GROUP\_\*, PRIVATE_INCOMING/OUTGOING, and their QUICKCHAT variants.
+- [x] Game Message — `trigger.game_message`
+  - `Event.ChatMessage` → payload `chatMessage` (String), `chatType` (ChatType), `timestamp`. Filter `chatType` to the game/engine types (GENERAL=0, ENGINE=4, SPAM=109, broadcasts, etc.). Palette Unavailable with "needs chat permission" until `chatAccess` is granted, same gate as the Game Message action. The type stays registered.
+- [x] Player Chat Message — `trigger.player_chat`
+  - `Event.ChatMessage` (same event) → filter `chatType` to player-typed lines: PUBLIC=2, FRIEND_CHAT=9, CLANCHANNEL\_\*, GROUP\_\*, PRIVATE_INCOMING/OUTGOING, and their QUICKCHAT variants. Same Palette gate and reason as Game Message.
 - [ ] Overhead Text
   - NO EVENT. The API has no overhead-text event and `PlayerEntity`/`NPCEntity` expose no overhead/chat-text field (only uid, displayName, position, coordGrid, facing). Not achievable with the current API — needs a Jagex-side event.
 - [x] Stat Changed — boosts/drains
@@ -56,9 +56,9 @@ Target: mirror the trigger/notification list from https://github.com/adamk33n3r/
 ### Actions
 
 - [x] Sound Effect — `action.sound`
-  - `audio.Play(builtinResourceID, params?)` with a builtin sound id, `bus` hardcoded `sfx` (#33 retrofit). Done.
+  - `audio.Play(builtinResourceID, params?)` with a builtin sound id. `bus` is the shared `audioBus` dropdown (Master, SFX, Music, Ambient, Voiceover; default SFX), same list as Custom Sound. Done.
 - [x] Custom Sound — `action.custom_sound` (#33)
-  - `audio.Play(resource, params?)` where `resource` = `Plugin.resources[name]`, picked via an interim dropdown Control (enumerated from `Plugin.resources` at Register time — a disk file-picker is API-blocked/out of scope). `volume` (1.0)/`loops` (0) pins. `bus` is a dropdown (`customSoundBus`: Master, SFX, Music, Ambient, Voiceover; default SFX), resolved to `audio.AudioBus` at play time. Resources are never Unloaded, preload-on-reference via a new generalized `preload(node)` node-type hook (`runtime.lua`'s `PreloadNode`/`PreloadGraph`), called on graph-restore (`Runtime:AddAlert`) and control-commit (`ui/graph.lua`'s new `Editor:setControl`, the one path every Control edit now commits through) — plus an on-demand backstop in `run` itself. BUILD-VERIFY: `Plugin.resources` enumerable via `pairs`, `PluginResource:Load()`, `audio.SoundPlaybackParams` fields.
+  - `audio.Play(resource, params?)` where `resource` = `Plugin.resources[name]`, picked via an interim dropdown Control (enumerated from `Plugin.resources` at Register time — a disk file-picker is API-blocked/out of scope). `volume` (1.0)/`loops` (0) pins. `bus` is the shared `audioBus` dropdown (Master, SFX, Music, Ambient, Voiceover; default SFX), resolved to `audio.AudioBus` at play time. Resources are never Unloaded, preload-on-reference via a new generalized `preload(node)` node-type hook (`runtime.lua`'s `PreloadNode`/`PreloadGraph`), called on graph-restore (`Runtime:AddAlert`) and control-commit (`ui/graph.lua`'s new `Editor:setControl`, the one path every Control edit now commits through) — plus an on-demand backstop in `run` itself. BUILD-VERIFY: `Plugin.resources` enumerable via `pairs`, `PluginResource:Load()`, `audio.SoundPlaybackParams` fields.
 - [ ] Text to Speech
   - VIA ELEVENLABS HTTP + BLOCKED ON FILE WRITE (as in the RuneLite version). No built-in synthesis; instead POST the text to the ElevenLabs API: `HTTPRequest.new(Plugin.urls[...], path)` → `:AddHeader("xi-api-key", ...)` / content-type → `:Post(body, onDone)`, needs the `httpAccess` permission + a manifest base URL. The returned MP3 arrives in `request.data`. Playback is the blocker: `audio.Play` only accepts a builtin id or a disk-backed `PluginAudioResource` (`Plugin.resources[file]`) — there's no in-memory bytes→audio path — so the response must be written to disk (also how the RuneLite version caches it) before it can be played. That needs file-write permission, which isn't available yet (reportedly being worked on). Unblocks once file write lands.
 - [x] Game Message — `action.game_message` (#116)

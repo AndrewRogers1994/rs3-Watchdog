@@ -10,6 +10,7 @@
 -- then the window double-frees after Show).
 
 local Theme = require("src/ui/theme")
+local Text = require("src/text")
 local Export = require("src/export")
 local Dialog = require("src/ui/dialog")
 local PrimaryButton = require("src/ui/primary_button")
@@ -47,7 +48,7 @@ Manager.__index = Manager
 ---@field scopes fun(): Watchdog.ManagerScope[]              # ordered scopes (Global first, character second)
 ---@field onOpenAlert fun(scopeKey: string, id: integer)    # nav callback for an alert row click
 ---@field onToggleEnabled fun(scopeKey: string, id: integer)|nil
----@field onRename fun(scopeKey: string, id: integer, name: string)|nil
+---@field onRename fun(scopeKey: string, id: integer, name: string): boolean|nil
 ---@field onDelete fun(scopeKey: string, id: integer)|nil
 ---@field onReorderSibling fun(scopeKey: string, id: integer, delta: integer)|nil  # -1 up / +1 down
 ---@field onLift fun(scopeKey: string, id: integer)|nil
@@ -104,9 +105,6 @@ function Manager.new(opts)
         rowSpriteButtons = {},      -- PrettyUI row controls (tooltips parent to overlay)
         rowTooltipHosts = {},       -- native row Panels with a PrettyUI tooltip context
         lastSignature = nil,
-        renameField = nil,
-        renameId = nil,
-        pendingRenameId = nil,      -- begin inline rename once the row is rebuilt
     }, Manager)
     return self
 end
@@ -294,11 +292,15 @@ end
 
 ---@param id integer
 ---@param name string
+---@return boolean
 function Manager:Rename(id, name)
     local scopeKey = self:ActiveScopeKey()
-    if scopeKey == nil or self.onRename == nil then return end
-    pcall(self.onRename, scopeKey, id, name)
+    name = Text.StripTags(name)
+    if scopeKey == nil or self.onRename == nil or name == "" then return false end
+    local called, hostOk = pcall(self.onRename, scopeKey, id, name)
+    if not called or hostOk == false then return false end
     bumpMutate(self)
+    return true
 end
 
 -- Committed delete; confirm UI is the caller's job.
@@ -801,7 +803,6 @@ end
 
 -- Destroy the tree panel only - not each row SpriteButton then the parent.
 function Manager:_destroyTree()
-    self:_endRename(false)
     self:_releaseRowTooltips()
     if self.treePanel ~= nil then
         pcall(function() self.treePanel:Destroy() end)
@@ -1133,80 +1134,45 @@ local function mountCheckbox(parent, cellW, checked, onPress, onScrollWheel)
     return check
 end
 
-local SUBMIT_CAUSES = {
-    SUBMIT = true, SUBMIT_ON_ESCAPE = true, SUBMIT_ON_FOCUS_LOSS = true,
-}
-local function isSubmitCause(cause)
-    if cause == nil then return false end
-    if type(cause) == "string" and SUBMIT_CAUSES[cause] then return true end
-    local r = ui and ui.InputFieldActionResult
-    if r ~= nil then
-        if cause == r.SUBMIT or cause == r.SUBMIT_ON_ESCAPE or cause == r.SUBMIT_ON_FOCUS_LOSS then
-            return true
-        end
-    end
-    return false
-end
-
----@param commit boolean
-function Manager:_endRename(commit)
-    local field, id = self.renameField, self.renameId
-    self.renameField, self.renameId = nil, nil
-    if field == nil then return end
-    if commit and id ~= nil then
-        local name = ""
-        pcall(function()
-            if field.GetText ~= nil then
-                name = field:GetText() or ""
-            elseif field.root ~= nil then
-                name = field.root.content or ""
-            else
-                name = field.content or ""
-            end
-        end)
-        if name ~= "" then self:Rename(id, name) end
-    end
-    pcall(function() field:Destroy() end)
-end
-
--- Coords are inside the scroll view. TextField.new, not AddTextField: removing a
--- flow-managed field reflows the view and clamps the scrollbar to the top.
 ---@param id integer
----@param name string
----@param x number
----@param y number
----@param w number
----@param h number
-function Manager:_beginRename(id, name, x, y, w, h)
-    self:_endRename(false)
-    local host = self.treeView
-    if host == nil or host.content == nil or prettyui == nil or prettyui.TextField == nil then return end
-    local field
-    local ok = pcall(function()
-        field = prettyui.TextField.new(host.content, {
-            text = name or "",
-            x = x,
-            y = y,
-            width = w,
-            height = h,
-            maxLength = 64,
-            _scrollController = host,
-            _onScrollWheel = host._onScrollWheel,
-            onChange = function(_f, reason, _text)
-                if isSubmitCause(reason) then
-                    self:_endRename(true)
+function Manager:_openRename(id)
+    local entry = self:_entryById(id)
+    if entry == nil then return end
+    local parent = self:_dialogParent()
+    if parent == nil then return end
+    local group = entry.kind == "group"
+    local field, feedback
+    local initial = entry.name or ""
+    Dialog.mount(parent, {
+        title = group and "Rename group" or "Rename alert",
+        width = 380,
+        height = 200,
+        content = function(win)
+            win:AddText(group and "Group name" or "Alert name")
+            field = win:AddTextField({ text = initial, maxLength = 80, height = 30 })
+            feedback = win:AddText("")
+        end,
+        actions = {
+            { label = "Cancel" },
+            {
+                label = "Save",
+                variant = "positive",
+                onClick = function()
+                    local name = Text.StripTags(field:GetText() or ""):match("^%s*(.-)%s*$")
+                    if name == "" then
+                        feedback.content = group and "Enter a group name." or "Enter an alert name."
+                        return false
+                    end
+                    if not self:Rename(id, name) then
+                        feedback.content = "Could not save the name. Try again."
+                        return false
+                    end
                     self:_rebuild()
-                end
-            end,
-        })
-    end)
-    if ok and field ~= nil then
-        self.renameField = field
-        self.renameId = id
-        pcall(function()
-            if field.root ~= nil then field.root:MoveToFront() end
-        end)
-    end
+                    return true
+                end,
+            },
+        },
+    })
 end
 
 ---@param id integer
@@ -1335,8 +1301,8 @@ function Manager:_mountToolbar()
     -- local createW = create.root.width
     -- add("+ New group", x + createW + gap, function()
     --     local id = self:CreateGroup()
-    --     if type(id) == "number" then self.pendingRenameId = id end
     --     self:_rebuild()
+    --     if type(id) == "number" then self:_openRename(id) end
     -- end, false, 112)
     if self:HasSelection() then
         self:_mountBulkActions(y)
@@ -1360,8 +1326,8 @@ function Manager:_mountBulkActions(y)
         { "Clear (" .. #ids .. ")", function() self:ClearSelection(); self:_rebuild() end },
         { "Group", function()
             local newId = self:BulkNewGroup(ids)
-            if type(newId) == "number" then self.pendingRenameId = newId end
             self:_rebuild()
+            if type(newId) == "number" then self:_openRename(newId) end
         end },
     }
     local scopes = self:ScopeList()
@@ -1511,10 +1477,6 @@ function Manager:_rebuild()
         -- inserting a spacer before the name button; size it so spacer + layout gap + nameW
         -- equals baseNameW and the Actions cluster stays put across depths.
         local indent = (row.depth or 0) * Theme.MANAGER_ROW_INDENT
-        local nameX = Theme.MANAGER_ENABLE_W
-            + (self.moveMode and Theme.MANAGER_REORDER_COUNT or 0) * Theme.MANAGER_REORDER_W
-            + (1 + (self.moveMode and Theme.MANAGER_REORDER_COUNT or 0)) * Theme.MANAGER_ROW_GAP
-            + indent
         local _, nameW = managerColumnWidths(rowW, row.depth, self.moveMode)
         local canUp, canDown, canLift = self:RowMoveCaps(row.id)
 
@@ -1580,16 +1542,7 @@ function Manager:_rebuild()
 
         self.rowSpriteButtons[#self.rowSpriteButtons + 1] = mountRowSprite(
             rowPanel, "PENCIL", function()
-            local fieldY = 0
-            pcall(function() fieldY = rowPanel.y or 0 end)
-            self:_beginRename(
-                capturedRow.id,
-                capturedRow.name,
-                nameX,
-                fieldY,
-                nameW,
-                Theme.MANAGER_ROW_H
-            )
+            self:_openRename(capturedRow.id)
         end, Theme.MANAGER_ACT_W, false, "Rename", onWheel)
 
         self.rowSpriteButtons[#self.rowSpriteButtons + 1] = mountRowSprite(
@@ -1601,20 +1554,6 @@ function Manager:_rebuild()
             rowPanel, "TRASH", function()
             self:_onDeletePress(capturedRow.id)
         end, Theme.MANAGER_ACT_W, false, "Delete", onWheel)
-
-        if self.pendingRenameId == row.id then
-            self.pendingRenameId = nil
-            local fieldY = 0
-            pcall(function() fieldY = rowPanel.y or 0 end)
-            self:_beginRename(
-                row.id,
-                row.name,
-                nameX,
-                fieldY,
-                nameW,
-                Theme.MANAGER_ROW_H
-            )
-        end
     end
 
     if not self.visible then
@@ -1628,7 +1567,6 @@ function Manager:_rebuild()
         setChildVisible(self.treePanel, false)
         setChildVisible(self.headerPanel, false)
         syncTreeViewVisibility(self.treeView, false)
-        setChildVisible(componentRoot(self.renameField), false)
     end
 end
 
@@ -1670,7 +1608,6 @@ function Manager:SetVisible(v)
     setChildVisible(self.treePanel, self.visible)
     setChildVisible(self.headerPanel, self.visible)
     syncTreeViewVisibility(self.treeView, self.visible)
-    setChildVisible(componentRoot(self.renameField), self.visible)
     -- Dialogs live under the mux root - dismiss the stack when Manager tucks away.
     if not self.visible then
         self:_hideRowTooltips()
@@ -1697,7 +1634,6 @@ end
 -- the window Destroy owns native teardown. Mid-session rebuild still uses _destroyTree /
 -- _destroyToolbar / _destroyTabs while the window stays alive.
 function Manager:Unmount()
-    self:_endRename(false)
     -- Overlay-parented row tooltips are not in the window content tree.
     self:_releaseRowTooltips()
     -- Dialogs live under the mux root (not mux content) - Destroy on Stop.

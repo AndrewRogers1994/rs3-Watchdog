@@ -204,12 +204,89 @@ function TestDrag:setUp()
     self.area:Set("a", { text = "1" })
 end
 
+function TestDrag:tearDown()
+    require("src/ui/hub_layers").SetPositionsLocked(false)
+end
+
 function TestDrag:testBeginDragInsideBoundsGrabs()
     luaunit.assertTrue(self.area:BeginDrag(105, 105))
 end
 
 function TestDrag:testBeginDragOutsideBoundsDoesNotGrab()
     luaunit.assertFalse(self.area:BeginDrag(500, 500))
+end
+
+function TestDrag:testLockedStripDoesNotDrag()
+    local HubLayers = require("src/ui/hub_layers")
+    HubLayers.SetPositionsLocked(true)
+    luaunit.assertFalse(self.area:BeginDrag(105, 105))
+    HubLayers.SetPositionsLocked(false)
+end
+
+-- Stand-in for the client button Reposition resizes. Mount itself is not under test.
+local function fakeCapture()
+    local cap = { clickthrough = false }
+    function cap:SetPos(x, y)
+        self.x, self.y = x, y
+    end
+    function cap:SetSize(w, h, pw, ph)
+        self.w, self.h, self.pw, self.ph = w, h, pw, ph
+    end
+    function cap:MoveToFront() end
+    return cap
+end
+
+function TestDrag:testUnlockedStripCapturesClicks()
+    self.area._capture = fakeCapture()
+    self.area:Reposition()
+    luaunit.assertFalse(self.area._capture.clickthrough)
+    luaunit.assertEquals(self.area._capture.x, 100)
+    luaunit.assertEquals(self.area._capture.y, 100)
+    luaunit.assertEquals(self.area._capture.w, Theme.INFOBOX_BOX_SIZE)
+    luaunit.assertEquals(self.area._capture.h, Theme.INFOBOX_BOX_SIZE)
+end
+
+function TestDrag:testLockedStripLetsClicksThrough()
+    local HubLayers = require("src/ui/hub_layers")
+    HubLayers.SetPositionsLocked(true)
+    self.area._capture = fakeCapture()
+    self.area:Reposition()
+    luaunit.assertTrue(self.area._capture.clickthrough)
+    luaunit.assertEquals(self.area._capture.w, Theme.INFOBOX_BOX_SIZE)
+    luaunit.assertEquals(self.area._capture.h, Theme.INFOBOX_BOX_SIZE)
+end
+
+function TestDrag:testDragKeepsCaptureExpanded()
+    self.area:BeginDrag(105, 105)
+    self.area._capture = fakeCapture()
+    self.area:_expandCapture()
+    self.area:Reposition()
+    luaunit.assertTrue(self.area:IsDragging())
+    luaunit.assertFalse(self.area._capture.clickthrough)
+    luaunit.assertEquals(self.area._capture.w, 0)
+    luaunit.assertEquals(self.area._capture.pw, 1.0)
+    luaunit.assertEquals(self.area._capture.ph, 1.0)
+end
+
+function TestDrag:testLockDuringDragShrinksCaptureAndLetsClicksThrough()
+    local HubLayers = require("src/ui/hub_layers")
+    local saved = {}
+    self.area:SetPersistence({ SaveAnchor = function(x, y) saved.x, saved.y = x, y end })
+    self.area:BeginDrag(105, 105)
+    self.area:Drag(140, 120)
+    self.area._capture = fakeCapture()
+    self.area:_expandCapture()
+    HubLayers.SetPositionsLocked(true)
+    self.area:Reposition()
+    luaunit.assertFalse(self.area:IsDragging())
+    luaunit.assertTrue(self.area._capture.clickthrough)
+    luaunit.assertEquals(saved.x, 135)
+    luaunit.assertEquals(saved.y, 115)
+    luaunit.assertEquals(self.area._capture.x, 135)
+    luaunit.assertEquals(self.area._capture.y, 115)
+    luaunit.assertEquals(self.area._capture.w, Theme.INFOBOX_BOX_SIZE)
+    luaunit.assertEquals(self.area._capture.h, Theme.INFOBOX_BOX_SIZE)
+    luaunit.assertNil(self.area._capture.pw)
 end
 
 function TestDrag:testDragMovesAnchorByDelta()

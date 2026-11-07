@@ -1,3 +1,4 @@
+local AudioBus = require("src/audio_bus")
 local Packs = require("src/packs")
 local Controls = require("src/ui/controls")
 local SoundEffect = require("src/ui/controls/sound_effect")
@@ -13,6 +14,7 @@ function Sound.Register(registry)
         displayName = "Sound Effect",
         pins = {
             { name = "in", kind = "exec", direction = "in" },
+            AudioBus.Pin(),
             { name = "soundId", kind = "data", direction = "in", dataType = "number",
               default = DEFAULT_SOUND_ID },
         },
@@ -23,7 +25,7 @@ function Sound.Register(registry)
             if soundId ~= nil then
                 ---@type SoundPlaybackParams
                 local params = audio.SoundPlaybackParams.new()
-                params.audioBus = audio.AudioBus.SFX
+                params.audioBus = AudioBus.Resolve(ctx:In("bus"))
                 audio.Play(soundId, params)
             end
         end,

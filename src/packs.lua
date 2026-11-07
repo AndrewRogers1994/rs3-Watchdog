@@ -3,6 +3,7 @@
 -- Preset library and does not mint a Preset id.
 
 local Presets = require("src/presets")
+local Text = require("src/text")
 
 ---@class Watchdog.PackRefusal
 ---@field kind "soundEffects"|"audioFiles"|"alertPresets"
@@ -207,10 +208,12 @@ local function acceptPreset(entry, authorId)
     if layout == nil then return nil end
     local variables = copyVariables(entry.variables)
     if variables == nil then return nil end
+    local graph = deepCopy(entry.graph)
+    Text.StripGraphText(graph)
     return {
         authorId = authorId,
         name = name,
-        graph = deepCopy(entry.graph),
+        graph = graph,
         layout = layout,
         variables = variables,
     }

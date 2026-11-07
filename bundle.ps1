@@ -9,7 +9,7 @@
     Lua files are naively stripped: drop whole-line -- comments (including simple
     --[[ ... ]] blocks) and inline trailing -- comments; -- inside quoted/long
     strings is preserved. With -Minify, that stripper is skipped for a whitelist of
-    plugins (Watchdog, LibNodeGraph, LibNodeGraphStd) and those Lua files are
+    plugins (Watchdog, LibNodeGraph, LibNodeGraphStd, RestrictedAreas) and those Lua files are
     rewritten by scripts/minify.lua instead. prettyui is never minified.
 
     Default (dev) layout mirrors the live client: one top-level folder per plugin
@@ -28,7 +28,7 @@
 
 .PARAMETER Minify
     Minify staged Lua via scripts/minify.lua instead of naive comment stripping,
-    but only for Watchdog, LibNodeGraph, and LibNodeGraphStd.
+    but only for Watchdog, LibNodeGraph, LibNodeGraphStd, and RestrictedAreas.
 
 .PARAMETER Modio
     Produce a mod.io zip: Watchdog-only, flat layout, plugin.modio.json as plugin.json.
@@ -50,8 +50,8 @@ $ErrorActionPreference = 'Stop'
 $watchdogDir = $PSScriptRoot
 $rs3Root = Split-Path -Parent $watchdogDir
 $pluginName = 'Watchdog'
-$pruneSegments = @('tests', 'docs', '.git', '.vscode', 'staging', 'scripts', '.worktrees')
-$minifyPlugins = @('Watchdog', 'LibNodeGraph', 'LibNodeGraphStd')
+$pruneSegments = @('tests', 'docs', '.git', '.vscode', 'staging', 'scripts', '.worktrees', '.scratch')
+$minifyPlugins = @('Watchdog', 'LibNodeGraph', 'LibNodeGraphStd', 'RestrictedAreas')
 
 function Test-Pruned {
     param([string]$RelativePath)
@@ -107,7 +107,8 @@ function Remove-InlineLuaComment {
                 if ($ch -eq '\' -and ($i + 1) -lt $len) {
                     $i++
                     [void]$sb.Append($Line[$i])
-                } elseif ($ch -eq $quote) {
+                }
+                elseif ($ch -eq $quote) {
                     break
                 }
                 $i++
@@ -157,39 +158,6 @@ function Remove-InlineLuaComment {
     }
 
     return $sb.ToString().TrimEnd()
-}
-
-function Remove-NaiveLuaComments {
-    param([string]$Text)
-
-    $normalized = $Text -replace "`r`n", "`n" -replace "`r", "`n"
-    $out = New-Object System.Collections.Generic.List[string]
-    $inBlock = $false
-
-    foreach ($line in ($normalized -split "`n", -1)) {
-        if ($inBlock) {
-            if ($line -match '\]\]') { $inBlock = $false }
-            continue
-        }
-
-        $trimmed = $line.TrimStart()
-        if ($trimmed.StartsWith('--')) {
-            if ($trimmed.StartsWith('--[[') -and $trimmed -notmatch '\]\]') {
-                $inBlock = $true
-            }
-            continue
-        }
-
-        $stripped = Remove-InlineLuaComment $line
-        if ($stripped.Length -gt 0) {
-            $out.Add($stripped.TrimEnd("`r"))
-        }
-    }
-
-    if ($out.Count -eq 0) {
-        return ""
-    }
-    return ($out -join "`n") + "`n"
 }
 
 function Invoke-MinifyLua {
@@ -258,9 +226,8 @@ function Copy-BundledFile {
         }
 
         $text = [System.IO.File]::ReadAllText($Src)
-        $stripped = Remove-NaiveLuaComments $text
         $utf8 = New-Object System.Text.UTF8Encoding $false
-        [System.IO.File]::WriteAllText($Dst, $stripped, $utf8)
+        [System.IO.File]::WriteAllText($Dst, $text, $utf8)
         return
     }
 

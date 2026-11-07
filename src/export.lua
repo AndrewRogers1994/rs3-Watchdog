@@ -9,6 +9,7 @@
 
 local Store = require("src/store")
 local Compress = require("src/compress")
+local Text = require("src/text")
 
 local Export = {}
 
@@ -157,6 +158,16 @@ function Export.Decode(text)
     return true, value
 end
 
+---@param raw any
+---@param fallback string
+---@return string
+local function plainName(raw, fallback)
+    if type(raw) ~= "string" then return fallback end
+    local name = Text.StripTags(raw)
+    if name == "" then return fallback end
+    return name
+end
+
 -- Mint ids without inserting. `used` claims ids so nested mints stay unique before append.
 ---@param doc Watchdog.Bucket
 ---@param used table<integer, boolean>
@@ -178,15 +189,16 @@ local function materializeEntry(doc, used, exportEntry)
         return {
             id = id,
             kind = "group",
-            name = type(exportEntry.name) == "string" and exportEntry.name or "Group",
+            name = plainName(exportEntry.name, "Group"),
             enabled = exportEntry.enabled ~= false,
             children = children,
         }
     end
+    Text.StripGraphText(exportEntry.graph)
     return {
         id = id,
         kind = "alert",
-        name = type(exportEntry.name) == "string" and exportEntry.name or "Alert",
+        name = plainName(exportEntry.name, "Alert"),
         enabled = exportEntry.enabled ~= false,
         graph = exportEntry.graph,
         layout = exportEntry.layout,

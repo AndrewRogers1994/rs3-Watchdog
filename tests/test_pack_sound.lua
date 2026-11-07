@@ -333,7 +333,8 @@ function TestPackSoundControl:testAnEmptyPackListKeepsTheRowAndDoesNotOpen()
     luaunit.assertFalse(self.control.HasPackRows())
     luaunit.assertEquals(self.control.ReservedHeight(), Theme.SOUND_BAND_H)
     local rects = self.control.Layout({ x = 0, y = 0, w = 100, h = Theme.SOUND_BAND_H })
-    luaunit.assertEquals(rects[2].placeholder, self.control.EMPTY_PACK)
+    luaunit.assertEquals(rects[2].kind, "builtin")
+    luaunit.assertEquals(rects[3].placeholder, self.control.EMPTY_PACK)
     luaunit.assertEquals(self.control.Display({ kind = "pack", value = 12345 }), "")
     local host = self.FakeHost.new(12345)
     self.control.Press(host, { kind = "pack", value = 12345 })
@@ -383,9 +384,11 @@ function TestPackSoundControl:testAPlainNumberPinKeepsTheScalarControl()
     luaunit.assertEquals(plain.controls[1].pinControl, number)
     luaunit.assertEquals(keyed.controls[1].pinControl, self.control)
     luaunit.assertEquals(keyed.controls[1].kind, "number")
-    luaunit.assertEquals(keyed.controls[2].kind, "pack")
-    luaunit.assertEquals(keyed.controls[2].placeholder, "None")
+    luaunit.assertEquals(keyed.controls[2].kind, "builtin")
+    luaunit.assertEquals(keyed.controls[3].kind, "pack")
+    luaunit.assertEquals(keyed.controls[3].placeholder, "None")
     luaunit.assertTrue(keyed.controls[2].y > keyed.controls[1].y + keyed.controls[1].h - 1)
+    luaunit.assertTrue(keyed.controls[3].y > keyed.controls[2].y + keyed.controls[2].h - 1)
     luaunit.assertTrue(keyed.h > plain.h)
 end
 
@@ -394,11 +397,14 @@ function TestPackSoundControl:testLayoutStacksTheNumberAboveThePackList()
     luaunit.assertEquals(bandH, Theme.SOUND_BAND_H)
     local rects = self.control.Layout({ x = 10, y = 20, w = 200, h = bandH })
     luaunit.assertEquals(rects[1].kind, "number")
-    luaunit.assertEquals(rects[2].kind, "pack")
+    luaunit.assertEquals(rects[2].kind, "builtin")
+    luaunit.assertEquals(rects[3].kind, "pack")
     luaunit.assertEquals(rects[1].x, 10)
     luaunit.assertEquals(rects[2].x, 10)
+    luaunit.assertEquals(rects[3].x, 10)
     luaunit.assertEquals(rects[1].w, 200)
     luaunit.assertEquals(rects[2].y, rects[1].y + rects[1].h + Theme.SOUND_ROW_GAP)
+    luaunit.assertEquals(rects[3].y, rects[2].y + rects[2].h + Theme.SOUND_ROW_GAP)
 end
 
 function TestPackSoundControl:testSubmittingADifferentNumberClearsThePackRecord()
@@ -410,6 +416,42 @@ function TestPackSoundControl:testSubmittingADifferentNumberClearsThePackRecord(
     luaunit.assertEquals(host.mounted.opts.initial, "12345")
     host:Type("99", 99)
     luaunit.assertEquals(host.committed, 99)
+end
+
+function TestPackSoundControl:withSounds(sounds, fn)
+    local saved = _G.id.Sound
+    _G.id.Sound = sounds
+    local ok, err = pcall(fn)
+    _G.id.Sound = saved
+    if not ok then error(err, 2) end
+end
+
+function TestPackSoundControl:testBuiltinRowListsSoundNamesAndStoresTheId()
+    self:withSounds({ WHISTLE = 3, BELL = 7 }, function()
+        local host = self.FakeHost.new(50)
+        self.control.Press(host, { kind = "builtin", pinName = "soundId", value = 50 })
+        luaunit.assertEquals(host.mounted.kind, "dropdown")
+        luaunit.assertEquals(host.mounted.opts.labels, { "BELL", "WHISTLE" })
+        luaunit.assertEquals(host.mounted.opts.ids, { 7, 3 })
+        luaunit.assertNil(host.mounted.opts.initial)
+        host:Pick("WHISTLE")
+        luaunit.assertEquals(host.committed, 3)
+    end)
+end
+
+function TestPackSoundControl:testBuiltinRowShowsTheNameForTheStoredId()
+    self:withSounds({ BELL = 7 }, function()
+        luaunit.assertEquals(self.control.Display({ kind = "builtin", value = 7 }), "BELL")
+        luaunit.assertEquals(self.control.Display({ kind = "builtin", value = 50 }), "")
+    end)
+end
+
+function TestPackSoundControl:testBuiltinRowDoesNotOpenWithoutSoundNames()
+    self:withSounds({}, function()
+        local host = self.FakeHost.new(50)
+        self.control.Press(host, { kind = "builtin", pinName = "soundId", value = 50 })
+        luaunit.assertNil(host.mounted)
+    end)
 end
 
 return {}

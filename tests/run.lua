@@ -22,7 +22,26 @@ package.path = rootDir .. "../LibNodeGraphStd/?.lua;"
     .. rootDir .. "../../../LibNodeGraphStd/?.lua;"
     .. package.path
 
+-- chat_types.lua names client ChatType enum members. The stub file is valid Lua.
+local function existingFile(path)
+    local handle = io.open(path, "r")
+    if handle == nil then return nil end
+    handle:close()
+    return path
+end
+local chatStub = existingFile(rootDir .. "../runescape-api-stubs/generated/game/chat.lua")
+    or existingFile(rootDir .. "../../../runescape-api-stubs/generated/game/chat.lua")
+if chatStub == nil then
+    error("ChatType stub not found next to this plugin")
+end
+dofile(chatStub)
+
 local luaunit = require("luaunit")
+
+-- Client global. notices.lua logs at file scope, and the hub panel requires it.
+if type(log) ~= "function" then
+    function log() end
+end
 
 require("test_text")
 require("test_util")
@@ -65,6 +84,7 @@ require("test_widget_draw")
 require("test_coordgrid_control")
 require("test_scalar_control")
 require("test_enum_control")
+require("test_bool_control")
 require("test_compare")
 require("test_math_operation")
 require("test_matcher_control")
@@ -80,6 +100,9 @@ require("test_scope_edits")
 require("test_dialog")
 require("test_import_export")
 require("test_multiplexer")
+require("test_shell")
+require("test_notices")
+require("test_release_note_body")
 require("test_effects")
 require("test_screen_flash")
 require("test_popup")

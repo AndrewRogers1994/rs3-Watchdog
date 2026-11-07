@@ -243,10 +243,18 @@ end
 
 function TestMigratedControlRouting:testEnumPinCarriesAPinControl()
     -- Dropdown caret is the Widget's own draw (#63), not a "widget" hint on the sub-rect.
-    local geom = Node.BuildGeometry({ inPin("flag", "bool") }, 0, 0, Theme.NODE_WIDTH)
+    local geom = Node.BuildGeometry({ inPin("icon", "toastIcon") }, 0, 0, Theme.NODE_WIDTH)
     luaunit.assertEquals(#geom.controls, 1)
     luaunit.assertNotNil(geom.controls[1].pinControl)
     luaunit.assertEquals(geom.controls[1].kind, "field")
+end
+
+function TestMigratedControlRouting:testBoolPinCarriesACheckbox()
+    local geom = Node.BuildGeometry({ inPin("flag", "bool") }, 0, 0, Theme.NODE_WIDTH)
+    luaunit.assertEquals(#geom.controls, 1)
+    luaunit.assertNotNil(geom.controls[1].pinControl)
+    luaunit.assertEquals(geom.controls[1].kind, "checkbox")
+    luaunit.assertEquals(geom.controls[1].enabled, true)
 end
 
 function TestMigratedControlRouting:testMatcherPinCarriesAPinControlBand()
@@ -357,6 +365,22 @@ function TestHeaderPencil:testPencilSitsJustLeftOfCloseAtTitleZoom()
     luaunit.assertFalse(Node.HitClose(geom, view, px, ccy))
 end
 
+function TestHeaderPencil:testPencilRightEdgeDoesNotLightTheCloseBox()
+    local geom = Node.BuildGeometry({}, 40, 50, Theme.NODE_WIDTH)
+    for _, zoom in ipairs({ 1, Theme.TITLE_MIN_ZOOM }) do
+        local view = View.new()
+        view.zoom = zoom
+        local ccx, ccy = closeScreenCenter(geom, view)
+        local pcx = ccx - view:Scale(Theme.RENAME_ICON_SIZE)
+        local pencilRight = pcx + view:Scale(Theme.RENAME_ICON_SIZE) * 0.5 - 0.05
+        luaunit.assertTrue(Node.HitPencil(geom, view, pencilRight, ccy))
+        luaunit.assertFalse(Node.HitClose(geom, view, pencilRight, ccy))
+        local closeLeft = ccx - view:Scale(Theme.CLOSE_SIZE) * 0.5 + 0.05
+        luaunit.assertTrue(Node.HitClose(geom, view, closeLeft, ccy))
+        luaunit.assertFalse(Node.HitPencil(geom, view, closeLeft, ccy))
+    end
+end
+
 function TestHeaderPencil:testPencilAbsentWhenCloseIsAbsent()
     local geom = Node.BuildGeometry({}, 0, 0, Theme.NODE_WIDTH)
     local view = View.new()
@@ -374,6 +398,14 @@ TestNodeRename = {}
 function TestNodeRename:testCommitTrimsAndStoresTheName()
     local node = { name = nil }
     luaunit.assertTrue(Node.CommitRename(node, "  Enrage callout  "))
+    luaunit.assertEquals(node.name, "Enrage callout")
+end
+
+function TestNodeRename:testCommitStripsClientTextTags()
+    local node = { name = nil }
+    luaunit.assertTrue(Node.CommitRename(node, "  <col=ff0000>Enrage callout</col>  "))
+    luaunit.assertEquals(node.name, "Enrage callout")
+    luaunit.assertFalse(Node.CommitRename(node, "<col=ff0000>"))
     luaunit.assertEquals(node.name, "Enrage callout")
 end
 
@@ -431,6 +463,66 @@ function TestNodeHeader:testPlaceholderKeepsTheOriginalTypeKey()
         "Unknown: action.popup - Enrage callout")
 end
 
+TestInlineControlClearsOutputLabel = {}
+
+local function zoom1LabelWidth(text)
+    text = text or ""
+    return Theme.TextWidth(12, text) or (#text * Theme.CONTROL_LABEL_CHAR_W)
+end
+
+local function outputLabelLeft(nodeW, label)
+    local cx = nodeW - Theme.PIN_MARGIN_X
+    return cx - Theme.PIN_GLYPH * 0.5 - Theme.PIN_LABEL_GAP - zoom1LabelWidth(label)
+end
+
+local function controlForPin(geom, pinName)
+    for _, ctrl in ipairs(geom.controls) do
+        if ctrl.pinName == pinName then return ctrl end
+    end
+end
+
+function TestInlineControlClearsOutputLabel:testEntitySpawnRowsStopBeforeOutputLabels()
+    -- kind/Spawned and mineOnly/entityKind, with the matcher band between them.
+    local pins = {
+        { name = "kind", kind = "data", direction = "in", dataType = "string", label = "kind" },
+        { name = "nameMatch", kind = "data", direction = "in", dataType = "matcher", label = "nameMatch" },
+        { name = "mineOnly", kind = "data", direction = "in", dataType = "bool", label = "Mine only" },
+        { name = "Spawned", kind = "exec", direction = "out", label = "Spawned" },
+        { name = "Despawned", kind = "exec", direction = "out", label = "Despawned" },
+        { name = "entityKind", kind = "data", direction = "out", dataType = "string", label = "entityKind" },
+    }
+    local geom = Node.BuildGeometry(pins, 0, 0, Theme.NODE_WIDTH)
+    local cases = {
+        { pin = "kind", outLabel = "Spawned" },
+        { pin = "mineOnly", outLabel = "entityKind" },
+    }
+    for _, row in ipairs(cases) do
+        local ctrl = controlForPin(geom, row.pin)
+        luaunit.assertNotNil(ctrl)
+        local limit = outputLabelLeft(Theme.NODE_WIDTH, row.outLabel) - Theme.CONTROL_LABEL_GAP
+        luaunit.assertTrue(ctrl.x + ctrl.w <= limit + 1e-6)
+    end
+end
+
+function TestInlineControlClearsOutputLabel:testLongerOutputLabelMakesANarrowerControl()
+    local function widthFor(outLabel)
+        local geom = Node.BuildGeometry({
+            { name = "v", kind = "data", direction = "in", dataType = "string", label = "v" },
+            { name = "o", kind = "exec", direction = "out", label = outLabel },
+        }, 0, 0, Theme.NODE_WIDTH)
+        return geom.controls[1].w
+    end
+    luaunit.assertTrue(widthFor("Go") > widthFor("Spawned"))
+end
+
+function TestInlineControlClearsOutputLabel:testRowWithoutOutputUsesTheRightPad()
+    local geom = Node.BuildGeometry({
+        { name = "v", kind = "data", direction = "in", dataType = "string", label = "v" },
+    }, 0, 0, Theme.NODE_WIDTH)
+    local right = Theme.NODE_WIDTH - Theme.PIN_MARGIN_X - Theme.CONTROL_PAD_X
+    luaunit.assertAlmostEquals(geom.controls[1].x + geom.controls[1].w, right, 1e-6)
+end
+
 function TestNodeModes:testModeDropdownChoicesDisambiguatesDuplicateLabels()
     local nt = {
         modes = {
@@ -443,4 +535,45 @@ function TestNodeModes:testModeDropdownChoicesDisambiguatesDuplicateLabels()
     luaunit.assertEquals(choices[1].display, "Same (alpha)")
     luaunit.assertEquals(choices[2].key, "zebra")
     luaunit.assertEquals(choices[2].display, "Same (zebra)")
+end
+
+-- Header title drives width. The floor stays NODE_WIDTH; a long `{Type} - {Name}` grows
+-- the node so the string ends before the pencil.
+TestNodeTitleWidth = {}
+
+function TestNodeTitleWidth:testLongHeaderClearsThePencil()
+    local title = "Game Message - New Game Message"
+    local geom = Node.BuildGeometry({}, 0, 0, Theme.NODE_WIDTH, { title = title })
+    luaunit.assertTrue(geom.w > Theme.NODE_WIDTH)
+    local textW = Theme.TextWidth(Theme.NODE_TITLE_PT, title)
+        or (#title * Theme.NODE_TITLE_CHAR_W)
+    local pencilLeft = geom.pencil.cx - Theme.RENAME_ICON_SIZE * 0.5
+    luaunit.assertTrue(Theme.PIN_MARGIN_X + textW < pencilLeft)
+end
+
+function TestNodeTitleWidth:testShortHeaderKeepsTheMinimumWidth()
+    local geom = Node.BuildGeometry({}, 0, 0, Theme.NODE_WIDTH, { title = "Popup - New Popup" })
+    luaunit.assertEquals(geom.w, Theme.NODE_WIDTH)
+end
+
+function TestNodeTitleWidth:testMissingTitleKeepsThePassedWidth()
+    local geom = Node.BuildGeometry({}, 0, 0, Theme.NODE_WIDTH, {})
+    luaunit.assertEquals(geom.w, Theme.NODE_WIDTH)
+end
+
+function TestNodeTitleWidth:testWiderBodyBeatsTheTitle()
+    local geom = Node.BuildGeometry({}, 0, 0, Theme.NODE_WIDTH, {
+        title = "Game Message - New Game Message",
+        extraBodyW = 400,
+    })
+    luaunit.assertEquals(geom.w, 400)
+end
+
+function TestNodeTitleWidth:testOutputPinStaysOnTheRightEdge()
+    local title = "Game Message - New Game Message"
+    local geom = Node.BuildGeometry({
+        { name = "out", kind = "exec", direction = "out" },
+    }, 0, 0, Theme.NODE_WIDTH, { title = title })
+    luaunit.assertTrue(geom.w > Theme.NODE_WIDTH)
+    luaunit.assertAlmostEquals(geom.byName.out.cx, geom.w - Theme.PIN_MARGIN_X, 1e-9)
 end

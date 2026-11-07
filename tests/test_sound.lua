@@ -35,6 +35,9 @@ function TestSoundRegistration:testRegistersActionSoundWithExecInAndSoundIdPin()
     luaunit.assertEquals(byName["in"].kind, "exec")
     luaunit.assertEquals(byName["in"].direction, "in")
     luaunit.assertEquals(byName.soundId.dataType, "number")
+    luaunit.assertEquals(byName.bus.dataType, "audioBus")
+    luaunit.assertEquals(byName.bus.default, "SFX")
+    luaunit.assertEquals(byName.bus.label, "Bus")
 end
 
 TestSoundRun = {}
@@ -45,7 +48,7 @@ function TestSoundRun:setUp()
     self.desc = self.reg.types["action.sound"]
     self.calls = {}
     _G.audio = {
-        AudioBus = { SFX = "sfx" },
+        AudioBus = { SFX = "sfx", MUSIC = "music" },
         SoundPlaybackParams = { new = function() return {} end },
         Play = function(id, params) self.calls[#self.calls + 1] = { id = id, params = params } end,
     }
@@ -55,11 +58,16 @@ function TestSoundRun:tearDown()
     _G.audio = nil
 end
 
-function TestSoundRun:testPlaysWithBusHardcodedToSfx()
+function TestSoundRun:testMissingBusPlaysOnSfx()
     self.desc.run(makeCtx({ soundId = 1234 }))
     luaunit.assertEquals(#self.calls, 1)
     luaunit.assertEquals(self.calls[1].id, 1234)
     luaunit.assertEquals(self.calls[1].params.audioBus, "sfx")
+end
+
+function TestSoundRun:testHonorsBusPin()
+    self.desc.run(makeCtx({ soundId = 1234, bus = "MUSIC" }))
+    luaunit.assertEquals(self.calls[1].params.audioBus, "music")
 end
 
 function TestSoundRun:testNonNumberSoundIdIsASilentNoop()

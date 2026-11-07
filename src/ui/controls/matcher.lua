@@ -1,6 +1,7 @@
 local Theme     = require("src/ui/theme")
 local TextField = require("src/ui/widgets/text_field")
 local Toggle    = require("src/ui/widgets/toggle")
+local Text      = require("src/text")
 
 ---@class MatcherPinControl
 local Matcher = {}
@@ -100,7 +101,7 @@ function Matcher.EditNeedle(host, ctrl)
         filter = "NONE", maxLen = 128, initial = needleOf(ctrl.value) or "",
     }, function(raw)
         local updated = rmw(host:GetControl(), ctrl.default)
-        updated.needle = (type(raw) == "string") and raw or ""
+        updated.needle = (type(raw) == "string") and Text.StripTags(raw) or ""
         host:Commit(updated)
     end)
 end

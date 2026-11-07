@@ -2,6 +2,7 @@ local Theme    = require("src/ui/theme")
 local Controls = require("src/ui/controls")
 local Box      = require("src/ui/widgets/box")
 local Dropdown = require("src/ui/widgets/dropdown")
+local Text     = require("src/text")
 
 local Node = {}
 
@@ -25,13 +26,12 @@ function Node.HeaderTitle(typeLabel, storedName)
     return typeLabel .. " - " .. Node.DisplayName(typeLabel, storedName)
 end
 
---- Trim a rename field. Blank or whitespace is not a name, so Rename stays disabled
---- and a stored name cannot be cleared back to omitted.
+--- Trim a rename field and drop text tags. Blank or whitespace is not valid, so Rename stays disabled.
 ---@param raw string|nil
 ---@return string|nil
 function Node.TrimName(raw)
     if type(raw) ~= "string" then return nil end
-    local trimmed = raw:match("^%s*(.-)%s*$")
+    local trimmed = Text.StripTags(raw):match("^%s*(.-)%s*$")
     if trimmed == nil or trimmed == "" then return nil end
     return trimmed
 end
@@ -104,6 +104,18 @@ function Node.BuildGeometry(pins, x, y, width, opts)
     local extraBodyW = (opts and opts.extraBodyW) or 0
     if extraBodyW > width then
         width = extraBodyW
+    end
+    -- Zoom-1 title size, same face Node.Draw uses. Width already includes extraBodyW.
+    local title = opts and opts.title
+    if title ~= nil and title ~= "" then
+        local textW = Theme.TextWidth(Theme.NODE_TITLE_PT, title)
+            or (#title * Theme.NODE_TITLE_CHAR_W)
+        local pencilLeftInset = Theme.CLOSE_MARGIN
+            + Theme.RENAME_ICON_SIZE + Theme.RENAME_ICON_SIZE * 0.5
+        local needed = math.ceil(Theme.PIN_MARGIN_X + textW + Theme.HEADER_TITLE_GAP + pencilLeftInset)
+        if needed > width then
+            width = needed
+        end
     end
     local connected = (opts and opts.connected) or {}
     local typeKey = opts and opts.typeKey or nil
@@ -223,21 +235,32 @@ function Node.BuildGeometry(pins, x, y, width, opts)
     -- a BAND control (coordgrid, matcher, mode) lays its Widgets out in the full-width band reserved
     -- beneath the row (rowTop[i+1] - extraH .. rowTop[i+1]).
     local labelStart = Theme.PIN_MARGIN_X + Theme.PIN_GLYPH * 0.5 + Theme.PIN_LABEL_GAP
+    -- Zoom-1 metrics. Draw scales the box. TextWidth is nil outside the client.
+    local function labelWidth(text)
+        text = text or ""
+        return Theme.TextWidth(12, text) or (#text * Theme.CONTROL_LABEL_CHAR_W)
+    end
     for i, pin in ipairs(placeholder and {} or inputs) do
         local pinControl = pinControlFor(pin, connected, typeKey)
         if pinControl ~= nil then
             local rects
             if pinControl.Inline then
-                -- Start the box past the label instead of at a fixed reserve, so it can't cover long
-                -- labels like "contains"/"soundId". Measured with real font metrics (Theme.TextWidth)
-                -- at the zoom-1 label size - geometry is Graph-space at zoom 1 - falling back to a
-                -- per-char estimate when unavailable.
+                -- Past the input label, and short of the output label on this row. That label
+                -- is right-aligned against the glyph: half a glyph, the pin gap, then the text.
                 local label = pin.label or pin.name or ""
-                local labelW = Theme.TextWidth(12, label) or (#label * Theme.CONTROL_LABEL_CHAR_W)
-                local left = labelStart + labelW + Theme.CONTROL_LABEL_GAP
-                local rightInset = (outputs[i] ~= nil) and Theme.CONTROL_OUT_RESERVE or Theme.CONTROL_PAD_X
+                local left = labelStart + labelWidth(label) + Theme.CONTROL_LABEL_GAP
+                local rightInset = Theme.CONTROL_PAD_X
+                local outPin = outputs[i]
+                if outPin ~= nil then
+                    local outLabel = outPin.label or outPin.name or ""
+                    rightInset = Theme.PIN_GLYPH * 0.5 + Theme.PIN_LABEL_GAP
+                        + labelWidth(outLabel) + Theme.CONTROL_LABEL_GAP
+                end
                 local right = width - Theme.PIN_MARGIN_X - rightInset
-                if right < left + Theme.CONTROL_MIN_W then right = left + Theme.CONTROL_MIN_W end
+                if outPin == nil and right < left + Theme.CONTROL_MIN_W then
+                    right = left + Theme.CONTROL_MIN_W
+                end
+                if right < left then right = left end
                 local cy = rowTop[i] + Theme.PIN_ROW_HEIGHT * 0.5
                 rects = pinControl.Layout({
                     x = left, y = cy - Theme.CONTROL_H * 0.5, w = right - left, h = Theme.CONTROL_H,
@@ -297,9 +320,10 @@ function Node.Draw(canvas, view, geom, meta, opts)
     local showLabels = view.zoom >= Theme.LABEL_MIN_ZOOM
 
     if showTitle and meta.title then
-        local font = Theme.Font(14 * view.zoom)
+        local font = Theme.Font(Theme.NODE_TITLE_PT * view.zoom)
         if font ~= nil then
-            local tw = Theme.TextWidth(14 * view.zoom, meta.title) or (#meta.title * view:Scale(7))
+            local tw = Theme.TextWidth(Theme.NODE_TITLE_PT * view.zoom, meta.title)
+                or (#meta.title * view:Scale(Theme.NODE_TITLE_CHAR_W))
             local textData = createTextDataConfig(font, Theme.Vec4(Theme.COL_TITLE))
             canvas:AddText(sx + view:Scale(Theme.PIN_MARGIN_X),
                 sy + headerH * 0.5 - view:Scale(8),
@@ -471,20 +495,24 @@ function Node.ControlAt(geom, view, sx, sy)
     return nil
 end
 
+local function headerBoxHit(cx, cy, half, sx, sy)
+    return sx >= cx - half and sx <= cx + half
+        and sy >= cy - half and sy <= cy + half
+end
+
 function Node.HitClose(geom, view, sx, sy)
     if geom.close == nil or view.zoom < Theme.TITLE_MIN_ZOOM then return false end
     local ccx, ccy = view:ToScreen(geom.x + geom.close.cx, geom.y + geom.close.cy)
-    local half = view:Scale(Theme.CLOSE_SIZE) * 0.5 + Theme.PIN_HIT_PAD
-    return sx >= ccx - half and sx <= ccx + half
-        and sy >= ccy - half and sy <= ccy + half
+    local half = view:Scale(Theme.CLOSE_SIZE) * 0.5
+    if not headerBoxHit(ccx, ccy, half, sx, sy) then return false end
+    return not Node.HitPencil(geom, view, sx, sy)
 end
 
 function Node.HitPencil(geom, view, sx, sy)
     if geom.pencil == nil or view.zoom < Theme.TITLE_MIN_ZOOM then return false end
     local pcx, pcy = view:ToScreen(geom.x + geom.pencil.cx, geom.y + geom.pencil.cy)
-    local half = view:Scale(Theme.RENAME_ICON_SIZE) * 0.5 + Theme.PIN_HIT_PAD
-    return sx >= pcx - half and sx <= pcx + half
-        and sy >= pcy - half and sy <= pcy + half
+    local half = view:Scale(Theme.RENAME_ICON_SIZE) * 0.5
+    return headerBoxHit(pcx, pcy, half, sx, sy)
 end
 
 function Node.HitModeStrip(geom, view, sx, sy)

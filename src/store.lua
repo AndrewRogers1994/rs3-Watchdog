@@ -9,6 +9,7 @@
 -- map on load (valid because Deserialize preserves node ids).
 
 local Util = require("src/util")
+local Text = require("src/text")
 
 local Store = {}
 
@@ -413,10 +414,11 @@ end
 ---@param enabled boolean|nil
 ---@return Watchdog.Entry
 function Store.NewAlertEntry(id, name, graph, layout, enabled)
+    Text.StripGraphText(graph)
     return {
         id = id,
         kind = "alert",
-        name = name,
+        name = Text.StripTags(name),
         enabled = normalizeEnabled(enabled),
         graph = LibNodeGraph.Serialize(graph),
         layout = layoutToArray(layout),
@@ -432,7 +434,7 @@ function Store.NewGroupEntry(id, name, enabled, children)
     return {
         id = id,
         kind = "group",
-        name = name,
+        name = Text.StripTags(name),
         enabled = normalizeEnabled(enabled),
         children = children or {},
     }
@@ -460,6 +462,9 @@ end
 function Store.SetName(doc, id, name)
     local entry = Store.FindById(doc, id)
     if entry == nil then return false end
+    name = Text.StripTags(name)
+    -- A tag-only rename would store a blank label. Leave the previous name.
+    if name == "" then return false end
     entry.name = name
     return true
 end
@@ -472,6 +477,7 @@ end
 function Store.UpdateAlertGraph(doc, id, graph, layout)
     local entry = Store.FindById(doc, id)
     if entry == nil or entry.kind ~= "alert" then return false end
+    Text.StripGraphText(graph)
     entry.graph = LibNodeGraph.Serialize(graph)
     entry.layout = layoutToArray(layout)
     return true
@@ -490,6 +496,7 @@ function Store.RestoreAll(doc, registry)
             return LibNodeGraph.Deserialize(entry.graph, registry, { onUnknown = "placeholder" })
         end)
         if ok and graph ~= nil then
+            Text.StripGraphText(graph)
             restored[#restored + 1] = {
                 id = entry.id,
                 name = entry.name,
@@ -523,6 +530,24 @@ function Store.GetInfoBoxAnchor(doc)
     return a.x, a.y
 end
 
+-- A tag-only name would draw a blank row.
+---@param entries Watchdog.Entry[]|nil
+local function stripEntryNames(entries)
+    for _, entry in ipairs(entries or {}) do
+        if type(entry) == "table" then
+            if type(entry.name) == "string" then
+                local stripped = Text.StripTags(entry.name)
+                if stripped == "" then
+                    entry.name = entry.kind == "group" and "Group" or "Alert"
+                else
+                    entry.name = stripped
+                end
+            end
+            stripEntryNames(entry.children)
+        end
+    end
+end
+
 --- persistentdb I/O -----------------------------------------------------------------------
 
 ---@param doc Watchdog.Bucket
@@ -553,6 +578,7 @@ function Store.LoadKey(key)
     end
     doc.version = doc.version or DOC_VERSION
     doc.entries = doc.entries or {}
+    stripEntryNames(doc.entries)
     return doc
 end
 

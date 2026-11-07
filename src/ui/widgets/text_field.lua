@@ -1,5 +1,6 @@
 local Theme = require("src/ui/theme")
 local Box   = require("src/ui/widgets/box")
+local Text  = require("src/text")
 
 ---@class TextField
 local TextField = {}
@@ -16,7 +17,7 @@ end
 ---@return string
 function TextField.Parse(raw, _quantity)
     if type(raw) ~= "string" then return "" end
-    return raw
+    return Text.StripTags(raw)
 end
 
 ---@param canvas any

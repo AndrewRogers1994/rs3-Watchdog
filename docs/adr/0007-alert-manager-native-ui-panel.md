@@ -1,7 +1,7 @@
 # The Alert Manager is built from native ui.* components, not Canvas immediate-mode
 
-The Alert Manager — the single management surface the keybind and the LibPluginMenu button
-open — is composed from **real interactive components** on a native `ui.Panel`, *not* drawn in
+The Alert Manager — the single management surface the shell toggle
+opens — is composed from **real interactive components** on a native `ui.Panel`, *not* drawn in
 immediate mode on a `ui.Canvas` the way the graph editor is (ADR-0001). Each alert or group is a
 horizontal row `ui.Panel` holding its own children (an enable `ui.Check`, a label, a scope badge,
 edit/delete `ui.Button`s, an expand chevron); groups are **nested vertical `ui.Panel`s**, so the

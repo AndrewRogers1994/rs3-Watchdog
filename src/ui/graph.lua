@@ -33,6 +33,8 @@ function Editor.new(registry, runtime)
         mouse = { x = 0, y = 0 },
         screenScale = nil,         -- pixels per interface unit, including OS scale
         screenScaleIface = nil,    -- InterfaceScale factor the sample was taken under
+        captureOriginX = nil,      -- hook-batch origin; hold runs after expandCapture
+        captureOriginY = nil,
         pressed = false,
         mode = "idle",             -- idle | pan | dragnode | wire | colordrag | palettescroll
         editing = nil,             -- {nodeId,pinName,spec,widget,field}
@@ -274,13 +276,18 @@ function Editor:layoutTransientEditors()
     end
 end
 
--- Hook x/y are interface units, so raw mouse / that position includes OS scale.
+-- Hook x/y are interface units against the snapshotted capture origin, so raw
+-- mouse / that position includes OS scale.
 function Editor:noteScreenScale(component, x, y)
     if Mouse == nil or Mouse.GetPosition == nil then return end
     local ok, pos = pcall(function() return Mouse.GetPosition() end)
     if not ok or pos == nil then return end
-    local originX = component.x or 0
-    local originY = component.y or 0
+    local originX = self.captureOriginX
+    local originY = self.captureOriginY
+    if originX == nil or originY == nil then
+        originX = component.x or 0
+        originY = component.y or 0
+    end
     local measured = IfaceScale.Measure(pos.x, pos.y, originX + x, originY + y)
     if measured == nil then return end
     self.screenScale = measured
@@ -579,6 +586,7 @@ function Editor:buildGeoms()
                 opts.extraBodyW = extra.extraBodyW
             end
         end
+        opts.title = self:meta(n.id, n.typeKey).title
         local geom = Node.BuildGeometry(pins, pos.x, pos.y, Theme.NODE_WIDTH, opts)
         geom.typeKey = n.typeKey
         for _, ctrl in ipairs(geom.controls) do
@@ -749,8 +757,8 @@ function Editor:beginPress()
     self.pressed = true
     self:expandCapture()
 
-    -- Pencil before the X: their hit pads can overlap when zoomed out, and a pencil
-    -- click must rename rather than delete or start a node drag.
+    -- Pencil before the X, so a point on the boundary renames instead of deleting
+    -- or starting a node drag.
     local hitRename = self:renameAt(lx, ly)
     if hitRename ~= nil then
         self.pressed = false
@@ -862,7 +870,10 @@ function Editor:update()
     if self.visible and not self.pressed and not self.palette.open then
         self:positionCapture()
     end
-    local mx, my = self:mousePos()   -- absolute; converted to local per-branch below
+    if self.capture ~= nil then
+        self.captureOriginX, self.captureOriginY = self.capture.x, self.capture.y
+    end
+    local mx, my = self:mousePos() -- absolute; converted to local per-branch below
     if mx == nil then return end
 
     if self.pressed then
@@ -1050,6 +1061,7 @@ function Editor:placeFromPalette(row)
         if nt ~= nil and nt.modes ~= nil then
             opts.modeLabel = modeLabelOf(nt, self.graph:GetMode(newId))
         end
+        opts.title = self:meta(newId, row.typeKey).title
         local geom = Node.BuildGeometry(pins, 0, 0, Theme.NODE_WIDTH, opts)
         x = anchorGX - geom.w * 0.5
         y = anchorGY - geom.h * 0.5
@@ -1380,7 +1392,7 @@ end
 function Editor:controlEditRect(geom, ctrl)
     local sx, sy = self.view:ToScreen(geom.x + ctrl.x, geom.y + ctrl.y)
     local boxH = self.view:Scale(ctrl.h)
-    local sw = math.max(self.view:Scale(ctrl.w), Theme.CONTROL_EDIT_MIN_W)
+    local sw = self.view:Scale(ctrl.w)
     local sh = Theme.CONTROL_EDIT_H
     return sx, sy + (boxH - sh) * 0.5, sw, sh
 end
@@ -1475,7 +1487,7 @@ end
 ---@param pinControl table
 ---@param nodeId integer
 ---@param ctrl table
----@param opts { labels: string[]|nil, initial: string|nil, number: number|nil, onNumber: (fun(raw: string, quantity: number|nil))|nil, openLayout: (fun(x: number, y: number, w: number, h: number): { x: number, y: number, w: number, h: number }|nil, { x: number, y: number, w: number, h: number })|nil }
+---@param opts { labels: string[]|nil, ids: integer[]|nil, initial: string|nil, number: number|nil, onNumber: (fun(raw: string, quantity: number|nil))|nil, openLayout: (fun(x: number, y: number, w: number, h: number): { x: number, y: number, w: number, h: number }|nil, { x: number, y: number, w: number, h: number })|nil }
 ---@param onSelect fun(label: string)
 function Editor:mountControlDropdown(pinControl, nodeId, ctrl, opts, onSelect)
     if self.editing ~= nil then
@@ -1527,11 +1539,32 @@ function Editor:mountControlDropdown(pinControl, nodeId, ctrl, opts, onSelect)
         field.clickthrough = false
         field:SetPos(ax, ay)
         field:SetSize(listRect.w, listRect.h)
-        -- ComboField reorders entries and reassigns IDs; select by label.
+        -- ComboField reorders entries and may replace the id Add was given.
+        -- Callers that pass opts.ids still want that id on the entry (sound ids
+        -- are unique). Selection below uses whatever id the combo kept.
         for i, label in ipairs(opts.labels or {}) do
-            field:Add(label, i)
+            local entryId = i
+            if type(opts.ids) == "table" and opts.ids[i] ~= nil then
+                entryId = opts.ids[i]
+            end
+            field:Add(label, entryId)
         end
-        if opts.openLayout ~= nil and opts.initial == nil then
+        if type(opts.ids) == "table" then
+            local selId = nil
+            if opts.initial ~= nil then
+                for _, entry in ipairs(field.entries) do
+                    if entry.text == opts.initial then
+                        selId = entry.id
+                        break
+                    end
+                end
+            end
+            if selId ~= nil then
+                field:Select(selId, false)
+            else
+                pcall(function() field:UnselectAll() end)
+            end
+        elseif opts.openLayout ~= nil and opts.initial == nil then
             -- A raw number must not land on the first row.
             pcall(function() field:UnselectAll() end)
         else
