@@ -219,6 +219,29 @@ function TestContentLayer:testButtonPressDoesNotWriteIsToggled()
     luaunit.assertFalse(button.isToggled)
 end
 
+function TestContentLayer:resetButton()
+    for _, button in ipairs(live(self.parent, "button")) do
+        if button.label == "Reset All Popups" then return button end
+    end
+    error("Reset All Popups button missing")
+end
+
+function TestContentLayer:testRefillReplacesTheResetButton()
+    self:showContent()
+    local first = self:resetButton()
+    self:showContent()
+    luaunit.assertTrue(first.destroyed)
+    luaunit.assertEquals(#live(self.parent, "button"), 2)
+    luaunit.assertFalse(self:resetButton().destroyed)
+end
+
+function TestContentLayer:testStopDestroysTheResetButton()
+    self:showContent()
+    local reset = self:resetButton()
+    HubLayers.Stop()
+    luaunit.assertTrue(reset.destroyed)
+end
+
 function TestContentLayer:testFillWhileNotRestrictedShowsNoRestrictedCopy()
     self:installAreas(false)
     self:showContent()

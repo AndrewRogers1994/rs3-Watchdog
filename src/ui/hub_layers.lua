@@ -46,6 +46,7 @@ local shellKeys = nil
 local positionsLocked = false
 local prefsLoaded = false
 local contentToggleButton = nil
+local contentResetButton = nil
 local shellOpen = false
 -- The click flips isToggled itself. Writing it again from that click lands on
 -- the wrong side of the client's flip.
@@ -318,6 +319,9 @@ local function fillContent(parent, onToggle)
     if contentToggleButton ~= nil and contentParent == parent then
         destroyOwned(contentToggleButton)
     end
+    if contentResetButton ~= nil and contentParent == parent then
+        destroyOwned(contentResetButton)
+    end
     if contentLine ~= nil and contentParent == parent then
         destroyOwned(contentLine)
     end
@@ -325,6 +329,7 @@ local function fillContent(parent, onToggle)
         destroyOwned(contentDetail)
     end
     contentToggleButton = nil
+    contentResetButton = nil
     contentLine = nil
     contentDetail = nil
     contentParent = parent
@@ -348,7 +353,7 @@ local function fillContent(parent, onToggle)
     button.canToggle = true
     contentToggleButton = button
     applyShellOpen()
-    makeButton("Reset All Popups", onResetPopups)
+    contentResetButton = makeButton("Reset All Popups", onResetPopups)
     contentButtonY = buttonY
 
     -- IsRestricted() first: Subscribe does not replay the current answer.
@@ -397,6 +402,7 @@ function HubLayers.Unbind()
     settingsRoot = nil
     settingsParent = nil
     contentToggleButton = nil
+    contentResetButton = nil
     contentLine = nil
     contentDetail = nil
     shellOpen = false
@@ -409,6 +415,7 @@ function HubLayers.Stop()
     releaseSettingsWidgets()
     destroyOwned(settingsRoot)
     destroyOwned(contentToggleButton)
+    destroyOwned(contentResetButton)
     destroyOwned(contentLine)
     destroyOwned(contentDetail)
     HubLayers.Unbind()

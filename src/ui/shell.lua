@@ -357,6 +357,7 @@ function Shell:SyncChrome()
     if top ~= nil and top.FrontOverlayPopups ~= nil then
         top:FrontOverlayPopups()
     end
+    Dialog.front(self._overlay)
     Dialog.front(self.rootLayer)
 end
 

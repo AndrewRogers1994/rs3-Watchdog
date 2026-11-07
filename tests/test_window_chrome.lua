@@ -345,6 +345,23 @@ function TestWindowChrome:testGripClickDuringModalDoesNotRaiseChrome()
     luaunit.assertTrue(positions[dim] < positions[win.root])
 end
 
+function TestWindowChrome:testSyncChromeKeepsOverlayModalAboveEditorField()
+    local field = component(self.overlay)
+    self.mux:Push({
+        id = "editor",
+        FrontOverlayPopups = function()
+            field:MoveToFront()
+        end,
+    })
+    local win = Dialog.mount(self.overlay, { title = "Rename" })
+    self.mux:SyncChrome()
+    local positions = childIndex(self.overlay)
+    local dim = modalDim(self.overlay)
+    luaunit.assertNotNil(dim)
+    luaunit.assertTrue(positions[field] < positions[dim])
+    luaunit.assertTrue(positions[dim] < positions[win.root])
+end
+
 function TestWindowChrome:testSyncChromeKeepsRootModalAboveOverlay()
     self.mux.rootLayer = self.parent
     local win = Dialog.mount(self.parent, { title = "Delete" })
