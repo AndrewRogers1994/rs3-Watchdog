@@ -50,7 +50,7 @@ $ErrorActionPreference = 'Stop'
 $watchdogDir = $PSScriptRoot
 $rs3Root = Split-Path -Parent $watchdogDir
 $pluginName = 'Watchdog'
-$pruneSegments = @('tests', 'docs', '.git', '.vscode', 'staging', 'scripts', '.worktrees')
+$pruneSegments = @('tests', 'docs', '.git', '.vscode', 'staging', 'scripts', '.worktrees', '.scratch')
 $minifyPlugins = @('Watchdog', 'LibNodeGraph', 'LibNodeGraphStd', 'RestrictedAreas')
 
 function Test-Pruned {
